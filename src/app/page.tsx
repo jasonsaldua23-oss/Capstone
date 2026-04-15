@@ -180,37 +180,27 @@ export default function Home() {
     }
   }, [isLoading, isMounted, portal, router, user])
 
+  const logoutToPortal = (targetPortal: PortalType) => {
+    const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal
+    clearTabAuthToken()
+    queryClient.clear()
+    setUser(null)
+    setPortal(nextPortal)
+    setIsLoading(false)
+    router.replace(getPortalLoginPath(nextPortal))
+
+    // Best-effort cookie cleanup; do not block UI logout flow.
+    void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
+      console.error('Logout background request failed:', error)
+    })
+  }
+
   const logout = async () => {
-    const targetPortal = portal
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' })
-    } catch (error) {
-      console.error('Logout failed:', error)
-    } finally {
-      clearTabAuthToken()
-      // Always clear local auth state so the UI returns to the login screen.
-      setUser(null)
-      setPortal(allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal)
-      setIsLoading(false)
-      const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal
-      router.replace(getPortalLoginPath(nextPortal))
-    }
+    logoutToPortal(portal)
   }
 
   const recoverToLogin = async () => {
-    const targetPortal = portal
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' })
-    } catch (error) {
-      console.error('Recover logout failed:', error)
-    } finally {
-      clearTabAuthToken()
-      setUser(null)
-      setPortal(allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal)
-      setIsLoading(false)
-      const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal
-      router.replace(getPortalLoginPath(nextPortal))
-    }
+    logoutToPortal(portal)
   }
 
   // Loading state
