@@ -77,7 +77,7 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
   }
 
   if (variant === 'customer') {
-    return pathname === '/api/auth/customer/login'
+    return pathname === '/api/auth/customer/login' || pathname === '/api/auth/register'
   }
 
   if (variant === 'admin') {
