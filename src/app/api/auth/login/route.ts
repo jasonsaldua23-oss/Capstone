@@ -68,6 +68,30 @@ async function ensureAdminDemoAccount() {
   })
 }
 
+async function ensureWarehouseDemoAccount() {
+  const role = await db.role.upsert({
+    where: { name: 'WAREHOUSE_STAFF' },
+    update: {},
+    create: { name: 'WAREHOUSE_STAFF', description: 'Warehouse operations' },
+  })
+
+  await db.user.upsert({
+    where: { email: 'warehouse@logistics.com' },
+    update: {
+      isActive: true,
+      roleId: role.id,
+    },
+    create: {
+      email: 'warehouse@logistics.com',
+      name: 'Warehouse Staff',
+      password: await hashPassword('admin123'),
+      phone: '+1-555-0102',
+      roleId: role.id,
+      isActive: true,
+    },
+  })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -87,6 +111,11 @@ export async function POST(request: NextRequest) {
 
     if (!result.success && normalizedEmail === 'driver@logistics.com' && password === 'driver123') {
       await ensureDriverDemoAccount()
+      result = await authenticateStaff(email, password)
+    }
+
+    if (!result.success && normalizedEmail === 'warehouse@logistics.com' && password === 'admin123') {
+      await ensureWarehouseDemoAccount()
       result = await authenticateStaff(email, password)
     }
 
