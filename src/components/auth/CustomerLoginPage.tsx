@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toaster } from '@/components/ui/sonner'
 import { Loader2, Users } from 'lucide-react'
 import { toast } from 'sonner'
@@ -25,6 +24,7 @@ export function CustomerLoginPage() {
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
   const [zipCode, setZipCode] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
 
   useEffect(() => {
     let cancelled = false
@@ -130,13 +130,7 @@ export function CustomerLoginPage() {
           <CardDescription className="text-slate-600">Sign in to track and manage your orders.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="login">
-            <TabsList className="grid w-full grid-cols-2 mb-4">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="register">Register</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="login">
+          {authMode === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="customer-email" className="text-slate-700">Email</Label>
@@ -149,10 +143,18 @@ export function CustomerLoginPage() {
                 <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sign In
                 </Button>
+                <p className="text-center text-sm text-slate-600">
+                  dont have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('register')}
+                    className="font-medium text-fuchsia-600 hover:text-fuchsia-500"
+                  >
+                    Register
+                  </button>
+                </p>
               </form>
-            </TabsContent>
-
-            <TabsContent value="register">
+            ) : (
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="reg-name" className="text-slate-700">Full Name</Label>
@@ -193,9 +195,18 @@ export function CustomerLoginPage() {
                 <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
+                <p className="text-center text-sm text-slate-600">
+                  already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('login')}
+                    className="font-medium text-fuchsia-600 hover:text-fuchsia-500"
+                  >
+                    Login
+                  </button>
+                </p>
               </form>
-            </TabsContent>
-          </Tabs>
+            )}
         </CardContent>
       </Card>
     </div>
