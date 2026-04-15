@@ -44,6 +44,30 @@ async function ensureDriverDemoAccount() {
   }
 }
 
+async function ensureAdminDemoAccount() {
+  const role = await db.role.upsert({
+    where: { name: 'SUPER_ADMIN' },
+    update: {},
+    create: { name: 'SUPER_ADMIN', description: 'Full system access' },
+  })
+
+  await db.user.upsert({
+    where: { email: 'admin@logistics.com' },
+    update: {
+      isActive: true,
+      roleId: role.id,
+    },
+    create: {
+      email: 'admin@logistics.com',
+      name: 'Admin User',
+      password: await hashPassword('admin123'),
+      phone: '+1-555-0100',
+      roleId: role.id,
+      isActive: true,
+    },
+  })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -56,6 +80,11 @@ export async function POST(request: NextRequest) {
     let result = await authenticateStaff(email, password)
 
     const normalizedEmail = String(email || '').trim().toLowerCase()
+    if (!result.success && normalizedEmail === 'admin@logistics.com' && password === 'admin123') {
+      await ensureAdminDemoAccount()
+      result = await authenticateStaff(email, password)
+    }
+
     if (!result.success && normalizedEmail === 'driver@logistics.com' && password === 'driver123') {
       await ensureDriverDemoAccount()
       result = await authenticateStaff(email, password)
