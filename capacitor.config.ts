@@ -24,6 +24,14 @@ const variantConfig: Record<AppVariant, { appId: string; appName: string; defaul
 
 const selected = variantConfig[variant] || variantConfig.driver
 const serverUrl = process.env.CAP_SERVER_URL || selected.defaultServerUrl
+const isHttp = serverUrl.startsWith('http://')
+
+let allowNavigation: string[] = []
+try {
+  allowNavigation = [new URL(serverUrl).host]
+} catch {
+  allowNavigation = []
+}
 
 const config: CapacitorConfig = {
   appId: selected.appId,
@@ -32,8 +40,9 @@ const config: CapacitorConfig = {
   bundledWebRuntime: false,
   server: {
     url: serverUrl,
-    cleartext: true,
-    androidScheme: 'http',
+    cleartext: isHttp,
+    androidScheme: isHttp ? 'http' : 'https',
+    allowNavigation,
   },
 }
 
