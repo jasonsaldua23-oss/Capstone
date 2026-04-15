@@ -19,11 +19,6 @@ export function CustomerLoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [address, setAddress] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [zipCode, setZipCode] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
 
   useEffect(() => {
@@ -86,11 +81,6 @@ export function CustomerLoginPage() {
           name,
           email,
           password,
-          phone,
-          address,
-          city,
-          state,
-          zipCode,
         }),
       })
       const data = await response.json()
@@ -167,30 +157,6 @@ export function CustomerLoginPage() {
                 <div className="space-y-2">
                   <Label htmlFor="reg-password" className="text-slate-700">Password</Label>
                   <Input id="reg-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="reg-phone" className="text-slate-700">Phone</Label>
-                    <Input id="reg-phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reg-city" className="text-slate-700">City</Label>
-                    <Input id="reg-city" value={city} onChange={(e) => setCity(e.target.value)} className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reg-address" className="text-slate-700">Address</Label>
-                  <Input id="reg-address" value={address} onChange={(e) => setAddress(e.target.value)} className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="reg-state" className="text-slate-700">State</Label>
-                    <Input id="reg-state" value={state} onChange={(e) => setState(e.target.value)} className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reg-zip" className="text-slate-700">Zip Code</Label>
-                    <Input id="reg-zip" value={zipCode} onChange={(e) => setZipCode(e.target.value)} className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
-                  </div>
                 </div>
                 <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
