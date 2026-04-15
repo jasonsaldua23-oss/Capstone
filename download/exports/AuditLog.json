@@ -1,0 +1,14 @@
+[
+  {
+    "id": "cmnd79t0m001lf85429yt2vxh",
+    "userId": "cmnd79stw0005f854m86615qp",
+    "action": "CREATE",
+    "entityType": "ORDER",
+    "entityId": "cmnd79szc0011f854lkzqymxa",
+    "oldValue": null,
+    "newValue": "{\"orderNumber\":\"ORD-2024-0001\"}",
+    "ipAddress": null,
+    "userAgent": null,
+    "createdAt": "2026-03-30T13:04:38.950Z"
+  }
+]

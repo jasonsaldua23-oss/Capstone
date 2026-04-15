@@ -1,0 +1,5 @@
+id,name,description,createdAt,updatedAt
+cmnd79rti0000f854p3tg9jw0,SUPER_ADMIN,Full system access,2026-03-30T13:04:37.398Z,2026-03-30T13:04:37.398Z
+cmnd79rtj0003f854rmha29tf,DRIVER,Delivery driver,2026-03-30T13:04:37.398Z,2026-03-30T13:04:37.398Z
+cmnd79rtj0001f854g6vvppnb,ADMIN,Administrative access,2026-03-30T13:04:37.398Z,2026-03-30T13:04:37.398Z
+cmnd79rtj0002f8546ytwp8sh,WAREHOUSE_STAFF,Warehouse operations,2026-03-30T13:04:37.398Z,2026-03-30T13:04:37.398Z

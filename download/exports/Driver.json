@@ -1,0 +1,40 @@
+[
+  {
+    "id": "cmnd79sz3000zf854qf5cv2tn",
+    "userId": "cmnd79sv1000bf854bj1bchiv",
+    "licenseNumber": "DL-NY-12345",
+    "licenseType": "B",
+    "licenseExpiry": "2025-12-31T00:00:00.000Z",
+    "phone": "09460056944",
+    "emergencyContact": null,
+    "address": "789 Driver Lane",
+    "city": "New York",
+    "state": "NY",
+    "zipCode": "10002",
+    "rating": 4.8,
+    "totalDeliveries": 156,
+    "isActive": true,
+    "hiredAt": "2026-03-30T13:04:38.895Z",
+    "createdAt": "2026-03-30T13:04:38.895Z",
+    "updatedAt": "2026-04-02T17:09:07.760Z"
+  },
+  {
+    "id": "cmnicdvh30004f8gox8wfxahu",
+    "userId": "cmnicdvgq0002f8golecf7ypi",
+    "licenseNumber": "DEMO-DRIVER-CF7YPI",
+    "licenseType": "B",
+    "licenseExpiry": "2030-09-05T00:00:00.000Z",
+    "phone": "09637933499",
+    "emergencyContact": null,
+    "address": "Hda. Tionko",
+    "city": "Silay",
+    "state": "Philippines",
+    "zipCode": "6116",
+    "rating": 5,
+    "totalDeliveries": 0,
+    "isActive": true,
+    "hiredAt": "2026-04-03T03:26:37.719Z",
+    "createdAt": "2026-04-03T03:26:37.719Z",
+    "updatedAt": "2026-04-05T11:16:56.411Z"
+  }
+]

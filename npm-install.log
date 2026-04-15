@@ -1,0 +1,8 @@
+﻿node.exe : npm warn tar TAR_ENTRY_ERROR ENOENT: no such file or directory, open 'C:\Users\Admin\Desktop\logistics 
+management system\node_modules\next\dist\server\route-modules\pages\vendored\contexts\head-manager-context.d.ts'
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Admin\AppData\Roaming\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn tar TA...r-context.d.ts':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

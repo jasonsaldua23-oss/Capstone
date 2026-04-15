@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cmnd79rti0000f854p3tg9jw0",
+    "name": "SUPER_ADMIN",
+    "description": "Full system access",
+    "createdAt": "2026-03-30T13:04:37.398Z",
+    "updatedAt": "2026-03-30T13:04:37.398Z"
+  },
+  {
+    "id": "cmnd79rtj0003f854rmha29tf",
+    "name": "DRIVER",
+    "description": "Delivery driver",
+    "createdAt": "2026-03-30T13:04:37.398Z",
+    "updatedAt": "2026-03-30T13:04:37.398Z"
+  },
+  {
+    "id": "cmnd79rtj0001f854g6vvppnb",
+    "name": "ADMIN",
+    "description": "Administrative access",
+    "createdAt": "2026-03-30T13:04:37.398Z",
+    "updatedAt": "2026-03-30T13:04:37.398Z"
+  },
+  {
+    "id": "cmnd79rtj0002f8546ytwp8sh",
+    "name": "WAREHOUSE_STAFF",
+    "description": "Warehouse operations",
+    "createdAt": "2026-03-30T13:04:37.398Z",
+    "updatedAt": "2026-03-30T13:04:37.398Z"
+  }
+]

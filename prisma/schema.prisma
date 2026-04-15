@@ -1,0 +1,617 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ==================== USER MANAGEMENT ====================
+
+enum RoleType {
+  SUPER_ADMIN
+  ADMIN
+  WAREHOUSE_STAFF
+  DRIVER
+  CUSTOMER
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  password     String
+  name         String
+  phone        String?
+  avatar       String?
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  isActive     Boolean    @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  
+  driver       Driver?
+  auditLogs    AuditLog[]
+  notifications Notification[]
+}
+
+model Customer {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  name         String
+  phone        String?
+  avatar       String?
+  address      String?
+  city         String?
+  state        String?
+  zipCode      String?
+  country      String   @default("USA")
+  latitude     Float?
+  longitude    Float?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  orders       Order[]
+  feedbacks    Feedback[]
+  notifications Notification[]
+}
+
+// ==================== WAREHOUSE & INVENTORY ====================
+
+model Warehouse {
+  id          String           @id @default(cuid())
+  name        String
+  code        String           @unique
+  address     String
+  city        String
+  state       String
+  zipCode     String
+  country     String           @default("USA")
+  latitude    Float?
+  longitude   Float?
+  capacity    Int              @default(1000)
+  managerId   String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  
+  inventory       Inventory[]
+  inventoryTransactions InventoryTransaction[]
+}
+
+model ProductCategory {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  parentId    String?
+  parent      ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    ProductCategory[] @relation("CategoryHierarchy")
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  products    Product[]
+}
+
+model Product {
+  id           String    @id @default(cuid())
+  sku          String    @unique
+  name         String
+  imageUrl     String?
+  description  String?
+  categoryId   String?
+  category     ProductCategory? @relation(fields: [categoryId], references: [id])
+  unit         String    @default("piece") // piece, kg, liter, box, etc.
+  weight       Float?
+  dimensions   String?   // LxWxH in cm
+  price        Float     @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  inventory    Inventory[]
+  orderItems   OrderItem[]
+  inventoryTransactions InventoryTransaction[]
+  spareStock   DriverSpareStock[]
+  spareStockTransactions SpareStockTransaction[]
+}
+
+model Inventory {
+  id               String          @id @default(cuid())
+  warehouseId      String
+  warehouse        Warehouse       @relation(fields: [warehouseId], references: [id])
+  productId        String
+  product          Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity         Int             @default(0)
+  reservedQuantity Int             @default(0)
+  minStock         Int             @default(10)
+  maxStock         Int             @default(100)
+  reorderPoint     Int             @default(20)
+  lastRestockedAt  DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  
+  batches          StockBatch[]
+
+  @@unique([warehouseId, productId])
+}
+
+model InventoryTransaction {
+  id               String     @id @default(cuid())
+  warehouseId      String
+  warehouse        Warehouse  @relation(fields: [warehouseId], references: [id])
+  productId        String
+  product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type             String     // IN, OUT, TRANSFER, ADJUSTMENT, RETURN
+  quantity         Int
+  referenceType    String?    // order, trip, manual, etc.
+  referenceId      String?    // orderId, tripId, etc.
+  notes            String?
+  performedBy      String?
+  createdAt        DateTime   @default(now())
+}
+
+model StockBatch {
+  id             String    @id @default(cuid())
+  batchNumber    String    @unique
+  inventoryId    String
+  inventory      Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  quantity       Int
+  receiptDate    DateTime
+  expiryDate     DateTime?
+  locationLabel  String?
+  status         String    @default("ACTIVE")
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// ==================== ORDERS ====================
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  PACKED
+  DISPATCHED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id               String       @id @default(cuid())
+  orderNumber      String       @unique
+  customerId       String
+  customer         Customer     @relation(fields: [customerId], references: [id])
+  
+  // Shipping Address
+  shippingName     String
+  shippingPhone    String
+  shippingAddress  String
+  shippingCity     String
+  shippingState    String
+  shippingZipCode  String
+  shippingCountry  String       @default("USA")
+  shippingLatitude Float?
+  shippingLongitude Float?
+  
+  // Billing Address (optional)
+  billingName      String?
+  billingAddress   String?
+  billingCity      String?
+  billingState     String?
+  billingZipCode   String?
+  billingCountry   String?
+  
+  // Order Details
+  status           OrderStatus  @default(PROCESSING)
+  priority         String       @default("normal") // low, normal, high, urgent
+  subtotal         Float
+  tax              Float        @default(0)
+  shippingCost     Float        @default(0)
+  discount         Float        @default(0)
+  totalAmount      Float
+  paymentStatus    String       @default("pending") // pending, paid, refunded
+  paymentMethod    String?
+  
+  // Fulfillment
+  warehouseId      String?
+  notes            String?
+  specialInstructions String?
+  
+  // Timestamps
+  confirmedAt      DateTime?
+  processedAt      DateTime?
+  shippedAt        DateTime?
+  deliveryDate     DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+  
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  
+  // Relations
+  items            OrderItem[]
+  dropPoints       TripDropPoint[]
+  returns          Return[]
+  feedbacks        Feedback[]
+}
+
+model OrderItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity     Int
+  unitPrice    Float
+  totalPrice   Float
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+// ==================== TRANSPORTATION ====================
+
+enum VehicleType {
+  VAN
+  TRUCK
+  MOTORCYCLE
+  CAR
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+model Vehicle {
+  id              String        @id @default(cuid())
+  licensePlate    String        @unique
+  type            VehicleType
+  make            String?
+  model           String?
+  year            Int?
+  color           String?
+  capacity        Float?        // in kg
+  volume          Float?        // in cubic meters
+  status          VehicleStatus @default(AVAILABLE)
+  fuelType        String?       // gasoline, diesel, electric
+  mileage         Float         @default(0)
+  lastMaintenance DateTime?
+  nextMaintenance DateTime?
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  drivers         DriverVehicle[]
+  trips           Trip[]
+}
+
+model Driver {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  licenseNumber   String   @unique
+  licenseType     String   // A, B, C, etc.
+  licenseExpiry   DateTime
+  phone           String?
+  emergencyContact String?
+  address         String?
+  city            String?
+  state           String?
+  zipCode         String?
+  rating          Float    @default(5.0)
+  totalDeliveries Int      @default(0)
+  isActive        Boolean  @default(true)
+  hiredAt         DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  vehicles        DriverVehicle[]
+  trips           Trip[]
+  locationLogs    LocationLog[]
+  spareStock      DriverSpareStock[]
+  spareStockTransactions SpareStockTransaction[]
+}
+
+model DriverSpareStock {
+  id          String   @id @default(cuid())
+  driverId    String
+  driver      Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(0)
+  minQuantity Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([driverId, productId])
+}
+
+model SpareStockTransaction {
+  id            String   @id @default(cuid())
+  driverId      String
+  driver        Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type          String   // IN, OUT, ADJUSTMENT
+  quantity      Int
+  referenceType String?
+  referenceId   String?
+  notes         String?
+  createdAt     DateTime @default(now())
+}
+
+model DriverVehicle {
+  id          String   @id @default(cuid())
+  driverId    String
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  assignedAt  DateTime @default(now())
+  isActive    Boolean  @default(true)
+  
+  @@unique([driverId, vehicleId])
+}
+
+enum TripStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Trip {
+  id              String      @id @default(cuid())
+  tripNumber      String      @unique
+  driverId        String
+  driver          Driver      @relation(fields: [driverId], references: [id])
+  vehicleId       String
+  vehicle         Vehicle     @relation(fields: [vehicleId], references: [id])
+  warehouseId     String?
+  status          TripStatus  @default(PLANNED)
+  
+  // Route details
+  startLocation   String?
+  startLatitude   Float?
+  startLongitude  Float?
+  endLocation     String?
+  endLatitude     Float?
+  endLongitude    Float?
+  totalDistance   Float?      // in km
+  estimatedTime   Int?        // in minutes
+  actualTime      Int?        // in minutes
+  
+  // Schedule
+  plannedStartAt  DateTime?
+  plannedEndAt    DateTime?
+  actualStartAt   DateTime?
+  actualEndAt     DateTime?
+  
+  // Stats
+  totalDropPoints      Int         @default(0)
+  completedDropPoints  Int         @default(0)
+  notes           String?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  dropPoints      TripDropPoint[]
+  locationLogs    LocationLog[]
+}
+
+enum DropPointStatus {
+  PENDING
+  IN_TRANSIT
+  ARRIVED
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum DropPointType {
+  PICKUP
+  DELIVERY
+  RETURN
+}
+
+model TripDropPoint {
+  id              String     @id @default(cuid())
+  tripId          String
+  trip            Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  orderId         String?
+  order           Order?     @relation(fields: [orderId], references: [id])
+  
+  dropPointType   DropPointType   @default(DELIVERY)
+  sequence        Int        @default(0)
+  status          DropPointStatus @default(PENDING)
+  
+  // Location
+  locationName    String
+  address         String
+  city            String
+  state           String
+  zipCode         String
+  latitude        Float?
+  longitude       Float?
+  
+  // Contact
+  contactName     String?
+  contactPhone    String?
+  notes           String?
+  
+  // Timing
+  plannedArrival  DateTime?
+  plannedDeparture DateTime?
+  actualArrival   DateTime?
+  actualDeparture DateTime?
+  
+  // Proof of delivery
+  recipientName   String?
+  recipientSignature String?
+  deliveryPhoto   String?
+  failureReason   String?
+  failureNotes    String?
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
+  @@unique([tripId, sequence])
+}
+
+model LocationLog {
+  id          String   @id @default(cuid())
+  driverId    String
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  tripId      String?
+  trip        Trip?    @relation(fields: [tripId], references: [id])
+  latitude    Float
+  longitude   Float
+  speed       Float?   // km/h
+  heading     Float?   // degrees
+  altitude    Float?
+  accuracy    Float?
+  battery     Int?
+  recordedAt  DateTime @default(now())
+}
+
+// ==================== RETURNS & FEEDBACK ====================
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  PICKED_UP
+  IN_TRANSIT
+  RECEIVED
+  PROCESSED
+  REJECTED
+}
+
+model Return {
+  id              String       @id @default(cuid())
+  returnNumber    String       @unique
+  orderId         String
+  order           Order        @relation(fields: [orderId], references: [id])
+  customerId      String
+  
+  reason          String
+  description     String?
+  status          ReturnStatus @default(REQUESTED)
+  requestedBy     String       @default("CUSTOMER") // CUSTOMER, DRIVER
+  replacementMode String?      // SPARE_STOCK_IMMEDIATE
+  originalOrderItemId String?
+  replacementProductId String?
+  replacementQuantity Int?
+  damagePhotoUrl  String?
+  tripId          String?
+  dropPointId     String?
+  
+  // Pickup details
+  pickupAddress   String
+  pickupCity      String
+  pickupState     String
+  pickupZipCode   String
+  pickupLatitude  Float?
+  pickupLongitude Float?
+  pickupScheduled DateTime?
+  pickupCompleted DateTime?
+  
+  // Processing
+  refundAmount    Float?
+  refundStatus    String?      // pending, processed, rejected
+  processedAt     DateTime?
+  processedBy     String?
+  notes           String?
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+enum FeedbackType {
+  COMPLIMENT
+  COMPLAINT
+  SUGGESTION
+  QUESTION
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model Feedback {
+  id           String        @id @default(cuid())
+  customerId   String
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  orderId      String?
+  order        Order?        @relation(fields: [orderId], references: [id])
+  
+  type         FeedbackType
+  subject      String
+  message      String
+  rating       Int?          // 1-5 stars
+  status       FeedbackStatus @default(OPEN)
+  
+  // Response
+  response     String?
+  respondedAt  DateTime?
+  respondedBy  String?
+  
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+// ==================== AUDIT & NOTIFICATIONS ====================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  action      String
+  entityType  String   // order, inventory, user, etc.
+  entityId    String?
+  oldValue    String?
+  newValue    String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String?  // for staff users
+  user        User?    @relation(fields: [userId], references: [id])
+  customerId  String?  // for customers
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  
+  title       String
+  message     String
+  type        String   // order_update, delivery, alert, etc.
+  referenceType String?
+  referenceId   String?
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  
+  createdAt   DateTime @default(now())
+}

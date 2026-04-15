@@ -1,0 +1,3 @@
+id,customerId,orderId,type,subject,message,rating,status,response,respondedAt,respondedBy,createdAt,updatedAt
+cmnd79t0f001jf854yhml5ua9,cmnd79sve000cf854b07akqcy,,COMPLIMENT,Excellent Delivery Service,The delivery was on time and the driver was very professional. Great experience!,5,CLOSED,,,,2026-03-30T13:04:38.943Z,2026-03-30T13:04:38.943Z
+cmnly9dei000rf87s4z7uvbxh,cmnd79sve000cf854b07akqcy,cmnlvha0l000df87s2tr92kq0,COMPLIMENT,Order Rating - ORD-2026-0004,Very good>>,5,OPEN,,,,2026-04-05T16:02:17.754Z,2026-04-05T16:02:17.754Z
