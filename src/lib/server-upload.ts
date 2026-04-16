@@ -37,8 +37,15 @@ export function getImageUploadFromFormData(formData: FormData, fieldName = 'file
 }
 
 function getSupabaseEnv() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    ''
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    ''
   const bucket = process.env.SUPABASE_UPLOADS_BUCKET || 'uploads'
   return { url, serviceRoleKey, bucket }
 }
@@ -83,6 +90,17 @@ async function saveToLocalPublicUploads({ file, folder, fileName }: SaveImageOpt
 export async function saveImageFile(options: SaveImageOptions): Promise<string> {
   const { url, serviceRoleKey } = getSupabaseEnv()
 
+  // Vercel filesystem is ephemeral/read-only for persisted uploads.
+  // Require explicit cloud credentials there.
+  if (process.env.VERCEL && (!url || !serviceRoleKey)) {
+    const missing: string[] = []
+    if (!url) missing.push('SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)')
+    if (!serviceRoleKey) {
+      missing.push('SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE / SUPABASE_SERVICE_KEY)')
+    }
+    throw new Error(`Upload storage is not configured. Missing: ${missing.join(', ')}.`)
+  }
+
   // Prefer durable cloud storage in production deployments.
   if (url && serviceRoleKey) {
     return saveToSupabaseStorage(options)
@@ -94,9 +112,7 @@ export async function saveImageFile(options: SaveImageOptions): Promise<string> 
     return await saveToLocalPublicUploads(options)
   } catch (error) {
     if (process.env.VERCEL) {
-      throw new Error(
-        'Upload storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel environment variables.'
-      )
+      throw new Error('Upload storage is unavailable on this deployment. Configure Supabase storage credentials in Vercel.')
     }
     throw error
   }
