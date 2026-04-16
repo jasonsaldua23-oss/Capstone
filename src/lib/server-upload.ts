@@ -2,9 +2,38 @@ import { mkdir, writeFile } from 'fs/promises'
 import path from 'path'
 
 interface SaveImageOptions {
-  file: File
+  file: UploadFileLike
   folder: 'products' | 'pods' | 'customers'
   fileName: string
+}
+
+export interface UploadFileLike {
+  name: string
+  type: string
+  arrayBuffer: () => Promise<ArrayBuffer>
+}
+
+function isUploadFileLike(value: unknown): value is { name?: unknown; type?: unknown; arrayBuffer: () => Promise<ArrayBuffer> } {
+  return !!value && typeof value === 'object' && typeof (value as any).arrayBuffer === 'function'
+}
+
+export function getImageUploadFromFormData(formData: FormData, fieldName = 'file'): UploadFileLike {
+  const entry = formData.get(fieldName)
+  if (!entry || typeof entry === 'string' || !isUploadFileLike(entry)) {
+    throw new Error('Image file is required')
+  }
+
+  const type = typeof entry.type === 'string' ? entry.type : ''
+  if (!type.toLowerCase().startsWith('image/')) {
+    throw new Error('Only image files are allowed')
+  }
+
+  const name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : 'upload-image'
+  return {
+    name,
+    type: type || 'application/octet-stream',
+    arrayBuffer: () => entry.arrayBuffer(),
+  }
 }
 
 function getSupabaseEnv() {
@@ -57,6 +86,13 @@ export async function saveImageFile(options: SaveImageOptions): Promise<string> 
   // Prefer durable cloud storage in production deployments.
   if (url && serviceRoleKey) {
     return saveToSupabaseStorage(options)
+  }
+
+  // Vercel serverless filesystem is ephemeral/read-only for this use case.
+  if (process.env.VERCEL) {
+    throw new Error(
+      'Upload storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel environment variables.'
+    )
   }
 
   // Local fallback for development environments.
