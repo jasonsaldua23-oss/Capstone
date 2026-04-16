@@ -153,6 +153,21 @@ const formatPeso = (value: number) => {
   return pesoFormatter.format(Number(value || 0))
 }
 
+const formatPdfMoney = (value: number) => {
+  const amount = Number(value || 0)
+  return `PHP ${amount.toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+const createPdfBlob = (bytes: Uint8Array): Blob => {
+  // Ensure BlobPart receives a true ArrayBuffer (not SharedArrayBuffer-like)
+  const arrayBuffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(arrayBuffer).set(bytes)
+  return new Blob([arrayBuffer], { type: 'application/pdf' })
+}
+
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
   const [activeView, setActiveView] = useState('home')
@@ -784,13 +799,6 @@ export function CustomerPortal() {
       const shippingCost = Number(order.shippingCost ?? 0)
       const discount = Number(order.discount ?? 0)
       const total = Number(order.totalAmount ?? subtotal + tax + shippingCost - discount)
-      const formatPdfMoney = (value: number) => {
-        const amount = Number(value || 0)
-        return `PHP ${amount.toLocaleString('en-PH', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`
-      }
       const issuedAt = new Date(order.deliveredAt || order.deliveryDate || order.createdAt)
       const receiptNumber = `RCT-${String(order.orderNumber || order.id)}`
       const fullAddress = [
@@ -930,7 +938,7 @@ export function CustomerPortal() {
       })
 
       const pdfBytes = await pdf.save()
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const blob = createPdfBlob(pdfBytes)
 
       const nav = navigator as any
       if (typeof nav?.msSaveOrOpenBlob === 'function') {
@@ -997,7 +1005,7 @@ export function CustomerPortal() {
         const font = await simple.embedFont(StandardFonts.Helvetica)
         page.drawText(`Receipt ${order.orderNumber}`, { x: 40, y: 800, size: 14, font })
         page.drawText(`Total Price: ${formatPdfMoney(Number(order.totalAmount || 0))}`, { x: 40, y: 780, size: 11, font })
-        const fallbackBlob = new Blob([await simple.save()], { type: 'application/pdf' })
+        const fallbackBlob = createPdfBlob(await simple.save())
         const fallbackUrl = URL.createObjectURL(fallbackBlob)
         const opened = window.open(fallbackUrl, '_blank')
         if (!opened) {
