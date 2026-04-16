@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
               locationName: entry.order.shippingName,
               address: entry.order.shippingAddress,
               city: entry.order.shippingCity,
-              state: entry.order.shippingState,
+              province: entry.order.shippingProvince,
               zipCode: entry.order.shippingZipCode,
               latitude: entry.order.shippingLatitude,
               longitude: entry.order.shippingLongitude,

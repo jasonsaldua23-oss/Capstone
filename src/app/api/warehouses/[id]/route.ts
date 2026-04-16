@@ -65,7 +65,7 @@ export async function PUT(
     const { id } = await params
     const body = await request.json()
     const { 
-      name, code, address, city, state, zipCode, country,
+      name, code, address, city, province, zipCode, country,
       latitude, longitude, capacity, managerId, isActive 
     } = body
 
@@ -75,7 +75,7 @@ export async function PUT(
     if (code) updateData.code = code
     if (address) updateData.address = address
     if (city) updateData.city = city
-    if (state) updateData.state = state
+    if (province) updateData.province = province
     if (zipCode) updateData.zipCode = zipCode
     if (country) updateData.country = country
     if (latitude !== undefined) updateData.latitude = latitude || null

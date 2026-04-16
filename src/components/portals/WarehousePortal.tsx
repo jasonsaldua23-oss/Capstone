@@ -67,7 +67,7 @@ interface WarehouseItem {
   code: string
   address?: string
   city?: string
-  state?: string
+  province?: string
   latitude?: number | null
   longitude?: number | null
   capacity?: number
@@ -152,7 +152,7 @@ interface WarehouseOrderItem {
   shippingPhone?: string
   shippingAddress?: string
   shippingCity?: string
-  shippingState?: string
+  shippingProvince?: string
   shippingZipCode?: string
   shippingCountry?: string
   items?: Array<{
@@ -2088,7 +2088,7 @@ export function WarehousePortal() {
                         <div className="min-w-0">
                           <h3 className="font-semibold text-lg">{assignedWarehouse.name}</h3>
                           <p className="text-sm text-gray-500">{assignedWarehouse.code}</p>
-                          <p className="text-sm text-gray-500">{[assignedWarehouse.city, assignedWarehouse.state].filter(Boolean).join(', ')}</p>
+                          <p className="text-sm text-gray-500">{[assignedWarehouse.city, assignedWarehouse.province].filter(Boolean).join(', ')}</p>
                           <p className="mt-1 text-xs text-gray-500">
                             Capacity: {Number(assignedWarehouse.capacity || 0).toLocaleString()} units
                           </p>
@@ -2542,7 +2542,7 @@ export function WarehousePortal() {
                               <span className="font-semibold text-green-900">Warehouse - Starting Point</span>
                             </div>
                             <div className="text-sm font-medium text-gray-700">{wh.name}</div>
-                            <div className="text-xs text-green-700">{[wh.address, wh.city, wh.state].filter(Boolean).join(', ')}</div>
+                            <div className="text-xs text-green-700">{[wh.address, wh.city, wh.province].filter(Boolean).join(', ')}</div>
                             {wh.latitude && wh.longitude && (
                               <div className="text-xs text-gray-500 mt-1">Coordinates: {wh.latitude}, {wh.longitude}</div>
                             )}
@@ -2674,7 +2674,7 @@ export function WarehousePortal() {
                   <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
                   <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
                   <p className="text-sm text-gray-600">
-                    {[selectedOrder.shippingAddress, selectedOrder.shippingCity, selectedOrder.shippingState, selectedOrder.shippingZipCode].filter(Boolean).join(', ') || 'N/A'}
+                    {[selectedOrder.shippingAddress, selectedOrder.shippingCity, selectedOrder.shippingProvince, selectedOrder.shippingZipCode].filter(Boolean).join(', ') || 'N/A'}
                   </p>
                 </div>
                 <div className="rounded-md border p-3">

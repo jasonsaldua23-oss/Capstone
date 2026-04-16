@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, email, password, phone, address, city, state, zipCode } = body
+    const { name, email, password, phone, address, city, province, zipCode } = body
 
     // Validation
     if (!name || !email || !password) {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
         phone: phone || null,
         address: address || null,
         city: city || null,
-        state: state || null,
+        province: province || null,
         zipCode: zipCode || null,
       },
     })

@@ -37,7 +37,7 @@ async function ensureDriverDemoAccount() {
         licenseExpiry: new Date('2030-12-31'),
         phone: user.phone || null,
         city: 'Demo City',
-        state: 'Demo State',
+        province: 'Demo Province',
         isActive: true,
       },
     })

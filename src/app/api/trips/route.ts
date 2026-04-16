@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
             locationName: 'Delivery Location',
             address: 'Address',
             city: 'City',
-            state: 'State',
+            province: 'Province',
             zipCode: '00000',
           }))
         } : undefined

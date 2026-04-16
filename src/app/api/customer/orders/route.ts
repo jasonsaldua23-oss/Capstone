@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
         o."shippingPhone",
         o."shippingAddress",
         o."shippingCity",
-        o."shippingState",
+        o."shippingProvince",
         o."shippingZipCode",
         o."shippingCountry",
         o."shippingLatitude",
@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       shippingPhone,
       shippingAddress,
       shippingCity,
-      shippingState,
+      shippingProvince,
       shippingZipCode,
       shippingCountry,
       shippingLatitude,
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
       specialInstructions,
     } = body ?? {}
 
-    if (!shippingName || !shippingPhone || !shippingAddress || !shippingCity || !shippingState || !shippingZipCode) {
+    if (!shippingName || !shippingPhone || !shippingAddress || !shippingCity || !shippingProvince || !shippingZipCode) {
       return apiResponse({ success: false, error: 'Shipping details are required' }, 400)
     }
 
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
             id: true,
             name: true,
             city: true,
-            state: true,
+            province: true,
             latitude: true,
             longitude: true,
           },
@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
           id: string
           name: string
           city: string
-          state: string
+          province: string
           latitude: number | null
           longitude: number | null
         }
@@ -339,7 +339,7 @@ export async function POST(request: NextRequest) {
         const cityStateMatch = fullyCapableWarehouses.find(
           (entry) =>
             entry.warehouse.city?.toLowerCase() === String(shippingCity || '').toLowerCase() &&
-            entry.warehouse.state?.toLowerCase() === String(shippingState || '').toLowerCase()
+            entry.warehouse.province?.toLowerCase() === String(shippingProvince || '').toLowerCase()
         )
         assignedWarehouseId = cityStateMatch?.warehouse.id || fullyCapableWarehouses[0].warehouse.id
       }
@@ -383,7 +383,7 @@ export async function POST(request: NextRequest) {
         shippingPhone,
         shippingAddress,
         shippingCity,
-        shippingState,
+        shippingProvince,
         shippingZipCode,
         shippingCountry: shippingCountry || 'USA',
         shippingLatitude: normalizedShippingLatitude,

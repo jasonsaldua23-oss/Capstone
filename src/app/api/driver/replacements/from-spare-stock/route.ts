@@ -143,7 +143,7 @@ export async function POST(request: Request) {
           status: 'PROCESSED',
           pickupAddress: dropPoint.address,
           pickupCity: dropPoint.city,
-          pickupState: dropPoint.state,
+          pickupProvince: dropPoint.province,
           pickupZipCode: dropPoint.zipCode,
           pickupLatitude: dropPoint.latitude,
           pickupLongitude: dropPoint.longitude,

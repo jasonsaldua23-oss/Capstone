@@ -56,7 +56,7 @@ interface Order {
   paymentMethod?: string | null
   shippingName?: string | null
   shippingPhone?: string | null
-  shippingState?: string | null
+  shippingProvince?: string | null
   shippingZipCode?: string | null
   shippingCountry?: string | null
   subtotal?: number | null
@@ -190,7 +190,7 @@ export function CustomerPortal() {
   const [shippingSubdivision, setShippingSubdivision] = useState('')
   const [shippingBarangay, setShippingBarangay] = useState('')
   const [shippingCity, setShippingCity] = useState('')
-  const [shippingState, setShippingState] = useState('Negros Occidental')
+  const [shippingProvince, setShippingProvince] = useState('Negros Occidental')
   const [shippingZipCode, setShippingZipCode] = useState('')
   const [shippingCountry, setShippingCountry] = useState('Philippines')
   const [shippingLatitude, setShippingLatitude] = useState<number | null>(null)
@@ -203,7 +203,7 @@ export function CustomerPortal() {
   const [secondaryShippingSubdivision, setSecondaryShippingSubdivision] = useState('')
   const [secondaryShippingBarangay, setSecondaryShippingBarangay] = useState('')
   const [secondaryShippingCity, setSecondaryShippingCity] = useState('')
-  const [secondaryShippingState, setSecondaryShippingState] = useState('Negros Occidental')
+  const [secondaryShippingProvince, setSecondaryShippingProvince] = useState('Negros Occidental')
   const [secondaryShippingZipCode, setSecondaryShippingZipCode] = useState('')
   const [secondaryShippingCountry, setSecondaryShippingCountry] = useState('Philippines')
   const [secondaryShippingLatitude, setSecondaryShippingLatitude] = useState<number | null>(null)
@@ -265,7 +265,7 @@ export function CustomerPortal() {
   const hydrateAddressFromProfile = (customer: any) => {
     const rawAddress = String(customer?.address || '').trim()
     const city = String(customer?.city || '').trim()
-    const state = String(customer?.state || '').trim() || 'Negros Occidental'
+    const state = String(customer?.province || '').trim() || 'Negros Occidental'
     const zipCode = String(customer?.zipCode || '').trim()
 
     const parts = rawAddress
@@ -296,7 +296,7 @@ export function CustomerPortal() {
     setShippingSubdivision(subdivision)
     setShippingBarangay(barangay)
     setShippingCity(city)
-    setShippingState(state)
+    setShippingProvince(state)
     setShippingZipCode(zipCode)
     setShippingCountry('Philippines')
     setShippingLatitude(typeof customer?.latitude === 'number' ? customer.latitude : null)
@@ -601,7 +601,7 @@ export function CustomerPortal() {
       shippingSubdivision,
       shippingBarangay,
       shippingCity,
-      shippingState || 'Negros Occidental',
+      shippingProvince || 'Negros Occidental',
       shippingZipCode,
       'Philippines',
     ]
@@ -614,7 +614,7 @@ export function CustomerPortal() {
     shippingSubdivision,
     shippingBarangay,
     shippingCity,
-    shippingState,
+    shippingProvince,
     shippingZipCode,
   ])
 
@@ -691,7 +691,7 @@ export function CustomerPortal() {
       !shippingStreetName ||
       !shippingBarangay ||
       !shippingCity ||
-      !shippingState ||
+      !shippingProvince ||
       !shippingZipCode
     ) {
       toast.error('Please complete all detailed shipping fields')
@@ -712,7 +712,7 @@ export function CustomerPortal() {
           shippingPhone,
           shippingAddress: composedShippingAddress,
           shippingCity,
-          shippingState,
+          shippingProvince,
           shippingZipCode,
           shippingCountry,
           shippingLatitude,
@@ -804,7 +804,7 @@ export function CustomerPortal() {
       const fullAddress = [
         order.shippingAddress,
         order.shippingCity,
-        order.shippingState,
+        order.shippingProvince,
         order.shippingZipCode,
         order.shippingCountry || 'Philippines',
       ]
@@ -1154,7 +1154,7 @@ export function CustomerPortal() {
       !shippingStreetName ||
       !shippingBarangay ||
       !shippingCity ||
-      !shippingState ||
+      !shippingProvince ||
       !shippingZipCode
     ) {
       toast.error('Please complete all detailed address fields before saving')
@@ -1177,7 +1177,7 @@ export function CustomerPortal() {
         body: JSON.stringify({
           address: composedShippingAddress,
           city: shippingCity,
-          state: shippingState || 'Negros Occidental',
+          province: shippingProvince || 'Negros Occidental',
           zipCode: shippingZipCode,
           country: 'Philippines',
           latitude: shippingLatitude,
@@ -1258,7 +1258,7 @@ export function CustomerPortal() {
       if (subdivision) setShippingSubdivision(subdivision)
       if (barangay) setShippingBarangay(barangay)
       if (city) setShippingCity(city)
-      setShippingState(province)
+      setShippingProvince(province)
       if (postcode) setShippingZipCode(postcode)
       setShippingCountry('Philippines')
     } catch {
@@ -1304,7 +1304,7 @@ export function CustomerPortal() {
         city?: string
         town?: string
         municipality?: string
-        state?: string
+        province?: string
       }
       type SearchItem = {
         display_name: string
@@ -1325,8 +1325,8 @@ export function CustomerPortal() {
             const barangay = addr.barangay || addr.village || ''
             const area = addr.suburb || addr.neighbourhood || ''
             const city = addr.city || addr.town || addr.municipality || ''
-            const state = addr.state || ''
-            const parts = [street, barangay, area, city, state].filter(Boolean)
+            const province = addr.province || ''
+            const parts = [street, barangay, area, city, province].filter(Boolean)
             return parts.length > 0 ? parts.join(', ') : item.display_name
           })(),
           latitude: Number(item.lat),
@@ -1694,7 +1694,7 @@ export function CustomerPortal() {
                     Edit
                   </Button>
                 </div>
-                <p className="pl-10 text-xs text-gray-500 truncate">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingState || 'Province'}</p>
+                <p className="pl-10 text-xs text-gray-500 truncate">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingProvince || 'Province'}</p>
               </div>
 
             <div className="space-y-2 px-2 pt-2">
@@ -2097,7 +2097,7 @@ export function CustomerPortal() {
                       <div className="h-[260px] w-full bg-cyan-100" />
                     )}
                     <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-[#d7d7d7] bg-white/95 px-4 py-1.5 text-sm font-medium text-slate-800 shadow-sm">
-                      {shippingState || (order as any).shippingState || 'Location'}
+                      {shippingProvince || (order as any).shippingProvince || 'Location'}
                     </div>
                   </div>
 
@@ -2275,7 +2275,7 @@ export function CustomerPortal() {
                   <p><span className="font-medium">Email:</span> {profileEmail || 'Not set'}</p>
                   <p><span className="font-medium">Phone:</span> {profilePhone || 'Not set'}</p>
                   <p><span className="font-medium">Delivery Address:</span> {composedShippingAddress || 'Not set'}</p>
-                  <p><span className="font-medium">City/Province:</span> {shippingCity ? `${shippingCity}, ${shippingState || 'Negros Occidental'}` : 'Not set'}</p>
+                  <p><span className="font-medium">City/Province:</span> {shippingCity ? `${shippingCity}, ${shippingProvince || 'Negros Occidental'}` : 'Not set'}</p>
                   <p><span className="font-medium">Postal Code:</span> {shippingZipCode || 'Not set'}</p>
                 </div>
                 <Button className="w-full" onClick={() => setIsProfileDialogOpen(true)}>
@@ -2327,7 +2327,7 @@ export function CustomerPortal() {
               <Label>Delivery Address</Label>
               <p className="text-sm text-slate-700">{composedShippingAddress || 'Not set'}</p>
               <p className="text-xs text-slate-500">
-                {shippingCity ? `${shippingCity}, ${shippingState || 'Negros Occidental'} ${shippingZipCode || ''}`.trim() : 'City/Province not set'}
+                {shippingCity ? `${shippingCity}, ${shippingProvince || 'Negros Occidental'} ${shippingZipCode || ''}`.trim() : 'City/Province not set'}
               </p>
               <Button
                 type="button"
@@ -2471,7 +2471,7 @@ export function CustomerPortal() {
                 setShippingSubdivision('')
                 setShippingBarangay('')
                 setShippingCity('')
-                setShippingState('Negros Occidental')
+                setShippingProvince('Negros Occidental')
                 setShippingZipCode('')
                 setShippingLatitude(null)
                 setShippingLongitude(null)
@@ -2563,7 +2563,7 @@ export function CustomerPortal() {
                   <Input placeholder="Subdivision" value={shippingSubdivision} onChange={(e) => setShippingSubdivision(e.target.value)} />
                   <Input placeholder="Barangay" value={shippingBarangay} onChange={(e) => setShippingBarangay(e.target.value)} />
                   <Input placeholder="City" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
-                  <Input placeholder="Province" value={shippingState} onChange={(e) => setShippingState(e.target.value)} />
+                  <Input placeholder="Province" value={shippingProvince} onChange={(e) => setShippingProvince(e.target.value)} />
                   <Input placeholder="Postal code" value={shippingZipCode} onChange={(e) => setShippingZipCode(e.target.value)} />
                   <Input value={shippingCountry} disabled readOnly />
                 </div>
@@ -2753,7 +2753,7 @@ export function CustomerPortal() {
                         {[
                           selectedOrder.shippingAddress,
                           selectedOrder.shippingCity,
-                          selectedOrder.shippingState,
+                          selectedOrder.shippingProvince,
                           selectedOrder.shippingZipCode,
                           selectedOrder.shippingCountry || 'Philippines',
                         ]

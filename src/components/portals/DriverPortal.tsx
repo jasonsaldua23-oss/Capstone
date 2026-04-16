@@ -1671,7 +1671,7 @@ function ProfileView({ user }: { user: any }) {
     phone: '',
     address: '',
     city: '',
-    state: '',
+    province: '',
     zipCode: '',
     licenseNumber: '',
     licenseType: '',
@@ -1681,7 +1681,7 @@ function ProfileView({ user }: { user: any }) {
     phone: '',
     address: '',
     city: '',
-    state: '',
+    province: '',
     zipCode: '',
   })
 
@@ -1698,7 +1698,7 @@ function ProfileView({ user }: { user: any }) {
           phone: profile?.phone || profile?.user?.phone || '',
           address: profile?.address || '',
           city: profile?.city || '',
-          state: profile?.state || '',
+          province: profile?.province || '',
           zipCode: profile?.zipCode || '',
           licenseNumber: profile?.licenseNumber || '',
           licenseType: profile?.licenseType || '',
@@ -1723,7 +1723,7 @@ function ProfileView({ user }: { user: any }) {
       phone: form.phone,
       address: form.address,
       city: form.city,
-      state: form.state,
+      province: form.province,
       zipCode: form.zipCode,
     })
     setEditOpen(true)
@@ -1745,7 +1745,7 @@ function ProfileView({ user }: { user: any }) {
           phone: draft.phone,
           address: draft.address,
           city: draft.city,
-          state: draft.state,
+          province: draft.province,
           zipCode: draft.zipCode,
         }),
       })
@@ -1759,7 +1759,7 @@ function ProfileView({ user }: { user: any }) {
         phone: draft.phone,
         address: draft.address,
         city: draft.city,
-        state: draft.state,
+        province: draft.province,
         zipCode: draft.zipCode,
       }))
       setEditOpen(false)
@@ -1802,9 +1802,9 @@ function ProfileView({ user }: { user: any }) {
                   <p className="text-sm font-medium text-gray-900 text-right">{form.address || 'N/A'}</p>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-500">City / State / Zip</p>
+                  <p className="text-sm text-gray-500">City / Province / Zip</p>
                   <p className="text-sm font-medium text-gray-900 text-right">
-                    {[form.city, form.state, form.zipCode].filter(Boolean).join(', ') || 'N/A'}
+                    {[form.city, form.province, form.zipCode].filter(Boolean).join(', ') || 'N/A'}
                   </p>
                 </div>
               </div>
@@ -1856,8 +1856,8 @@ function ProfileView({ user }: { user: any }) {
                 <Input id="driver-city" value={draft.city} onChange={(e) => onChange('city', e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="driver-state">State</Label>
-                <Input id="driver-state" value={draft.state} onChange={(e) => onChange('state', e.target.value)} />
+                <Label htmlFor="driver-state">Province</Label>
+                <Input id="driver-state" value={draft.province} onChange={(e) => onChange('province', e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="driver-zip">Zip</Label>

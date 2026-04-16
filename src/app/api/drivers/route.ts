@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { userId, licenseNumber, licenseType, licenseExpiry, phone, address, city, state, zipCode } = body
+    const { userId, licenseNumber, licenseType, licenseExpiry, phone, address, city, province, zipCode } = body
 
     const driver = await db.driver.create({
       data: {
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
         phone,
         address,
         city,
-        state,
+        province,
         zipCode,
       },
       include: {
@@ -124,7 +124,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { id, vehicleId, isActive, phone, city, state, address, zipCode, licenseType, licenseExpiry } = body
+    const { id, vehicleId, isActive, phone, city, province, address, zipCode, licenseType, licenseExpiry } = body
 
     if (!id) {
       return apiResponse({ success: false, error: 'Driver id is required' }, 400)
@@ -166,7 +166,7 @@ export async function PUT(request: NextRequest) {
     if (typeof isActive === 'boolean') data.isActive = isActive
     if (phone !== undefined) data.phone = phone || null
     if (city !== undefined) data.city = city || null
-    if (state !== undefined) data.state = state || null
+    if (province !== undefined) data.province = province || null
     if (address !== undefined) data.address = address || null
     if (zipCode !== undefined) data.zipCode = zipCode || null
     if (licenseType !== undefined) data.licenseType = licenseType

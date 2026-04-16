@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { 
       name, email, password, phone, 
-      address, city, state, zipCode, country,
+      address, city, province, zipCode, country,
       latitude, longitude 
     } = body
 
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
         phone: phone || null,
         address: address || null,
         city: city || null,
-        state: state || null,
+        province: province || null,
         zipCode: zipCode || null,
         country: country || 'USA',
         latitude: latitude || null,

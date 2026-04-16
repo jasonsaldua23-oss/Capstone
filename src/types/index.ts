@@ -77,7 +77,7 @@ export interface OrderWithItems {
   shippingPhone: string
   shippingAddress: string
   shippingCity: string
-  shippingState: string
+  shippingProvince: string
   shippingZipCode: string
   shippingCountry: string
   shippingLatitude: number | null
@@ -164,7 +164,7 @@ export interface TripDropPointWithOrder {
   locationName: string
   address: string
   city: string
-  state: string
+  province: string
   zipCode: string
   latitude: number | null
   longitude: number | null
@@ -251,7 +251,7 @@ export interface RegisterFormData {
   phone?: string
   address?: string
   city?: string
-  state?: string
+  province?: string
   zipCode?: string
 }
 
@@ -261,7 +261,7 @@ export interface OrderFormData {
   shippingPhone: string
   shippingAddress: string
   shippingCity: string
-  shippingState: string
+  shippingProvince: string
   shippingZipCode: string
   shippingCountry: string
   items: OrderItemFormData[]

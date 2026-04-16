@@ -58,7 +58,7 @@ model Customer {
   avatar       String?
   address      String?
   city         String?
-  state        String?
+  province     String?
   zipCode      String?
   country      String   @default("USA")
   latitude     Float?
@@ -80,7 +80,7 @@ model Warehouse {
   code        String           @unique
   address     String
   city        String
-  state       String
+  province    String
   zipCode     String
   country     String           @default("USA")
   latitude    Float?
@@ -206,7 +206,7 @@ model Order {
   shippingPhone    String
   shippingAddress  String
   shippingCity     String
-  shippingState    String
+  shippingProvince    String
   shippingZipCode  String
   shippingCountry  String       @default("USA")
   shippingLatitude Float?
@@ -216,7 +216,7 @@ model Order {
   billingName      String?
   billingAddress   String?
   billingCity      String?
-  billingState     String?
+  billingProvince     String?
   billingZipCode   String?
   billingCountry   String?
   
@@ -317,7 +317,7 @@ model Driver {
   emergencyContact String?
   address         String?
   city            String?
-  state           String?
+  province        String?
   zipCode         String?
   rating          Float    @default(5.0)
   totalDeliveries Int      @default(0)
@@ -449,7 +449,7 @@ model TripDropPoint {
   locationName    String
   address         String
   city            String
-  state           String
+  province        String
   zipCode         String
   latitude        Float?
   longitude       Float?
@@ -528,7 +528,7 @@ model Return {
   // Pickup details
   pickupAddress   String
   pickupCity      String
-  pickupState     String
+  pickupProvince     String
   pickupZipCode   String
   pickupLatitude  Float?
   pickupLongitude Float?

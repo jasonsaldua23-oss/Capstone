@@ -80,12 +80,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { 
-      name, code, address, city, state, zipCode, country,
+      name, code, address, city, province, zipCode, country,
       latitude, longitude, capacity, managerId 
     } = body
 
-    if (!name || !code || !address || !city || !state || !zipCode) {
-      return apiError('Name, code, address, city, state, and zipCode are required')
+    if (!name || !code || !address || !city || !province || !zipCode) {
+      return apiError('Name, code, address, city, province, and zipCode are required')
     }
 
     // Check if code exists
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
         code,
         address,
         city,
-        state,
+        province,
         zipCode,
         country: country || 'USA',
         latitude: latitude || null,

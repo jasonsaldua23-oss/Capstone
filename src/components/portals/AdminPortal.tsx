@@ -923,7 +923,7 @@ function OrdersView() {
                       </td>
                       <td className="p-4">
                         <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
-                        <p className="text-sm text-gray-500">{order.shippingCity || order.shippingState || 'N/A'}</p>
+                        <p className="text-sm text-gray-500">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
                       </td>
                       <td className="p-4">
                         <p className="font-medium text-gray-900">
@@ -998,7 +998,7 @@ function OrdersView() {
                   <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
                   <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
                   <p className="text-sm text-gray-600">
-                    {[selectedOrder.shippingAddress, selectedOrder.shippingCity, selectedOrder.shippingState, selectedOrder.shippingZipCode].filter(Boolean).join(', ') || 'N/A'}
+                    {[selectedOrder.shippingAddress, selectedOrder.shippingCity, selectedOrder.shippingProvince, selectedOrder.shippingZipCode].filter(Boolean).join(', ') || 'N/A'}
                   </p>
                 </div>
                 <div className="rounded-md border p-3">
@@ -1750,7 +1750,7 @@ function TripsView() {
                               <span className="font-semibold text-green-900">Warehouse - Starting Point</span>
                             </div>
                             <div className="text-sm font-medium text-gray-700">{wh.name}</div>
-                            <div className="text-xs text-green-700">{[wh.address, wh.city, wh.state].filter(Boolean).join(', ')}</div>
+                            <div className="text-xs text-green-700">{[wh.address, wh.city, wh.province].filter(Boolean).join(', ')}</div>
                             {wh.latitude && wh.longitude && (
                               <div className="text-xs text-gray-500 mt-1">?? {wh.latitude}, {wh.longitude}</div>
                             )}
@@ -2262,7 +2262,7 @@ function DriversView() {
     licenseType: 'B',
     licenseExpiry: '',
     city: '',
-    state: '',
+    province: '',
     address: '',
     zipCode: '',
   })
@@ -2333,7 +2333,7 @@ function DriversView() {
       licenseType: 'B',
       licenseExpiry: '',
       city: '',
-      state: '',
+      province: '',
       address: '',
       zipCode: '',
     })
@@ -2389,7 +2389,7 @@ function DriversView() {
           phone: driverForm.phone.trim() || null,
           address: driverForm.address.trim() || null,
           city: driverForm.city.trim() || null,
-          state: driverForm.state.trim() || null,
+          province: driverForm.province.trim() || null,
           zipCode: driverForm.zipCode.trim() || null,
         }),
       })
@@ -2619,8 +2619,8 @@ function DriversView() {
                 <Input value={driverForm.city} onChange={(e) => setDriverForm((f) => ({ ...f, city: e.target.value }))} />
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">State</label>
-                <Input value={driverForm.state} onChange={(e) => setDriverForm((f) => ({ ...f, state: e.target.value }))} />
+                <label className="text-sm font-medium text-gray-700">Province</label>
+                <Input value={driverForm.province} onChange={(e) => setDriverForm((f) => ({ ...f, province: e.target.value }))} />
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">Zip Code</label>
@@ -2658,7 +2658,7 @@ function DriversView() {
                   <p><span className="text-gray-500">License Expiry:</span> {profileDriver.licenseExpiry ? new Date(profileDriver.licenseExpiry).toLocaleDateString() : 'N/A'}</p>
                   <p><span className="text-gray-500">Rating:</span> {Number(profileDriver.rating || 0).toFixed(1)}</p>
                   <p><span className="text-gray-500">Total Deliveries:</span> {profileDriver.totalDeliveries || 0}</p>
-                  <p><span className="text-gray-500">Address:</span> {[profileDriver.address, profileDriver.city, profileDriver.state, profileDriver.zipCode].filter(Boolean).join(', ') || 'N/A'}</p>
+                  <p><span className="text-gray-500">Address:</span> {[profileDriver.address, profileDriver.city, profileDriver.province, profileDriver.zipCode].filter(Boolean).join(', ') || 'N/A'}</p>
                 </div>
                 <Button variant="outline" className="w-full" onClick={() => setProfileDriver(null)}>Close</Button>
               </div>
@@ -3420,7 +3420,7 @@ function WarehousesView() {
     code: '',
     address: '',
     city: '',
-    state: '',
+    province: '',
     zipCode: '',
     country: 'USA',
     capacity: '',
@@ -3484,7 +3484,7 @@ function WarehousesView() {
       code: '',
       address: '',
       city: '',
-      state: '',
+      province: '',
       zipCode: '',
       country: 'USA',
       capacity: '',
@@ -3495,8 +3495,8 @@ function WarehousesView() {
   }
 
   const saveWarehouse = async (mode: 'create' | 'edit') => {
-    if (!form.name.trim() || !form.code.trim() || !form.address.trim() || !form.city.trim() || !form.state.trim() || !form.zipCode.trim()) {
-      toast.error('Name, code, address, city, state and zip code are required')
+    if (!form.name.trim() || !form.code.trim() || !form.address.trim() || !form.city.trim() || !form.province.trim() || !form.zipCode.trim()) {
+      toast.error('Name, code, address, city, province and zip code are required')
       return
     }
 
@@ -3512,7 +3512,7 @@ function WarehousesView() {
           code: form.code.trim().toUpperCase(),
           address: form.address.trim(),
           city: form.city.trim(),
-          state: form.state.trim(),
+          province: form.province.trim(),
           zipCode: form.zipCode.trim(),
           country: form.country.trim() || 'USA',
           capacity: form.capacity ? Number(form.capacity) : 1000,
@@ -3543,7 +3543,7 @@ function WarehousesView() {
       code: warehouse.code || '',
       address: warehouse.address || '',
       city: warehouse.city || '',
-      state: warehouse.state || '',
+      province: warehouse.province || '',
       zipCode: warehouse.zipCode || '',
       country: warehouse.country || 'USA',
       capacity: warehouse.capacity ? String(warehouse.capacity) : '',
@@ -3810,7 +3810,7 @@ function WarehousesView() {
                 </div>
                 <div className="mt-4 text-sm">
                   <p className="text-gray-600">{warehouse.address}</p>
-                  <p className="text-gray-500">{warehouse.city}, {warehouse.state} {warehouse.zipCode}</p>
+                  <p className="text-gray-500">{warehouse.city}, {warehouse.province} {warehouse.zipCode}</p>
                   <p className="text-gray-500">Assigned Staff: {getAssignedStaffName(warehouse.managerId)}</p>
                 </div>
                 <div className="mt-4 flex gap-2">
@@ -3847,8 +3847,8 @@ function WarehousesView() {
               <Input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">State</label>
-              <Input value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} />
+              <label className="text-sm font-medium text-gray-700">Province</label>
+              <Input value={form.province} onChange={(e) => setForm((f) => ({ ...f, province: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Zip Code</label>
@@ -3909,8 +3909,8 @@ function WarehousesView() {
               <Input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">State</label>
-              <Input value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} />
+              <label className="text-sm font-medium text-gray-700">Province</label>
+              <Input value={form.province} onChange={(e) => setForm((f) => ({ ...f, province: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Zip Code</label>
@@ -5958,7 +5958,7 @@ function CustomersView() {
       row.name || '',
       row.email || '',
       row.phone || '',
-      [row.address, row.city, row.state, row.zipCode].filter(Boolean).join(', '),
+      [row.address, row.city, row.province, row.zipCode].filter(Boolean).join(', '),
       row.isActive ? 'Active' : 'Inactive',
       row.orderCount,
       row.totalSpend,
@@ -6122,7 +6122,7 @@ function CustomersView() {
                             : 'No coordinates'}
                         </p>
                         <p className="text-sm text-gray-700">
-                          {[row.city, row.state].filter(Boolean).join(', ') || 'No city/state'}
+                          {[row.city, row.province].filter(Boolean).join(', ') || 'No city/province'}
                         </p>
                       </td>
                       <td className="p-4">

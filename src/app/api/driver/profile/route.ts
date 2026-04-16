@@ -35,7 +35,7 @@ export async function GET(_request: NextRequest) {
         phone: driver.phone || '',
         address: driver.address || '',
         city: driver.city || '',
-        state: driver.state || '',
+        province: driver.province || '',
         zipCode: driver.zipCode || '',
         licenseNumber: driver.licenseNumber || '',
         licenseType: driver.licenseType || '',
@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest) {
     const phone = String(body?.phone || '').trim()
     const address = String(body?.address || '').trim()
     const city = String(body?.city || '').trim()
-    const state = String(body?.state || '').trim()
+    const province = String(body?.province || '').trim()
     const zipCode = String(body?.zipCode || '').trim()
 
     if (!name) {
@@ -97,7 +97,7 @@ export async function PUT(request: NextRequest) {
           phone: phone || null,
           address: address || null,
           city: city || null,
-          state: state || null,
+          province: province || null,
           zipCode: zipCode || null,
         },
         select: {
@@ -105,7 +105,7 @@ export async function PUT(request: NextRequest) {
           phone: true,
           address: true,
           city: true,
-          state: true,
+          province: true,
           zipCode: true,
           licenseNumber: true,
           licenseType: true,
@@ -119,7 +119,7 @@ export async function PUT(request: NextRequest) {
         phone: updatedDriver.phone || '',
         address: updatedDriver.address || '',
         city: updatedDriver.city || '',
-        state: updatedDriver.state || '',
+        province: updatedDriver.province || '',
         zipCode: updatedDriver.zipCode || '',
         licenseNumber: updatedDriver.licenseNumber || '',
         licenseType: updatedDriver.licenseType || '',

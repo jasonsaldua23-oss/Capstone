@@ -68,7 +68,7 @@ export async function PUT(
     const body = await request.json()
     const { 
       name, email, phone, 
-      address, city, state, zipCode, country,
+      address, city, province, zipCode, country,
       latitude, longitude,
       avatar,
       password,
@@ -82,7 +82,7 @@ export async function PUT(
     if (phone !== undefined) updateData.phone = phone || null
     if (address !== undefined) updateData.address = address || null
     if (city !== undefined) updateData.city = city || null
-    if (state !== undefined) updateData.state = state || null
+    if (province !== undefined) updateData.province = province || null
     if (zipCode !== undefined) updateData.zipCode = zipCode || null
     if (country !== undefined) updateData.country = String(country).trim() || 'Philippines'
     if (latitude !== undefined) updateData.latitude = latitude || null
