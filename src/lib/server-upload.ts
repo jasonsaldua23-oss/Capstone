@@ -88,13 +88,16 @@ export async function saveImageFile(options: SaveImageOptions): Promise<string> 
     return saveToSupabaseStorage(options)
   }
 
-  // Vercel serverless filesystem is ephemeral/read-only for this use case.
-  if (process.env.VERCEL) {
-    throw new Error(
-      'Upload storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel environment variables.'
-    )
+  // Fallback to local uploads when cloud storage is not configured.
+  // This supports local/dev and self-hosted deployments without Supabase.
+  try {
+    return await saveToLocalPublicUploads(options)
+  } catch (error) {
+    if (process.env.VERCEL) {
+      throw new Error(
+        'Upload storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel environment variables.'
+      )
+    }
+    throw error
   }
-
-  // Local fallback for development environments.
-  return saveToLocalPublicUploads(options)
 }
