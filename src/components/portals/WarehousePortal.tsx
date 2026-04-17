@@ -445,9 +445,11 @@ export function WarehousePortal() {
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const isRefreshingAllRef = useRef(false)
   const hasAssignedWarehouse = warehouses.length > 0
+  const hasWarehouseFetchFailure = !hasAssignedWarehouse && Boolean(warehouseLoadError)
   const assignedWarehouse = warehouses[0] || null
   const sidebarNavItems = navItems
   const activeSectionLabel = navItems.find((item) => item.id === activeView)?.label || 'Dashboard'
@@ -851,11 +853,16 @@ export function WarehousePortal() {
     try {
       const result = await safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 1 })
       if (!result.ok) {
-        setWarehouses([])
+        setWarehouseLoadError(result.error || 'Failed to fetch warehouses')
         toast.error('Failed to load warehouses')
         return
       }
+      if ((result.data as any)?.dbUnavailable) {
+        setWarehouseLoadError('Warehouse data is temporarily unavailable')
+        return
+      }
       const list = getCollection<WarehouseItem>(result.data, ['warehouses'])
+      setWarehouseLoadError(null)
       setWarehouses(list)
       const firstWarehouse = list[0]
       if (firstWarehouse?.id && !stockInWarehouseId) {
@@ -865,6 +872,7 @@ export function WarehousePortal() {
         setRouteWarehouseId(firstWarehouse.id)
       }
     } catch {
+      setWarehouseLoadError('Failed to fetch warehouses')
       toast.error('Failed to load warehouses')
     } finally {
       setLoadingWarehouses(false)
@@ -1801,12 +1809,16 @@ export function WarehousePortal() {
               <CardHeader>
                 <CardTitle>{activeSectionLabel}</CardTitle>
                 <CardDescription>
-                  No assigned warehouse yet. Please contact an administrator to assign your warehouse.
+                  {hasWarehouseFetchFailure
+                    ? 'Warehouse data is temporarily unavailable. Please try again shortly.'
+                    : 'No assigned warehouse yet. Please contact an administrator to assign your warehouse.'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-gray-600">
-                  Once assigned, this section will show data for your warehouse only.
+                  {hasWarehouseFetchFailure
+                    ? 'Your account may still be assigned. The current issue is a loading failure, not an assignment change.'
+                    : 'Once assigned, this section will show data for your warehouse only.'}
                 </p>
               </CardContent>
             </Card>
