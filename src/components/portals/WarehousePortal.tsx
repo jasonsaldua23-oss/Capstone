@@ -794,15 +794,50 @@ export function WarehousePortal() {
     lastWeek: { label: 'Last Week', color: '#1d4ed8' },
   } satisfies ChartConfig
 
+  const safeFetchJson = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    options?: { retries?: number; timeoutMs?: number }
+  ) => {
+    const retries = options?.retries ?? 1
+    const timeoutMs = options?.timeoutMs ?? 12000
+    let lastError = 'Request failed'
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetch(input, { ...(init || {}), signal: controller.signal })
+        const data = await response.json().catch(() => ({}))
+        if (response.ok && data?.success !== false) {
+          return { ok: true as const, data, status: response.status }
+        }
+        lastError = data?.error || `Request failed (${response.status})`
+      } catch (error: any) {
+        lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
+      } finally {
+        window.clearTimeout(timeout)
+      }
+
+      if (attempt < retries) {
+        await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)))
+      }
+    }
+
+    return { ok: false as const, data: null, status: 0, error: lastError }
+  }
+
   const fetchInventoryData = async () => {
     setLoadingInventory(true)
     try {
-      const response = await fetch('/api/inventory', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed inventory fetch')
-      const data = await response.json()
-      setInventory(getCollection<InventoryItem>(data, ['inventory']))
-    } catch (error) {
-      console.error(error)
+      const result = await safeFetchJson('/api/inventory', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setInventory([])
+        toast.error('Failed to load inventory')
+        return
+      }
+      setInventory(getCollection<InventoryItem>(result.data, ['inventory']))
+    } catch {
       toast.error('Failed to load inventory')
     } finally {
       setLoadingInventory(false)
@@ -812,19 +847,22 @@ export function WarehousePortal() {
   const fetchWarehousesData = async () => {
     setLoadingWarehouses(true)
     try {
-      const response = await fetch('/api/warehouses', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed warehouse fetch')
-      const data = await response.json()
-      setWarehouses(getCollection<WarehouseItem>(data, ['warehouses']))
-      const firstWarehouse = getCollection<WarehouseItem>(data, ['warehouses'])[0]
+      const result = await safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setWarehouses([])
+        toast.error('Failed to load warehouses')
+        return
+      }
+      const list = getCollection<WarehouseItem>(result.data, ['warehouses'])
+      setWarehouses(list)
+      const firstWarehouse = list[0]
       if (firstWarehouse?.id && !stockInWarehouseId) {
         setStockInWarehouseId(firstWarehouse.id)
       }
       if (firstWarehouse?.id && !routeWarehouseId) {
         setRouteWarehouseId(firstWarehouse.id)
       }
-    } catch (error) {
-      console.error(error)
+    } catch {
       toast.error('Failed to load warehouses')
     } finally {
       setLoadingWarehouses(false)
@@ -833,12 +871,14 @@ export function WarehousePortal() {
 
   const fetchProductsData = async () => {
     try {
-      const response = await fetch('/api/products?page=1&pageSize=500', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed product fetch')
-      const data = await response.json()
-      setProducts(getCollection<ProductOption>(data, ['products']))
-    } catch (error) {
-      console.error(error)
+      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setProducts([])
+        toast.error('Failed to load products')
+        return
+      }
+      setProducts(getCollection<ProductOption>(result.data, ['products']))
+    } catch {
       toast.error('Failed to load products')
     }
   }
@@ -846,12 +886,14 @@ export function WarehousePortal() {
   const fetchStockBatchesData = async () => {
     setLoadingBatches(true)
     try {
-      const response = await fetch('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed stock batch fetch')
-      const data = await response.json()
-      setStockBatches(getCollection<StockBatchItem>(data, ['stockBatches']))
-    } catch (error) {
-      console.error(error)
+      const result = await safeFetchJson('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setStockBatches([])
+        toast.error('Failed to load stock-in batches')
+        return
+      }
+      setStockBatches(getCollection<StockBatchItem>(result.data, ['stockBatches']))
+    } catch {
       toast.error('Failed to load stock-in batches')
     } finally {
       setLoadingBatches(false)
@@ -859,13 +901,12 @@ export function WarehousePortal() {
   }
 
   const fetchOrderMarker = async () => {
-    const response = await fetch('/api/orders?limit=1&includeItems=none', { cache: 'no-store', credentials: 'include' })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok || data?.success === false) {
-      throw new Error(data?.error || 'Failed orders fetch')
+    const result = await safeFetchJson('/api/orders?limit=1&includeItems=none', { cache: 'no-store', credentials: 'include' }, { retries: 1 })
+    if (!result.ok) {
+      throw new Error(result.error || 'Failed orders fetch')
     }
-    const topOrder = getCollection<WarehouseOrderItem>(data, ['orders'])[0]
-    return `${Number(data?.total || 0)}::${topOrder?.id || ''}`
+    const topOrder = getCollection<WarehouseOrderItem>(result.data, ['orders'])[0]
+    return `${Number((result.data as any)?.total || 0)}::${topOrder?.id || ''}`
   }
 
   const fetchOrdersData = async (options?: { showLoading?: boolean; onlyIfNew?: boolean; silent?: boolean }) => {
@@ -881,26 +922,24 @@ export function WarehousePortal() {
         }
       }
 
-      const requestOrders = () => fetch('/api/orders?limit=100&includeItems=none', { cache: 'no-store', credentials: 'include' })
+      const requestOrders = () =>
+        safeFetchJson('/api/orders?limit=100&includeItems=none', { cache: 'no-store', credentials: 'include' }, { retries: 1 })
 
-      let response = await requestOrders()
-      let data = await response.json().catch(() => ({}))
+      let result = await requestOrders()
 
-      if (response.status === 401 || response.status === 403) {
+      if (result.status === 401 || result.status === 403) {
         clearTabAuthToken()
-        response = await requestOrders()
-        data = await response.json().catch(() => ({}))
+        result = await requestOrders()
       }
 
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed orders fetch')
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed orders fetch')
       }
 
-      const list = getCollection<WarehouseOrderItem>(data, ['orders'])
+      const list = getCollection<WarehouseOrderItem>(result.data, ['orders'])
       setOrders(list)
-      latestOrderMarkerRef.current = `${Number(data?.total || 0)}::${list[0]?.id || ''}`
+      latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${list[0]?.id || ''}`
     } catch (error: any) {
-      console.error(error)
       if (!silent) {
         toast.error(error?.message || 'Failed to load orders')
       }
@@ -912,12 +951,14 @@ export function WarehousePortal() {
   const fetchTripsData = async () => {
     setLoadingTrips(true)
     try {
-      const response = await fetch('/api/trips?limit=100', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed trips fetch')
-      const data = await response.json()
-      setTrips(getCollection<WarehouseTripItem>(data, ['trips']))
-    } catch (error) {
-      console.error(error)
+      const result = await safeFetchJson('/api/trips?limit=100', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setTrips([])
+        toast.error('Failed to load trips')
+        return
+      }
+      setTrips(getCollection<WarehouseTripItem>(result.data, ['trips']))
+    } catch {
       toast.error('Failed to load trips')
     } finally {
       setLoadingTrips(false)
@@ -927,12 +968,14 @@ export function WarehousePortal() {
   const fetchReturnsData = async () => {
     setLoadingReturns(true)
     try {
-      const response = await fetch('/api/orders?includeReturns=true&includeOrders=false&includeItems=none&limit=100', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed replacement fetch')
-      const data = await response.json()
-      setReturns(getCollection<WarehouseReturnItem>(data, ['returns']))
-    } catch (error) {
-      console.error(error)
+      const result = await safeFetchJson('/api/orders?includeReturns=true&includeOrders=false&includeItems=none&limit=100', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setReturns([])
+        toast.error('Failed to load replacements')
+        return
+      }
+      setReturns(getCollection<WarehouseReturnItem>(result.data, ['returns']))
+    } catch {
       toast.error('Failed to load replacements')
     } finally {
       setLoadingReturns(false)
@@ -941,10 +984,13 @@ export function WarehousePortal() {
 
   const fetchDriversData = async () => {
     try {
-      const response = await fetch('/api/drivers')
-      if (!response.ok) throw new Error('Failed drivers fetch')
-      const data = await response.json()
-      const list = getCollection<DriverOption>(data, ['drivers'])
+      const result = await safeFetchJson('/api/drivers', undefined, { retries: 1 })
+      if (!result.ok) {
+        setDrivers([])
+        toast.error('Failed to load drivers')
+        return
+      }
+      const list = getCollection<DriverOption>(result.data, ['drivers'])
       setDrivers(list)
       const preferredDriver =
         list.find((driver) => driver?.isActive !== false && (driver.vehicles || []).some((entry) => entry?.vehicle?.id)) ||
@@ -954,24 +1000,25 @@ export function WarehousePortal() {
       if (preferredDriver?.id && !selectedRouteDriverId) {
         setSelectedRouteDriverId(preferredDriver.id)
       }
-    } catch (error) {
-      console.error(error)
+    } catch {
       toast.error('Failed to load drivers')
     }
   }
 
   const fetchVehiclesData = async () => {
     try {
-      const response = await fetch('/api/vehicles?status=AVAILABLE')
-      if (!response.ok) throw new Error('Failed vehicles fetch')
-      const data = await response.json()
-      const list = getCollection<VehicleOption>(data, ['vehicles'])
+      const result = await safeFetchJson('/api/vehicles?status=AVAILABLE', undefined, { retries: 1 })
+      if (!result.ok) {
+        setVehicles([])
+        toast.error('Failed to load vehicles')
+        return
+      }
+      const list = getCollection<VehicleOption>(result.data, ['vehicles'])
       setVehicles(list)
       if (list[0]?.id && !selectedRouteVehicleId) {
         setSelectedRouteVehicleId(list[0].id)
       }
-    } catch (error) {
-      console.error(error)
+    } catch {
       toast.error('Failed to load vehicles')
     }
   }

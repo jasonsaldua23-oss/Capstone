@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getCurrentUser, apiResponse, apiError, unauthorizedError, forbiddenError, isAdmin, isWarehouseStaff } from '@/lib/auth'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getAssignedWarehouseId, isWarehouseScopedStaff } from '@/lib/warehouse-scope'
 
 // GET /api/warehouses - List all warehouses
@@ -40,22 +40,20 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const [warehouses, total] = await Promise.all([
-      db.warehouse.findMany({
-        where,
-        include: {
-          _count: {
-            select: { 
-              inventory: true,
-            },
+    const warehouses = await db.warehouse.findMany({
+      where,
+      include: {
+        _count: {
+          select: {
+            inventory: true,
           },
         },
-        orderBy: { name: 'asc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      db.warehouse.count({ where }),
-    ])
+      },
+      orderBy: { name: 'asc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })
+    const total = await db.warehouse.count({ where })
 
     return apiResponse({
       success: true,
@@ -66,6 +64,20 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get warehouses skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        data: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get warehouses error:', error)
     return apiError(error instanceof Error ? error.message : 'Failed to fetch warehouses', 500)
   }

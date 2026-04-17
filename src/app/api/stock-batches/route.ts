@@ -64,37 +64,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const [stockBatches, total] = await Promise.all([
-      db.stockBatch.findMany({
-        where: assignedWarehouseId
-          ? {
-              inventory: {
-                warehouseId: assignedWarehouseId,
-              },
-            }
-          : undefined,
-        include: {
-          inventory: {
-            include: {
-              product: true,
-              warehouse: true,
+    const stockBatches = await db.stockBatch.findMany({
+      where: assignedWarehouseId
+        ? {
+            inventory: {
+              warehouseId: assignedWarehouseId,
             },
+          }
+        : undefined,
+      include: {
+        inventory: {
+          include: {
+            product: true,
+            warehouse: true,
           },
         },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      db.stockBatch.count({
-        where: assignedWarehouseId
-          ? {
-              inventory: {
-                warehouseId: assignedWarehouseId,
-              },
-            }
-          : undefined,
-      }),
-    ])
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })
+    const total = await db.stockBatch.count({
+      where: assignedWarehouseId
+        ? {
+            inventory: {
+              warehouseId: assignedWarehouseId,
+            },
+          }
+        : undefined,
+    })
 
     return apiResponse({
       success: true,

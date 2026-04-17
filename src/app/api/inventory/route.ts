@@ -45,21 +45,19 @@ export async function GET(request: NextRequest) {
       where.productId = productId
     }
 
-    const [inventory, total] = await Promise.all([
-      db.inventory.findMany({
-        where,
-        include: {
-          product: {
-            include: { category: true },
-          },
-          warehouse: true,
+    const inventory = await db.inventory.findMany({
+      where,
+      include: {
+        product: {
+          include: { category: true },
         },
-        orderBy: { product: { name: 'asc' } },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      db.inventory.count({ where }),
-    ])
+        warehouse: true,
+      },
+      orderBy: { product: { name: 'asc' } },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })
+    const total = await db.inventory.count({ where })
 
     // Filter for low stock if requested
     let filteredInventory = inventory

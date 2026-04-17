@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getCurrentUser, apiResponse, unauthorizedError } from '@/lib/auth'
 import { getAssignedWarehouseId, isWarehouseScopedStaff } from '@/lib/warehouse-scope'
 
@@ -34,41 +34,39 @@ export async function GET(request: NextRequest) {
       where.status = status
     }
 
-    const [trips, total] = await Promise.all([
-      db.trip.findMany({
-        where,
-        include: {
-          driver: {
-            include: {
-              user: {
-                select: {
-                  name: true,
-                  phone: true,
-                  email: true,
-                }
-              }
-            }
-          },
-          vehicle: true,
-          dropPoints: {
-            include: {
-              order: {
-                include: {
-                  customer: {
-                    select: { name: true }
-                  }
-                }
-              }
+    const trips = await db.trip.findMany({
+      where,
+      include: {
+        driver: {
+          include: {
+            user: {
+              select: {
+                name: true,
+                phone: true,
+                email: true,
+              },
             },
-            orderBy: { sequence: 'asc' }
-          }
+          },
         },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      db.trip.count({ where })
-    ])
+        vehicle: true,
+        dropPoints: {
+          include: {
+            order: {
+              include: {
+                customer: {
+                  select: { name: true },
+                },
+              },
+            },
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    })
+    const total = await db.trip.count({ where })
 
     return apiResponse({
       trips,
@@ -78,48 +76,30 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / limit)
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get trips skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        trips: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get trips error:', error)
-    // Return sample data
     return apiResponse({
-      trips: [
-        {
-          id: '1',
-          tripNumber: 'TRP-2024-0001',
-          driver: { 
-            id: '1',
-            user: { name: 'Mike Johnson', phone: '+1555123456' }, 
-            licenseNumber: 'DL-12345',
-            rating: 4.8 
-          },
-          vehicle: { id: '1', licensePlate: 'ABC-1234', type: 'VAN', make: 'Ford', model: 'Transit' },
-          status: 'IN_PROGRESS',
-          totalDropPoints: 5,
-          completedDropPoints: 2,
-          plannedStartAt: new Date().toISOString(),
-          dropPoints: []
-        },
-        {
-          id: '2',
-          tripNumber: 'TRP-2024-0002',
-          driver: { 
-            id: '2',
-            user: { name: 'Sarah Williams', phone: '+1555654321' }, 
-            licenseNumber: 'DL-67890',
-            rating: 4.9 
-          },
-          vehicle: { id: '2', licensePlate: 'XYZ-5678', type: 'TRUCK', make: 'Mercedes', model: 'Sprinter' },
-          status: 'PLANNED',
-          totalDropPoints: 8,
-          completedDropPoints: 0,
-          plannedStartAt: new Date().toISOString(),
-          dropPoints: []
-        }
-      ],
-      total: 2,
-      page: 1,
-      pageSize: 20,
-      totalPages: 1
-    })
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch trips',
+      trips: [],
+      total: 0,
+      page,
+      pageSize: limit,
+      totalPages: 0,
+    }, 500)
   }
 }
 

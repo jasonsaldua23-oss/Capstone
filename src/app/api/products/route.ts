@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getCurrentUser, apiResponse, apiError, unauthorizedError } from '@/lib/auth'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 
 // GET /api/products - List all products
 export async function GET(request: NextRequest) {
@@ -27,25 +27,23 @@ export async function GET(request: NextRequest) {
       where.categoryId = categoryId
     }
 
-    const [products, total] = await Promise.all([
-      db.product.findMany({
-        where,
-        include: {
-          category: true,
-          inventory: {
-            select: {
-              quantity: true,
-              reservedQuantity: true,
-              warehouse: { select: { name: true, code: true } },
-            },
+    const products = await db.product.findMany({
+      where,
+      include: {
+        category: true,
+        inventory: {
+          select: {
+            quantity: true,
+            reservedQuantity: true,
+            warehouse: { select: { name: true, code: true } },
           },
         },
-        orderBy: { name: 'asc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      db.product.count({ where }),
-    ])
+      },
+      orderBy: { name: 'asc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })
+    const total = await db.product.count({ where })
 
     return apiResponse({
       success: true,
@@ -56,6 +54,20 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get products skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        data: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get products error:', error)
     return apiError(error instanceof Error ? error.message : 'Failed to fetch products', 500)
   }
