@@ -148,12 +148,30 @@ function formatDayKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
+interface PortalNotification {
+  id: string
+  title: string
+  message: string
+  type: string | null
+  isRead: boolean
+  createdAt: string
+}
+
+function formatNotificationTime(createdAt: string) {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString()
+}
+
 export function AdminPortal() {
   const { user, logout } = useAuth()
   const [activeView, setActiveView] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [notifications, setNotifications] = useState<PortalNotification[]>([])
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   useEffect(() => {
     async function fetchDashboardStats() {
@@ -170,6 +188,55 @@ export function AdminPortal() {
       }
     }
     fetchDashboardStats()
+  }, [])
+
+  const fetchNotifications = async () => {
+    setNotificationsLoading(true)
+    try {
+      const response = await fetch('/api/notifications', { cache: 'no-store' })
+      if (!response.ok) return
+
+      const payload = await response.json()
+      const list = Array.isArray(payload?.notifications) ? payload.notifications : []
+      setNotifications(list)
+      setUnreadNotifications(Number(payload?.unreadCount || 0))
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error)
+    } finally {
+      setNotificationsLoading(false)
+    }
+  }
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAll: true }),
+      })
+      if (!response.ok) return
+      setUnreadNotifications(0)
+      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })))
+    } catch (error) {
+      console.error('Failed to mark notifications as read:', error)
+    }
+  }
+
+  const handleNotificationsOpen = async (open: boolean) => {
+    if (!open) return
+    await fetchNotifications()
+    if (unreadNotifications > 0) {
+      await markAllNotificationsAsRead()
+    }
+  }
+
+  useEffect(() => {
+    fetchNotifications()
+    const interval = setInterval(() => {
+      fetchNotifications()
+    }, 60000)
+
+    return () => clearInterval(interval)
   }, [])
 
   const handleLogout = async () => {
@@ -336,10 +403,31 @@ export function AdminPortal() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
-              </Button>
+              <DropdownMenu onOpenChange={(open) => { void handleNotificationsOpen(open) }}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative">
+                    <Bell className="h-5 w-5" />
+                    {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80">
+                  <div className="px-2 py-1.5 text-sm font-medium">Notifications</div>
+                  <DropdownMenuSeparator />
+                  {notificationsLoading ? (
+                    <div className="px-2 py-3 text-sm text-gray-500">Loading notifications...</div>
+                  ) : notifications.length === 0 ? (
+                    <div className="px-2 py-3 text-sm text-gray-500">No notifications yet.</div>
+                  ) : (
+                    notifications.slice(0, 8).map((item) => (
+                      <div key={item.id} className="px-2 py-2 border-b last:border-b-0">
+                        <p className="text-sm font-medium text-gray-900">{item.title}</p>
+                        <p className="text-xs text-gray-600">{item.message}</p>
+                        <p className="text-[11px] text-gray-500 mt-1">{formatNotificationTime(item.createdAt)}</p>
+                      </div>
+                    ))
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -392,7 +480,7 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        const ordersRes = await fetch('/api/orders?limit=200')
+        const ordersRes = await fetch('/api/orders?limit=200&includeItems=none')
 
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json()
@@ -696,6 +784,7 @@ function OrdersView() {
   const [orders, setOrders] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
+  const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
@@ -705,7 +794,7 @@ function OrdersView() {
 
     async function fetchOrders(silent = false) {
       try {
-        const requestOrders = () => fetch('/api/orders?limit=100', { credentials: 'include' })
+        const requestOrders = () => fetch('/api/orders?limit=100&includeItems=preview', { credentials: 'include' })
 
         let response = await requestOrders()
         let data = await response.json().catch(() => ({}))
@@ -767,6 +856,21 @@ function OrdersView() {
       window.clearInterval(intervalId)
     }
   }, [])
+
+  const openOrderDetail = async (order: any) => {
+    setSelectedOrder(order)
+    setLoadingOrderDetail(true)
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, { credentials: 'include' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false || !payload?.order) return
+      setSelectedOrder(payload.order)
+    } catch (error) {
+      console.error('Failed to load full order details:', error)
+    } finally {
+      setLoadingOrderDetail(false)
+    }
+  }
 
   const formatOrderStatus = (status: string, paymentStatus?: string) => {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
@@ -904,7 +1008,9 @@ function OrdersView() {
                             .slice(0, 2)
                             .map((item) => `${item.product?.name || 'Product'} x${item.quantity}`)
                             .join(', ') || 'No items'}
-                          {toArray<any>(order.items).length > 2 ? ` +${toArray<any>(order.items).length - 2} more` : ''}
+                          {Number(order.itemCount || toArray<any>(order.items).length) > 2
+                            ? ` +${Number(order.itemCount || toArray<any>(order.items).length) - 2} more`
+                            : ''}
                         </p>
                         <p className="text-sm text-gray-500">
                           {order.priority === 'high' || order.priority === 'urgent' ? 'Express' : 'Standard'}
@@ -924,7 +1030,7 @@ function OrdersView() {
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            onClick={() => setSelectedOrder(order)}
+                            onClick={() => void openOrderDetail(order)}
                             title="View details"
                           >
                             <Eye className="h-4 w-4" />
@@ -960,6 +1066,11 @@ function OrdersView() {
                 <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
                 <DialogDescription>Complete order and client information</DialogDescription>
               </DialogHeader>
+              {loadingOrderDetail ? (
+                <div className="h-20 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                </div>
+              ) : null}
               <div className="space-y-3">
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Order Status</p>
@@ -4773,7 +4884,7 @@ function ReturnsView() {
   const fetchReturns = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/orders?includeReturns=true&limit=100')
+      const response = await fetch('/api/orders?includeReturns=true&includeOrders=false&includeItems=none&limit=100')
       if (response.ok) {
         const data = await response.json()
         setReturns(getCollection(data, ['returns']))
@@ -5821,13 +5932,11 @@ function CustomersView() {
     try {
       const [customersResponse, ordersResponse, feedbackResponse] = await Promise.all([
         fetch('/api/customers?page=1&pageSize=500'),
-        fetch('/api/orders?limit=1000'),
+        fetch('/api/orders?limit=1000&includeItems=none'),
         fetch('/api/feedback?page=1&pageSize=1000'),
       ])
 
-      if (!customersResponse.ok) throw new Error('Failed to fetch customers')
-
-      const customersData = await customersResponse.json().catch(() => ({}))
+      const customersData = customersResponse.ok ? await customersResponse.json().catch(() => ({})) : {}
       const ordersData = ordersResponse.ok ? await ordersResponse.json().catch(() => ({})) : {}
       const feedbackData = feedbackResponse.ok ? await feedbackResponse.json().catch(() => ({})) : {}
 

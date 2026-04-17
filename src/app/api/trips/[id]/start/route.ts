@@ -1,5 +1,7 @@
 import { db } from '@/lib/db'
 import { apiError, apiResponse, forbiddenError, getCurrentUser, unauthorizedError } from '@/lib/auth'
+import { notifyOrderStatusChanged } from '@/lib/notifications'
+import { upsertOrderTimeline } from '@/lib/order-timeline'
 
 // POST /api/trips/[id]/start
 export async function POST(
@@ -100,6 +102,35 @@ export async function POST(
           shippedAt: now,
         },
       })
+
+      const outForDeliveryOrders = await db.order.findMany({
+        where: {
+          id: { in: orderIds },
+          status: 'OUT_FOR_DELIVERY' as any,
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          customerId: true,
+          status: true,
+        },
+      })
+
+      await Promise.all(
+        outForDeliveryOrders.map((order) =>
+          Promise.all([
+            notifyOrderStatusChanged({
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              customerId: order.customerId,
+              status: order.status,
+            }),
+            upsertOrderTimeline(order.id, {
+              shippedAt: now,
+            }),
+          ])
+        )
+      )
     }
 
     return apiResponse({

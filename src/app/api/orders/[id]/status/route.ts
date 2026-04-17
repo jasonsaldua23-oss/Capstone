@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { apiError, apiResponse, forbiddenError, getCurrentUser, unauthorizedError } from '@/lib/auth'
 import { normalizeLegacyOrderStatuses } from '@/lib/order-status'
+import { notifyOrderStatusChanged } from '@/lib/notifications'
+import { upsertOrderTimeline } from '@/lib/order-timeline'
 
 const ORDER_FLOW = ['PENDING', 'PROCESSING', 'PACKED', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'] as const
 type OrderFlowStatus = (typeof ORDER_FLOW)[number]
@@ -45,7 +47,7 @@ export async function PATCH(
 
     const order = await db.order.findUnique({
       where: { id },
-      select: { id: true, status: true, paymentStatus: true },
+      select: { id: true, orderNumber: true, customerId: true, status: true, paymentStatus: true },
     })
     if (!order) {
       return apiError('Order not found', 404)
@@ -85,6 +87,18 @@ export async function PATCH(
         },
       })
 
+      await notifyOrderStatusChanged({
+        orderId: approved.id,
+        orderNumber: order.orderNumber,
+        customerId: order.customerId,
+        status: approved.status,
+      })
+
+      await upsertOrderTimeline(approved.id, {
+        confirmedAt: now,
+        processedAt: now,
+      })
+
       return apiResponse({
         success: true,
         order: approved,
@@ -117,6 +131,23 @@ export async function PATCH(
         shippedAt: ['DISPATCHED', 'OUT_FOR_DELIVERY'].includes(requestedStatus) ? now : undefined,
         deliveredAt: requestedStatus === 'DELIVERED' ? now : undefined,
       },
+    })
+
+    await notifyOrderStatusChanged({
+      orderId: updated.id,
+      orderNumber: order.orderNumber,
+      customerId: order.customerId,
+      status: updated.status,
+    })
+
+    await upsertOrderTimeline(updated.id, {
+      confirmedAt:
+        requestedStatus === 'PROCESSING' && currentPaymentStatus === 'pending_approval'
+          ? now
+          : null,
+      processedAt: requestedStatus === 'PROCESSING' ? now : null,
+      shippedAt: ['DISPATCHED', 'OUT_FOR_DELIVERY'].includes(requestedStatus) ? now : null,
+      deliveredAt: requestedStatus === 'DELIVERED' ? now : null,
     })
 
     return apiResponse({

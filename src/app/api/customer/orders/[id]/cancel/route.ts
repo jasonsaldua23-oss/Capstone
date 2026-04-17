@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { apiResponse, getCurrentUser, unauthorizedError } from '@/lib/auth'
+import { notifyOrderCancelledByCustomer } from '@/lib/notifications'
+import { upsertOrderTimeline } from '@/lib/order-timeline'
 
 const CANCELLABLE_STATUSES = new Set(['PENDING', 'CONFIRMED', 'UNAPPROVED', 'PROCESSING'])
 
@@ -33,6 +35,7 @@ export async function PATCH(
       },
       select: {
         id: true,
+        orderNumber: true,
         status: true,
         paymentStatus: true,
       },
@@ -83,6 +86,16 @@ export async function PATCH(
         cancelledAt,
       }
     }
+
+    await notifyOrderCancelledByCustomer({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerId: user.userId,
+    })
+
+    await upsertOrderTimeline(order.id, {
+      cancelledAt,
+    })
 
     return apiResponse({
       success: true,

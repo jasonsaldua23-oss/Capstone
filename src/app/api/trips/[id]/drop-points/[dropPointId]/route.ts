@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { apiError, apiResponse, forbiddenError, getCurrentUser, unauthorizedError } from '@/lib/auth'
+import { notifyOrderStatusChanged } from '@/lib/notifications'
+import { upsertOrderTimeline } from '@/lib/order-timeline'
 
 // PATCH /api/trips/[id]/drop-points/[dropPointId]
 export async function PATCH(
@@ -65,9 +67,26 @@ export async function PATCH(
 
     if (dropPoint.orderId) {
       if (nextStatus === 'COMPLETED') {
-        await db.order.update({
+        const updatedOrder = await db.order.update({
           where: { id: dropPoint.orderId },
           data: { status: 'DELIVERED', deliveredAt: now },
+          select: {
+            id: true,
+            orderNumber: true,
+            customerId: true,
+            status: true,
+          },
+        })
+
+        await notifyOrderStatusChanged({
+          orderId: updatedOrder.id,
+          orderNumber: updatedOrder.orderNumber,
+          customerId: updatedOrder.customerId,
+          status: updatedOrder.status,
+        })
+
+        await upsertOrderTimeline(updatedOrder.id, {
+          deliveredAt: now,
         })
       }
     }

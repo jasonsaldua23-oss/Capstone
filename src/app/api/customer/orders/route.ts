@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getCurrentUser, apiResponse, unauthorizedError } from '@/lib/auth'
 import { normalizeLegacyOrderStatuses } from '@/lib/order-status'
+import { notifyOrderCreated } from '@/lib/notifications'
+import { upsertOrderTimeline } from '@/lib/order-timeline'
 
 const toNumberOrNull = (value: unknown): number | null => {
   if (value === undefined || value === null || value === '') return null
@@ -398,6 +400,21 @@ export async function POST(request: NextRequest) {
         notes: mergedNotes,
         specialInstructions: mergedSpecialInstructions,
         priority: assignedWarehouseId ? 'normal' : splitFulfillmentPossible ? 'high' : 'urgent',
+        logistics: {
+          create: {
+            shippingName,
+            shippingPhone,
+            shippingAddress,
+            shippingCity,
+            shippingProvince,
+            shippingZipCode,
+            shippingCountry: shippingCountry || 'USA',
+            shippingLatitude: normalizedShippingLatitude,
+            shippingLongitude: normalizedShippingLongitude,
+            notes: mergedNotes,
+            specialInstructions: mergedSpecialInstructions,
+          },
+        },
         items: {
           create: orderItemsData,
         },
@@ -416,6 +433,21 @@ export async function POST(request: NextRequest) {
           },
         },
       },
+    })
+
+    await upsertOrderTimeline(createdOrder.id, {
+      deliveryDate: normalizedDeliveryDate,
+      confirmedAt: null,
+      processedAt: null,
+      shippedAt: null,
+      deliveredAt: null,
+      cancelledAt: null,
+    })
+
+    await notifyOrderCreated({
+      orderId: createdOrder.id,
+      orderNumber: createdOrder.orderNumber,
+      customerId: createdOrder.customerId,
     })
 
     return apiResponse({

@@ -23,13 +23,18 @@ export function WarehouseLoginPage() {
     let cancelled = false
 
     async function checkSession() {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 3000)
       try {
-        const response = await fetch('/api/auth/me')
+        const response = await fetch('/api/auth/me', { signal: controller.signal })
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
         if (resolvePortalFromUser(data.user) === 'warehouse') router.replace('/')
+      } catch (error) {
+        console.warn('Warehouse session check timed out or failed:', error)
       } finally {
+        clearTimeout(timeout)
         if (!cancelled) setIsCheckingSession(false)
       }
     }

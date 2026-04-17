@@ -1,8 +1,43 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getCurrentUser, apiResponse, unauthorizedError } from '@/lib/auth'
 import { getAssignedWarehouseId, isWarehouseScopedStaff } from '@/lib/warehouse-scope'
 import { normalizeLegacyOrderStatuses } from '@/lib/order-status'
+import { notifyOrderCreated, notifyReplacementStatusChanged } from '@/lib/notifications'
+import { flattenOrderTimeline, upsertOrderTimeline } from '@/lib/order-timeline'
+
+function flattenOrderLogistics(order: any) {
+  const logistics = order?.logistics
+  if (!logistics) return order
+
+  const flattened = {
+    ...order,
+    shippingName: logistics.shippingName ?? order.shippingName,
+    shippingPhone: logistics.shippingPhone ?? order.shippingPhone,
+    shippingAddress: logistics.shippingAddress ?? order.shippingAddress,
+    shippingCity: logistics.shippingCity ?? order.shippingCity,
+    shippingProvince: logistics.shippingProvince ?? order.shippingProvince,
+    shippingZipCode: logistics.shippingZipCode ?? order.shippingZipCode,
+    shippingCountry: logistics.shippingCountry ?? order.shippingCountry,
+    shippingLatitude: logistics.shippingLatitude ?? order.shippingLatitude,
+    shippingLongitude: logistics.shippingLongitude ?? order.shippingLongitude,
+    billingName: logistics.billingName ?? order.billingName,
+    billingAddress: logistics.billingAddress ?? order.billingAddress,
+    billingCity: logistics.billingCity ?? order.billingCity,
+    billingProvince: logistics.billingProvince ?? order.billingProvince,
+    billingZipCode: logistics.billingZipCode ?? order.billingZipCode,
+    billingCountry: logistics.billingCountry ?? order.billingCountry,
+    notes: logistics.notes ?? order.notes,
+    specialInstructions: logistics.specialInstructions ?? order.specialInstructions,
+  }
+
+  delete flattened.logistics
+  return flattened
+}
+
+function flattenOrderForResponse(order: any) {
+  return flattenOrderTimeline(flattenOrderLogistics(order))
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,6 +58,10 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const search = searchParams.get('search')
     const includeReturns = searchParams.get('includeReturns') === 'true'
+    const includeOrders = searchParams.get('includeOrders') !== 'false'
+    const includeItemsModeRaw = String(searchParams.get('includeItems') || 'full').toLowerCase()
+    const includeItemsMode: 'full' | 'preview' | 'none' =
+      includeItemsModeRaw === 'none' ? 'none' : includeItemsModeRaw === 'preview' ? 'preview' : 'full'
 
     const where: any = {}
     let staffWarehouseId: string | null = null
@@ -53,36 +92,219 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const [orders, total, returns] = await Promise.all([
-      db.order.findMany({
-        where,
-        include: {
-          customer: {
+    const listQuery =
+      includeItemsMode === 'none'
+        ? ({
+            where,
             select: {
               id: true,
-              name: true,
-              email: true,
-              phone: true,
-            }
-          },
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  sku: true,
-                  name: true,
-                  unit: true,
-                }
-              }
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      db.order.count({ where }),
+              orderNumber: true,
+              customerId: true,
+              shippingName: true,
+              shippingPhone: true,
+              shippingAddress: true,
+              shippingCity: true,
+              shippingProvince: true,
+              shippingZipCode: true,
+              shippingCountry: true,
+              status: true,
+              priority: true,
+              totalAmount: true,
+              paymentStatus: true,
+              warehouseId: true,
+              deliveryDate: true,
+              createdAt: true,
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phone: true,
+                  },
+                },
+                logistics: {
+                  select: {
+                    shippingName: true,
+                    shippingPhone: true,
+                    shippingAddress: true,
+                    shippingCity: true,
+                    shippingProvince: true,
+                    shippingZipCode: true,
+                    shippingCountry: true,
+                    shippingLatitude: true,
+                    shippingLongitude: true,
+                    billingName: true,
+                    billingAddress: true,
+                    billingCity: true,
+                    billingProvince: true,
+                    billingZipCode: true,
+                    billingCountry: true,
+                    notes: true,
+                    specialInstructions: true,
+                  },
+                },
+                timeline: {
+                  select: {
+                    confirmedAt: true,
+                    processedAt: true,
+                    shippedAt: true,
+                    deliveryDate: true,
+                    deliveredAt: true,
+                    cancelledAt: true,
+                  },
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+              skip: (page - 1) * limit,
+              take: limit,
+            } as any)
+        : includeItemsMode === 'preview'
+          ? ({
+              where,
+              select: {
+                id: true,
+                orderNumber: true,
+                customerId: true,
+                shippingName: true,
+                shippingPhone: true,
+                shippingAddress: true,
+                shippingCity: true,
+                shippingProvince: true,
+                shippingZipCode: true,
+                shippingCountry: true,
+                status: true,
+                priority: true,
+                totalAmount: true,
+                paymentStatus: true,
+                warehouseId: true,
+                deliveryDate: true,
+                createdAt: true,
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phone: true,
+                  },
+                },
+                logistics: {
+                  select: {
+                    shippingName: true,
+                    shippingPhone: true,
+                    shippingAddress: true,
+                    shippingCity: true,
+                    shippingProvince: true,
+                    shippingZipCode: true,
+                    shippingCountry: true,
+                    shippingLatitude: true,
+                    shippingLongitude: true,
+                    billingName: true,
+                    billingAddress: true,
+                    billingCity: true,
+                    billingProvince: true,
+                    billingZipCode: true,
+                    billingCountry: true,
+                    notes: true,
+                    specialInstructions: true,
+                  },
+                },
+                timeline: {
+                  select: {
+                    confirmedAt: true,
+                    processedAt: true,
+                    shippedAt: true,
+                    deliveryDate: true,
+                    deliveredAt: true,
+                    cancelledAt: true,
+                  },
+                },
+                _count: {
+                  select: { items: true },
+                },
+                items: {
+                  orderBy: { createdAt: 'asc' },
+                  take: 2,
+                  select: {
+                    id: true,
+                    quantity: true,
+                    product: {
+                      select: {
+                        id: true,
+                        sku: true,
+                        name: true,
+                        unit: true,
+                      },
+                    },
+                  },
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+              skip: (page - 1) * limit,
+              take: limit,
+            } as any)
+          : ({
+              where,
+              include: {
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phone: true,
+                  },
+                },
+                logistics: {
+                  select: {
+                    shippingName: true,
+                    shippingPhone: true,
+                    shippingAddress: true,
+                    shippingCity: true,
+                    shippingProvince: true,
+                    shippingZipCode: true,
+                    shippingCountry: true,
+                    shippingLatitude: true,
+                    shippingLongitude: true,
+                    billingName: true,
+                    billingAddress: true,
+                    billingCity: true,
+                    billingProvince: true,
+                    billingZipCode: true,
+                    billingCountry: true,
+                    notes: true,
+                    specialInstructions: true,
+                  },
+                },
+                timeline: {
+                  select: {
+                    confirmedAt: true,
+                    processedAt: true,
+                    shippedAt: true,
+                    deliveryDate: true,
+                    deliveredAt: true,
+                    cancelledAt: true,
+                  },
+                },
+                items: {
+                  include: {
+                    product: {
+                      select: {
+                        id: true,
+                        sku: true,
+                        name: true,
+                        unit: true,
+                      },
+                    },
+                  },
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+              skip: (page - 1) * limit,
+              take: limit,
+            } as any)
+
+    const [ordersRaw, total, returns] = await Promise.all([
+      includeOrders ? db.order.findMany(listQuery) : Promise.resolve([] as any[]),
+      includeOrders ? db.order.count({ where }) : Promise.resolve(0),
       includeReturns
         ? db.return.findMany({
             where: staffWarehouseId
@@ -113,6 +335,14 @@ export async function GET(request: NextRequest) {
         : Promise.resolve([]),
     ])
 
+    const orders =
+      includeItemsMode === 'preview'
+        ? (ordersRaw as any[]).map((order) => ({
+            ...flattenOrderForResponse(order),
+            itemCount: Number(order?._count?.items || 0),
+          }))
+        : (ordersRaw as any[]).map((order) => flattenOrderForResponse(order))
+
     return apiResponse({
       orders,
       returns,
@@ -122,6 +352,21 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / limit)
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get orders skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        orders: [],
+        returns: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get orders error:', error)
     return apiResponse({
       success: false,
@@ -192,6 +437,19 @@ export async function POST(request: NextRequest) {
         tax,
         totalAmount,
         notes,
+        specialInstructions: null,
+        logistics: {
+          create: {
+            shippingName,
+            shippingPhone,
+            shippingAddress,
+            shippingCity,
+            shippingProvince,
+            shippingZipCode,
+            shippingCountry: 'USA',
+            notes: notes || null,
+          },
+        },
         items: {
           create: items.map((item: any) => ({
             productId: item.productId,
@@ -204,6 +462,16 @@ export async function POST(request: NextRequest) {
       include: {
         items: true
       }
+    })
+
+    await upsertOrderTimeline(order.id, {
+      deliveryDate: normalizedDeliveryDate,
+    })
+
+    await notifyOrderCreated({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerId: order.customerId,
     })
 
     return apiResponse({ success: true, order })
@@ -309,7 +577,29 @@ export async function PATCH(request: NextRequest) {
           warehouseId: originalOrder.warehouseId,
           deliveryDate: originalOrder.deliveryDate || defaultDeliveryDate,
           notes: `Replacement order for ${replacement.returnNumber}${originalOrder.notes ? ` | ${originalOrder.notes}` : ''}`,
+          specialInstructions: originalOrder.specialInstructions,
           processedAt: now,
+          logistics: {
+            create: {
+              shippingName: originalOrder.shippingName,
+              shippingPhone: originalOrder.shippingPhone,
+              shippingAddress: originalOrder.shippingAddress,
+              shippingCity: originalOrder.shippingCity,
+              shippingProvince: originalOrder.shippingProvince,
+              shippingZipCode: originalOrder.shippingZipCode,
+              shippingCountry: originalOrder.shippingCountry,
+              shippingLatitude: originalOrder.shippingLatitude,
+              shippingLongitude: originalOrder.shippingLongitude,
+              billingName: originalOrder.billingName,
+              billingAddress: originalOrder.billingAddress,
+              billingCity: originalOrder.billingCity,
+              billingProvince: originalOrder.billingProvince,
+              billingZipCode: originalOrder.billingZipCode,
+              billingCountry: originalOrder.billingCountry,
+              notes: `Replacement order for ${replacement.returnNumber}${originalOrder.notes ? ` | ${originalOrder.notes}` : ''}`,
+              specialInstructions: originalOrder.specialInstructions,
+            },
+          },
           items: {
             create: originalOrder.items.map((item) => ({
               productId: item.productId,
@@ -320,6 +610,11 @@ export async function PATCH(request: NextRequest) {
             })),
           },
         },
+      })
+
+      await upsertOrderTimeline(replacementOrder.id, {
+        processedAt: now,
+        deliveryDate: replacementOrder.deliveryDate ?? originalOrder.deliveryDate ?? defaultDeliveryDate,
       })
     }
 
@@ -350,6 +645,13 @@ export async function PATCH(request: NextRequest) {
           },
         },
       },
+    })
+
+    await notifyReplacementStatusChanged({
+      returnId: updated.id,
+      returnNumber: updated.returnNumber,
+      customerId: replacement.customerId,
+      status: updated.status,
     })
 
     return apiResponse({

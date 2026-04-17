@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { apiError, apiResponse, forbiddenError, getCurrentUser, unauthorizedError } from '@/lib/auth'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getAssignedWarehouseId, isWarehouseScopedStaff } from '@/lib/warehouse-scope'
 
 function makeSkuPrefix(name: string) {
@@ -105,6 +105,20 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get stock batches skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        stockBatches: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get stock batches error:', error)
     return apiError('Failed to fetch stock batches', 500)
   }

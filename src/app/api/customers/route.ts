@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getCurrentUser, apiResponse, apiError, unauthorizedError, forbiddenError, isAdmin, hashPassword } from '@/lib/auth'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 
 // GET /api/customers - List all customers
 export async function GET(request: NextRequest) {
@@ -45,6 +45,20 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get customers skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        data: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get customers error:', error)
     return apiError(error instanceof Error ? error.message : 'Failed to fetch customers', 500)
   }

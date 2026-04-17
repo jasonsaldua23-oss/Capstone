@@ -252,6 +252,53 @@ model Order {
   dropPoints       TripDropPoint[]
   returns          Return[]
   feedbacks        Feedback[]
+  logistics        OrderLogistics?
+  timeline         OrderTimeline?
+}
+
+model OrderLogistics {
+  id                String   @id @default(cuid())
+  orderId           String   @unique
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  shippingName      String
+  shippingPhone     String
+  shippingAddress   String
+  shippingCity      String
+  shippingProvince  String
+  shippingZipCode   String
+  shippingCountry   String   @default("USA")
+  shippingLatitude  Float?
+  shippingLongitude Float?
+
+  billingName       String?
+  billingAddress    String?
+  billingCity       String?
+  billingProvince   String?
+  billingZipCode    String?
+  billingCountry    String?
+
+  notes             String?
+  specialInstructions String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model OrderTimeline {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  confirmedAt      DateTime?
+  processedAt      DateTime?
+  shippedAt        DateTime?
+  deliveryDate     DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model OrderItem {

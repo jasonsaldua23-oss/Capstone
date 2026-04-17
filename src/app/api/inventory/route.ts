@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getCurrentUser, apiResponse, apiError, unauthorizedError, forbiddenError, isWarehouseStaff } from '@/lib/auth'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getAssignedWarehouseId, isWarehouseScopedStaff } from '@/lib/warehouse-scope'
 
 // GET /api/inventory - List all inventory
@@ -76,6 +76,20 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil((lowStock ? filteredInventory.length : total) / pageSize),
     })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get inventory skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        data: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+      })
+    }
+
     console.error('Get inventory error:', error)
     return apiError(error instanceof Error ? error.message : 'Failed to fetch inventory', 500)
   }

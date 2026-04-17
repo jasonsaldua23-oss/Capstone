@@ -135,6 +135,15 @@ interface StockBatchItem {
   }
 }
 
+interface PortalNotification {
+  id: string
+  title: string
+  message: string
+  type: string | null
+  isRead: boolean
+  createdAt: string
+}
+
 interface WarehouseOrderItem {
   id: string
   orderNumber: string
@@ -404,6 +413,7 @@ export function WarehousePortal() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
+  const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -432,6 +442,9 @@ export function WarehousePortal() {
   const [newProductPrice, setNewProductPrice] = useState('')
   const [newProductUnit, setNewProductUnit] = useState('piece')
   const [newProductImageFile, setNewProductImageFile] = useState<File | null>(null)
+  const [notifications, setNotifications] = useState<PortalNotification[]>([])
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
   const hasAssignedWarehouse = warehouses.length > 0
   const assignedWarehouse = warehouses[0] || null
   const sidebarNavItems = navItems
@@ -847,7 +860,7 @@ export function WarehousePortal() {
   const fetchOrdersData = async () => {
     setLoadingOrders(true)
     try {
-      const requestOrders = () => fetch('/api/orders?limit=100', { cache: 'no-store', credentials: 'include' })
+      const requestOrders = () => fetch('/api/orders?limit=100&includeItems=none', { cache: 'no-store', credentials: 'include' })
 
       let response = await requestOrders()
       let data = await response.json().catch(() => ({}))
@@ -889,7 +902,7 @@ export function WarehousePortal() {
   const fetchReturnsData = async () => {
     setLoadingReturns(true)
     try {
-      const response = await fetch('/api/orders?includeReturns=true&limit=100', { cache: 'no-store' })
+      const response = await fetch('/api/orders?includeReturns=true&includeOrders=false&includeItems=none&limit=100', { cache: 'no-store' })
       if (!response.ok) throw new Error('Failed replacement fetch')
       const data = await response.json()
       setReturns(getCollection<WarehouseReturnItem>(data, ['returns']))
@@ -1177,6 +1190,76 @@ export function WarehousePortal() {
     await logout()
     toast.success('Logged out')
   }
+
+  const openOrderDetail = async (order: WarehouseOrderItem) => {
+    setSelectedOrder(order)
+    setLoadingOrderDetail(true)
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, { cache: 'no-store', credentials: 'include' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false || !payload?.order) return
+      setSelectedOrder(payload.order as WarehouseOrderItem)
+    } catch (error) {
+      console.error('Failed to load order details:', error)
+    } finally {
+      setLoadingOrderDetail(false)
+    }
+  }
+
+  const fetchNotifications = async () => {
+    setNotificationsLoading(true)
+    try {
+      const response = await fetch('/api/notifications', { cache: 'no-store' })
+      if (!response.ok) return
+
+      const payload = await response.json()
+      const list = Array.isArray(payload?.notifications) ? payload.notifications : []
+      setNotifications(list)
+      setUnreadNotifications(Number(payload?.unreadCount || 0))
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error)
+    } finally {
+      setNotificationsLoading(false)
+    }
+  }
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAll: true }),
+      })
+      if (!response.ok) return
+      setUnreadNotifications(0)
+      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })))
+    } catch (error) {
+      console.error('Failed to mark notifications as read:', error)
+    }
+  }
+
+  const handleNotificationsOpen = async (open: boolean) => {
+    if (!open) return
+    await fetchNotifications()
+    if (unreadNotifications > 0) {
+      await markAllNotificationsAsRead()
+    }
+  }
+
+  const formatNotificationTime = (createdAt: string) => {
+    const date = new Date(createdAt)
+    if (Number.isNaN(date.getTime())) return ''
+    return date.toLocaleString()
+  }
+
+  useEffect(() => {
+    fetchNotifications()
+    const interval = window.setInterval(() => {
+      fetchNotifications()
+    }, 60000)
+
+    return () => window.clearInterval(interval)
+  }, [])
 
   const getAvailableQty = (item: InventoryItem) => Math.max(0, (item.quantity ?? 0) - (item.reservedQuantity ?? 0))
 
@@ -1565,10 +1648,31 @@ export function WarehousePortal() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" />
-              </Button>
+              <DropdownMenu onOpenChange={(open) => { void handleNotificationsOpen(open) }}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative">
+                    <Bell className="h-5 w-5" />
+                    {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" />}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80">
+                  <div className="px-2 py-1.5 text-sm font-medium">Notifications</div>
+                  <DropdownMenuSeparator />
+                  {notificationsLoading ? (
+                    <div className="px-2 py-3 text-sm text-gray-500">Loading notifications...</div>
+                  ) : notifications.length === 0 ? (
+                    <div className="px-2 py-3 text-sm text-gray-500">No notifications yet.</div>
+                  ) : (
+                    notifications.slice(0, 8).map((item) => (
+                      <div key={item.id} className="px-2 py-2 border-b last:border-b-0">
+                        <p className="text-sm font-medium text-gray-900">{item.title}</p>
+                        <p className="text-xs text-gray-600">{item.message}</p>
+                        <p className="text-[11px] text-gray-500 mt-1">{formatNotificationTime(item.createdAt)}</p>
+                      </div>
+                    ))
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="gap-2">
@@ -1757,7 +1861,7 @@ export function WarehousePortal() {
                                   size="icon"
                                   variant="ghost"
                                   className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  onClick={() => setSelectedOrder(order)}
+                                  onClick={() => void openOrderDetail(order)}
                                   title="View details"
                                 >
                                   <Eye className="h-4 w-4" />
@@ -2663,6 +2767,11 @@ export function WarehousePortal() {
                 <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
                 <DialogDescription>Complete order and client information</DialogDescription>
               </DialogHeader>
+              {loadingOrderDetail ? (
+                <div className="h-20 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+                </div>
+              ) : null}
               <div className="space-y-3">
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Order Status</p>
