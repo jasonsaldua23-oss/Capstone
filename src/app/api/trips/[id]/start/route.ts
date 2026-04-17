@@ -17,6 +17,9 @@ export async function POST(
     }
 
     const { id } = await params
+    const body = await request.json().catch(() => ({}))
+    const requestLatitude = Number((body as any)?.latitude)
+    const requestLongitude = Number((body as any)?.longitude)
 
     const driver = await db.driver.findFirst({
       where: {
@@ -66,7 +69,7 @@ export async function POST(
       )
     }
 
-    const locationReady = await db.locationLog.findFirst({
+    let locationReady = await db.locationLog.findFirst({
       where: {
         driverId: driver.id,
         recordedAt: {
@@ -77,8 +80,21 @@ export async function POST(
       select: { id: true },
     })
 
-    if (!locationReady) {
-      return apiError('Location must be enabled before starting trip. Turn on location and try again.', 400)
+    if (!locationReady && Number.isFinite(requestLatitude) && Number.isFinite(requestLongitude)) {
+      try {
+        const fallbackLog = await db.locationLog.create({
+          data: {
+            driverId: driver.id,
+            tripId: id,
+            latitude: requestLatitude,
+            longitude: requestLongitude,
+          },
+          select: { id: true },
+        })
+        locationReady = fallbackLog
+      } catch (locationError) {
+        console.warn('Start trip fallback location log failed:', locationError)
+      }
     }
 
     const now = new Date()
@@ -135,7 +151,9 @@ export async function POST(
     return apiResponse({
       success: true,
       trip: startedTrip,
-      message: 'Trip started successfully',
+      message: locationReady
+        ? 'Trip started successfully'
+        : 'Trip started successfully. Enable location to keep live tracking accurate.',
     })
   } catch (error) {
     console.error('Start trip error:', error)

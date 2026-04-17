@@ -830,10 +830,15 @@ function TripDetailView({
     try {
       const response = await fetch(`/api/trips/${trip.id}/start`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          latitude: currentLocation?.lat ?? null,
+          longitude: currentLocation?.lng ?? null,
+        }),
       })
       const payload = await response.json().catch(() => ({}))
       if (response.ok && payload?.success !== false) {
-        toast.success('Trip started')
+        toast.success(payload?.message || 'Trip started')
         await onRefreshTrips()
       } else {
         toast.error(payload?.error || 'Failed to start trip')
