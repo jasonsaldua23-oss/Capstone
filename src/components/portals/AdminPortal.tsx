@@ -388,31 +388,15 @@ export function AdminPortal() {
 // Dashboard View Component
 function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
-  const [dashboardTrips, setDashboardTrips] = useState<any[]>([])
-  const [dashboardDrivers, setDashboardDrivers] = useState<any[]>([])
 
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        const [ordersRes, tripsRes, driversRes] = await Promise.all([
-          fetch('/api/orders?limit=2000'),
-          fetch('/api/trips?limit=1000'),
-          fetch('/api/drivers?active=true'),
-        ])
+        const ordersRes = await fetch('/api/orders?limit=200')
 
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json()
           setDashboardOrders(getCollection<any>(ordersData, ['orders']))
-        }
-
-        if (tripsRes.ok) {
-          const tripsData = await tripsRes.json()
-          setDashboardTrips(getCollection<any>(tripsData, ['trips']))
-        }
-
-        if (driversRes.ok) {
-          const driversData = await driversRes.json()
-          setDashboardDrivers(getCollection<any>(driversData, ['drivers']))
         }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error)
@@ -422,21 +406,12 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
   }, [])
 
   const dashboardOrderStats = useMemo(() => {
-    const totalOrders = dashboardOrders.length
-    const processing = dashboardOrders.filter((order) => String(order?.status || '').toUpperCase() === 'PROCESSING').length
-    const loadedOutForDelivery = dashboardOrders.filter((order) => {
-      const status = String(order?.status || '').toUpperCase()
-      return status === 'PACKED' || status === 'DISPATCHED'
-    }).length
-    const outForDelivery = dashboardOrders.filter((order) => String(order?.status || '').toUpperCase() === 'OUT_FOR_DELIVERY').length
-    const delivered = dashboardOrders.filter((order) => String(order?.status || '').toUpperCase() === 'DELIVERED').length
-    const deliveredPaidRevenue = dashboardOrders
-      .filter(
-        (order) =>
-          String(order?.status || '').toUpperCase() === 'DELIVERED' &&
-          String(order?.paymentStatus || '').toLowerCase() === 'paid'
-      )
-      .reduce((sum, order) => sum + Number(order?.totalAmount || 0), 0)
+    const totalOrders = Number(stats?.totalOrders || dashboardOrders.length || 0)
+    const processing = Number(stats?.pendingOrders || 0)
+    const loadedOutForDelivery = Number(stats?.processingOrders || 0)
+    const outForDelivery = Number(stats?.inTransitOrders || 0)
+    const delivered = Number(stats?.deliveredOrders || 0)
+    const deliveredPaidRevenue = Number(stats?.totalRevenue || 0)
 
     return {
       totalOrders,
@@ -446,12 +421,10 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
       delivered,
       deliveredPaidRevenue,
     }
-  }, [dashboardOrders])
+  }, [dashboardOrders.length, stats])
 
-  const activeTripsFromData = useMemo(
-    () => dashboardTrips.filter((trip) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))).length,
-    [dashboardTrips]
-  )
+  const activeTripsFromData = Number(stats?.activeTrips || 0)
+  const availableDrivers = Number(stats?.availableDrivers || stats?.activeDrivers || 0)
 
   const statCards = [
     { label: 'Total Orders', value: dashboardOrderStats.totalOrders, color: 'blue' },
@@ -592,7 +565,7 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-green-100 text-sm">Available Drivers</p>
-                <p className="text-3xl font-bold mt-1">{dashboardDrivers.length}</p>
+                <p className="text-3xl font-bold mt-1">{availableDrivers}</p>
               </div>
               <UserCheck className="h-10 w-10 text-green-200" />
             </div>

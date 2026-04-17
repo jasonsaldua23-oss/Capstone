@@ -162,11 +162,11 @@ export default function Home() {
     }
     checkAuth()
     
-    // Timeout to force loading to end after 5 seconds
+    // Timeout to force loading to end after 3 seconds
     const timeout = setTimeout(() => {
       console.warn('Auth check timeout - forcing load completion')
       setIsLoading(false)
-    }, 5000)
+    }, 3000)
     
     return () => {
       clearTimeout(timeout)
