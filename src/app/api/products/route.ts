@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Get products error:', error)
-    return apiError('Failed to fetch products', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to fetch products', 500)
   }
 }
 
@@ -108,6 +108,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Create product error:', error)
-    return apiError('Failed to create product', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to create product', 500)
   }
 }

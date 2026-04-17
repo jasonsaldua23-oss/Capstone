@@ -48,37 +48,7 @@ export async function GET(request: NextRequest) {
     return apiResponse({ drivers })
   } catch (error) {
     console.error('Get drivers error:', error)
-    return apiResponse({
-      drivers: [
-        {
-          id: '1',
-          user: { name: 'Mike Johnson', email: 'mike@logistics.com', phone: '+1555123456' },
-          licenseNumber: 'DL-12345',
-          licenseType: 'B',
-          rating: 4.8,
-          totalDeliveries: 156,
-          isActive: true,
-        },
-        {
-          id: '2',
-          user: { name: 'Sarah Williams', email: 'sarah@logistics.com', phone: '+1555654321' },
-          licenseNumber: 'DL-67890',
-          licenseType: 'C',
-          rating: 4.9,
-          totalDeliveries: 203,
-          isActive: true,
-        },
-        {
-          id: '3',
-          user: { name: 'Tom Davis', email: 'tom@logistics.com', phone: '+1555987654' },
-          licenseNumber: 'DL-11111',
-          licenseType: 'A',
-          rating: 4.5,
-          totalDeliveries: 89,
-          isActive: true,
-        }
-      ]
-    })
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to fetch drivers', drivers: [] }, 500)
   }
 }
 
@@ -112,7 +82,7 @@ export async function POST(request: NextRequest) {
     return apiResponse({ success: true, driver })
   } catch (error) {
     console.error('Create driver error:', error)
-    return apiResponse({ success: false, error: 'Failed to create driver' }, 500)
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to create driver' }, 500)
   }
 }
 
@@ -212,6 +182,6 @@ export async function PUT(request: NextRequest) {
     return apiResponse({ success: true, driver, message: 'Driver updated successfully' })
   } catch (error) {
     console.error('Update driver error:', error)
-    return apiResponse({ success: false, error: 'Failed to update driver' }, 500)
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to update driver' }, 500)
   }
 }

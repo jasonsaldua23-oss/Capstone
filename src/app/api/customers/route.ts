@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Get customers error:', error)
-    return apiError('Failed to fetch customers', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to fetch customers', 500)
   }
 }
 
@@ -104,6 +104,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Create customer error:', error)
-    return apiError('Failed to create customer', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to create customer', 500)
   }
 }

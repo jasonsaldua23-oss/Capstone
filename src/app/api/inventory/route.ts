@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Get inventory error:', error)
-    return apiError('Failed to fetch inventory', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to fetch inventory', 500)
   }
 }
 
@@ -191,6 +191,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Update inventory error:', error)
-    return apiError('Failed to update inventory', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to update inventory', 500)
   }
 }

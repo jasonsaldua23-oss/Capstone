@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
     return apiResponse({ orders })
   } catch (error) {
     console.error('Get customer orders error:', error)
-    return apiResponse({ success: false, error: 'Failed to fetch customer orders', orders: [] }, 500)
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to fetch customer orders', orders: [] }, 500)
   }
 }
 
@@ -435,6 +435,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Create customer order error:', error)
-    return apiResponse({ success: false, error: 'Failed to place order' }, 500)
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to place order' }, 500)
   }
 }

@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Get warehouses error:', error)
-    return apiError('Failed to fetch warehouses', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to fetch warehouses', 500)
   }
 }
 
@@ -120,6 +120,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Create warehouse error:', error)
-    return apiError('Failed to create warehouse', 500)
+    return apiError(error instanceof Error ? error.message : 'Failed to create warehouse', 500)
   }
 }

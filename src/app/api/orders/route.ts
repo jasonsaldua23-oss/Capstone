@@ -124,6 +124,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Get orders error:', error)
     return apiResponse({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch orders',
       orders: [],
       returns: [],
       total: 0,
@@ -207,7 +209,7 @@ export async function POST(request: NextRequest) {
     return apiResponse({ success: true, order })
   } catch (error) {
     console.error('Create order error:', error)
-    return apiResponse({ success: false, error: 'Failed to create order' }, 500)
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to create order' }, 500)
   }
 }
 
@@ -363,6 +365,6 @@ export async function PATCH(request: NextRequest) {
     })
   } catch (error) {
     console.error('Update replacement workflow error:', error)
-    return apiResponse({ success: false, error: 'Failed to update replacement workflow' }, 500)
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to update replacement workflow' }, 500)
   }
 }
