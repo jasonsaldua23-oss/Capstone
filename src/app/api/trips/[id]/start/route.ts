@@ -99,7 +99,6 @@ export async function POST(
         },
         data: {
           status: 'OUT_FOR_DELIVERY',
-          shippedAt: now,
         },
       })
 

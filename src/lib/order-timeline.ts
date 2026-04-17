@@ -68,12 +68,12 @@ export function flattenOrderTimeline(order: any) {
 
   const flattened = {
     ...order,
-    confirmedAt: timeline.confirmedAt ?? order.confirmedAt,
-    processedAt: timeline.processedAt ?? order.processedAt,
-    shippedAt: timeline.shippedAt ?? order.shippedAt,
-    deliveryDate: timeline.deliveryDate ?? order.deliveryDate,
-    deliveredAt: timeline.deliveredAt ?? order.deliveredAt,
-    cancelledAt: timeline.cancelledAt ?? order.cancelledAt,
+    confirmedAt: timeline.confirmedAt,
+    processedAt: timeline.processedAt,
+    shippedAt: timeline.shippedAt,
+    deliveryDate: timeline.deliveryDate,
+    deliveredAt: timeline.deliveredAt,
+    cancelledAt: timeline.cancelledAt,
   }
 
   delete flattened.timeline

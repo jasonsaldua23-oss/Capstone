@@ -201,25 +201,6 @@ model Order {
   customerId       String
   customer         Customer     @relation(fields: [customerId], references: [id])
   
-  // Shipping Address
-  shippingName     String
-  shippingPhone    String
-  shippingAddress  String
-  shippingCity     String
-  shippingProvince    String
-  shippingZipCode  String
-  shippingCountry  String       @default("USA")
-  shippingLatitude Float?
-  shippingLongitude Float?
-  
-  // Billing Address (optional)
-  billingName      String?
-  billingAddress   String?
-  billingCity      String?
-  billingProvince     String?
-  billingZipCode   String?
-  billingCountry   String?
-  
   // Order Details
   status           OrderStatus  @default(PROCESSING)
   priority         String       @default("normal") // low, normal, high, urgent
@@ -233,16 +214,6 @@ model Order {
   
   // Fulfillment
   warehouseId      String?
-  notes            String?
-  specialInstructions String?
-  
-  // Timestamps
-  confirmedAt      DateTime?
-  processedAt      DateTime?
-  shippedAt        DateTime?
-  deliveryDate     DateTime?
-  deliveredAt      DateTime?
-  cancelledAt      DateTime?
   
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

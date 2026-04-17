@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { upsertOrderTimeline } from '@/lib/order-timeline';
 
 const prisma = new PrismaClient();
 
@@ -33,14 +34,17 @@ export async function POST(
         await tx.order.update({
           where: { id: stop.orderId },
           data: { 
-            status: 'DELIVERED', 
-            deliveredAt: new Date() 
+            status: 'DELIVERED',
           }
         });
       }
 
       return stop;
     });
+
+    if (result.orderId) {
+      await upsertOrderTimeline(result.orderId, { deliveredAt: new Date() })
+    }
 
     return NextResponse.json({ success: true, stop: result });
   } catch (error: any) {

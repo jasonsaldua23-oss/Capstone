@@ -59,31 +59,28 @@ export async function PATCH(
     }
 
     const cancelledAt = new Date()
-    let updated: { id: string; status: string; cancelledAt: Date | null } | null = null
+    let updated: { id: string; status: string } | null = null
 
     try {
       updated = await db.order.update({
         where: { id: order.id },
         data: {
           status: 'CANCELLED',
-          cancelledAt,
         },
         select: {
           id: true,
           status: true,
-          cancelledAt: true,
         },
       })
     } catch {
       await db.$executeRaw`
         UPDATE "Order"
-        SET "status" = 'CANCELLED', "cancelledAt" = ${cancelledAt}, "updatedAt" = ${cancelledAt}
+        SET "status" = 'CANCELLED', "updatedAt" = ${cancelledAt}
         WHERE "id" = ${order.id}
       `
       updated = {
         id: order.id,
         status: 'CANCELLED',
-        cancelledAt,
       }
     }
 

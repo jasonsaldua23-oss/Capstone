@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server'
-import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getCurrentUser, apiResponse, unauthorizedError } from '@/lib/auth'
 import { normalizeLegacyOrderStatuses } from '@/lib/order-status'
@@ -42,109 +41,50 @@ export async function GET(request: NextRequest) {
       return unauthorizedError()
     }
 
-    const ordersRows = await db.$queryRaw<Array<Record<string, any>>>`
-      SELECT
-        o."id",
-        o."orderNumber",
-        o."customerId",
-        o."shippingName",
-        o."shippingPhone",
-        o."shippingAddress",
-        o."shippingCity",
-        o."shippingProvince",
-        o."shippingZipCode",
-        o."shippingCountry",
-        o."shippingLatitude",
-        o."shippingLongitude",
-        o."status",
-        o."priority",
-        o."subtotal",
-        o."tax",
-        o."shippingCost",
-        o."discount",
-        o."totalAmount",
-        o."paymentStatus",
-        o."paymentMethod",
-        o."warehouseId",
-        o."notes",
-        o."specialInstructions",
-        o."confirmedAt",
-        o."processedAt",
-        o."shippedAt",
-        o."deliveryDate",
-        o."deliveredAt",
-        o."cancelledAt",
-        o."createdAt",
-        o."updatedAt"
-      FROM "Order" o
-      WHERE o."customerId" = ${user.userId}
-      ORDER BY o."createdAt" DESC
-    `
+    const ordersRaw = await db.order.findMany({
+      where: { customerId: user.userId },
+      include: {
+        logistics: true,
+        timeline: true,
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                sku: true,
+                name: true,
+                unit: true,
+                imageUrl: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
 
-    if (ordersRows.length === 0) {
-      return apiResponse({ orders: [] })
-    }
-
-    const orderIds = ordersRows.map((row) => String(row.id))
-    const itemsRows = await db.$queryRaw<Array<Record<string, any>>>(
-      Prisma.sql`
-        SELECT
-          oi."id",
-          oi."orderId",
-          oi."productId",
-          oi."quantity",
-          oi."unitPrice",
-          oi."totalPrice",
-          oi."notes",
-          oi."createdAt",
-          p."id" as "p_id",
-          p."sku" as "p_sku",
-          p."name" as "p_name",
-          p."unit" as "p_unit",
-          p."imageUrl" as "p_imageUrl"
-        FROM "OrderItem" oi
-        LEFT JOIN "Product" p ON p."id" = oi."productId"
-        WHERE oi."orderId" IN (${Prisma.join(orderIds)})
-        ORDER BY oi."createdAt" ASC
-      `
-    )
-
-    const itemsByOrderId = new Map<string, any[]>()
-    for (const row of itemsRows) {
-      const orderId = String(row.orderId)
-      const next = itemsByOrderId.get(orderId) || []
-      next.push({
-        id: row.id,
-        orderId: row.orderId,
-        productId: row.productId,
-        quantity: Number(row.quantity || 0),
-        unitPrice: Number(row.unitPrice || 0),
-        totalPrice: Number(row.totalPrice || 0),
-        notes: row.notes,
-        createdAt: row.createdAt,
-        product: row.p_id
-          ? {
-              id: row.p_id,
-              sku: row.p_sku,
-              name: row.p_name,
-              unit: row.p_unit,
-              imageUrl: row.p_imageUrl,
-            }
-          : null,
-      })
-      itemsByOrderId.set(orderId, next)
-    }
-
-    const orders = ordersRows.map((row) => ({
-      ...row,
-      subtotal: Number(row.subtotal || 0),
-      tax: Number(row.tax || 0),
-      shippingCost: Number(row.shippingCost || 0),
-      discount: Number(row.discount || 0),
-      totalAmount: Number(row.totalAmount || 0),
-      shippingLatitude: row.shippingLatitude === null ? null : Number(row.shippingLatitude),
-      shippingLongitude: row.shippingLongitude === null ? null : Number(row.shippingLongitude),
-      items: itemsByOrderId.get(String(row.id)) || [],
+    const orders = ordersRaw.map((order) => ({
+      ...order,
+      shippingName: order.logistics?.shippingName || '',
+      shippingPhone: order.logistics?.shippingPhone || '',
+      shippingAddress: order.logistics?.shippingAddress || '',
+      shippingCity: order.logistics?.shippingCity || '',
+      shippingProvince: order.logistics?.shippingProvince || '',
+      shippingZipCode: order.logistics?.shippingZipCode || '',
+      shippingCountry: order.logistics?.shippingCountry || 'USA',
+      shippingLatitude: order.logistics?.shippingLatitude ?? null,
+      shippingLongitude: order.logistics?.shippingLongitude ?? null,
+      notes: order.logistics?.notes ?? null,
+      specialInstructions: order.logistics?.specialInstructions ?? null,
+      confirmedAt: order.timeline?.confirmedAt ?? null,
+      processedAt: order.timeline?.processedAt ?? null,
+      shippedAt: order.timeline?.shippedAt ?? null,
+      deliveryDate: order.timeline?.deliveryDate ?? null,
+      deliveredAt: order.timeline?.deliveredAt ?? null,
+      cancelledAt: order.timeline?.cancelledAt ?? null,
+      logistics: undefined,
+      timeline: undefined,
     }))
 
     return apiResponse({ orders })
@@ -381,24 +321,12 @@ export async function POST(request: NextRequest) {
         status: 'PROCESSING',
         paymentStatus: 'pending_approval',
         paymentMethod,
-        shippingName,
-        shippingPhone,
-        shippingAddress,
-        shippingCity,
-        shippingProvince,
-        shippingZipCode,
-        shippingCountry: shippingCountry || 'USA',
-        shippingLatitude: normalizedShippingLatitude,
-        shippingLongitude: normalizedShippingLongitude,
-        deliveryDate: normalizedDeliveryDate,
         subtotal,
         tax,
         shippingCost,
         discount,
         totalAmount,
         warehouseId: assignedWarehouseId,
-        notes: mergedNotes,
-        specialInstructions: mergedSpecialInstructions,
         priority: assignedWarehouseId ? 'normal' : splitFulfillmentPossible ? 'high' : 'urgent',
         logistics: {
           create: {

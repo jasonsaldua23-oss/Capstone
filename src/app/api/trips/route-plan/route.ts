@@ -90,13 +90,20 @@ export async function GET(request: NextRequest) {
     const candidateOrders = await db.order.findMany({
       where: {
         OR: [
-          { deliveryDate: { gte: start, lt: end } },
-          { deliveryDate: null, createdAt: { gte: start, lt: end } },
+          { timeline: { is: { deliveryDate: { gte: start, lt: end } } } },
+          {
+            AND: [
+              { timeline: { is: { deliveryDate: null } } },
+              { createdAt: { gte: start, lt: end } },
+            ],
+          },
         ],
         status: { in: ['PROCESSING', 'PACKED'] as any },
       },
       include: {
         customer: { select: { name: true } },
+        logistics: true,
+        timeline: true,
       },
       orderBy: { createdAt: 'asc' },
     })
@@ -116,8 +123,8 @@ export async function GET(request: NextRequest) {
     const eligibleOrders = candidateOrders
       .filter((o) => !assignedOrderIds.has(o.id))
       .map((order) => {
-        const orderLat = toNumberCoord(order.shippingLatitude)
-        const orderLng = toNumberCoord(order.shippingLongitude)
+        const orderLat = toNumberCoord(order.logistics?.shippingLatitude)
+        const orderLng = toNumberCoord(order.logistics?.shippingLongitude)
         const hasGeo = orderLat !== null && orderLng !== null
         const distanceKm =
           hasGeo && whLat !== null && whLng !== null
@@ -126,9 +133,9 @@ export async function GET(request: NextRequest) {
         return {
           id: order.id,
           orderNumber: order.orderNumber,
-          city: order.shippingCity,
-          customerName: order.customer?.name || order.shippingName,
-          address: order.shippingAddress,
+          city: order.logistics?.shippingCity || '',
+          customerName: order.customer?.name || order.logistics?.shippingName || '',
+          address: order.logistics?.shippingAddress || '',
           latitude: orderLat,
           longitude: orderLng,
           distanceKm,
@@ -239,14 +246,23 @@ export async function POST(request: NextRequest) {
     } else {
       const { start, end } = getDateRange(String(date))
       orderWhere.OR = [
-        { deliveryDate: { gte: start, lt: end } },
-        { deliveryDate: null, createdAt: { gte: start, lt: end } },
+        { timeline: { is: { deliveryDate: { gte: start, lt: end } } } },
+        {
+          AND: [
+            { timeline: { is: { deliveryDate: null } } },
+            { createdAt: { gte: start, lt: end } },
+          ],
+        },
       ]
-      orderWhere.shippingCity = String(city)
+      orderWhere.logistics = { is: { shippingCity: String(city) } }
     }
 
     const orders = await db.order.findMany({
       where: orderWhere,
+      include: {
+        logistics: true,
+        timeline: true,
+      },
       orderBy: { createdAt: 'asc' },
     })
     if (orders.length === 0) {
@@ -274,8 +290,8 @@ export async function POST(request: NextRequest) {
     const sortedOrders = orders
       .filter((o) => !assignedOrderIds.has(o.id))
       .map((o) => {
-        const orderLat = toNumberCoord(o.shippingLatitude)
-        const orderLng = toNumberCoord(o.shippingLongitude)
+        const orderLat = toNumberCoord(o.logistics?.shippingLatitude)
+        const orderLng = toNumberCoord(o.logistics?.shippingLongitude)
         const hasGeo = orderLat !== null && orderLng !== null
         const distanceKm =
           hasGeo && whLat !== null && whLng !== null
@@ -314,15 +330,15 @@ export async function POST(request: NextRequest) {
               sequence: index + 1,
               dropPointType: 'DELIVERY',
               status: 'PENDING',
-              locationName: entry.order.shippingName,
-              address: entry.order.shippingAddress,
-              city: entry.order.shippingCity,
-              province: entry.order.shippingProvince,
-              zipCode: entry.order.shippingZipCode,
-              latitude: entry.order.shippingLatitude,
-              longitude: entry.order.shippingLongitude,
-              contactName: entry.order.shippingName,
-              contactPhone: entry.order.shippingPhone,
+              locationName: entry.order.logistics?.shippingName || '',
+              address: entry.order.logistics?.shippingAddress || '',
+              city: entry.order.logistics?.shippingCity || '',
+              province: entry.order.logistics?.shippingProvince || '',
+              zipCode: entry.order.logistics?.shippingZipCode || '',
+              latitude: entry.order.logistics?.shippingLatitude ?? null,
+              longitude: entry.order.logistics?.shippingLongitude ?? null,
+              contactName: entry.order.logistics?.shippingName || '',
+              contactPhone: entry.order.logistics?.shippingPhone || '',
             })),
           },
         },

@@ -302,22 +302,30 @@ async function main() {
     data: {
       orderNumber: 'ORD-2024-0001',
       customerId: customer.id,
-      shippingName: customer.name,
-      shippingPhone: customer.phone || '',
-      shippingAddress: customer.address || '',
-      shippingCity: customer.city || '',
-      shippingProvince: customer.province || '',
-      shippingZipCode: customer.zipCode || '',
-      shippingCountry: customer.country,
-      shippingLatitude: customer.latitude,
-      shippingLongitude: customer.longitude,
       status: 'DELIVERED',
       subtotal: 179.98,
       tax: 14.40,
       totalAmount: 194.38,
       paymentStatus: 'paid',
       paymentMethod: 'credit_card',
-      deliveredAt: new Date(),
+      logistics: {
+        create: {
+          shippingName: customer.name,
+          shippingPhone: customer.phone || '',
+          shippingAddress: customer.address || '',
+          shippingCity: customer.city || '',
+          shippingProvince: customer.province || '',
+          shippingZipCode: customer.zipCode || '',
+          shippingCountry: customer.country,
+          shippingLatitude: customer.latitude,
+          shippingLongitude: customer.longitude,
+        },
+      },
+      timeline: {
+        create: {
+          deliveredAt: new Date(),
+        },
+      },
       items: {
         create: [
           { productId: product1.id, quantity: 1, unitPrice: 149.99, totalPrice: 149.99 },
@@ -331,21 +339,30 @@ async function main() {
     data: {
       orderNumber: 'ORD-2024-0002',
       customerId: customer.id,
-      shippingName: customer.name,
-      shippingPhone: customer.phone || '',
-      shippingAddress: '456 Different St',
-      shippingCity: 'Brooklyn',
-      shippingProvince: 'NY',
-      shippingZipCode: '11201',
-      shippingCountry: 'USA',
-      shippingLatitude: 40.6782,
-      shippingLongitude: -73.9442,
       status: 'DISPATCHED',
       subtotal: 84.98,
       tax: 6.80,
       totalAmount: 91.78,
       paymentStatus: 'paid',
       paymentMethod: 'credit_card',
+      logistics: {
+        create: {
+          shippingName: customer.name,
+          shippingPhone: customer.phone || '',
+          shippingAddress: '456 Different St',
+          shippingCity: 'Brooklyn',
+          shippingProvince: 'NY',
+          shippingZipCode: '11201',
+          shippingCountry: 'USA',
+          shippingLatitude: 40.6782,
+          shippingLongitude: -73.9442,
+        },
+      },
+      timeline: {
+        create: {
+          shippedAt: new Date(),
+        },
+      },
       items: {
         create: [
           { productId: product3.id, quantity: 2, unitPrice: 24.99, totalPrice: 49.98 },
@@ -359,18 +376,22 @@ async function main() {
     data: {
       orderNumber: 'ORD-2024-0003',
       customerId: customer2.id,
-      shippingName: customer2.name,
-      shippingPhone: customer2.phone || '',
-      shippingAddress: customer2.address || '',
-      shippingCity: customer2.city || '',
-      shippingProvince: customer2.province || '',
-      shippingZipCode: customer2.zipCode || '',
-      shippingCountry: customer2.country,
       status: 'PROCESSING',
       subtotal: 59.99,
       tax: 4.80,
       totalAmount: 64.79,
       paymentStatus: 'pending',
+      logistics: {
+        create: {
+          shippingName: customer2.name,
+          shippingPhone: customer2.phone || '',
+          shippingAddress: customer2.address || '',
+          shippingCity: customer2.city || '',
+          shippingProvince: customer2.province || '',
+          shippingZipCode: customer2.zipCode || '',
+          shippingCountry: customer2.country,
+        },
+      },
       items: {
         create: [
           { productId: product4.id, quantity: 1, unitPrice: 59.99, totalPrice: 59.99 }
@@ -380,6 +401,11 @@ async function main() {
   })
 
   console.log('Created orders')
+
+  const [order1Logistics, order2Logistics] = await Promise.all([
+    prisma.orderLogistics.findUnique({ where: { orderId: order1.id } }),
+    prisma.orderLogistics.findUnique({ where: { orderId: order2.id } }),
+  ])
 
   // Create Trip
   const trip = await prisma.trip.create({
@@ -406,12 +432,12 @@ async function main() {
             sequence: 1,
             status: 'COMPLETED',
             locationName: customer.name,
-            address: order1.shippingAddress,
-            city: order1.shippingCity,
-            province: order1.shippingProvince,
-            zipCode: order1.shippingZipCode,
-            latitude: order1.shippingLatitude,
-            longitude: order1.shippingLongitude,
+            address: order1Logistics?.shippingAddress || customer.address || '',
+            city: order1Logistics?.shippingCity || customer.city || '',
+            province: order1Logistics?.shippingProvince || customer.province || '',
+            zipCode: order1Logistics?.shippingZipCode || customer.zipCode || '',
+            latitude: order1Logistics?.shippingLatitude ?? customer.latitude,
+            longitude: order1Logistics?.shippingLongitude ?? customer.longitude,
             contactName: customer.name,
             contactPhone: customer.phone,
             actualArrival: new Date(),
@@ -423,12 +449,12 @@ async function main() {
             sequence: 2,
             status: 'PENDING',
             locationName: 'Brooklyn Delivery',
-            address: order2.shippingAddress,
-            city: order2.shippingCity,
-            province: order2.shippingProvince,
-            zipCode: order2.shippingZipCode,
-            latitude: order2.shippingLatitude,
-            longitude: order2.shippingLongitude,
+            address: order2Logistics?.shippingAddress || '',
+            city: order2Logistics?.shippingCity || '',
+            province: order2Logistics?.shippingProvince || '',
+            zipCode: order2Logistics?.shippingZipCode || '',
+            latitude: order2Logistics?.shippingLatitude ?? null,
+            longitude: order2Logistics?.shippingLongitude ?? null,
             contactName: customer.name,
             contactPhone: customer.phone,
           }

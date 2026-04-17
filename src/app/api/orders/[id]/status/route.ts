@@ -82,8 +82,6 @@ export async function PATCH(
         data: {
           status: 'PROCESSING' as any,
           paymentStatus: 'pending',
-          confirmedAt: now,
-          processedAt: now,
         },
       })
 
@@ -123,13 +121,6 @@ export async function PATCH(
           requestedStatus === 'PROCESSING' && currentPaymentStatus === 'pending_approval'
             ? 'pending'
             : undefined,
-        confirmedAt:
-          requestedStatus === 'PROCESSING' && currentPaymentStatus === 'pending_approval'
-            ? now
-            : undefined,
-        processedAt: requestedStatus === 'PROCESSING' ? now : undefined,
-        shippedAt: ['DISPATCHED', 'OUT_FOR_DELIVERY'].includes(requestedStatus) ? now : undefined,
-        deliveredAt: requestedStatus === 'DELIVERED' ? now : undefined,
       },
     })
 

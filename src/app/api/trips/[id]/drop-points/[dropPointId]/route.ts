@@ -69,7 +69,7 @@ export async function PATCH(
       if (nextStatus === 'COMPLETED') {
         const updatedOrder = await db.order.update({
           where: { id: dropPoint.orderId },
-          data: { status: 'DELIVERED', deliveredAt: now },
+          data: { status: 'DELIVERED' },
           select: {
             id: true,
             orderNumber: true,
