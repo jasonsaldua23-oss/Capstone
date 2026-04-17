@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -445,6 +445,7 @@ export function WarehousePortal() {
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const latestOrderMarkerRef = useRef<string>('')
   const hasAssignedWarehouse = warehouses.length > 0
   const assignedWarehouse = warehouses[0] || null
   const sidebarNavItems = navItems
@@ -857,9 +858,29 @@ export function WarehousePortal() {
     }
   }
 
-  const fetchOrdersData = async () => {
-    setLoadingOrders(true)
+  const fetchOrderMarker = async () => {
+    const response = await fetch('/api/orders?limit=1&includeItems=none', { cache: 'no-store', credentials: 'include' })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data?.success === false) {
+      throw new Error(data?.error || 'Failed orders fetch')
+    }
+    const topOrder = getCollection<WarehouseOrderItem>(data, ['orders'])[0]
+    return `${Number(data?.total || 0)}::${topOrder?.id || ''}`
+  }
+
+  const fetchOrdersData = async (options?: { showLoading?: boolean; onlyIfNew?: boolean; silent?: boolean }) => {
+    const showLoading = options?.showLoading ?? true
+    const onlyIfNew = options?.onlyIfNew ?? false
+    const silent = options?.silent ?? false
+    if (showLoading) setLoadingOrders(true)
     try {
+      if (onlyIfNew && latestOrderMarkerRef.current) {
+        const incomingMarker = await fetchOrderMarker()
+        if (incomingMarker === latestOrderMarkerRef.current) {
+          return
+        }
+      }
+
       const requestOrders = () => fetch('/api/orders?limit=100&includeItems=none', { cache: 'no-store', credentials: 'include' })
 
       let response = await requestOrders()
@@ -875,12 +896,16 @@ export function WarehousePortal() {
         throw new Error(data?.error || 'Failed orders fetch')
       }
 
-      setOrders(getCollection<WarehouseOrderItem>(data, ['orders']))
+      const list = getCollection<WarehouseOrderItem>(data, ['orders'])
+      setOrders(list)
+      latestOrderMarkerRef.current = `${Number(data?.total || 0)}::${list[0]?.id || ''}`
     } catch (error: any) {
       console.error(error)
-      toast.error(error?.message || 'Failed to load orders')
+      if (!silent) {
+        toast.error(error?.message || 'Failed to load orders')
+      }
     } finally {
-      setLoadingOrders(false)
+      if (showLoading) setLoadingOrders(false)
     }
   }
 
@@ -961,21 +986,16 @@ export function WarehousePortal() {
     }
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
-    let didTimeout = false
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        didTimeout = true
-        reject(new Error('Request timed out. Please try again.'))
-      }, 10000)
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 20000)
     try {
       const query = new URLSearchParams({
         date: effectiveDate,
         warehouseId: effectiveWarehouseId,
       })
-      const fetchPromise = fetch(`/api/trips/route-plan?${query.toString()}`)
-      const response = await Promise.race([fetchPromise, timeoutPromise]) as Response
-      if (didTimeout) throw new Error('Request timed out. Please try again.')
+      const response = await fetch(`/api/trips/route-plan?${query.toString()}`, {
+        signal: controller.signal,
+      })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
         throw new Error(data?.error || 'Failed to generate route plan')
@@ -996,7 +1016,8 @@ export function WarehousePortal() {
       }
       return plans.length > 0
     } catch (error: any) {
-      const message = error?.message || 'Failed to generate route plan'
+      const message =
+        error?.name === 'AbortError' ? 'Request timed out. Please try again.' : error?.message || 'Failed to generate route plan'
       if (!silent) toast.error(message)
       setRoutePlanMessage({ type: 'error', text: message })
       setRoutePlans([])
@@ -1004,6 +1025,7 @@ export function WarehousePortal() {
       setSelectedRouteOrderIds([])
       return false
     } finally {
+      clearTimeout(timeout)
       setLoadingRoutePlans(false)
     }
   }
@@ -1112,13 +1134,16 @@ export function WarehousePortal() {
   }
 
   useEffect(() => {
-    const refreshAllData = () => {
+    const refreshAllData = (options?: { initial?: boolean }) => {
+      const initial = options?.initial ?? false
       void Promise.all([
         fetchInventoryData(),
         fetchWarehousesData(),
         fetchProductsData(),
         fetchStockBatchesData(),
-        fetchOrdersData(),
+        initial
+          ? fetchOrdersData({ showLoading: true })
+          : fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true }),
         fetchTripsData(),
         fetchReturnsData(),
         fetchDriversData(),
@@ -1126,7 +1151,7 @@ export function WarehousePortal() {
       ])
     }
 
-    refreshAllData()
+    refreshAllData({ initial: true })
 
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes
@@ -1134,7 +1159,7 @@ export function WarehousePortal() {
         void Promise.all([fetchInventoryData(), fetchProductsData(), fetchStockBatchesData(), fetchWarehousesData()])
       }
       if (scopes.includes('orders')) {
-        void fetchOrdersData()
+        void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
       }
       if (scopes.includes('trips')) {
         void fetchTripsData()
@@ -1175,7 +1200,7 @@ export function WarehousePortal() {
         activeView === 'orders' || activeView === 'dashboard' || activeView === 'trips'
       if (!shouldRefresh) return
       if (document.visibilityState !== 'visible') return
-      void fetchOrdersData()
+      void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
     }
 
     refreshOrdersQuick()
@@ -1193,7 +1218,8 @@ export function WarehousePortal() {
 
   const openOrderDetail = async (order: WarehouseOrderItem) => {
     setSelectedOrder(order)
-    setLoadingOrderDetail(true)
+    const hasItems = Array.isArray(order.items) && order.items.length > 0
+    setLoadingOrderDetail(!hasItems)
     try {
       const response = await fetch(`/api/orders/${order.id}`, { cache: 'no-store', credentials: 'include' })
       const payload = await response.json().catch(() => ({}))
@@ -2765,13 +2791,10 @@ export function WarehousePortal() {
             <>
               <DialogHeader>
                 <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
-                <DialogDescription>Complete order and client information</DialogDescription>
+                <DialogDescription>
+                  {loadingOrderDetail ? 'Loading latest order details...' : 'Complete order and client information'}
+                </DialogDescription>
               </DialogHeader>
-              {loadingOrderDetail ? (
-                <div className="h-20 flex items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
-                </div>
-              ) : null}
               <div className="space-y-3">
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Order Status</p>

@@ -286,38 +286,43 @@ export async function GET(request: NextRequest) {
               take: limit,
             } as any)
 
-    const [ordersRaw, total, returns] = await Promise.all([
-      includeOrders ? db.order.findMany(listQuery) : Promise.resolve([] as any[]),
-      includeOrders ? db.order.count({ where }) : Promise.resolve(0),
-      includeReturns
-        ? db.return.findMany({
-            where: staffWarehouseId
-              ? {
-                  order: {
-                    warehouseId: staffWarehouseId,
-                  },
-                }
-              : undefined,
-            include: {
+    let ordersRaw: any[] = []
+    let total = 0
+    let returns: any[] = []
+
+    if (includeOrders) {
+      ordersRaw = await db.order.findMany(listQuery)
+      total = await db.order.count({ where })
+    }
+
+    if (includeReturns) {
+      returns = await db.return.findMany({
+        where: staffWarehouseId
+          ? {
               order: {
+                warehouseId: staffWarehouseId,
+              },
+            }
+          : undefined,
+        include: {
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              customer: {
                 select: {
                   id: true,
-                  orderNumber: true,
-                  customer: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true,
-                    },
-                  },
+                  name: true,
+                  email: true,
                 },
               },
             },
-            orderBy: { createdAt: 'desc' },
-            take: limit,
-          })
-        : Promise.resolve([]),
-    ])
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      })
+    }
 
     const orders =
       includeItemsMode === 'preview'

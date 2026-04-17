@@ -1322,21 +1322,16 @@ function TripsView() {
 
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
-    let didTimeout = false;
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        didTimeout = true;
-        reject(new Error('Request timed out. Please try again.'));
-      }, 10000); // 10 seconds
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
     try {
       const query = new URLSearchParams({
         date: effectiveDate,
         warehouseId: effectiveWarehouseId,
       });
-      const fetchPromise = fetch(`/api/trips/route-plan?${query.toString()}`);
-      const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
-      if (didTimeout) throw new Error('Request timed out. Please try again.');
+      const response = await fetch(`/api/trips/route-plan?${query.toString()}`, {
+        signal: controller.signal,
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data?.success === false) {
         throw new Error(data?.error || 'Failed to generate route plan');
@@ -1357,7 +1352,8 @@ function TripsView() {
       }
       return plans.length > 0;
     } catch (error: any) {
-      const message = error?.message || 'Failed to generate route plan';
+      const message =
+        error?.name === 'AbortError' ? 'Request timed out. Please try again.' : error?.message || 'Failed to generate route plan';
       if (!silent) toast.error(message);
       setRoutePlanMessage({ type: 'error', text: message });
       setRoutePlans([]);
@@ -1365,6 +1361,7 @@ function TripsView() {
       setSelectedRouteOrderIds([]);
       return false;
     } finally {
+      clearTimeout(timeout);
       setLoadingRoutePlans(false);
     }
   }

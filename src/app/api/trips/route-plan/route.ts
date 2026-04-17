@@ -89,6 +89,7 @@ export async function GET(request: NextRequest) {
     const { start, end } = getDateRange(date)
     const candidateOrders = await db.order.findMany({
       where: {
+        ...(resolvedWarehouseId ? { warehouseId: warehouse.id } : {}),
         OR: [
           { timeline: { is: { deliveryDate: { gte: start, lt: end } } } },
           {
@@ -99,30 +100,36 @@ export async function GET(request: NextRequest) {
           },
         ],
         status: { in: ['PROCESSING', 'PACKED'] as any },
+        dropPoints: {
+          none: {
+            trip: { status: { in: ['PLANNED', 'IN_PROGRESS'] as any } },
+          },
+        },
       },
-      include: {
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
         customer: { select: { name: true } },
-        logistics: true,
-        timeline: true,
+        logistics: {
+          select: {
+            shippingName: true,
+            shippingAddress: true,
+            shippingCity: true,
+            shippingProvince: true,
+            shippingZipCode: true,
+            shippingLatitude: true,
+            shippingLongitude: true,
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     })
 
-    const activeTripDropPoints = await db.tripDropPoint.findMany({
-      where: {
-        orderId: { in: candidateOrders.map((o) => o.id) },
-        trip: { status: { in: ['PLANNED', 'IN_PROGRESS'] } },
-      },
-      select: { orderId: true },
-    })
-    const assignedOrderIds = new Set(activeTripDropPoints.map((s) => s.orderId).filter(Boolean) as string[])
-
     const whLat = toNumberCoord(warehouse.latitude)
     const whLng = toNumberCoord(warehouse.longitude)
 
-    const eligibleOrders = candidateOrders
-      .filter((o) => !assignedOrderIds.has(o.id))
-      .map((order) => {
+    const eligibleOrders = candidateOrders.map((order) => {
         const orderLat = toNumberCoord(order.logistics?.shippingLatitude)
         const orderLng = toNumberCoord(order.logistics?.shippingLongitude)
         const hasGeo = orderLat !== null && orderLng !== null
@@ -256,6 +263,7 @@ export async function POST(request: NextRequest) {
       ]
       orderWhere.logistics = { is: { shippingCity: String(city) } }
     }
+    orderWhere.warehouseId = String(warehouseId)
 
     const orders = await db.order.findMany({
       where: orderWhere,
