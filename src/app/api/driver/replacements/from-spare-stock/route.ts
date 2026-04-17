@@ -53,6 +53,14 @@ export async function POST(request: Request) {
     const orderItemId = String(body?.orderItemId || '').trim()
     const reason = String(body?.reason || '').trim()
     const damagePhoto = String(body?.damagePhoto || '').trim()
+    const damagePhotosFromBody = Array.isArray(body?.damagePhotos)
+      ? body.damagePhotos
+          .map((value: unknown) => String(value || '').trim())
+          .filter((value: string) => Boolean(value))
+      : []
+    const damagePhotoUrls = Array.from(
+      new Set([damagePhoto, ...damagePhotosFromBody].map((value) => String(value || '').trim()).filter(Boolean))
+    )
     const quantity = Number(body?.quantity || 0)
 
     if (!tripId || !dropPointId || !orderItemId) {
@@ -64,8 +72,11 @@ export async function POST(request: Request) {
     if (!reason) {
       return apiError('Replacement reason is required', 400)
     }
-    if (!damagePhoto) {
-      return apiError('Damage photo is required', 400)
+    if (!damagePhotoUrls.length) {
+      return apiError('At least one damage photo is required', 400)
+    }
+    if (damagePhotoUrls.length > 2) {
+      return apiError('Only up to 2 damage photos are allowed', 400)
     }
 
     const driver = await db.driver.findFirst({
@@ -156,7 +167,8 @@ export async function POST(request: Request) {
             originalOrderItemId: orderItem.id,
             replacementProductId: orderItem.productId,
             replacementQuantity: quantity,
-            damagePhotoUrl: damagePhoto,
+            damagePhotoUrl: damagePhotoUrls[0],
+            damagePhotoUrls,
             tripId,
             dropPointId: dropPoint.id,
           })}`,

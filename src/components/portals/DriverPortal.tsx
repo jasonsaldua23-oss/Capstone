@@ -17,6 +17,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { prepareImageForUpload } from '@/lib/client-image'
 import { toast } from 'sonner'
 import { 
   Truck, 
@@ -792,11 +793,15 @@ function TripDetailView({
   const [spareOrderItemId, setSpareOrderItemId] = useState('')
   const [spareQuantity, setSpareQuantity] = useState(1)
   const [spareReason, setSpareReason] = useState('')
-  const [spareDamagePhotoFile, setSpareDamagePhotoFile] = useState<File | null>(null)
+  const [spareDamagePhotoFiles, setSpareDamagePhotoFiles] = useState<File[]>([])
+  const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
   const [isSpareReplacing, setIsSpareReplacing] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
+  const spareGalleryInputRef = useRef<HTMLInputElement | null>(null)
+  const [cameraCaptureTarget, setCameraCaptureTarget] = useState<'pod' | 'spare'>('pod')
+  const MAX_SPARE_DAMAGE_PHOTOS = 2
 
   const dropPointStatusColors: Record<string, string> = {
     PENDING: 'bg-amber-100 text-amber-800 border border-amber-200',
@@ -885,18 +890,38 @@ function TripDetailView({
     }
   }
 
+  const toDataUrl = async (file: File): Promise<string> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('Failed to prepare damage photo'))
+      reader.readAsDataURL(file)
+    })
+    if (!dataUrl) {
+      throw new Error('Failed to prepare damage photo')
+    }
+    return dataUrl
+  }
+
   const uploadPodImage = async (file: File) => {
+    const preparedFile = await prepareImageForUpload(file)
     const formData = new FormData()
-    formData.append('file', file)
+    formData.append('file', preparedFile)
     const response = await fetch('/api/uploads/pod-image', {
       method: 'POST',
       body: formData,
     })
     const payload = await response.json().catch(() => ({}))
-    if (!response.ok || payload?.success === false || !payload?.imageUrl) {
-      throw new Error(payload?.error || 'Failed to upload POD image')
+    if (response.ok && payload?.success !== false && payload?.imageUrl) {
+      return String(payload.imageUrl)
     }
-    return String(payload.imageUrl)
+
+    const errorMessage = String(payload?.error || 'Failed to upload POD image')
+    if (/upload storage is unavailable/i.test(errorMessage)) {
+      toast('Storage is not configured on this deployment. Damage photo will be saved inline for this report.')
+      return toDataUrl(preparedFile)
+    }
+    throw new Error(errorMessage)
   }
 
   const handlePodFileChange = (file: File | null) => {
@@ -917,7 +942,8 @@ function TripDetailView({
     }
   }
 
-  const openCameraCapture = () => {
+  const openCameraCapture = (target: 'pod' | 'spare' = 'pod') => {
+    setCameraCaptureTarget(target)
     setCapturedCameraPhoto(null)
     setCameraError(null)
     setCameraPermissionHint('')
@@ -934,12 +960,47 @@ function TripDetailView({
     setSpareOrderItemId(items[0].id)
     setSpareQuantity(1)
     setSpareReason('')
-    setSpareDamagePhotoFile(null)
+    setSpareDamagePhotoFiles([])
+    setSpareDamagePhotoPreviews((previous) => {
+      previous.forEach((url) => URL.revokeObjectURL(url))
+      return []
+    })
     setIsSpareReplaceOpen(true)
   }
 
-  const handleSpareDamagePhotoChange = (file: File | null) => {
-    setSpareDamagePhotoFile(file)
+  const setSpareDamagePhotos = (files: File[]) => {
+    const limitedFiles = files.slice(0, MAX_SPARE_DAMAGE_PHOTOS)
+    setSpareDamagePhotoFiles(limitedFiles)
+    setSpareDamagePhotoPreviews((previous) => {
+      previous.forEach((url) => URL.revokeObjectURL(url))
+      return limitedFiles.map((file) => URL.createObjectURL(file))
+    })
+  }
+
+  const appendSpareDamagePhotos = (files: File[]) => {
+    const nextFiles = files.filter((file) => Boolean(file))
+    if (!nextFiles.length) return
+
+    const remainingSlots = MAX_SPARE_DAMAGE_PHOTOS - spareDamagePhotoFiles.length
+    if (remainingSlots <= 0) {
+      toast.error(`Only ${MAX_SPARE_DAMAGE_PHOTOS} damage photos are allowed`)
+      return
+    }
+
+    const filesToAdd = nextFiles.slice(0, remainingSlots)
+    if (nextFiles.length > remainingSlots) {
+      toast.error(`Only ${MAX_SPARE_DAMAGE_PHOTOS} damage photos are allowed`)
+    }
+    setSpareDamagePhotos([...spareDamagePhotoFiles, ...filesToAdd])
+  }
+
+  const clearSpareDamagePhoto = (index?: number) => {
+    if (typeof index === 'number') {
+      setSpareDamagePhotos(spareDamagePhotoFiles.filter((_, currentIndex) => currentIndex !== index))
+    } else {
+      setSpareDamagePhotos([])
+    }
+    if (spareGalleryInputRef.current) spareGalleryInputRef.current.value = ''
   }
 
   const closeSpareReplacement = () => {
@@ -948,8 +1009,23 @@ function TripDetailView({
     setSpareOrderItemId('')
     setSpareQuantity(1)
     setSpareReason('')
-    setSpareDamagePhotoFile(null)
+    setSpareDamagePhotoFiles([])
+    setSpareDamagePhotoPreviews((previous) => {
+      previous.forEach((url) => URL.revokeObjectURL(url))
+      return []
+    })
+    if (spareGalleryInputRef.current) spareGalleryInputRef.current.value = ''
     setIsSpareReplacing(false)
+  }
+
+  const openSpareCameraCapture = () => {
+    openCameraCapture('spare')
+  }
+
+  const openSpareGalleryPicker = () => {
+    if (!spareGalleryInputRef.current) return
+    spareGalleryInputRef.current.value = ''
+    spareGalleryInputRef.current.click()
   }
 
   const submitSpareReplacement = async () => {
@@ -975,14 +1051,18 @@ function TripDetailView({
       toast.error('Replacement reason is required')
       return
     }
-    if (!spareDamagePhotoFile) {
-      toast.error('Damage photo is required')
+    if (!spareDamagePhotoFiles.length) {
+      toast.error('At least one damage photo is required')
+      return
+    }
+    if (spareDamagePhotoFiles.length > MAX_SPARE_DAMAGE_PHOTOS) {
+      toast.error(`Only ${MAX_SPARE_DAMAGE_PHOTOS} damage photos are allowed`)
       return
     }
 
     setIsSpareReplacing(true)
     try {
-      const damagePhoto = await uploadPodImage(spareDamagePhotoFile)
+      const damagePhotos = await Promise.all(spareDamagePhotoFiles.map((photo) => uploadPodImage(photo)))
       const response = await fetch('/api/driver/replacements/from-spare-stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -992,7 +1072,8 @@ function TripDetailView({
           orderItemId: selectedItem.id,
           quantity: spareQuantity,
           reason: spareReason.trim(),
-          damagePhoto,
+          damagePhoto: damagePhotos[0],
+          damagePhotos,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -1133,7 +1214,11 @@ function TripDetailView({
       const response = await fetch(capturedCameraPhoto)
       const blob = await response.blob()
       const file = new File([blob], `pod-camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
-      handlePodFileChange(file)
+      if (cameraCaptureTarget === 'spare') {
+        appendSpareDamagePhotos([file])
+      } else {
+        handlePodFileChange(file)
+      }
       closeCameraCapture()
     } catch {
       toast.error('Failed to use captured photo')
@@ -1145,9 +1230,10 @@ function TripDetailView({
       if (podImagePreview) {
         URL.revokeObjectURL(podImagePreview)
       }
+      spareDamagePhotoPreviews.forEach((url) => URL.revokeObjectURL(url))
       stopCameraStream()
     }
-  }, [podImagePreview])
+  }, [podImagePreview, spareDamagePhotoPreviews])
 
   useEffect(() => {
     if (!isCameraOpen) return
@@ -1390,7 +1476,7 @@ function TripDetailView({
                             className="w-full"
                             onClick={(e) => {
                               e.stopPropagation()
-                              openCameraCapture()
+                              openCameraCapture('pod')
                             }}
                           >
                             <Camera className="h-4 w-4 mr-2" />
@@ -1426,7 +1512,7 @@ function TripDetailView({
                               e.stopPropagation(); 
                               if (!podImageFile) {
                                 toast.error('Capture POD photo first')
-                                openCameraCapture()
+                                openCameraCapture('pod')
                                 return
                               }
                               try {
@@ -1482,8 +1568,12 @@ function TripDetailView({
       <Dialog open={isCameraOpen} onOpenChange={(open) => { if (!open) closeCameraCapture() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Capture POD Photo</DialogTitle>
-            <DialogDescription>Take a clear photo of the delivered package/recipient.</DialogDescription>
+            <DialogTitle>{cameraCaptureTarget === 'spare' ? 'Capture Damage Photo' : 'Capture POD Photo'}</DialogTitle>
+            <DialogDescription>
+              {cameraCaptureTarget === 'spare'
+                ? 'Take a clear photo of the damaged item evidence.'
+                : 'Take a clear photo of the delivered package/recipient.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             {capturedCameraPhoto ? (
@@ -1541,7 +1631,7 @@ function TripDetailView({
               <Button
                 onClick={() => {
                   setIsCameraPermissionDialogOpen(false)
-                  openCameraCapture()
+                  openCameraCapture(cameraCaptureTarget)
                 }}
               >
                 Retry Camera
@@ -1572,6 +1662,7 @@ function TripDetailView({
               <Label htmlFor="spare-order-item">Damaged Item</Label>
               <select
                 id="spare-order-item"
+                title="Damaged item"
                 className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                 value={spareOrderItemId}
                 onChange={(e) => setSpareOrderItemId(e.target.value)}
@@ -1605,24 +1696,84 @@ function TripDetailView({
             <div className="space-y-2">
               <Label htmlFor="spare-photo">Damage Photo</Label>
               <div className="space-y-2">
-                <Input
-                  id="spare-photo-camera"
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(e) => handleSpareDamagePhotoChange(e.target.files?.[0] || null)}
-                />
-                <Input
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={openSpareCameraCapture}
+                    disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
+                  >
+                    <Camera className="mr-2 h-4 w-4" />
+                    Take Photo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={openSpareGalleryPicker}
+                    disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
+                  >
+                    Upload from Gallery
+                  </Button>
+                </div>
+                <input
+                  ref={spareGalleryInputRef}
                   id="spare-photo"
+                  className="hidden"
                   type="file"
                   accept="image/*"
-                  onChange={(e) => handleSpareDamagePhotoChange(e.target.files?.[0] || null)}
+                  multiple
+                  aria-label="Upload damage photo from gallery"
+                  title="Upload damage photo from gallery"
+                  onChange={(e) => appendSpareDamagePhotos(Array.from(e.target.files || []))}
                 />
                 <p className="text-xs text-slate-500">
-                  Use camera to take damage photo, or upload from gallery.
+                  Use camera or gallery. Up to {MAX_SPARE_DAMAGE_PHOTOS} photos only.
                 </p>
-                {spareDamagePhotoFile ? (
-                  <p className="text-xs text-emerald-700">Selected: {spareDamagePhotoFile.name}</p>
+                {spareDamagePhotoFiles.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-emerald-700">Selected: {spareDamagePhotoFiles.length}/{MAX_SPARE_DAMAGE_PHOTOS}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {spareDamagePhotoPreviews.map((previewUrl, index) => (
+                        <div key={`damage-preview-${index}`} className="space-y-1">
+                          <img
+                            src={previewUrl}
+                            alt={`Damage photo preview ${index + 1}`}
+                            className="h-24 w-full rounded border border-slate-200 object-cover"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => clearSpareDamagePhoto(index)}
+                            disabled={isSpareReplacing}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={openSpareGalleryPicker}
+                        disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
+                      >
+                        Add from Gallery
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => clearSpareDamagePhoto()}
+                        disabled={isSpareReplacing}
+                      >
+                        Clear All
+                      </Button>
+                    </div>
+                  </div>
                 ) : null}
               </div>
             </div>
