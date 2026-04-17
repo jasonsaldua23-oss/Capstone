@@ -28,7 +28,8 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset",
-    "db:export": "node prisma/export-db.mjs"
+    "db:export": "node prisma/export-db.mjs",
+    "storage:create-bucket": "node prisma/create-upload-bucket.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.1.0",

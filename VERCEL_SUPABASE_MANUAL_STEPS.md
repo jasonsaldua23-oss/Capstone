@@ -17,6 +17,8 @@
 3. Copy two connection strings:
    - Transaction pooler (`6543`) -> use for `DATABASE_URL`
    - Session/direct (`5432`) -> use for `DIRECT_URL`
+4. Create or confirm a public Storage bucket for uploads.
+   - Recommended bucket name: `uploads`
 
 ## 2) Local environment (your machine)
 
@@ -25,6 +27,9 @@
    - `DATABASE_URL`
    - `DIRECT_URL`
    - `JWT_SECRET`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_UPLOADS_BUCKET`
    - `NEXT_PUBLIC_APP_VARIANT`
 3. Run:
    - `npm run db:generate`
@@ -42,6 +47,9 @@
    - `DATABASE_URL` = Supabase transaction URL (`6543`)
    - `DIRECT_URL` = Supabase direct/session URL (`5432`)
    - `JWT_SECRET` = same secret used locally
+   - `SUPABASE_URL` = Supabase project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` = service role key from Supabase
+   - `SUPABASE_UPLOADS_BUCKET` = uploads bucket name
    - `NEXT_PUBLIC_APP_VARIANT` = `admin`
 3. Deploy.
 
