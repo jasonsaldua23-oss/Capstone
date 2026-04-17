@@ -810,7 +810,8 @@ export function WarehousePortal() {
       try {
         const response = await fetch(input, { ...(init || {}), signal: controller.signal })
         const data = await response.json().catch(() => ({}))
-        if (response.ok && data?.success !== false) {
+        const dbUnavailable = Boolean(data?.dbUnavailable)
+        if (response.ok && (data?.success !== false || dbUnavailable)) {
           return { ok: true as const, data, status: response.status }
         }
         lastError = data?.error || `Request failed (${response.status})`
