@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getCurrentUser, apiResponse, unauthorizedError } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
@@ -47,44 +47,18 @@ export async function GET(request: NextRequest) {
 
     return apiResponse({ vehicles })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get vehicles skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        vehicles: [],
+      })
+    }
+
     console.error('Get vehicles error:', error)
-    return apiResponse({
-      vehicles: [
-        {
-          id: '1',
-          licensePlate: 'ABC-1234',
-          type: 'VAN',
-          make: 'Ford',
-          model: 'Transit',
-          year: 2022,
-          capacity: 1500,
-          status: 'AVAILABLE',
-          mileage: 25000,
-        },
-        {
-          id: '2',
-          licensePlate: 'XYZ-5678',
-          type: 'TRUCK',
-          make: 'Mercedes',
-          model: 'Sprinter',
-          year: 2023,
-          capacity: 2500,
-          status: 'IN_USE',
-          mileage: 15000,
-        },
-        {
-          id: '3',
-          licensePlate: 'DEF-9012',
-          type: 'MOTORCYCLE',
-          make: 'Honda',
-          model: 'CBR',
-          year: 2021,
-          capacity: 50,
-          status: 'AVAILABLE',
-          mileage: 12000,
-        }
-      ]
-    })
+    return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to fetch vehicles', vehicles: [] }, 500)
   }
 }
 

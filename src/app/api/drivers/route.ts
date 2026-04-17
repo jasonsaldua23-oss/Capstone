@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseUnavailableError } from '@/lib/db'
 import { getCurrentUser, apiResponse, unauthorizedError } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
@@ -47,6 +47,16 @@ export async function GET(request: NextRequest) {
 
     return apiResponse({ drivers })
   } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      console.warn('Get drivers skipped: database is unavailable')
+      return apiResponse({
+        success: false,
+        dbUnavailable: true,
+        error: 'Database is temporarily unavailable',
+        drivers: [],
+      })
+    }
+
     console.error('Get drivers error:', error)
     return apiResponse({ success: false, error: error instanceof Error ? error.message : 'Failed to fetch drivers', drivers: [] }, 500)
   }

@@ -446,6 +446,7 @@ export function WarehousePortal() {
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const latestOrderMarkerRef = useRef<string>('')
+  const isRefreshingAllRef = useRef(false)
   const hasAssignedWarehouse = warehouses.length > 0
   const assignedWarehouse = warehouses[0] || null
   const sidebarNavItems = navItems
@@ -1125,7 +1126,8 @@ export function WarehousePortal() {
       setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
       setSelectedSavedRouteId('')
       setCreateTripOpen(false)
-      await Promise.all([fetchTripsData(), fetchOrdersData()])
+      await fetchTripsData()
+      await fetchOrdersData()
       emitDataSync(['trips', 'orders'])
     } catch (error: any) {
       const message = String(error?.message || 'Failed to create trip')
@@ -1135,7 +1137,8 @@ export function WarehousePortal() {
         setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
         setSelectedSavedRouteId('')
         setCreateTripOpen(false)
-        await Promise.all([fetchTripsData(), fetchOrdersData()])
+        await fetchTripsData()
+        await fetchOrdersData()
         emitDataSync(['trips', 'orders'])
         toast.success('Trip data refreshed. Stale saved route was removed.')
       } else {
@@ -1181,29 +1184,38 @@ export function WarehousePortal() {
   }
 
   useEffect(() => {
-    const refreshAllData = (options?: { initial?: boolean }) => {
+    const refreshAllData = async (options?: { initial?: boolean }) => {
+      if (isRefreshingAllRef.current) return
+      isRefreshingAllRef.current = true
       const initial = options?.initial ?? false
-      void Promise.all([
-        fetchInventoryData(),
-        fetchWarehousesData(),
-        fetchProductsData(),
-        fetchStockBatchesData(),
-        initial
+      try {
+        await fetchInventoryData()
+        await fetchWarehousesData()
+        await fetchProductsData()
+        await fetchStockBatchesData()
+        await (initial
           ? fetchOrdersData({ showLoading: true })
-          : fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true }),
-        fetchTripsData(),
-        fetchReturnsData(),
-        fetchDriversData(),
-        fetchVehiclesData(),
-      ])
+          : fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true }))
+        await fetchTripsData()
+        await fetchReturnsData()
+        await fetchDriversData()
+        await fetchVehiclesData()
+      } finally {
+        isRefreshingAllRef.current = false
+      }
     }
 
-    refreshAllData({ initial: true })
+    void refreshAllData({ initial: true })
 
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes
       if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'warehouses'].includes(scope))) {
-        void Promise.all([fetchInventoryData(), fetchProductsData(), fetchStockBatchesData(), fetchWarehousesData()])
+        void (async () => {
+          await fetchInventoryData()
+          await fetchProductsData()
+          await fetchStockBatchesData()
+          await fetchWarehousesData()
+        })()
       }
       if (scopes.includes('orders')) {
         void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
@@ -1222,16 +1234,16 @@ export function WarehousePortal() {
       }
     })
 
-    const onFocus = () => refreshAllData()
+    const onFocus = () => { void refreshAllData() }
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        refreshAllData()
+        void refreshAllData()
       }
     }
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const intervalId = window.setInterval(refreshAllData, 30000)
+    const intervalId = window.setInterval(() => { void refreshAllData() }, 30000)
 
     return () => {
       unsubscribe()
@@ -1432,7 +1444,9 @@ export function WarehousePortal() {
 
       toast.success('Inventory item updated')
       setEditingItem(null)
-      await Promise.all([fetchInventoryData(), fetchProductsData(), fetchStockBatchesData()])
+      await fetchInventoryData()
+      await fetchProductsData()
+      await fetchStockBatchesData()
       emitDataSync(['inventory', 'products', 'stock-batches'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to save changes')
@@ -1460,7 +1474,9 @@ export function WarehousePortal() {
       setEditingItem(null)
       setDeleteEditOpen(false)
       toast.success('Product deleted')
-      await Promise.all([fetchInventoryData(), fetchProductsData(), fetchStockBatchesData()])
+      await fetchInventoryData()
+      await fetchProductsData()
+      await fetchStockBatchesData()
       emitDataSync(['inventory', 'products', 'stock-batches'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete product')
@@ -1530,7 +1546,9 @@ export function WarehousePortal() {
       toast.success('Stock added successfully')
       setAddStockOpen(false)
       resetStockInForm()
-      await Promise.all([fetchInventoryData(), fetchStockBatchesData(), fetchProductsData()])
+      await fetchInventoryData()
+      await fetchStockBatchesData()
+      await fetchProductsData()
       emitDataSync(['inventory', 'products', 'stock-batches'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to add stock')
@@ -1591,7 +1609,8 @@ export function WarehousePortal() {
 
       setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, status, notes: reason || prev.notes } : prev))
       toast.success('Order status updated')
-      await Promise.all([fetchOrdersData(), fetchTripsData()])
+      await fetchOrdersData()
+      await fetchTripsData()
       emitDataSync(['orders', 'trips'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
@@ -1633,7 +1652,8 @@ export function WarehousePortal() {
       } else {
         toast.success('Replacement updated')
       }
-      await Promise.all([fetchReturnsData(), fetchOrdersData()])
+      await fetchReturnsData()
+      await fetchOrdersData()
       emitDataSync(['returns', 'orders'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
