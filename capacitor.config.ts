@@ -37,7 +37,6 @@ const config: CapacitorConfig = {
   appId: selected.appId,
   appName: selected.appName,
   webDir: 'cap-web',
-  bundledWebRuntime: false,
   server: {
     url: serverUrl,
     cleartext: isHttp,

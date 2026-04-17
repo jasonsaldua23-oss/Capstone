@@ -133,6 +133,30 @@ interface DriverTrackingItem {
   }>
 }
 
+interface DeliveryIssueRecord {
+  id: string
+  orderId: string
+  returnNumber?: string | null
+  reason?: string | null
+  description?: string | null
+  status?: string | null
+  replacementMode?: string | null
+  originalOrderItemId?: string | null
+  replacementProductId?: string | null
+  replacementQuantity?: number | null
+  damagePhotoUrl?: string | null
+  notes?: string | null
+  createdAt?: string | null
+}
+
+interface DeliveryIssueSummary {
+  orderId: string
+  label: string
+  reason: string
+  hasEvidence: boolean
+  rawStatus: string
+}
+
 const AddressMapPicker = dynamic(
   () => import('@/components/maps/AddressMapPicker').then((mod) => mod.AddressMapPicker),
   { ssr: false }
@@ -168,6 +192,28 @@ const createPdfBlob = (bytes: Uint8Array): Blob => {
   return new Blob([arrayBuffer], { type: 'application/pdf' })
 }
 
+function parseReplacementMeta(notes: string | null | undefined): Record<string, any> {
+  const raw = String(notes || '').trim()
+  if (!raw) return {}
+  const marker = 'Meta:'
+  const index = raw.lastIndexOf(marker)
+  if (index < 0) return {}
+  const jsonText = raw.slice(index + marker.length).trim()
+  if (!jsonText) return {}
+  try {
+    const parsed = JSON.parse(jsonText)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function getReplacementRank(label: string): number {
+  if (label === 'Follow-up Required') return 2
+  if (label === 'Resolved') return 1
+  return 0
+}
+
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
   const [activeView, setActiveView] = useState('home')
@@ -175,10 +221,14 @@ export function CustomerPortal() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const isRefreshingOrdersRef = useRef(false)
 
   const [products, setProducts] = useState<Product[]>([])
   const [isProductsLoading, setIsProductsLoading] = useState(false)
   const [productSearch, setProductSearch] = useState('')
+  const [isAddToCartDialogOpen, setIsAddToCartDialogOpen] = useState(false)
+  const [pendingCartProduct, setPendingCartProduct] = useState<Product | null>(null)
+  const [pendingCartQty, setPendingCartQty] = useState('1')
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedCartIds, setSelectedCartIds] = useState<Set<string>>(new Set())
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
@@ -228,7 +278,7 @@ export function CustomerPortal() {
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null)
   const [reviewedOrderIds, setReviewedOrderIds] = useState<Set<string>>(new Set())
   const [orderRatings, setOrderRatings] = useState<Record<string, number>>({})
-  const [replacementOrderIds, setReplacementOrderIds] = useState<Set<string>>(new Set())
+  const [deliveryIssueRecords, setDeliveryIssueRecords] = useState<DeliveryIssueRecord[]>([])
   const [ratingDialogOrder, setRatingDialogOrder] = useState<Order | null>(null)
   const [ratingValue, setRatingValue] = useState(5)
   const [ratingMessage, setRatingMessage] = useState('')
@@ -273,21 +323,54 @@ export function CustomerPortal() {
       .map((part) => part.trim())
       .filter(Boolean)
 
+    const normalizeToken = (value: string) =>
+      String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .trim()
+    const isCountryLike = (value: string) => /philippines/i.test(String(value || ''))
+    const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
+    const isHouseLike = (value: string) => /^(\d+|#|lot|blk|block)\b/i.test(String(value || '').trim())
+    const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
+    const isSubdivisionLike = (value: string) => /\b(subd|subdivision|village|phase|sitio|purok|zone)\b/i.test(String(value || ''))
+
+    const tokens = [...parts]
+    if (tokens.length > 0 && isCountryLike(tokens[tokens.length - 1])) tokens.pop()
+    if (tokens.length > 0 && isPostalLike(tokens[tokens.length - 1])) tokens.pop()
+    if (tokens.length > 0 && normalizeToken(tokens[tokens.length - 1]) === normalizeToken(state)) tokens.pop()
+    if (city && tokens.length > 0 && normalizeToken(tokens[tokens.length - 1]) === normalizeToken(city)) tokens.pop()
+
     let houseNumber = ''
     let streetName = ''
     let subdivision = ''
     let barangay = ''
 
-    if (parts.length >= 4) {
-      houseNumber = parts[0] || ''
-      streetName = parts[1] || ''
-      subdivision = parts[2] || ''
-      barangay = parts[3] || ''
-    } else if (parts.length >= 2) {
-      streetName = parts[0] || ''
-      barangay = parts[1] || ''
-    } else if (parts.length === 1) {
-      streetName = parts[0] || ''
+    if (tokens.length === 1) {
+      streetName = tokens[0] || ''
+    } else if (tokens.length >= 2) {
+      if (isHouseLike(tokens[0])) {
+        houseNumber = tokens[0] || ''
+        streetName = tokens[1] || ''
+      } else {
+        streetName = tokens[0] || ''
+      }
+
+      const remaining = tokens.slice(isHouseLike(tokens[0]) ? 2 : 1)
+      const barangayCandidate =
+        remaining.find((token) => isBarangayLike(token)) ||
+        remaining[remaining.length - 1] ||
+        ''
+      if (barangayCandidate && !isSubdivisionLike(barangayCandidate)) {
+        barangay = barangayCandidate
+      }
+
+      // Optional field: only populate when token explicitly looks like subdivision.
+      const subdivisionCandidate = remaining.find(
+        (token) => isSubdivisionLike(token) && !isBarangayLike(token)
+      )
+      if (subdivisionCandidate) {
+        subdivision = subdivisionCandidate
+      }
     }
 
     setShippingPhone(String(customer?.phone || '').trim())
@@ -395,20 +478,17 @@ export function CustomerPortal() {
 
       if (replacementResponse.ok) {
         const replacementPayload = await replacementResponse.json().catch(() => ({}))
-        const replacements = Array.isArray(replacementPayload?.replacements) ? replacementPayload.replacements : []
-        const replacementOrders = new Set<string>()
-        for (const item of replacements) {
-          const orderId = String(item?.orderId || '').trim()
-          if (orderId) replacementOrders.add(orderId)
-        }
-        setReplacementOrderIds(replacementOrders)
+        const replacements = Array.isArray(replacementPayload?.replacements)
+          ? (replacementPayload.replacements as DeliveryIssueRecord[])
+          : []
+        setDeliveryIssueRecords(replacements)
       } else {
-        setReplacementOrderIds(new Set())
+        setDeliveryIssueRecords([])
       }
     } catch {
       setReviewedOrderIds(new Set())
       setOrderRatings({})
-      setReplacementOrderIds(new Set())
+      setDeliveryIssueRecords([])
     }
   }, [])
 
@@ -439,15 +519,21 @@ export function CustomerPortal() {
   }, [fetchOrderMeta, fetchOrders])
 
   useEffect(() => {
-    const refreshOrders = () => {
-      void fetchOrders(true)
-      void fetchOrderMeta()
+    const refreshOrders = async () => {
+      if (isRefreshingOrdersRef.current) return
+      isRefreshingOrdersRef.current = true
+      try {
+        await fetchOrders(true)
+        await fetchOrderMeta()
+      } finally {
+        isRefreshingOrdersRef.current = false
+      }
     }
 
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes || []
       if (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('returns')) {
-        refreshOrders()
+        void refreshOrders()
       }
     })
 
@@ -525,8 +611,14 @@ export function CustomerPortal() {
   const getAvailableQty = (product: Product) =>
     (product.inventory || []).reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, requestedQty = 1) => {
     const available = getAvailableQty(product)
+    const qty = Math.max(1, Math.floor(Number(requestedQty || 1)))
+    if (available <= 0) {
+      toast.error('This item is out of stock')
+      return
+    }
+
     setCart((prev) => {
       const existing = prev.find((i) => i.productId === product.id)
       if (!existing) {
@@ -539,16 +631,64 @@ export function CustomerPortal() {
             imageUrl: product.imageUrl || null,
             unit: product.unit,
             unitPrice: product.price,
-            quantity: 1,
+            quantity: Math.min(qty, available),
             available,
           },
         ]
       }
       if (existing.quantity >= available) return prev
       return prev.map((i) =>
-        i.productId === product.id ? { ...i, quantity: i.quantity + 1, available, imageUrl: i.imageUrl || product.imageUrl || null } : i
+        i.productId === product.id
+          ? {
+              ...i,
+              quantity: Math.min(existing.quantity + qty, available),
+              available,
+              imageUrl: i.imageUrl || product.imageUrl || null,
+            }
+          : i
       )
     })
+  }
+
+  const openAddToCartDialog = (product: Product) => {
+    const available = getAvailableQty(product)
+    if (available <= 0) {
+      toast.error('This item is out of stock')
+      return
+    }
+    setPendingCartProduct(product)
+    setPendingCartQty('1')
+    setIsAddToCartDialogOpen(true)
+  }
+
+  const confirmAddToCart = () => {
+    if (!pendingCartProduct) return
+    const available = getAvailableQty(pendingCartProduct)
+    if (available <= 0) {
+      toast.error('This item is out of stock')
+      setIsAddToCartDialogOpen(false)
+      setPendingCartProduct(null)
+      return
+    }
+    const parsed = Number(pendingCartQty)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      toast.error('Please enter a valid quantity')
+      return
+    }
+    const qty = Math.min(Math.floor(parsed), available)
+    addToCart(pendingCartProduct, qty)
+    setIsAddToCartDialogOpen(false)
+    setPendingCartProduct(null)
+    toast.success('Added to cart')
+  }
+
+  const adjustPendingCartQty = (delta: number) => {
+    if (!pendingCartProduct) return
+    const available = getAvailableQty(pendingCartProduct)
+    const current = Number(pendingCartQty)
+    const safeCurrent = Number.isFinite(current) && current > 0 ? Math.floor(current) : 1
+    const next = Math.max(1, Math.min(available, safeCurrent + delta))
+    setPendingCartQty(String(next))
   }
 
   const updateCartQty = (productId: string, qty: number) => {
@@ -569,6 +709,10 @@ export function CustomerPortal() {
     [selectedCartItems]
   )
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
+  const canPlaceOrder = useMemo(
+    () => selectedCartItems.length > 0 && Boolean(String(deliveryDate || '').trim()),
+    [selectedCartItems.length, deliveryDate]
+  )
   const allCartSelected = useMemo(
     () => cart.length > 0 && cart.every((item) => selectedCartIds.has(item.productId)),
     [cart, selectedCartIds]
@@ -620,6 +764,29 @@ export function CustomerPortal() {
 
   const filteredOrders = useMemo(() => orders, [orders])
 
+  const deliveryIssuesByOrderId = useMemo(() => {
+    const byOrderId: Record<string, DeliveryIssueSummary> = {}
+
+    for (const item of deliveryIssueRecords) {
+      const orderId = String(item?.orderId || '').trim()
+      if (!orderId) continue
+
+      const meta = parseReplacementMeta(item?.notes)
+      const rawStatus = String(item?.status || '').toUpperCase()
+      const hasEvidence = Boolean(String(item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
+      const label = rawStatus === 'PROCESSED' ? 'Resolved' : 'Follow-up Required'
+
+      const reason = String(item?.description || item?.reason || 'Replacement case reported').trim()
+      const nextSummary: DeliveryIssueSummary = { orderId, label, reason, hasEvidence, rawStatus }
+      const existing = byOrderId[orderId]
+      if (!existing || getReplacementRank(nextSummary.label) >= getReplacementRank(existing.label)) {
+        byOrderId[orderId] = nextSummary
+      }
+    }
+
+    return byOrderId
+  }, [deliveryIssueRecords, orders])
+
   const sortedFilteredOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
       const aTime = a.deliveryDate ? new Date(a.deliveryDate).getTime() : new Date(a.createdAt).getTime()
@@ -660,7 +827,7 @@ export function CustomerPortal() {
         return raw === 'DELIVERED' && !reviewedOrderIds.has(order.id)
       }
       if (ordersTab === 'REPLACEMENT') {
-        return replacementOrderIds.has(order.id)
+        return Boolean(deliveryIssuesByOrderId[order.id])
       }
       if (ordersTab === 'DELIVERED') {
         return raw === 'DELIVERED'
@@ -668,7 +835,7 @@ export function CustomerPortal() {
 
       return true
     })
-  }, [sortedFilteredOrders, ordersTab, reviewedOrderIds, replacementOrderIds])
+  }, [sortedFilteredOrders, ordersTab, reviewedOrderIds, deliveryIssuesByOrderId])
 
   const visibleOrders = useMemo(() => {
     const query = ordersSearch.trim().toLowerCase()
@@ -701,8 +868,14 @@ export function CustomerPortal() {
       toast.error('Your cart is empty')
       return
     }
+    if (!String(deliveryDate || '').trim()) {
+      toast.error('Please select a delivery date before placing your order')
+      return
+    }
 
     setIsPlacingOrder(true)
+    const cartSnapshot = [...cart]
+    const selectedIdsSnapshot = new Set(selectedCartIds)
     try {
       const response = await fetch('/api/customer/orders', {
         method: 'POST',
@@ -731,13 +904,21 @@ export function CustomerPortal() {
       }
       const selectedIds = new Set(selectedCartItems.map((item) => item.productId))
       setCart((prev) => prev.filter((item) => !selectedIds.has(item.productId)))
-      await fetchOrders()
+      setSelectedCartIds((prev) => {
+        const next = new Set(prev)
+        selectedIds.forEach((id) => next.delete(id))
+        return next
+      })
+      // Refresh in background; order placement is already successful.
+      void fetchOrders()
       emitDataSync(['orders'])
-      await fetchOrderMeta()
+      void fetchOrderMeta()
       setOrdersTab('ALL')
       setOrdersSearch('')
       setActiveView('orders')
     } catch (e: any) {
+      setCart(cartSnapshot)
+      setSelectedCartIds(selectedIdsSnapshot)
       toast.error(e?.message || 'Failed to place order')
     } finally {
       setIsPlacingOrder(false)
@@ -1157,7 +1338,7 @@ export function CustomerPortal() {
       !shippingProvince ||
       !shippingZipCode
     ) {
-      toast.error('Please complete all detailed address fields before saving')
+      toast.error('Please complete street, barangay, city, province, and postal code before saving')
       return false
     }
     if (shippingLatitude === null || shippingLongitude === null) {
@@ -1244,23 +1425,135 @@ export function CustomerPortal() {
 
       const data = await response.json()
       const addr = data?.address || {}
+      const displayName = String(data?.display_name || '')
+      const displayParts = displayName
+        .split(',')
+        .map((part: string) => part.trim())
+        .filter(Boolean)
+      const postcodeFromDisplay = displayName.match(/\b\d{4}\b/)?.[0] || ''
+      const normalizeAddressToken = (value: string) =>
+        String(value || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .trim()
+      const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
+      const isCountryLike = (value: string) => /philippines/i.test(String(value || ''))
+      const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
 
-      const houseNumber = addr.house_number || ''
-      const streetName = addr.road || addr.pedestrian || addr.path || ''
-      const subdivision = addr.suburb || addr.neighbourhood || addr.quarter || ''
-      const barangay = addr.barangay || addr.city_district || addr.village || addr.hamlet || ''
-      const city = addr.city || addr.town || addr.municipality || addr.village || ''
-      const province = addr.state || 'Negros Occidental'
-      const postcode = addr.postcode || ''
+      const barangayFromDisplay =
+        displayParts.find((part: string) => /^(barangay|brgy\.?)\s+/i.test(part)) ||
+        displayParts.find((part: string) => /\b(barangay|brgy\.?)\b/i.test(part)) ||
+        ''
 
-      if (houseNumber) setShippingHouseNumber(houseNumber)
-      if (streetName) setShippingStreetName(streetName)
-      if (subdivision) setShippingSubdivision(subdivision)
-      if (barangay) setShippingBarangay(barangay)
-      if (city) setShippingCity(city)
+      const houseNumber = String(addr.house_number || '').trim()
+      const streetName = String(
+        addr.road ||
+          addr.residential ||
+          addr.pedestrian ||
+          addr.path ||
+          addr.footway ||
+          addr.street ||
+          displayParts[0] ||
+          ''
+      ).trim()
+      let subdivision = String(
+        addr.subdivision ||
+          // Keep optional subdivision conservative: only explicit subdivision-like fields.
+          addr.allotments ||
+          ''
+      ).trim()
+      let city = String(
+        addr.city ||
+          addr.town ||
+          addr.municipality ||
+          ''
+      ).trim()
+      let province = String(addr.state || addr.region || '').trim()
+      const postcode = String(addr.postcode || postcodeFromDisplay || '').trim()
+      const country = String(addr.country || 'Philippines').trim()
+
+      if (!province) {
+        province =
+          displayParts.find((part: string) => /negros occidental/i.test(part)) ||
+          displayParts.find((part: string) => /province|occidental/i.test(part)) ||
+          'Negros Occidental'
+      }
+
+      if (!city) {
+        const provinceIndex = displayParts.findIndex(
+          (part: string) => normalizeAddressToken(part) === normalizeAddressToken(province)
+        )
+        if (provinceIndex > 0) {
+          city = displayParts[provinceIndex - 1] || ''
+        } else {
+          city =
+            displayParts.find((part: string) => /city|municipality|silay|bacolod|talisay|bago|cadiz|escalante|victorias|himamaylan|kabankalan|sagay|san carlos|la carlota/i.test(part)) ||
+            ''
+        }
+      }
+
+      const localityTokens = displayParts.filter((part: string) => {
+        const normalized = normalizeAddressToken(part)
+        if (!normalized) return false
+        if (isCountryLike(part)) return false
+        if (isPostalLike(part)) return false
+        if (normalizeAddressToken(part) === normalizeAddressToken(province)) return false
+        if (city && normalizeAddressToken(part) === normalizeAddressToken(city)) return false
+        return true
+      })
+
+      let barangay = String(
+        addr.barangay ||
+          addr.city_district ||
+          addr.village ||
+          addr.hamlet ||
+          barangayFromDisplay ||
+          ''
+      ).trim()
+
+      // Prefer explicit barangay tokens from display name when available.
+      if (barangayFromDisplay) {
+        barangay = barangayFromDisplay
+      }
+
+      // If reverse geocoder omits barangay, infer it from display tokens nearest to city/province.
+      if (!barangay) {
+        const likelyBarangay =
+          localityTokens.find((token) => /barangay|brgy|poblacion|purok|sitio/i.test(token)) ||
+          localityTokens[1] ||
+          localityTokens[0] ||
+          ''
+        barangay = String(likelyBarangay || '').trim()
+      }
+
+      // Never keep barangay-like text in subdivision.
+      if (subdivision && isBarangayLike(subdivision)) {
+        if (!barangay) barangay = subdivision
+        subdivision = ''
+      }
+
+      // Avoid duplicate values between subdivision and barangay.
+      if (
+        subdivision &&
+        barangay &&
+        normalizeAddressToken(subdivision) === normalizeAddressToken(barangay)
+      ) {
+        subdivision = ''
+      }
+
+      // Avoid putting city value into barangay when reverse geocoder returns coarse data.
+      if (barangay && city && normalizeAddressToken(barangay) === normalizeAddressToken(city)) {
+        barangay = ''
+      }
+
+      setShippingHouseNumber(houseNumber)
+      setShippingStreetName(streetName)
+      setShippingSubdivision(subdivision)
+      setShippingBarangay(barangay)
+      setShippingCity(city)
       setShippingProvince(province)
-      if (postcode) setShippingZipCode(postcode)
-      setShippingCountry('Philippines')
+      setShippingZipCode(postcode)
+      setShippingCountry(country)
     } catch {
       toast.error('Pinned location set, but address auto-fill failed. You can fill fields manually.')
     } finally {
@@ -1621,10 +1914,10 @@ export function CustomerPortal() {
         </div>
       </header>
 
-      <main className="space-y-4 p-4 pb-24">
+      <main className="mx-auto w-full max-w-7xl space-y-4 p-4 pb-24 md:pb-8">
         {activeView === 'home' && (
-          <section className="-mx-4 -mt-4 bg-slate-100 pb-6">
-            <div className="sticky top-[57px] z-[5] border-b border-slate-200 bg-white px-3 py-2">
+          <section className="-mx-4 -mt-4 bg-slate-100 pb-6 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
+            <div className="sticky top-[57px] z-[5] border-b border-slate-200 bg-white px-3 py-2 md:static md:rounded-t-xl">
               <div className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2">
                 <Search className="h-4 w-4 text-slate-500" />
                 <Input
@@ -1641,29 +1934,29 @@ export function CustomerPortal() {
                 <Loader2 className="h-6 w-6 animate-spin text-cyan-700" />
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-1.5 px-1.5 pt-1.5">
+              <div className="grid grid-cols-2 gap-0.5 px-0.5 pt-0.5 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                 {filteredProducts.map((p) => {
                   return (
-                    <Card key={p.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none">
+                    <Card key={p.id} className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-none">
                       <div className="relative">
                         <img
                           src={getProductImage(p.imageUrl)}
                           alt={p.name}
-                          className="aspect-[3/4] w-full object-cover bg-white"
+                          className="aspect-[11/10] w-full object-cover bg-white"
                         />
                       </div>
 
-                      <CardContent className="space-y-1 p-2">
-                        <p className="line-clamp-2 min-h-[2.2rem] text-[14px] leading-[1.1rem] text-slate-900">{p.name}</p>
-                        <p className="text-[20px] font-bold leading-none text-rose-600">{formatPeso(p.price)}</p>
-                        <div className="flex items-center justify-between pt-0.5">
+                      <CardContent className="space-y-0.5 p-1">
+                        <p className="line-clamp-1 text-[11px] leading-3.5 text-slate-900">{p.name}</p>
+                        <p className="text-[14px] font-bold leading-none text-rose-600">{formatPeso(p.price)}</p>
+                        <div className="flex items-center justify-end pt-0">
                           <Button
                             size="sm"
-                            className="ml-auto h-7 rounded-md bg-teal-700 px-2 text-[11px] text-white hover:bg-teal-800"
-                            onClick={() => addToCart(p)}
+                            className="h-4.5 rounded-md bg-teal-700 px-1 text-[8px] text-white hover:bg-teal-800"
+                            onClick={() => openAddToCartDialog(p)}
                           >
-                            <Plus className="mr-1 h-3 w-3" />
-                            Add
+                            <ShoppingCart className="mr-0.5 h-2 w-2" />
+                            Add to Cart
                           </Button>
                         </div>
                       </CardContent>
@@ -1676,8 +1969,8 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'cart' && (
-          <section className="-mx-4 -mt-4 bg-[#f5f5f5] pb-28">
-            <div className="sticky top-[57px] z-[6] border-b bg-white px-3 py-3">
+          <section className="-mx-4 -mt-4 bg-[#f5f5f5] pb-28 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
+            <div className="sticky top-[57px] z-[6] border-b bg-white px-3 py-3 md:static md:rounded-t-xl">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('home')}>
@@ -1750,7 +2043,7 @@ export function CustomerPortal() {
             </div>
 
             {cart.length > 0 ? (
-              <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-3 py-2">
+              <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-3 py-2 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -1777,8 +2070,8 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'checkout' && (
-          <section className="-mx-4 -mt-4 bg-[#f5f5f5] pb-28">
-            <div className="sticky top-[57px] z-[6] border-b bg-white px-3 py-3">
+          <section className="-mx-4 -mt-4 bg-[#f5f5f5] pb-28 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
+            <div className="sticky top-[57px] z-[6] border-b bg-white px-3 py-3 md:static md:rounded-t-xl">
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('cart')}>
                   <ArrowLeft className="h-4 w-4" />
@@ -1881,7 +2174,7 @@ export function CustomerPortal() {
             )}
 
             {selectedCartItems.length > 0 ? (
-              <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-3 py-2">
+              <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-3 py-2 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200">
                 <div className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-gray-500">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
@@ -1890,7 +2183,7 @@ export function CustomerPortal() {
                   <Button
                     className="h-11 rounded-xl bg-rose-500 px-8 text-white hover:bg-rose-600"
                     onClick={placeOrder}
-                    disabled={isPlacingOrder}
+                    disabled={isPlacingOrder || !canPlaceOrder}
                   >
                     {isPlacingOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Place order
@@ -1902,8 +2195,8 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'orders' && (
-          <section className="-mx-4 -mt-4 bg-slate-100 pb-6">
-            <div className="border-b bg-white px-4 py-3">
+          <section className="-mx-4 -mt-4 bg-slate-100 pb-6 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
+            <div className="border-b bg-white px-4 py-3 md:rounded-t-xl">
               <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
                 <Search className="h-4 w-4 text-slate-500" />
                 <Input
@@ -1941,6 +2234,7 @@ export function CustomerPortal() {
               <div className="space-y-3 px-3 pt-3">
                 {visibleOrders.map((o) => {
                   const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
+                  const deliveryIssue = deliveryIssuesByOrderId[o.id]
                   const firstItem = o.items?.[0]
                   const isDelivered = normalizedStatus === 'DELIVERED'
                   const isReviewed = reviewedOrderIds.has(o.id)
@@ -1960,7 +2254,20 @@ export function CustomerPortal() {
                     >
                       <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
                         <div className="min-w-0 truncate font-medium text-slate-800">{o.orderNumber}</div>
-                        <div className="ml-2 shrink-0 text-sm text-slate-700">{formatOrderStatus(o.status, o.paymentStatus).toLowerCase()}</div>
+                        <div className="ml-2 shrink-0 flex items-center gap-2 text-sm text-slate-700">
+                          {deliveryIssue ? (
+                            <Badge
+                              className={
+                                deliveryIssue.label === 'Follow-up Required'
+                                  ? 'bg-red-100 text-red-700 hover:bg-red-100'
+                                  : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                              }
+                            >
+                              {deliveryIssue.label}
+                            </Badge>
+                          ) : null}
+                          <span>{formatOrderStatus(o.status, o.paymentStatus).toLowerCase()}</span>
+                        </div>
                       </div>
 
                       <div className="mx-3 mt-3 flex items-center justify-between rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700">
@@ -2049,7 +2356,7 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'track' && (
-          <section className="-mx-4 -mt-4 bg-[#f3f3f3] pb-8">
+          <section className="-mx-4 -mt-4 bg-[#f3f3f3] pb-8 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
             {(() => {
               const order = orders.find((o) => o.id === selectedTrackingOrderId)
               if (!order) {
@@ -2077,7 +2384,7 @@ export function CustomerPortal() {
 
               return (
                 <>
-                  <div className="sticky top-[57px] z-[6] flex h-14 items-center justify-between border-b border-[#e8e8e8] bg-white px-2">
+                  <div className="sticky top-[57px] z-[6] flex h-14 items-center justify-between border-b border-[#e8e8e8] bg-white px-2 md:static md:rounded-t-xl">
                     <Button variant="ghost" size="icon" onClick={() => setActiveView('orders')}>
                       <ArrowLeft className="h-5 w-5" />
                     </Button>
@@ -2558,14 +2865,38 @@ export function CustomerPortal() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Input placeholder="House number" value={shippingHouseNumber} onChange={(e) => setShippingHouseNumber(e.target.value)} />
-                  <Input placeholder="Street name" value={shippingStreetName} onChange={(e) => setShippingStreetName(e.target.value)} />
-                  <Input placeholder="Subdivision" value={shippingSubdivision} onChange={(e) => setShippingSubdivision(e.target.value)} />
-                  <Input placeholder="Barangay" value={shippingBarangay} onChange={(e) => setShippingBarangay(e.target.value)} />
-                  <Input placeholder="City" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
-                  <Input placeholder="Province" value={shippingProvince} onChange={(e) => setShippingProvince(e.target.value)} />
-                  <Input placeholder="Postal code" value={shippingZipCode} onChange={(e) => setShippingZipCode(e.target.value)} />
-                  <Input value={shippingCountry} disabled readOnly />
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">House number (optional)</Label>
+                    <Input placeholder="House number" value={shippingHouseNumber} onChange={(e) => setShippingHouseNumber(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">Street name</Label>
+                    <Input placeholder="Street name" value={shippingStreetName} onChange={(e) => setShippingStreetName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">Subdivision (optional)</Label>
+                    <Input placeholder="Subdivision" value={shippingSubdivision} onChange={(e) => setShippingSubdivision(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">Barangay</Label>
+                    <Input placeholder="Barangay" value={shippingBarangay} onChange={(e) => setShippingBarangay(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">City / Municipality</Label>
+                    <Input placeholder="City / Municipality" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">Province</Label>
+                    <Input placeholder="Province" value={shippingProvince} onChange={(e) => setShippingProvince(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">Postal code</Label>
+                    <Input placeholder="Postal code" value={shippingZipCode} onChange={(e) => setShippingZipCode(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-600">Country</Label>
+                    <Input value={shippingCountry} disabled readOnly />
+                  </div>
                 </div>
                 <p className="text-xs text-gray-500">
                   Full address: {composedShippingAddress || 'Not complete yet'}
@@ -2613,6 +2944,80 @@ export function CustomerPortal() {
               {isSavingAddress ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isAddToCartDialogOpen}
+        onOpenChange={(open) => {
+          setIsAddToCartDialogOpen(open)
+          if (!open) setPendingCartProduct(null)
+        }}
+      >
+        <DialogContent className="max-w-[280px] p-3">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Add to Cart</DialogTitle>
+            <DialogDescription className="text-xs">
+              {pendingCartProduct ? `Set quantity for ${pendingCartProduct.name}` : 'Set quantity'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Quantity</Label>
+              <div className="grid grid-cols-[32px_1fr_32px] items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-8"
+                  onClick={() => adjustPendingCartQty(-1)}
+                  disabled={!pendingCartProduct || Number(pendingCartQty || 1) <= 1}
+                  aria-label="Decrease quantity"
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </Button>
+                <Input
+                  type="number"
+                  min={1}
+                  max={pendingCartProduct ? getAvailableQty(pendingCartProduct) : 1}
+                  value={pendingCartQty}
+                  onChange={(e) => setPendingCartQty(e.target.value)}
+                  className="h-9"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-8"
+                  onClick={() => adjustPendingCartQty(1)}
+                  disabled={
+                    !pendingCartProduct ||
+                    Number(pendingCartQty || 1) >= (pendingCartProduct ? getAvailableQty(pendingCartProduct) : 1)
+                  }
+                  aria-label="Increase quantity"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Max available: {pendingCartProduct ? getAvailableQty(pendingCartProduct) : 0}
+              </p>
+            </div>
+            <div className="flex justify-end gap-1.5 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                onClick={() => {
+                  setIsAddToCartDialogOpen(false)
+                  setPendingCartProduct(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={confirmAddToCart}>Add to Cart</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2684,6 +3089,18 @@ export function CustomerPortal() {
                   <FileText className="h-4 w-4 mr-2" />
                   Receipt
                 </Button>
+              </div>
+            ) : null}
+
+            {deliveryIssuesByOrderId[selectedOrder.id] ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
+                <p className="text-sm font-semibold text-amber-900">
+                  Replacement: {deliveryIssuesByOrderId[selectedOrder.id].label}
+                </p>
+                <p className="text-xs text-amber-800">{deliveryIssuesByOrderId[selectedOrder.id].reason}</p>
+                <p className="text-xs text-amber-700">
+                  Evidence: {deliveryIssuesByOrderId[selectedOrder.id].hasEvidence ? 'Attached by driver' : 'No photo attached'}
+                </p>
               </div>
             ) : null}
 

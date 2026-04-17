@@ -178,7 +178,7 @@ export async function POST(request: Request) {
 
     return apiResponse({
       success: true,
-      message: 'Replacement completed using spare stock',
+      message: 'On-delivery damage replacement completed using spare stock',
       replacement: result.replacement,
       remainingSpareStock: result.remainingSpareStock,
     })

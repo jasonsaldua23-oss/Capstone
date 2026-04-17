@@ -162,8 +162,11 @@ export function DriverPortal() {
   const [nativeCameraGateMessage, setNativeCameraGateMessage] = useState('Camera permission is required to use Driver Portal.')
   const [isCheckingNativeCameraPermission, setIsCheckingNativeCameraPermission] = useState(false)
   const watchIdRef = useRef<number | null>(null)
+  const isFetchingTripsRef = useRef(false)
 
   const fetchTrips = useCallback(async (silent = false) => {
+    if (isFetchingTripsRef.current) return
+    isFetchingTripsRef.current = true
     try {
       const response = await fetch('/api/driver/trips', { cache: 'no-store', credentials: 'include' })
       const data = await response.json().catch(() => ({}))
@@ -179,6 +182,7 @@ export function DriverPortal() {
       }
       console.error('Failed to fetch trips:', error)
     } finally {
+      isFetchingTripsRef.current = false
       setIsLoading(false)
     }
   }, [])
@@ -202,7 +206,7 @@ export function DriverPortal() {
       if (document.visibilityState === 'visible') {
         void fetchTrips(true)
       }
-    }, 2000)
+    }, 15000)
 
     return () => {
       window.removeEventListener('focus', onFocus)
@@ -918,7 +922,7 @@ function TripDetailView({
   const openSpareReplacement = (dropPoint: DropPoint) => {
     const items = dropPoint.order?.items || []
     if (!items.length) {
-      toast.error('No order items available for replacement')
+      toast.error('No order items available for damage reporting')
       return
     }
     setSpareTargetDropPointId(dropPoint.id)
@@ -946,7 +950,7 @@ function TripDetailView({
   const submitSpareReplacement = async () => {
     const targetDropPoint = (trip.dropPoints || []).find((point) => point.id === spareTargetDropPointId) || null
     if (!targetDropPoint) {
-      toast.error('Invalid drop point for replacement')
+      toast.error('Invalid drop point for on-delivery replacement')
       return
     }
     const selectedItem = (targetDropPoint.order?.items || []).find((item) => item.id === spareOrderItemId) || null
@@ -988,15 +992,15 @@ function TripDetailView({
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to process spare stock replacement')
+        throw new Error(payload?.error || 'Failed to process on-delivery replacement')
       }
       toast.success(
-        `Spare stock replacement completed. Remaining stock: ${Number(payload?.remainingSpareStock ?? 0)}`
+        `Damage recorded and replaced. Remaining spare stock: ${Number(payload?.remainingSpareStock ?? 0)}`
       )
       closeSpareReplacement()
       await onRefreshTrips()
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to process spare stock replacement')
+      toast.error(error?.message || 'Failed to process on-delivery replacement')
     } finally {
       setIsSpareReplacing(false)
     }
@@ -1398,7 +1402,7 @@ function TripDetailView({
                               }}
                               disabled={isUpdating || isSpareReplacing}
                             >
-                              Replace from Spare Stock
+                              Report Damage & Replace Now
                             </Button>
                           ) : null}
                           <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
@@ -1553,14 +1557,14 @@ function TripDetailView({
       <Dialog open={isSpareReplaceOpen} onOpenChange={(open) => { if (!open) closeSpareReplacement() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Replace from Spare Stock</DialogTitle>
+            <DialogTitle>On-Delivery Damage Replacement</DialogTitle>
             <DialogDescription>
-              Immediate same-stop replacement using driver spare stock.
+              Record damage evidence and replace immediately from driver spare stock.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="spare-order-item">Order Item</Label>
+              <Label htmlFor="spare-order-item">Damaged Item</Label>
               <select
                 id="spare-order-item"
                 className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
@@ -1575,7 +1579,7 @@ function TripDetailView({
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="spare-qty">Replacement Quantity</Label>
+              <Label htmlFor="spare-qty">Quantity to Replace</Label>
               <Input
                 id="spare-qty"
                 type="number"
@@ -1585,7 +1589,7 @@ function TripDetailView({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="spare-reason">Damage Reason</Label>
+              <Label htmlFor="spare-reason">Damage Details</Label>
               <Textarea
                 id="spare-reason"
                 placeholder="Describe damage observed by driver..."
@@ -1633,7 +1637,7 @@ function TripDetailView({
                 disabled={isSpareReplacing}
               >
                 {isSpareReplacing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Confirm Replacement
+                Record & Replace
               </Button>
             </div>
           </div>

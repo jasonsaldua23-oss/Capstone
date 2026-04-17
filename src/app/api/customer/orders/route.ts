@@ -131,6 +131,19 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(items) || items.length === 0) {
       return apiResponse({ success: false, error: 'Order items are required' }, 400)
     }
+    if (!deliveryDate) {
+      return apiResponse({ success: false, error: 'Delivery date is required' }, 400)
+    }
+
+    const normalizedDeliveryDate = new Date(deliveryDate)
+    if (Number.isNaN(normalizedDeliveryDate.getTime())) {
+      return apiResponse({ success: false, error: 'Invalid delivery date' }, 400)
+    }
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (normalizedDeliveryDate < today) {
+      return apiResponse({ success: false, error: 'Delivery date cannot be in the past' }, 400)
+    }
 
     const normalizedShippingLatitude = toNumberOrNull(shippingLatitude)
     const normalizedShippingLongitude = toNumberOrNull(shippingLongitude)
@@ -310,10 +323,6 @@ export async function POST(request: NextRequest) {
 
     const orderCount = await db.order.count()
     const orderNumber = `ORD-${new Date().getFullYear()}-${String(orderCount + 1).padStart(4, '0')}`
-    const defaultDeliveryDate = new Date()
-    defaultDeliveryDate.setDate(defaultDeliveryDate.getDate() + 1)
-    const normalizedDeliveryDate = deliveryDate ? new Date(deliveryDate) : defaultDeliveryDate
-
     const createdOrder = await db.order.create({
       data: {
         orderNumber,

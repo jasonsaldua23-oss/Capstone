@@ -24,11 +24,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, CircleCheck, BarChart3, ShoppingCart, Package, RotateCcw, Archive, Building2, Database, FileText, Users, Star, Download, Pencil } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil } from 'lucide-react';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar } from 'recharts';
 import type { DashboardStats } from '@/types';
-import { formatReplacementStatusLabel } from '@/lib/replacement-status';
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync';
 import { clearTabAuthToken } from '@/lib/client-auth'
 
@@ -163,6 +162,12 @@ function formatNotificationTime(createdAt: string) {
   return date.toLocaleString()
 }
 
+function formatRoleLabel(role: string | null | undefined) {
+  const value = String(role || '').trim().toUpperCase()
+  if (value === 'SUPER_ADMIN') return 'ADMIN'
+  return value || 'N/A'
+}
+
 export function AdminPortal() {
   const { user, logout } = useAuth()
   const [activeView, setActiveView] = useState('dashboard')
@@ -250,7 +255,7 @@ export function AdminPortal() {
       { id: 'orders', label: 'Orders', icon: ShoppingCart },
       { id: 'trips', label: 'Trips & Deliveries', icon: Package },
       { id: 'transportation', label: 'Transportation', icon: Truck },
-      { id: 'returns', label: 'Replacements', icon: RotateCcw },
+      { id: 'returns', label: 'Replacements', icon: AlertTriangle },
       { id: 'tracking', label: 'Live Tracking', icon: MapPin },
       { id: 'inventory', label: 'Inventory', icon: Archive },
       { id: 'warehouses', label: 'Warehouses', icon: Building2 },
@@ -284,7 +289,7 @@ export function AdminPortal() {
             </Avatar>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-gray-500">{user?.role}</p>
+              <p className="text-xs text-gray-500">{formatRoleLabel(user?.role)}</p>
             </div>
           </div>
         </div>
@@ -758,14 +763,14 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
               {/* <Undo2 className="h-5 w-5 text-purple-500" /> */}
               Pending Replacements
             </CardTitle>
-            <CardDescription>Replacement requests awaiting processing</CardDescription>
+            <CardDescription>Replacement cases awaiting review</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center justify-between py-2 border-b last:border-0">
                 <div>
-                  <p className="font-medium">{stats?.pendingReturns || 0} pending replacement request(s)</p>
-                  <p className="text-sm text-gray-500">Awaiting warehouse/admin processing</p>
+                  <p className="font-medium">{stats?.pendingReturns || 0} pending replacement case(s)</p>
+                  <p className="text-sm text-gray-500">Awaiting admin follow-up or closure</p>
                 </div>
                 <Badge variant={Number(stats?.pendingReturns || 0) > 0 ? 'secondary' : 'outline'}>
                   {Number(stats?.pendingReturns || 0) > 0 ? 'Pending' : 'Clear'}
@@ -791,8 +796,11 @@ function OrdersView() {
 
   useEffect(() => {
     let isMounted = true
+    let isFetchingOrders = false
 
     async function fetchOrders(silent = false) {
+      if (isFetchingOrders) return
+      isFetchingOrders = true
       try {
         const requestOrders = () => fetch('/api/orders?limit=100&includeItems=preview', { credentials: 'include' })
 
@@ -817,6 +825,7 @@ function OrdersView() {
           console.error('Failed to fetch orders:', error)
         }
       } finally {
+        isFetchingOrders = false
         if (isMounted) {
           setIsLoading(false)
         }
@@ -846,7 +855,7 @@ function OrdersView() {
       if (document.visibilityState === 'visible') {
         void fetchOrders(true)
       }
-    }, 5000)
+    }, 15000)
 
     return () => {
       isMounted = false
@@ -2675,7 +2684,7 @@ function DriversView() {
                   >
                     <option value="">Select role</option>
                     {roles.map((role) => (
-                      <option key={role.id} value={role.id}>{role.name}</option>
+                      <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
                     ))}
                   </select>
                 </div>
@@ -4897,13 +4906,30 @@ function ReturnsView() {
     fetchReturns()
   }, [])
 
-  const formatReplacementStatus = (status: string) => {
-    return formatReplacementStatusLabel(status)
+  const parseMeta = (notes: string | null | undefined) => {
+    const raw = String(notes || '').trim()
+    if (!raw) return {}
+    const marker = 'Meta:'
+    const markerIndex = raw.lastIndexOf(marker)
+    if (markerIndex < 0) return {}
+    const jsonText = raw.slice(markerIndex + marker.length).trim()
+    if (!jsonText) return {}
+    try {
+      const parsed = JSON.parse(jsonText)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
   }
 
-  const updateReplacement = async (
+  const formatIssueStatus = (item: any) => {
+    const rawStatus = String(item?.status || '').toUpperCase()
+    return rawStatus === 'PROCESSED' ? 'Resolved' : 'Follow-up Required'
+  }
+
+  const updateIssueStatus = async (
     replacementId: string,
-    status: 'APPROVED' | 'PICKED_UP' | 'IN_TRANSIT' | 'RECEIVED' | 'PROCESSED' | 'REJECTED',
+    status: 'PROCESSED' | 'REJECTED',
     options?: { notes?: string; createReplacementOrder?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
@@ -4925,11 +4951,7 @@ function ReturnsView() {
       }
 
       setReturns((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
-      if (payload?.replacementOrder?.orderNumber) {
-        toast.success(`Replacement completed. New order: ${payload.replacementOrder.orderNumber}`)
-      } else {
-        toast.success('Replacement updated')
-      }
+      toast.success(status === 'PROCESSED' ? 'Replacement marked as resolved' : 'Replacement marked for follow-up')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
     } finally {
@@ -4937,57 +4959,57 @@ function ReturnsView() {
     }
   }
 
-  const requested = returns.filter((item) => item.status === 'REQUESTED').length
-  const processing = returns.filter((item) => item.status === 'PICKED_UP').length
-  const packed = returns.filter((item) => item.status === 'IN_TRANSIT').length
-  const outForDelivery = returns.filter((item) => item.status === 'RECEIVED').length
-  const completed = returns.filter((item) => item.status === 'PROCESSED').length
-
+  const totalIssues = returns.length
+  const totalReplacedQty = returns.reduce((sum, item) => {
+    const meta = parseMeta(item?.notes)
+    const qty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+    return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0)
+  }, 0)
+  const totalDamagedReturnedQty = totalReplacedQty
+  const resolvedOnDelivery = returns.filter((item) => {
+    const meta = parseMeta(item?.notes)
+    return String(item?.status || '').toUpperCase() === 'PROCESSED' &&
+      String(item?.replacementMode || meta?.replacementMode || '').toUpperCase() === 'SPARE_STOCK_IMMEDIATE'
+  }).length
+  const needsFollowUp = returns.filter((item) => String(item?.status || '').toUpperCase() === 'REJECTED').length
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
-          <p className="text-gray-500">Manage replacement requests and processing flow</p>
+          <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
         </div>
-        <Button
-          className="gap-2"
-          onClick={async () => {
-            const target = returns.find((item) => item.status === 'RECEIVED')
-            if (!target) {
-              toast.error('No replacement in OUT FOR DELIVERY status to process')
-              return
-            }
-            await updateReplacement(target.id, 'PROCESSED', { createReplacementOrder: true, notes: 'Processed by admin' })
-          }}
-        >
-          Process Replacement
-        </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Requested</p>
-            <p className="text-2xl font-bold">{requested}</p>
+            <p className="text-sm text-gray-500">Total Cases</p>
+            <p className="text-2xl font-bold">{totalIssues}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Processing</p>
-            <p className="text-2xl font-bold">{processing}</p>
+            <p className="text-sm text-gray-500">Resolved on Delivery</p>
+            <p className="text-2xl font-bold">{resolvedOnDelivery}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Loaded</p>
-            <p className="text-2xl font-bold">{packed}</p>
+            <p className="text-sm text-gray-500">Needs Follow-up</p>
+            <p className="text-2xl font-bold">{needsFollowUp}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Out for Delivery</p>
-            <p className="text-2xl font-bold">{outForDelivery}</p>
+            <p className="text-sm text-gray-500">Total Replaced Qty</p>
+            <p className="text-2xl font-bold">{totalReplacedQty}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-gray-500">Total Damaged Returned Qty</p>
+            <p className="text-2xl font-bold">{totalDamagedReturnedQty}</p>
           </CardContent>
         </Card>
       </div>
@@ -5000,7 +5022,7 @@ function ReturnsView() {
             </div>
           ) : returns.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-gray-500">No replacement requests found</p>
+              <p className="text-gray-500">No replacement cases found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -5010,64 +5032,85 @@ function ReturnsView() {
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement Reason</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Created</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Reported</th>
                     <th className="text-left p-4 font-medium text-gray-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {returns.map((item: any) => (
-                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="p-4 font-medium">{item.returnNumber}</td>
-                      <td className="p-4">{item.order?.orderNumber || 'N/A'}</td>
-                      <td className="p-4">{item.order?.customer?.name || 'N/A'}</td>
-                      <td className="p-4">{item.reason || 'N/A'}</td>
-                      <td className="p-4">
-                        <Badge variant={item.status === 'PROCESSED' ? 'default' : 'secondary'}>
-                          {formatReplacementStatus(item.status)}
-                        </Badge>
-                      </td>
-                      <td className="p-4 text-gray-500">
-                        {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
-                      </td>
-                      <td className="p-4">
-                        <div className="flex flex-wrap gap-2">
-                          {item.status === 'REQUESTED' && (
-                            <>
-                              <Button size="sm" variant="outline" onClick={() => updateReplacement(item.id, 'APPROVED')} disabled={updatingReplacementId === item.id}>
-                                Approve
+                  {returns.map((item: any) => {
+                    const meta = parseMeta(item?.notes)
+                    const issueReason = String(item?.description || item?.reason || 'No details provided')
+                    const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                    const hasEvidence = Boolean(String(item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
+                    const replacementMode = String(item?.replacementMode || meta?.replacementMode || '').toUpperCase()
+                    const statusLabel = formatIssueStatus(item)
+
+                    return (
+                      <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{item.returnNumber}</td>
+                        <td className="p-4">{item.order?.orderNumber || 'N/A'}</td>
+                        <td className="p-4">{item.order?.customer?.name || 'N/A'}</td>
+                        <td className="p-4">
+                          <p className="text-sm text-gray-900">{issueReason}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
+                            {replacementMode === 'SPARE_STOCK_IMMEDIATE' ? (
+                              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">On-delivery replacement</Badge>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
+                            {hasEvidence ? 'Photo Attached' : 'No Photo'}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
+                          <Badge
+                            className={
+                              statusLabel === 'Follow-up Required'
+                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
+                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                            }
+                          >
+                            {statusLabel}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-gray-500">
+                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap gap-2">
+                            {String(item?.status || '').toUpperCase() !== 'PROCESSED' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateIssueStatus(item.id, 'PROCESSED', { notes: 'Marked resolved by admin' })}
+                                disabled={updatingReplacementId === item.id}
+                              >
+                                Mark Resolved
                               </Button>
-                              <Button size="sm" variant="destructive" onClick={() => updateReplacement(item.id, 'REJECTED', { notes: 'Rejected by admin' })} disabled={updatingReplacementId === item.id}>
-                                Reject
+                            ) : null}
+                            {String(item?.status || '').toUpperCase() !== 'REJECTED' ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => updateIssueStatus(item.id, 'REJECTED', { notes: 'Marked for follow-up by admin' })}
+                                disabled={updatingReplacementId === item.id}
+                              >
+                                Needs Follow-up
                               </Button>
-                            </>
-                          )}
-                          {item.status === 'APPROVED' && (
-                            <Button size="sm" variant="outline" onClick={() => updateReplacement(item.id, 'PICKED_UP')} disabled={updatingReplacementId === item.id}>
-                              Mark Processing
-                            </Button>
-                          )}
-                          {item.status === 'PICKED_UP' && (
-                            <Button size="sm" variant="outline" onClick={() => updateReplacement(item.id, 'IN_TRANSIT')} disabled={updatingReplacementId === item.id}>
-                              Mark as Loaded
-                            </Button>
-                          )}
-                          {item.status === 'IN_TRANSIT' && (
-                            <Button size="sm" variant="outline" onClick={() => updateReplacement(item.id, 'RECEIVED')} disabled={updatingReplacementId === item.id}>
-                              Mark Out for Delivery
-                            </Button>
-                          )}
-                          {item.status === 'RECEIVED' && (
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateReplacement(item.id, 'PROCESSED', { createReplacementOrder: true, notes: 'Replacement order issued by admin' })} disabled={updatingReplacementId === item.id}>
-                              Mark Delivered
-                            </Button>
-                          )}
-                          {updatingReplacementId === item.id && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            ) : null}
+                            {updatingReplacementId === item.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -5804,7 +5847,7 @@ function UsersView() {
                       </td>
                       <td className="p-4 text-gray-500">{user.email}</td>
                       <td className="p-4">
-                        <Badge variant="outline">{user.role?.name || 'N/A'}</Badge>
+                        <Badge variant="outline">{formatRoleLabel(user.role?.name)}</Badge>
                       </td>
                       <td className="p-4">
                         <Badge variant={user.isActive ? 'default' : 'secondary'}>
@@ -5847,7 +5890,7 @@ function UsersView() {
               <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="User Role" value={form.roleId} onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}>
                 <option value="">Select role</option>
                 {roles.map((role) => (
-                  <option key={role.id} value={role.id}>{role.name}</option>
+                  <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
                 ))}
               </select>
             </div>
@@ -5890,7 +5933,7 @@ function UsersView() {
               <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="User Role" value={form.roleId} onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}>
                 <option value="">Select role</option>
                 {roles.map((role) => (
-                  <option key={role.id} value={role.id}>{role.name}</option>
+                  <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
                 ))}
               </select>
             </div>
@@ -6401,7 +6444,7 @@ function SettingsView() {
               <div className="space-y-4">
                 <div>
                   <p className="text-sm text-gray-500">Role</p>
-                  <p className="font-medium">{user?.role}</p>
+                  <p className="font-medium">{formatRoleLabel(user?.role)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Account Type</p>

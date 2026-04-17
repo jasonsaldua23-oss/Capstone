@@ -25,14 +25,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { toast } from 'sonner'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from '@/components/portals/warehouse/WarehouseTripsSection'
-import { formatReplacementStatusLabel } from '@/lib/replacement-status'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken } from '@/lib/client-auth'
 import {
   Boxes,
   PackageCheck,
   Truck,
-  RotateCcw,
   MapPin,
   ClipboardList,
   Warehouse,
@@ -206,6 +204,13 @@ interface WarehouseReturnItem {
   warehouseId?: string
   status: string
   reason: string
+  description?: string | null
+  replacementMode?: string | null
+  originalOrderItemId?: string | null
+  replacementProductId?: string | null
+  replacementQuantity?: number | null
+  damagePhotoUrl?: string | null
+  notes?: string | null
   createdAt: string
   order?: {
     warehouseId?: string
@@ -370,7 +375,7 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
   { id: 'dashboard', label: 'Dashboard', icon: Boxes },
   { id: 'orders', label: 'Orders', icon: PackageCheck },
   { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
-  { id: 'returns', label: 'Replacements', icon: RotateCcw },
+  { id: 'returns', label: 'Replacements', icon: AlertTriangle },
   { id: 'liveTracking', label: 'Live Tracking', icon: MapPin },
   { id: 'inventory', label: 'Inventory', icon: PackageOpen },
   { id: 'warehouses', label: 'Warehouse', icon: Warehouse },
@@ -448,6 +453,7 @@ export function WarehousePortal() {
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const isRefreshingAllRef = useRef(false)
+  const dbBackoffUntilRef = useRef<number>(0)
   const hasAssignedWarehouse = warehouses.length > 0
   const hasWarehouseFetchFailure = !hasAssignedWarehouse && Boolean(warehouseLoadError)
   const assignedWarehouse = warehouses[0] || null
@@ -534,6 +540,54 @@ export function WarehousePortal() {
       ? returns.filter((entry) => entry?.warehouseId === assignedWarehouse.id || entry?.order?.warehouseId === assignedWarehouse.id)
       : returns
   }, [assignedWarehouse, returns])
+
+  const replacementSummary = useMemo(() => {
+    const parseMeta = (notes: string | null | undefined) => {
+      const raw = String(notes || '').trim()
+      if (!raw) return {}
+      const marker = 'Meta:'
+      const markerIndex = raw.lastIndexOf(marker)
+      if (markerIndex < 0) return {}
+      const jsonText = raw.slice(markerIndex + marker.length).trim()
+      if (!jsonText) return {}
+      try {
+        const parsed = JSON.parse(jsonText)
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
+    }
+
+    let replacedQty = 0
+    let damagedReturnedQty = 0
+    let resolvedOnDelivery = 0
+    let needsFollowUp = 0
+
+    for (const entry of scopedReturns) {
+      const meta = parseMeta(entry?.notes)
+      const status = String(entry?.status || '').toUpperCase()
+      const mode = String((entry as any)?.replacementMode || meta?.replacementMode || '').toUpperCase()
+      const qty = Number(entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+      if (qty > 0) {
+        replacedQty += qty
+        damagedReturnedQty += qty
+      }
+      if (status === 'PROCESSED' && mode === 'SPARE_STOCK_IMMEDIATE') {
+        resolvedOnDelivery += 1
+      }
+      if (status === 'REJECTED') {
+        needsFollowUp += 1
+      }
+    }
+
+    return {
+      replacedQty,
+      damagedReturnedQty,
+      resolvedOnDelivery,
+      needsFollowUp,
+      totalCases: scopedReturns.length,
+    }
+  }, [scopedReturns])
 
   const lowStockCount = useMemo(
     () => scopedInventory.filter((item) => (item.quantity ?? 0) <= (item.minStock ?? 0)).length,
@@ -802,6 +856,18 @@ export function WarehousePortal() {
     init?: RequestInit,
     options?: { retries?: number; timeoutMs?: number }
   ) => {
+    if (Date.now() < dbBackoffUntilRef.current) {
+      return {
+        ok: true as const,
+        data: {
+          success: false,
+          dbUnavailable: true,
+          error: 'Database is temporarily unavailable',
+        },
+        status: 200,
+      }
+    }
+
     const retries = options?.retries ?? 1
     const timeoutMs = options?.timeoutMs ?? 12000
     let lastError = 'Request failed'
@@ -814,11 +880,20 @@ export function WarehousePortal() {
         const data = await response.json().catch(() => ({}))
         const dbUnavailable = Boolean(data?.dbUnavailable)
         if (response.ok && (data?.success !== false || dbUnavailable)) {
+          if (dbUnavailable) {
+            dbBackoffUntilRef.current = Date.now() + 5000
+          }
           return { ok: true as const, data, status: response.status }
         }
         lastError = data?.error || `Request failed (${response.status})`
+        if (dbUnavailable || /connection pool|database is temporarily unavailable/i.test(String(lastError))) {
+          dbBackoffUntilRef.current = Date.now() + 5000
+        }
       } catch (error: any) {
         lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
+        if (/connection pool|database|econnrefused|econnreset|timed out/i.test(String(lastError))) {
+          dbBackoffUntilRef.current = Date.now() + 5000
+        }
       } finally {
         window.clearTimeout(timeout)
       }
@@ -1217,6 +1292,7 @@ export function WarehousePortal() {
     void refreshAllData({ initial: true })
 
     const unsubscribe = subscribeDataSync((message) => {
+      if (isRefreshingAllRef.current) return
       const scopes = message.scopes
       if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'warehouses'].includes(scope))) {
         void (async () => {
@@ -1268,11 +1344,12 @@ export function WarehousePortal() {
         activeView === 'orders' || activeView === 'dashboard' || activeView === 'trips'
       if (!shouldRefresh) return
       if (document.visibilityState !== 'visible') return
+      if (isRefreshingAllRef.current) return
       void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
     }
 
     refreshOrdersQuick()
-    const intervalId = window.setInterval(refreshOrdersQuick, 5000)
+    const intervalId = window.setInterval(refreshOrdersQuick, 15000)
 
     return () => {
       window.clearInterval(intervalId)
@@ -1628,15 +1705,31 @@ export function WarehousePortal() {
     }
   }
 
-  const formatReplacementStatus = (status: string) => {
-    return formatReplacementStatusLabel(status)
+  const parseIssueMeta = (notes: string | null | undefined) => {
+    const raw = String(notes || '').trim()
+    if (!raw) return {}
+    const marker = 'Meta:'
+    const markerIndex = raw.lastIndexOf(marker)
+    if (markerIndex < 0) return {}
+    const jsonText = raw.slice(markerIndex + marker.length).trim()
+    if (!jsonText) return {}
+    try {
+      const parsed = JSON.parse(jsonText)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
   }
 
-  const updateReplacementStatus = async (
+  const formatIssueStatus = (entry: WarehouseReturnItem) => {
+    const rawStatus = String(entry?.status || '').toUpperCase()
+    return rawStatus === 'PROCESSED' ? 'Resolved' : 'Follow-up Required'
+  }
+
+  const updateIssueStatus = async (
     replacementId: string,
-    status: 'APPROVED' | 'PICKED_UP' | 'IN_TRANSIT' | 'RECEIVED' | 'PROCESSED' | 'REJECTED',
-    notes?: string,
-    createReplacementOrder?: boolean
+    status: 'PROCESSED' | 'REJECTED',
+    notes?: string
   ) => {
     setUpdatingReplacementId(replacementId)
     try {
@@ -1648,7 +1741,6 @@ export function WarehousePortal() {
           returnId: replacementId,
           status,
           notes,
-          createReplacementOrder,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -1656,11 +1748,7 @@ export function WarehousePortal() {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
 
-      if (payload?.replacementOrder?.orderNumber) {
-        toast.success(`Replacement completed. New order: ${payload.replacementOrder.orderNumber}`)
-      } else {
-        toast.success('Replacement updated')
-      }
+      toast.success(status === 'PROCESSED' ? 'Replacement marked as resolved' : 'Replacement marked for follow-up')
       await fetchReturnsData()
       await fetchOrdersData()
       emitDataSync(['returns', 'orders'])
@@ -1708,19 +1796,6 @@ export function WarehousePortal() {
         </nav>
       </ScrollArea>
 
-      <div className="p-4 border-t">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-indigo-600 text-white text-sm">
-              {user?.name?.charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{user?.name}</p>
-            <p className="text-xs text-gray-500 truncate">{user?.role}</p>
-          </div>
-        </div>
-      </div>
     </div>
   )
 
@@ -2011,82 +2086,148 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'returns' && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Replacements</CardTitle>
-                <CardDescription>Track customer replacement requests and statuses.</CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                {loadingReturns ? (
-                  <div className="h-40 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-                  </div>
-                ) : returns.length === 0 ? (
-                  <div className="h-40 flex items-center justify-center text-gray-500">No replacement requests found</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Order #</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Replacement Reason</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {returns.map((ret) => (
-                          <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
-                            <td className="p-4 font-medium">{ret.returnNumber}</td>
-                            <td className="p-4">{ret.order?.orderNumber || 'N/A'}</td>
-                            <td className="p-4">{ret.order?.customer?.name || 'N/A'}</td>
-                            <td className="p-4">{ret.reason}</td>
-                            <td className="p-4"><Badge>{formatReplacementStatus(ret.status)}</Badge></td>
-                            <td className="p-4">
-                              <div className="flex flex-wrap gap-2">
-                                {ret.status === 'REQUESTED' && (
-                                  <>
-                                    <Button size="sm" variant="outline" onClick={() => updateReplacementStatus(ret.id, 'APPROVED')} disabled={updatingReplacementId === ret.id}>
-                                      Approve
-                                    </Button>
-                                    <Button size="sm" variant="destructive" onClick={() => updateReplacementStatus(ret.id, 'REJECTED', 'Rejected by warehouse staff')} disabled={updatingReplacementId === ret.id}>
-                                      Reject
-                                    </Button>
-                                  </>
-                                )}
-                                {ret.status === 'APPROVED' && (
-                                  <Button size="sm" variant="outline" onClick={() => updateReplacementStatus(ret.id, 'PICKED_UP')} disabled={updatingReplacementId === ret.id}>
-                                    Mark Processing
-                                  </Button>
-                                )}
-                                {ret.status === 'PICKED_UP' && (
-                                  <Button size="sm" variant="outline" onClick={() => updateReplacementStatus(ret.id, 'IN_TRANSIT')} disabled={updatingReplacementId === ret.id}>
-                                    Mark as Loaded
-                                  </Button>
-                                )}
-                                {ret.status === 'IN_TRANSIT' && (
-                                  <Button size="sm" variant="outline" onClick={() => updateReplacementStatus(ret.id, 'RECEIVED')} disabled={updatingReplacementId === ret.id}>
-                                    Mark Out for Delivery
-                                  </Button>
-                                )}
-                                {ret.status === 'RECEIVED' && (
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateReplacementStatus(ret.id, 'PROCESSED', 'Replacement order issued by warehouse staff', true)} disabled={updatingReplacementId === ret.id}>
-                                    Mark Delivered
-                                  </Button>
-                                )}
-                                {updatingReplacementId === ret.id && <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />}
-                              </div>
-                            </td>
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
+                  <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-gray-500">Total Cases</p>
+                    <p className="text-2xl font-bold">{replacementSummary.totalCases}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-gray-500">Resolved on Delivery</p>
+                    <p className="text-2xl font-bold">{replacementSummary.resolvedOnDelivery}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-gray-500">Needs Follow-up</p>
+                    <p className="text-2xl font-bold">{replacementSummary.needsFollowUp}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-gray-500">Total Replaced Qty</p>
+                    <p className="text-2xl font-bold">{replacementSummary.replacedQty}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-gray-500">Total Damaged Returned Qty</p>
+                    <p className="text-2xl font-bold">{replacementSummary.damagedReturnedQty}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardContent className="p-0">
+                  {loadingReturns ? (
+                    <div className="flex items-center justify-center h-64">
+                      <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                    </div>
+                  ) : scopedReturns.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-gray-500">No replacement cases found</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Order #</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Customer</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Reported</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                        </thead>
+                        <tbody>
+                          {scopedReturns.map((ret) => {
+                            const meta = parseIssueMeta(ret?.notes)
+                            const issueReason = String(ret?.description || ret?.reason || 'No details provided')
+                            const replacementQty = Number(ret?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                            const replacementMode = String(ret?.replacementMode || meta?.replacementMode || '').toUpperCase()
+                            const hasEvidence = Boolean(String(ret?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
+                            const statusLabel = formatIssueStatus(ret)
+                            return (
+                              <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
+                                <td className="p-4 font-medium">{ret.returnNumber}</td>
+                                <td className="p-4">{ret.order?.orderNumber || 'N/A'}</td>
+                                <td className="p-4">{ret.order?.customer?.name || 'N/A'}</td>
+                                <td className="p-4">
+                                  <p className="text-sm text-gray-900">{issueReason}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                    {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
+                                    {replacementMode === 'SPARE_STOCK_IMMEDIATE' ? (
+                                      <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">On-delivery replacement</Badge>
+                                    ) : null}
+                                  </div>
+                                </td>
+                                <td className="p-4">
+                                  <Badge variant={hasEvidence ? 'default' : 'secondary'}>
+                                    {hasEvidence ? 'Photo Attached' : 'No Photo'}
+                                  </Badge>
+                                </td>
+                                <td className="p-4">
+                                  <Badge
+                                    className={
+                                      statusLabel === 'Follow-up Required'
+                                        ? 'bg-red-100 text-red-700 hover:bg-red-100'
+                                        : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                                    }
+                                  >
+                                    {statusLabel}
+                                  </Badge>
+                                </td>
+                                <td className="p-4 text-gray-500">
+                                  {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex flex-wrap gap-2">
+                                    {String(ret?.status || '').toUpperCase() !== 'PROCESSED' ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => updateIssueStatus(ret.id, 'PROCESSED', 'Marked resolved by warehouse staff')}
+                                        disabled={updatingReplacementId === ret.id}
+                                      >
+                                        Mark Resolved
+                                      </Button>
+                                    ) : null}
+                                    {String(ret?.status || '').toUpperCase() !== 'REJECTED' ? (
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => updateIssueStatus(ret.id, 'REJECTED', 'Marked for follow-up by warehouse staff')}
+                                        disabled={updatingReplacementId === ret.id}
+                                      >
+                                        Needs Follow-up
+                                      </Button>
+                                    ) : null}
+                                    {updatingReplacementId === ret.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeView === 'liveTracking' && (
