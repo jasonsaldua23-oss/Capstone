@@ -17,7 +17,13 @@ export function useAuth() {
         body: JSON.stringify({ email, password }),
       })
 
-      const data = await response.json()
+      const rawBody = await response.text()
+      let data: any = null
+      try {
+        data = rawBody ? JSON.parse(rawBody) : null
+      } catch {
+        data = null
+      }
 
       if (data.success && data.user) {
         setUser(data.user)
@@ -25,9 +31,13 @@ export function useAuth() {
         return { success: true }
       }
 
-      return { success: false, error: data.error || 'Login failed' }
+      const apiError = String(data?.error || data?.message || '').trim()
+      const fallbackError = response.status >= 500
+        ? 'Login service is temporarily unavailable. Please try again shortly.'
+        : 'Login failed'
+      return { success: false, error: apiError || fallbackError }
     } catch (error) {
-      return { success: false, error: 'An error occurred during login' }
+      return { success: false, error: 'Unable to reach login service. Please check your connection and try again.' }
     }
   }, [setUser, setPortal])
 

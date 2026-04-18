@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
+import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Loader2, Shield } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Shield } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function AdminLoginPage() {
@@ -18,6 +19,8 @@ export function AdminLoginPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -53,12 +56,22 @@ export function AdminLoginPage() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
       })
-      const data = await response.json()
+      const rawBody = await response.text()
+      let data: any = null
+      try {
+        data = rawBody ? JSON.parse(rawBody) : null
+      } catch {
+        data = null
+      }
 
-      if (!response.ok || !data.success || !data.user) {
-        toast.error(data.error || 'Login failed')
+      if (!response.ok || !data?.success || !data?.user) {
+        const apiError = String(data?.error || data?.message || '').trim()
+        const fallbackError = response.status >= 500
+          ? 'Login service is temporarily unavailable. Please try again shortly.'
+          : 'Login failed'
+        toast.error(apiError || fallbackError)
         return
       }
 
@@ -73,7 +86,7 @@ export function AdminLoginPage() {
       toast.success('Welcome to Admin Portal')
       router.replace('/')
     } catch {
-      toast.error('An error occurred during login')
+      toast.error('Unable to reach login service. Please check your connection and try again.')
     } finally {
       setIsLoading(false)
     }
@@ -96,7 +109,7 @@ export function AdminLoginPage() {
             <Shield className="h-5 w-5" />
           </div>
           <CardTitle className="text-white text-2xl">Admin Portal Login</CardTitle>
-          <CardDescription className="text-slate-300">Sign in with your administrator credentials.</CardDescription>
+          <CardDescription className="text-slate-300">Log in with your administrator credentials.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -106,11 +119,30 @@ export function AdminLoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="admin-password" className="text-slate-200">Password</Label>
-              <Input id="admin-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-600 bg-slate-800/80 text-white placeholder:text-slate-400 focus-visible:ring-blue-400" />
+              <div className="relative">
+                <Input id="admin-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-600 bg-slate-800/80 pr-11 text-white placeholder:text-slate-400 focus-visible:ring-blue-400" />
+                <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-200" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 text-blue-600 focus:ring-blue-400"
+              />
+              Keep me logged in
+            </label>
             <Button type="submit" className="w-full h-11 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400" disabled={isLoading}>
-              {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sign In
+              {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
             </Button>
+            <ForgotPasswordDialog
+              accountType="staff"
+              initialEmail={email}
+              triggerClassName="w-full text-center text-sm text-slate-300 hover:text-slate-100 transition-colors"
+            />
           </form>
         </CardContent>
       </Card>

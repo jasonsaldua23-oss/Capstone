@@ -47,6 +47,10 @@ test
 prompt
 
 server.log
+dev_stderr.log
+replay_pid*.log
+*.stderr.log
+*.stdout.log
 # Skills directory
 /skills/# Python / Django
 __pycache__/

@@ -1,10 +1,19 @@
 import json
+import logging
+import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
+
 from django.db import transaction
 from django.db.models import Q, Sum
+from django.conf import settings
+from django.core.mail import send_mail
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.forms.models import model_to_dict
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
@@ -25,6 +34,7 @@ from .models import (
     OrderItem,
     OrderLogistics,
     OrderStatus,
+    PasswordResetOTP,
     OrderTimeline,
     Product,
     ProductCategory,
@@ -40,6 +50,9 @@ from .models import (
     VehicleStatus,
     Warehouse,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _camel(name: str) -> str:
@@ -118,8 +131,16 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     return p, None
 
 
-def _set_auth_cookie(response: JsonResponse, token: str) -> None:
-    response.set_cookie(TOKEN_NAME, token, httponly=True, secure=False, samesite="Lax", max_age=86400, path="/")
+def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = False) -> None:
+    cookie_kwargs = {
+        "httponly": True,
+        "secure": False,
+        "samesite": "Lax",
+        "path": "/",
+    }
+    if remember_me:
+        cookie_kwargs["max_age"] = 60 * 60 * 24 * 30
+    response.set_cookie(TOKEN_NAME, token, **cookie_kwargs)
 
 
 def _user_payload(user: User) -> dict[str, Any]:
@@ -170,6 +191,180 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
     return data
 
 
+OTP_EXPIRY_MINUTES = 10
+OTP_MAX_ATTEMPTS = 5
+
+
+def _normalize_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _is_gmail_email(email: str) -> bool:
+    return bool(email and email.endswith("@gmail.com") and "@" in email and email.count("@") == 1)
+
+
+def _staff_email_conflict_message(email: str) -> str | None:
+    normalized_email = _normalize_email(email)
+    user = User.objects.select_related("role").filter(email=normalized_email).first()
+    if not user:
+        return None
+
+    return "Invalid credentials"
+
+
+def _verify_google_token(credential: str) -> dict[str, Any]:
+    client_id = getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "")
+    if not client_id:
+        raise ValueError("Google OAuth is not configured")
+    return google_id_token.verify_oauth2_token(credential, google_requests.Request(), client_id)
+
+
+def _otp_mail_ready() -> bool:
+    return bool(getattr(settings, "OTP_GMAIL_USER", "") and getattr(settings, "OTP_GMAIL_APP_PASSWORD", ""))
+
+
+def _get_reset_account(account_type: str, email: str) -> User | Customer | None:
+    if account_type == "staff":
+        return User.objects.filter(email=email, is_active=True).first()
+    if account_type == "customer":
+        return Customer.objects.filter(email=email, is_active=True).first()
+    return None
+
+
+def _send_reset_otp_email(email: str, otp_code: str) -> None:
+    subject = "Ann Ann's Beverages Trading - Password Reset OTP"
+    message = (
+        "Use this OTP to reset your account password.\n\n"
+        f"OTP: {otp_code}\n"
+        f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
+def _send_email_verification_otp(email: str, otp_code: str) -> None:
+    subject = "Ann Ann's Beverages Trading - Email Verification Code"
+    message = (
+        "Use this code to verify that your Gmail address is active and can receive mail.\n\n"
+        f"Verification code: {otp_code}\n"
+        f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
+def _latest_verified_otp(email: str, account_type: str):
+    return (
+        PasswordResetOTP.objects.filter(
+            email=email,
+            account_type=account_type,
+            consumed_at__isnull=False,
+            verified_at__isnull=False,
+        )
+        .order_by("-verified_at", "-created_at")
+        .first()
+    )
+
+
+def _has_recent_verified_email(email: str, account_type: str) -> bool:
+    otp = _latest_verified_otp(email, account_type)
+    if not otp:
+        return False
+    return bool(otp.verified_at and otp.verified_at >= timezone.now() - timedelta(minutes=OTP_EXPIRY_MINUTES))
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    account_type = str(body.get("accountType", "staff")).strip().lower()
+
+    if not email:
+        return _err("Email is required")
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed")
+    if account_type not in {"staff", "customer"}:
+        return _err("accountType must be 'staff' or 'customer'")
+    if _email_exists_anywhere(email):
+        return _err("Email already exists in the system", 409)
+    if not _otp_mail_ready():
+        return _err("Verification email service is not configured", 500)
+
+    now = timezone.now()
+    code = f"{secrets.randbelow(1000000):06d}"
+    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
+    otp = PasswordResetOTP.objects.create(
+        email=email,
+        account_type=account_type,
+        otp_hash=hash_password(code),
+        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
+    )
+    try:
+        _send_email_verification_otp(email, code)
+    except Exception:
+        otp.consumed_at = now
+        otp.save(update_fields=["consumed_at", "updated_at"])
+        return _err("Unable to send verification email right now", 500)
+
+    return _ok({"success": True, "message": "Verification code sent."})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_email_verification_confirm(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    account_type = str(body.get("accountType", "staff")).strip().lower()
+    otp_code = str(body.get("otp", "")).strip()
+
+    if not email:
+        return _err("Email is required")
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed")
+    if account_type not in {"staff", "customer"}:
+        return _err("accountType must be 'staff' or 'customer'")
+    if not otp_code:
+        return _err("Verification code is required")
+
+    now = timezone.now()
+    otp = (
+        PasswordResetOTP.objects.filter(
+            email=email,
+            account_type=account_type,
+            consumed_at__isnull=True,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if not otp or otp.expires_at < now:
+        return _err("Invalid or expired verification code", 400)
+    if otp.attempt_count >= OTP_MAX_ATTEMPTS:
+        return _err("Too many invalid verification attempts. Request a new code.", 429)
+    if not verify_password(otp_code, otp.otp_hash):
+        otp.attempt_count += 1
+        otp.save(update_fields=["attempt_count", "updated_at"])
+        return _err("Invalid or expired verification code", 400)
+
+    otp.verified_at = now
+    otp.consumed_at = now
+    otp.save(update_fields=["verified_at", "consumed_at", "updated_at"])
+    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
+    return _ok({"success": True, "message": "Email verified successfully"})
+
+
 @require_GET
 def api_root(_request: HttpRequest) -> JsonResponse:
     return _ok({"success": True, "message": "Django Logistics API", "version": "1.0"})
@@ -186,6 +381,7 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     email = str(body.get("email", "")).strip().lower()
     password = str(body.get("password", ""))
+    remember_me = bool(body.get("rememberMe", False))
     if not email or not password:
         return _err("Email and password are required")
     try:
@@ -197,9 +393,9 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
-    token = create_token(payload)
+    token = create_token(payload, 24 * 30 if remember_me else 24)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
-    _set_auth_cookie(resp, token)
+    _set_auth_cookie(resp, token, remember_me)
     return resp
 
 
@@ -209,6 +405,7 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     email = str(body.get("email", "")).strip().lower()
     password = str(body.get("password", ""))
+    remember_me = bool(body.get("rememberMe", False))
     if not email or not password:
         return _err("Email and password are required")
     try:
@@ -218,9 +415,131 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
     if not customer.is_active or not verify_password(password, customer.password):
         return _err("Invalid email or password", 401)
     payload = _customer_payload(customer)
-    token = create_token(payload)
+    token = create_token(payload, 24 * 30 if remember_me else 24)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
-    _set_auth_cookie(resp, token)
+    _set_auth_cookie(resp, token, remember_me)
+    return resp
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_customer_google(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    credential = str(body.get("credential") or body.get("idToken") or "").strip()
+    remember_me = bool(body.get("rememberMe", False))
+    if not credential:
+        return _err("Google credential is required")
+
+    if not getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", ""):
+        return _err("Google OAuth is not configured on the server", 500)
+
+    try:
+        claims = _verify_google_token(credential)
+    except ValueError:
+        return _err("Invalid Google credential", 401)
+    except Exception:
+        logger.exception("Google customer token verification failed")
+        return _err("Google authentication service is temporarily unavailable", 503)
+
+    email = _normalize_email(claims.get("email"))
+    if not email:
+        return _err("Google account email is unavailable")
+    if not bool(claims.get("email_verified")):
+        return _err("Google email is not verified", 401)
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed (example@gmail.com)")
+
+    name = str(claims.get("name") or "").strip() or email.split("@")[0]
+    avatar = str(claims.get("picture") or "").strip() or None
+
+    with transaction.atomic():
+        customer = Customer.objects.filter(email=email).first()
+        created = False
+
+        if customer and not customer.is_active:
+            return _err("Account is deactivated", 403)
+
+        if not customer:
+            customer = Customer.objects.create(
+                email=email,
+                password=hash_password(secrets.token_urlsafe(32)),
+                name=name,
+                avatar=avatar,
+            )
+            created = True
+        else:
+            changed_fields: list[str] = []
+            if avatar and customer.avatar != avatar:
+                customer.avatar = avatar
+                changed_fields.append("avatar")
+            if changed_fields:
+                changed_fields.append("updated_at")
+                customer.save(update_fields=changed_fields)
+
+    payload = _customer_payload(customer)
+    token = create_token(payload, 24 * 30 if remember_me else 24)
+    resp = _ok(
+        {
+            "success": True,
+            "user": payload,
+            "token": token,
+            "message": "Registration successful" if created else "Login successful",
+            "created": created,
+        },
+        201 if created else 200,
+    )
+    _set_auth_cookie(resp, token, remember_me)
+    return resp
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_staff_google(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    credential = str(body.get("credential") or body.get("idToken") or "").strip()
+    portal = str(body.get("portal") or "").strip().lower()
+    remember_me = bool(body.get("rememberMe", False))
+
+    if not credential or portal not in {"driver", "warehouse"}:
+        return _err("Invalid credentials", 401)
+
+    if not getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", ""):
+        return _err("Google OAuth is not configured on the server", 500)
+
+    try:
+        claims = _verify_google_token(credential)
+    except ValueError:
+        return _err("Invalid credentials", 401)
+    except Exception:
+        logger.exception("Google staff token verification failed")
+        return _err("Google authentication service is temporarily unavailable", 503)
+
+    email = _normalize_email(claims.get("email"))
+    if not email or not bool(claims.get("email_verified")):
+        return _err("Invalid credentials", 401)
+    if not _is_gmail_email(email):
+        return _err("Invalid credentials", 401)
+
+    expected_roles = {"driver": {"DRIVER"}, "warehouse": {"WAREHOUSE_STAFF"}}
+    user = (
+        User.objects.select_related("role")
+        .filter(email=email, is_active=True, role__name__in=expected_roles[portal])
+        .first()
+    )
+    if not user:
+        return _err("Invalid credentials", 401)
+
+    user.last_login_at = timezone.now()
+    user.save(update_fields=["last_login_at", "updated_at"])
+    payload = _user_payload(user)
+    if portal == "warehouse" and user.role.name != "WAREHOUSE_STAFF":
+        return _err("Invalid credentials", 401)
+    if portal == "driver" and user.role.name != "DRIVER":
+        return _err("Invalid credentials", 401)
+
+    token = create_token(payload, 24 * 30 if remember_me else 24)
+    resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
+    _set_auth_cookie(resp, token, remember_me)
     return resp
 
 
@@ -233,6 +552,8 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     password = str(body.get("password", ""))
     if not name or not email or not password:
         return _err("Name, email and password are required")
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed (example@gmail.com)")
     if Customer.objects.filter(email=email).exists():
         return _err("Email is already registered", 409)
     customer = Customer.objects.create(
@@ -268,6 +589,102 @@ def auth_logout(_request: HttpRequest) -> JsonResponse:
     return resp
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    account_type = str(body.get("accountType", "")).strip().lower()
+
+    if not email:
+        return _err("Email is required")
+    try:
+        validate_email(email)
+    except ValidationError:
+        return _err("Please enter a valid email address")
+    if account_type not in {"staff", "customer"}:
+        return _err("accountType must be 'staff' or 'customer'")
+    if not _otp_mail_ready():
+        return _err("OTP email service is not configured", 500)
+
+    account = _get_reset_account(account_type, email)
+    if not account:
+        return _err("Account not found for this email", 404)
+
+    now = timezone.now()
+    code = f"{secrets.randbelow(1000000):06d}"
+    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
+    otp = PasswordResetOTP.objects.create(
+        email=email,
+        account_type=account_type,
+        otp_hash=hash_password(code),
+        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
+    )
+    try:
+        _send_reset_otp_email(email, code)
+    except Exception:
+        otp.consumed_at = now
+        otp.save(update_fields=["consumed_at", "updated_at"])
+        return _err("Unable to send OTP email right now", 500)
+
+    return _ok({"success": True, "message": "OTP sent successfully."})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    account_type = str(body.get("accountType", "")).strip().lower()
+    otp_code = str(body.get("otp", "")).strip()
+    new_password = str(body.get("newPassword", "")).strip()
+
+    if not email:
+        return _err("Email is required")
+    if account_type not in {"staff", "customer"}:
+        return _err("accountType must be 'staff' or 'customer'")
+    if not otp_code:
+        return _err("OTP is required")
+    if len(new_password) < 8:
+        return _err("New password must be at least 8 characters")
+
+    now = timezone.now()
+    otp = (
+        PasswordResetOTP.objects.filter(
+            email=email,
+            account_type=account_type,
+            consumed_at__isnull=True,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if not otp or otp.expires_at < now:
+        return _err("Invalid or expired OTP", 400)
+    if otp.attempt_count >= OTP_MAX_ATTEMPTS:
+        return _err("Too many invalid OTP attempts. Request a new code.", 429)
+    if not verify_password(otp_code, otp.otp_hash):
+        otp.attempt_count += 1
+        otp.save(update_fields=["attempt_count", "updated_at"])
+        return _err("Invalid or expired OTP", 400)
+
+    if account_type == "staff":
+        account = User.objects.filter(email=email, is_active=True).first()
+    else:
+        account = Customer.objects.filter(email=email, is_active=True).first()
+    if not account:
+        return _err("Invalid account", 404)
+
+    account.password = hash_password(new_password)
+    account.save(update_fields=["password", "updated_at"])
+
+    otp.verified_at = now
+    otp.consumed_at = now
+    otp.save(update_fields=["verified_at", "consumed_at", "updated_at"])
+    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
+
+    return _ok({"success": True, "message": "Password reset successful. Please log in."})
+
+
 @require_GET
 def roles_list(request: HttpRequest) -> JsonResponse:
     _, err = _require_staff(request)
@@ -301,8 +718,13 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     role_id = str(body.get("roleId", "")).strip()
     if not email or not name or not password or not role_id:
         return _err("name, email, password and roleId are required")
-    if User.objects.filter(email=email).exists():
-        return _err("Email already exists", 409)
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed for staff/driver accounts")
+    existing_message = _staff_email_conflict_message(email)
+    if existing_message:
+        return _err(existing_message, 409)
+    if not _has_recent_verified_email(email, "staff"):
+        return _err("Please verify this Gmail address before creating the user", 400)
     try:
         role = Role.objects.get(id=role_id)
     except Role.DoesNotExist:
@@ -375,8 +797,10 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     password = str(body.get("password", "")).strip()
     if not email or not name or not password:
         return _err("name, email and password are required")
-    if Customer.objects.filter(email=email).exists():
-        return _err("Email already exists", 409)
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed for customer accounts")
+    if _email_exists_anywhere(email):
+        return _err("Email already exists in the system", 409)
     c = Customer.objects.create(
         email=email,
         password=hash_password(password),

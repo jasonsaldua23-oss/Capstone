@@ -577,3 +577,22 @@ class Notification(models.Model):
 
     class Meta:
         db_table = "Notification"
+
+
+class PasswordResetOTP(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    account_type = models.CharField(max_length=20)  # staff | customer
+    email = models.EmailField()
+    otp_hash = models.CharField(max_length=255)
+    attempt_count = models.IntegerField(default=0)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(blank=True, null=True)
+    consumed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "PasswordResetOTP"
+        indexes = [
+            models.Index(fields=["email", "account_type", "created_at"]),
+        ]

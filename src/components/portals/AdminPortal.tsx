@@ -24,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil } from 'lucide-react';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar } from 'recharts';
 import type { DashboardStats } from '@/types';
@@ -270,7 +270,7 @@ export function AdminPortal() {
     return (
       <div className="flex flex-col h-full">
         <div className="p-4 border-b">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3">
             <img
               src="/ann-anns-logo.png"
               alt="Ann Ann's Beverages Trading logo"
@@ -279,17 +279,6 @@ export function AdminPortal() {
             <div>
               <h2 className="font-bold text-gray-900">Ann Ann's Beverages Trading</h2>
               <p className="text-xs text-gray-500">Admin Portal</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-blue-600 text-white text-sm">
-                {user?.name?.charAt(0)?.toUpperCase() ?? 'U'}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-gray-500">{formatRoleLabel(user?.role)}</p>
             </div>
           </div>
         </div>
@@ -5693,9 +5682,15 @@ function UsersView() {
   const [roles, setRoles] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isVerificationSending, setIsVerificationSending] = useState(false)
+  const [isVerificationConfirming, setIsVerificationConfirming] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any | null>(null)
+  const [emailVerificationRequested, setEmailVerificationRequested] = useState(false)
+  const [emailVerificationCode, setEmailVerificationCode] = useState('')
+  const [emailVerified, setEmailVerified] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -5737,6 +5732,10 @@ function UsersView() {
       password: '',
       isActive: true,
     })
+    setEmailVerificationRequested(false)
+    setEmailVerificationCode('')
+    setEmailVerified(false)
+    setShowPassword(false)
     setEditingUser(null)
   }
 
@@ -5760,6 +5759,10 @@ function UsersView() {
     }
     if (mode === 'create' && !form.password) {
       toast.error('Password is required for new user')
+      return
+    }
+    if (mode === 'create' && !emailVerified) {
+      toast.error('Verify the Gmail address before creating the user')
       return
     }
 
@@ -5792,6 +5795,60 @@ function UsersView() {
       toast.error(error?.message || 'Failed to save user')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const requestEmailVerification = async () => {
+    const email = form.email.trim().toLowerCase()
+    if (!email) {
+      toast.error('Enter an email address first')
+      return
+    }
+    setIsVerificationSending(true)
+    try {
+      const response = await fetch('/api/auth/email-verification/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, accountType: 'staff' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to send verification code')
+      }
+      setEmailVerificationRequested(true)
+      setEmailVerificationCode('')
+      setEmailVerified(false)
+      toast.success('Verification code sent to the Gmail address')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to send verification code')
+    } finally {
+      setIsVerificationSending(false)
+    }
+  }
+
+  const confirmEmailVerification = async () => {
+    const email = form.email.trim().toLowerCase()
+    if (!emailVerificationCode.trim()) {
+      toast.error('Enter the verification code first')
+      return
+    }
+    setIsVerificationConfirming(true)
+    try {
+      const response = await fetch('/api/auth/email-verification/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, accountType: 'staff', otp: emailVerificationCode.trim() }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to verify email')
+      }
+      setEmailVerified(true)
+      toast.success('Email verified successfully')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to verify email')
+    } finally {
+      setIsVerificationConfirming(false)
     }
   }
 
@@ -5879,7 +5936,26 @@ function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Email</label>
-              <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => {
+                    const nextEmail = e.target.value
+                    setForm((f) => ({ ...f, email: nextEmail }))
+                    setEmailVerificationRequested(false)
+                    setEmailVerificationCode('')
+                    setEmailVerified(false)
+                  }}
+                />
+                <Button type="button" variant="outline" onClick={requestEmailVerification} disabled={isVerificationSending || !form.email.trim()}>
+                  {isVerificationSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  Send Code
+                </Button>
+              </div>
+              <div className="text-xs text-gray-500">
+                {emailVerified ? 'Gmail address verified.' : 'Send a code to the Gmail address, then enter it below.'}
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
@@ -5896,12 +5972,43 @@ function UsersView() {
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium text-gray-700">Password</label>
-              <Input type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  className="pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 transition-colors hover:text-gray-700"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
+            {emailVerificationRequested && !emailVerified ? (
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">Verification Code</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={emailVerificationCode}
+                    onChange={(e) => setEmailVerificationCode(e.target.value)}
+                    placeholder="Enter the code sent to the Gmail address"
+                  />
+                  <Button type="button" onClick={confirmEmailVerification} disabled={isVerificationConfirming || !emailVerificationCode.trim()}>
+                    {isVerificationConfirming ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                    Confirm
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button className="flex-1" onClick={() => saveUser('create')} disabled={isSubmitting}>
+            <Button className="flex-1" onClick={() => saveUser('create')} disabled={isSubmitting || !emailVerified}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save User
             </Button>

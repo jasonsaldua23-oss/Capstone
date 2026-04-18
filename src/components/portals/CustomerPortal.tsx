@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import dynamic from 'next/dynamic'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -297,6 +298,7 @@ export function CustomerPortal() {
   const [avatarCropZoom, setAvatarCropZoom] = useState(1)
   const [avatarCropX, setAvatarCropX] = useState(0)
   const [avatarCropY, setAvatarCropY] = useState(0)
+  const avatarCropImageRef = useRef<HTMLImageElement | null>(null)
   const [isDraggingCrop, setIsDraggingCrop] = useState(false)
   const cropDragRef = useRef<{
     active: boolean
@@ -311,6 +313,14 @@ export function CustomerPortal() {
   useEffect(() => {
     setIsReceiptDialogOpen(false)
   }, [selectedOrder?.id])
+
+  useEffect(() => {
+    const imageElement = avatarCropImageRef.current
+    if (!imageElement || !avatarCropSource) return
+
+    imageElement.style.transform = `translate(${avatarCropX}px, ${avatarCropY}px) scale(${avatarCropZoom})`
+    imageElement.style.transformOrigin = 'center center'
+  }, [avatarCropSource, avatarCropX, avatarCropY, avatarCropZoom])
 
   const hydrateAddressFromProfile = (customer: any) => {
     const rawAddress = String(customer?.address || '').trim()
@@ -1858,38 +1868,41 @@ export function CustomerPortal() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-cyan-50/40 to-white">
-      <header className="sticky top-0 z-10 border-b border-cyan-200/60 bg-gradient-to-r from-teal-700 via-cyan-700 to-sky-700 text-white shadow-lg shadow-cyan-900/10">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Package className="h-6 w-6" />
-            <div>
-              <h1 className="font-bold">LogiTrack</h1>
-              <p className="text-xs text-cyan-100">Customer Portal</p>
+    <div className="min-h-[100dvh] bg-[radial-gradient(circle_at_top_left,rgba(15,23,42,0.06),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(14,165,233,0.08),transparent_28%),linear-gradient(180deg,#f8fbff_0%,#eef7fb_46%,#f8fafc_100%)] md:bg-slate-100">
+      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:min-h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.10),transparent_38%),radial-gradient(circle_at_bottom,rgba(14,165,233,0.06),transparent_40%)]" />
+      <div className="relative z-[1] flex min-h-[100dvh] flex-col">
+      <header className="sticky top-0 z-20 border-b border-slate-700/30 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 text-white shadow-[0_8px_20px_rgba(15,23,42,0.24)] backdrop-blur-md">
+        <div className="px-4 pt-[max(env(safe-area-inset-top),0.65rem)] pb-3">
+          <div className="flex h-10 items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/20 bg-white/10 shadow-[0_6px_14px_rgba(15,23,42,0.25)]">
+                <Package className="h-5 w-5" />
+              </div>
+              <h1 className="text-[17px] font-semibold tracking-[0.01em]">LogiTrack</h1>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`relative text-white hover:bg-cyan-700/60 ${activeView === 'cart' ? 'bg-cyan-700/60' : ''}`}
-              onClick={() => setActiveView('cart')}
-              title="Open cart"
-            >
-              <ShoppingCart className="h-5 w-5" />
-              {cartCount > 0 && <span className="absolute -top-1 -right-1 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700">{cartCount}</span>}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-white hover:bg-cyan-700/60">
-                  <Avatar className="h-8 w-8 border border-cyan-200/40">
-                    {avatarPreviewUrl ? <AvatarImage src={avatarPreviewUrl} alt={profileName || user?.name || 'Profile'} /> : null}
-                    <AvatarFallback className="bg-cyan-800 text-white">
-                      {(profileName || user?.name || 'C').charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`relative h-9 w-9 rounded-xl border border-white/20 bg-white/5 text-white hover:bg-white/12 ${activeView === 'cart' ? 'bg-white/16' : ''}`}
+                onClick={() => setActiveView('cart')}
+                title="Open cart"
+              >
+                <ShoppingCart className="h-4.5 w-4.5" />
+                {cartCount > 0 && <span className="absolute -top-1 -right-1 rounded-full bg-rose-400 px-1.5 py-0.5 text-[10px] font-semibold text-rose-950 shadow-sm shadow-rose-900/30">{cartCount}</span>}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border border-white/20 bg-white/5 text-white hover:bg-white/12">
+                    <Avatar className="h-8 w-8 border border-white/30">
+                      {avatarPreviewUrl ? <AvatarImage src={avatarPreviewUrl} alt={profileName || user?.name || 'Profile'} /> : null}
+                      <AvatarFallback className="bg-slate-700 text-white">
+                        {(profileName || user?.name || 'C').charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setActiveView('profile')}>
                   <User className="mr-2 h-4 w-4" />
@@ -1909,16 +1922,25 @@ export function CustomerPortal() {
                   Logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl space-y-4 p-4 pb-24 md:pb-8">
+      <AnimatePresence mode="wait" initial={false}>
+      <motion.main
+        key={activeView}
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+        className="flex-1 min-h-0 w-full space-y-4 px-4 pb-24 pt-4 md:px-6 md:pb-8 md:pt-6"
+      >
         {activeView === 'home' && (
-          <section className="-mx-4 -mt-4 bg-slate-100 pb-6 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
-            <div className="sticky top-[57px] z-[5] border-b border-slate-200 bg-white px-3 py-2 md:static md:rounded-t-xl">
-              <div className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2">
+          <section className="-mx-4 -mt-4 bg-slate-50/40 pb-6 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-slate-200/40 md:bg-white/60 md:pb-4 md:shadow-[0_4px_12px_rgba(0,0,0,0.04)] md:backdrop-blur-md">
+            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[5] border-b border-slate-200/30 bg-white/85 px-3 py-2 md:static md:rounded-t-[1.6rem]">
+              <div className="flex items-center gap-2 rounded-full border border-slate-200/50 bg-white/90 px-3 py-2 shadow-sm shadow-slate-200/30">
                 <Search className="h-4 w-4 text-slate-500" />
                 <Input
                   value={productSearch}
@@ -1937,25 +1959,25 @@ export function CustomerPortal() {
               <div className="grid grid-cols-2 gap-0.5 px-0.5 pt-0.5 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                 {filteredProducts.map((p) => {
                   return (
-                    <Card key={p.id} className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-none">
+                    <Card key={p.id} className="overflow-hidden rounded-lg border border-slate-200/60 bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-300 hover:shadow-[0_8px_16px_rgba(0,0,0,0.08)] hover:-translate-y-0.5">
                       <div className="relative">
                         <img
                           src={getProductImage(p.imageUrl)}
                           alt={p.name}
-                          className="aspect-[11/10] w-full object-cover bg-white"
+                          className="aspect-[11/10] w-full object-cover bg-slate-100"
                         />
                       </div>
 
-                      <CardContent className="space-y-0.5 p-1">
-                        <p className="line-clamp-1 text-[11px] leading-3.5 text-slate-900">{p.name}</p>
-                        <p className="text-[14px] font-bold leading-none text-rose-600">{formatPeso(p.price)}</p>
+                      <CardContent className="space-y-1 p-2">
+                        <p className="line-clamp-1 text-[12px] font-medium leading-4 text-slate-900">{p.name}</p>
+                        <p className="text-[15px] font-semibold leading-none text-slate-900">{formatPeso(p.price)}</p>
                         <div className="flex items-center justify-end pt-0">
                           <Button
                             size="sm"
-                            className="h-4.5 rounded-md bg-teal-700 px-1 text-[8px] text-white hover:bg-teal-800"
+                            className="h-7 rounded-full bg-slate-900 px-3 text-[11px] font-medium text-white shadow-sm shadow-slate-900/20 transition-all hover:bg-slate-800 hover:shadow-md hover:shadow-slate-900/30"
                             onClick={() => openAddToCartDialog(p)}
                           >
-                            <ShoppingCart className="mr-0.5 h-2 w-2" />
+                            <ShoppingCart className="mr-1 h-3 w-3" />
                             Add to Cart
                           </Button>
                         </div>
@@ -1969,32 +1991,32 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'cart' && (
-          <section className="-mx-4 -mt-4 bg-[#f5f5f5] pb-28 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
-            <div className="sticky top-[57px] z-[6] border-b bg-white px-3 py-3 md:static md:rounded-t-xl">
+          <section className="-mx-4 -mt-4 bg-slate-50/40 pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-slate-200/40 md:bg-white/60 md:pb-4 md:shadow-[0_4px_12px_rgba(0,0,0,0.04)] md:backdrop-blur-md">
+            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] border-b border-slate-200/30 bg-white/85 px-3 py-3 md:static md:rounded-t-[1.6rem]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('home')}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200" onClick={() => setActiveView('home')}>
                       <ArrowLeft className="h-4 w-4" />
                     </Button>
-                    <h2 className="text-lg font-semibold">Shopping cart ({cart.length})</h2>
+                    <h2 className="text-lg font-semibold text-slate-900">Shopping cart ({cart.length})</h2>
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 px-2 text-sm text-gray-600"
+                    className="h-8 rounded-full px-3 text-sm text-slate-600 hover:bg-slate-100"
                     onClick={() => setIsAddressDialogOpen(true)}
                   >
                     Edit
                   </Button>
                 </div>
-                <p className="pl-10 text-xs text-gray-500 truncate">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingProvince || 'Province'}</p>
+                <p className="pl-10 text-xs text-slate-500 truncate">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingProvince || 'Province'}</p>
               </div>
 
             <div className="space-y-2 px-2 pt-2">
               {cart.map((item) => {
                 const selected = selectedCartIds.has(item.productId)
                 return (
-                  <Card key={item.productId} className="border-0 shadow-none rounded-none">
+                  <Card key={item.productId} className="rounded-lg border border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)] backdrop-blur-sm">
                     <CardContent className="p-2">
                       <div className="flex gap-2">
                         <button
@@ -2070,8 +2092,8 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'checkout' && (
-          <section className="-mx-4 -mt-4 bg-[#f5f5f5] pb-28 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
-            <div className="sticky top-[57px] z-[6] border-b bg-white px-3 py-3 md:static md:rounded-t-xl">
+          <section className="-mx-4 -mt-4 bg-white/55 pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
+            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] border-b bg-white px-3 py-3 md:static md:rounded-t-xl">
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('cart')}>
                   <ArrowLeft className="h-4 w-4" />
@@ -2195,7 +2217,7 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'orders' && (
-          <section className="-mx-4 -mt-4 bg-slate-100 pb-6 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
+          <section className="-mx-4 -mt-4 bg-white/55 pb-6 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
             <div className="border-b bg-white px-4 py-3 md:rounded-t-xl">
               <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
                 <Search className="h-4 w-4 text-slate-500" />
@@ -2250,9 +2272,9 @@ export function CustomerPortal() {
                     <div
                       key={o.id}
                       onClick={() => setSelectedOrder(o)}
-                      className="rounded-md border border-slate-200 bg-white"
+                      className="rounded-lg border border-slate-200/50 bg-white/95 shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]"
                     >
-                      <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between border-b border-slate-200/70 px-3 py-2 text-sm">
                         <div className="min-w-0 truncate font-medium text-slate-800">{o.orderNumber}</div>
                         <div className="ml-2 shrink-0 flex items-center gap-2 text-sm text-slate-700">
                           {deliveryIssue ? (
@@ -2270,7 +2292,7 @@ export function CustomerPortal() {
                         </div>
                       </div>
 
-                      <div className="mx-3 mt-3 flex items-center justify-between rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                      <div className="mx-3 mt-3 flex items-center justify-between rounded-full bg-slate-100/90 px-3 py-2 text-sm text-slate-700">
                         <div className="flex items-center gap-2">
                           <Truck className="h-4 w-4 text-slate-500" />
                           <span>{deliveryLabel}</span>
@@ -2356,7 +2378,7 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'track' && (
-          <section className="-mx-4 -mt-4 bg-[#f3f3f3] pb-8 md:mx-0 md:mt-0 md:rounded-xl md:border md:border-slate-200 md:bg-white md:pb-4">
+          <section className="-mx-4 -mt-4 bg-white/55 pb-8 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
             {(() => {
               const order = orders.find((o) => o.id === selectedTrackingOrderId)
               if (!order) {
@@ -2384,7 +2406,7 @@ export function CustomerPortal() {
 
               return (
                 <>
-                  <div className="sticky top-[57px] z-[6] flex h-14 items-center justify-between border-b border-[#e8e8e8] bg-white px-2 md:static md:rounded-t-xl">
+                  <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] flex h-14 items-center justify-between border-b border-[#e8e8e8] bg-white px-2 md:static md:rounded-t-xl">
                     <Button variant="ghost" size="icon" onClick={() => setActiveView('orders')}>
                       <ArrowLeft className="h-5 w-5" />
                     </Button>
@@ -2548,6 +2570,8 @@ export function CustomerPortal() {
                       type="file"
                       accept="image/*"
                       className="hidden"
+                      aria-label="Upload profile photo"
+                      title="Upload profile photo"
                       onChange={(e) => {
                         const file = e.target.files?.[0] || null
                         if (avatarInputRef.current) {
@@ -2593,7 +2617,8 @@ export function CustomerPortal() {
             </Card>
           </div>
         )}
-      </main>
+      </motion.main>
+      </AnimatePresence>
 
       <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
         <DialogContent className="max-w-md">
@@ -2699,14 +2724,11 @@ export function CustomerPortal() {
               >
                 {avatarCropSource ? (
                   <img
+                    ref={avatarCropImageRef}
                     src={avatarCropSource}
                     alt="Crop preview"
                     className="h-full w-full object-cover select-none"
                     draggable={false}
-                    style={{
-                      transform: `translate(${avatarCropX}px, ${avatarCropY}px) scale(${avatarCropZoom})`,
-                      transformOrigin: 'center center',
-                    }}
                   />
                 ) : null}
               </div>
@@ -3150,7 +3172,7 @@ export function CustomerPortal() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-4">
-                <div className="mx-auto max-w-[320px] rounded-xl border border-slate-200 bg-white p-4 text-[11px] shadow-sm">
+                <div className="mx-auto max-w-[320px] rounded-lg border border-slate-200/50 bg-white/95 p-4 text-[11px] shadow-sm shadow-slate-200/30">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-bold text-slate-900">LogiTrack Pro</p>
@@ -3283,22 +3305,24 @@ export function CustomerPortal() {
         )}
       </Dialog>
 
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-cyan-100 bg-white/95 shadow-lg backdrop-blur">
-        <div className="grid grid-cols-3 py-2">
-          <Button variant="ghost" className={`flex-col gap-1 h-auto py-2 ${activeView === 'home' ? 'text-teal-700' : 'text-gray-500'}`} onClick={() => setActiveView('home')}>
+      <nav className="fixed bottom-0 left-0 right-0 border-t border-slate-200/40 bg-white/90 shadow-[0_-2px_8px_rgba(0,0,0,0.04)] backdrop-blur-md md:relative md:left-auto md:right-auto md:bottom-auto md:w-full md:border md:border-t md:border-slate-200/40">
+        <div className="grid grid-cols-3 py-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:pb-2">
+          <Button variant="ghost" className={`flex-col gap-1 h-auto py-2 rounded-lg transition-all ${activeView === 'home' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/20' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setActiveView('home')}>
             <Home className="h-5 w-5" />
-            <span className="text-xs">Home</span>
+            <span className="text-xs font-medium">Home</span>
           </Button>
-          <Button variant="ghost" className={`flex-col gap-1 h-auto py-2 ${activeView === 'orders' ? 'text-teal-700' : 'text-gray-500'}`} onClick={() => setActiveView('orders')}>
+          <Button variant="ghost" className={`flex-col gap-1 h-auto py-2 rounded-lg transition-all ${activeView === 'orders' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/20' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setActiveView('orders')}>
             <Package className="h-5 w-5" />
-            <span className="text-xs">Orders</span>
+            <span className="text-xs font-medium">Orders</span>
           </Button>
-          <Button variant="ghost" className={`flex-col gap-1 h-auto py-2 ${activeView === 'profile' ? 'text-teal-700' : 'text-gray-500'}`} onClick={() => setActiveView('profile')}>
+          <Button variant="ghost" className={`flex-col gap-1 h-auto py-2 rounded-lg transition-all ${activeView === 'profile' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/20' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setActiveView('profile')}>
             <User className="h-5 w-5" />
-            <span className="text-xs">Profile</span>
+            <span className="text-xs font-medium">Profile</span>
           </Button>
         </div>
       </nav>
+      </div>
+      </div>
     </div>
   )
 }

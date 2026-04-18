@@ -72,12 +72,20 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
     return true
   }
 
+  if (
+    pathname === '/api/auth/email-verification/request' ||
+    pathname === '/api/auth/email-verification/confirm' ||
+    pathname === '/api/auth/staff/google'
+  ) {
+    return true
+  }
+
   if (variant === 'driver') {
     return pathname === '/api/auth/login'
   }
 
   if (variant === 'customer') {
-    return pathname === '/api/auth/customer/login' || pathname === '/api/auth/register'
+    return pathname === '/api/auth/customer/login' || pathname === '/api/auth/register' || pathname === '/api/auth/customer/google'
   }
 
   if (variant === 'admin') {

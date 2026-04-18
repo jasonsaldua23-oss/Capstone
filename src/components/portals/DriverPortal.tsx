@@ -1,6 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -393,28 +394,26 @@ export function DriverPortal() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-cyan-50/40 to-white">
+    <div className="min-h-[100dvh] bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_45%,#eef2f7_100%)] md:bg-slate-100">
+      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:min-h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(15,23,42,0.05),transparent_40%)]" />
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-cyan-200/60 bg-gradient-to-r from-teal-700 via-cyan-700 to-sky-700 text-white shadow-lg shadow-cyan-900/10">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Truck className="h-6 w-6" />
-            <div>
-              <h1 className="font-bold">LogiTrack Driver</h1>
-              <p className="text-xs text-cyan-100">Delivery App</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {isTracking && (
-              <div className="flex items-center gap-1 rounded-full bg-emerald-400/90 px-2 py-1 text-xs text-emerald-950">
-                <div className="h-2 w-2 bg-white rounded-full animate-pulse"></div>
-                Tracking
+      <header className="sticky top-0 z-20 border-b border-slate-700/30 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 text-white shadow-[0_10px_26px_rgba(15,23,42,0.26)] backdrop-blur-md">
+        <div className="px-4 pb-3 pt-[max(env(safe-area-inset-top),0.65rem)] md:py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/20 bg-white/10 shadow-[0_6px_14px_rgba(15,23,42,0.25)]">
+                <Truck className="h-5 w-5" />
               </div>
-            )}
+              <div className="leading-tight">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-300/90">Driver Workspace</p>
+                <h1 className="text-[17px] font-semibold">LogiTrack Driver</h1>
+              </div>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-white hover:bg-cyan-600/60">
-                  <User className="h-5 w-5" />
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border border-white/20 bg-white/5 text-white hover:bg-white/12">
+                  <User className="h-4.5 w-4.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -437,11 +436,32 @@ export function DriverPortal() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-xs text-slate-300">Delivery App</p>
+            {isTracking ? (
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/40 bg-sky-400/90 px-2 py-1 text-[11px] font-semibold text-sky-950">
+                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                LIVE TRACKING
+              </div>
+            ) : (
+              <div className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-200">
+                Ready
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="pb-20">
+      <AnimatePresence mode="wait" initial={false}>
+      <motion.main
+        key={`${activeView}-${selectedTrip?.id || 'none'}`}
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+        className="flex-1 min-h-0 w-full px-4 pb-24 pt-4 md:px-6 md:pb-8 md:pt-6"
+      >
         {activeView === 'home' && (
           <HomeView
             user={user}
@@ -479,42 +499,43 @@ export function DriverPortal() {
         {activeView === 'history' && <HistoryView />}
 
         {activeView === 'profile' && <ProfileView user={user} />}
-      </main>
+      </motion.main>
+      </AnimatePresence>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-cyan-100 bg-white/95 backdrop-blur shadow-lg">
-        <div className="flex justify-around py-2">
+      <nav className="fixed bottom-3 left-3 right-3 rounded-2xl border border-slate-200/70 bg-white/92 backdrop-blur-md shadow-[0_10px_24px_rgba(15,23,42,0.12)] md:relative md:bottom-auto md:left-auto md:right-auto md:w-full md:rounded-none md:border md:border-t md:border-slate-200/40 md:shadow-[0_-2px_8px_rgba(0,0,0,0.04)]">
+        <div className="flex justify-around py-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:pb-2">
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 ${activeView === 'home' ? 'text-teal-700' : 'text-slate-600'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'home' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => { setActiveView('home'); setSelectedTrip(null) }}
           >
             <Home className="h-5 w-5" />
-            <span className="text-xs">Home</span>
+            <span className="text-xs font-medium">Home</span>
           </Button>
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 ${activeView === 'trips' ? 'text-teal-700' : 'text-slate-600'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'trips' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => { setActiveView('trips'); setSelectedTrip(null); }}
           >
             <Truck className="h-5 w-5" />
-            <span className="text-xs">Trips</span>
+            <span className="text-xs font-medium">Trips</span>
           </Button>
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 ${activeView === 'history' ? 'text-teal-700' : 'text-slate-600'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'history' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => setActiveView('history')}
           >
             <Clock className="h-5 w-5" />
-            <span className="text-xs">History</span>
+            <span className="text-xs font-medium">History</span>
           </Button>
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 ${activeView === 'profile' ? 'text-teal-700' : 'text-slate-600'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'profile' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => setActiveView('profile')}
           >
             <User className="h-5 w-5" />
-            <span className="text-xs">Profile</span>
+            <span className="text-xs font-medium">Profile</span>
           </Button>
         </div>
       </nav>
@@ -553,6 +574,7 @@ export function DriverPortal() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }
@@ -594,32 +616,32 @@ function HomeView({
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4 rounded-[1.6rem] border border-slate-200/70 bg-white/80 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-xl md:p-5">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Welcome, {user?.name || 'Driver'}</h2>
         <p className="text-sm text-slate-600">Here is your delivery overview for today.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Card className="rounded-2xl border-cyan-100 shadow-sm shadow-cyan-100/50">
+        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
           <CardContent className="pt-4">
             <p className="text-sm text-slate-500">Total Trips</p>
             <p className="text-2xl font-bold text-slate-900">{trips.length}</p>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-sky-100 bg-sky-50/50 shadow-sm shadow-sky-100/50">
+        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
           <CardContent className="pt-4">
             <p className="text-sm text-slate-500">Planned</p>
             <p className="text-2xl font-bold text-sky-700">{plannedTrips}</p>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-emerald-100 bg-emerald-50/60 shadow-sm shadow-emerald-100/50">
+        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
           <CardContent className="pt-4">
             <p className="text-sm text-slate-500">Completed</p>
             <p className="text-2xl font-bold text-emerald-700">{completedTrips}</p>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-amber-100 bg-amber-50/70 shadow-sm shadow-amber-100/50">
+        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
           <CardContent className="pt-4">
             <p className="text-sm text-slate-500">Pending Stops</p>
             <p className="text-2xl font-bold text-amber-700">{pendingStops}</p>
@@ -627,14 +649,14 @@ function HomeView({
         </Card>
       </div>
 
-      <Card className="rounded-2xl border-cyan-100 shadow-sm shadow-cyan-100/50">
+      <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Tracking Status</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-600">GPS Permission</p>
-            <Badge className="bg-cyan-100 text-cyan-800 border-cyan-200">{locationPermission.toUpperCase()}</Badge>
+            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">{locationPermission.toUpperCase()}</Badge>
           </div>
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-600">Live Tracking</p>
@@ -650,16 +672,16 @@ function HomeView({
             <p className="text-xs text-slate-500">Current location is not available yet.</p>
           )}
           {!isTracking && (
-            <Button variant="outline" className="w-full border-cyan-300 text-cyan-800 hover:bg-cyan-50" onClick={() => { void onStartTracking() }}>
+            <Button variant="outline" className="w-full border-sky-300 text-sky-700 hover:bg-sky-50" onClick={() => { void onStartTracking() }}>
               Start Tracking
             </Button>
           )}
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border-cyan-100 shadow-sm shadow-cyan-100/50">
+      <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Current Assignment</CardTitle>
+          <CardTitle className="text-base text-slate-900">Current Assignment</CardTitle>
         </CardHeader>
         <CardContent>
           {activeTrip ? (
@@ -668,14 +690,14 @@ function HomeView({
               <p className="text-sm text-slate-600">
                 {activeTrip.completedDropPoints}/{activeTrip.totalDropPoints} stops completed
               </p>
-              <Button className="w-full bg-teal-700 hover:bg-teal-800 text-white" onClick={() => onOpenActiveTrip(activeTrip)}>
+              <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={() => onOpenActiveTrip(activeTrip)}>
                 Open Active Trip
               </Button>
             </div>
           ) : (
             <div className="space-y-2">
               <p className="text-sm text-slate-500">No active trip right now.</p>
-              <Button variant="outline" className="w-full border-cyan-300 text-cyan-800 hover:bg-cyan-50" onClick={onOpenTrips}>
+              <Button variant="outline" className="w-full border-sky-300 text-sky-700 hover:bg-sky-50" onClick={onOpenTrips}>
                 View My Trips
               </Button>
             </div>
@@ -697,10 +719,10 @@ function TripsListView({
   onSelectTrip: (trip: Trip) => void 
 }) {
   const statusColors: Record<string, string> = {
-    PLANNED: 'bg-cyan-100 text-cyan-800 border border-cyan-200',
-    IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    COMPLETED: 'bg-slate-100 text-slate-700 border border-slate-200',
-    CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
+          PLANNED: 'bg-sky-100 text-sky-800 border border-sky-200',
+          IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+          COMPLETED: 'bg-teal-100 text-teal-800 border border-teal-200',
+          CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
   }
 
   if (isLoading) {
@@ -716,17 +738,17 @@ function TripsListView({
       <h2 className="mb-4 text-xl font-semibold text-slate-900">My Deliveries</h2>
 
       {trips.length === 0 ? (
-        <Card className="rounded-2xl border-cyan-100 shadow-sm shadow-cyan-100/50">
+        <Card className="rounded-lg border border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)]">
           <CardContent className="py-12 text-center">
-            <Truck className="h-12 w-12 text-cyan-200 mx-auto mb-4" />
-            <p className="text-slate-600">No assigned trips</p>
-            <p className="text-sm text-slate-400 mt-1">New deliveries will appear here</p>
+            <Truck className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+            <p className="text-slate-700 font-semibold">No assigned trips</p>
+            <p className="text-sm text-slate-500 mt-1">New deliveries will appear here</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
           {trips.map((trip) => (
-            <Card key={trip.id} className="cursor-pointer rounded-2xl border-cyan-100 shadow-sm shadow-cyan-100/50 transition-all hover:shadow-md hover:-translate-y-0.5" onClick={() => onSelectTrip(trip)}>
+            <Card key={trip.id} className="cursor-pointer rounded-lg border border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]" onClick={() => onSelectTrip(trip)}>
               <CardContent className="p-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
@@ -1314,16 +1336,16 @@ function TripDetailView({
   return (
     <div>
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-700 via-cyan-700 to-sky-700 p-4 text-white">
-        <Button variant="ghost" size="sm" className="mb-2 p-0 text-white hover:bg-cyan-700/40" onClick={onBack}>
+      <div className="rounded-2xl border border-slate-700/20 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 text-white shadow-[0_12px_26px_rgba(15,23,42,0.2)]">
+        <Button variant="ghost" size="sm" className="mb-2 p-0 text-white hover:bg-white/10" onClick={onBack}>
           &lt; Back to Trips
         </Button>
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold">{trip.tripNumber}</h2>
-            <p className="text-cyan-100 text-sm">{trip.vehicle?.licensePlate}</p>
+            <p className="text-slate-300 text-sm">{trip.vehicle?.licensePlate}</p>
           </div>
-          <Badge className="bg-white text-cyan-800">
+          <Badge className="border border-slate-300/20 bg-white text-slate-900">
             {trip.completedDropPoints}/{trip.totalDropPoints} Completed
           </Badge>
         </div>
@@ -1348,7 +1370,7 @@ function TripDetailView({
       {trip.status === 'PLANNED' && (
         <div className="p-4">
           <Button 
-            className="h-12 w-full gap-2 bg-teal-700 text-lg text-white hover:bg-teal-800" 
+            className="h-12 w-full gap-2 bg-slate-900 text-lg text-white hover:bg-slate-800" 
             onClick={handleStartTrip}
             disabled={isUpdating}
           >
@@ -1364,10 +1386,10 @@ function TripDetailView({
 
       {/* Map Placeholder */}
       <div className="mx-4 mt-4">
-        <div className="relative flex h-48 items-center justify-center rounded-2xl border border-cyan-200/70 bg-gradient-to-br from-cyan-100 to-sky-100">
+        <div className="relative flex h-48 items-center justify-center rounded-lg border border-slate-200/50 bg-slate-50/80 shadow-[0_2px_6px_rgba(0,0,0,0.04)]">
           <div className="text-center">
-            <MapPin className="h-10 w-10 text-cyan-500 mx-auto mb-2" />
-            <p className="text-cyan-700 text-sm">Route Map</p>
+            <MapPin className="h-10 w-10 text-sky-600 mx-auto mb-2" />
+            <p className="text-slate-700 text-sm">Route Map</p>
           </div>
           {isTracking && currentLocation && (
             <div className="absolute bottom-2 left-2 bg-white px-2 py-1 rounded text-xs text-slate-700">
@@ -1386,7 +1408,7 @@ function TripDetailView({
           {trip.dropPoints?.sort((a, b) => a.sequence - b.sequence).map((dropPoint) => (
             <Card 
               key={dropPoint.id} 
-              className={`cursor-pointer rounded-2xl border-cyan-100 shadow-sm shadow-cyan-100/50 transition-all ${activeDropPoint?.id === dropPoint.id ? 'ring-2 ring-cyan-500' : ''}`}
+              className={`cursor-pointer rounded-lg border transition-all duration-200 ${activeDropPoint?.id === dropPoint.id ? 'border-slate-900/30 bg-slate-900/5 shadow-[0_4px_12px_rgba(0,0,0,0.1)]' : 'border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]'}`}
               onClick={() => setActiveDropPoint(activeDropPoint?.id === dropPoint.id ? null : dropPoint)}
             >
               <CardContent className="p-4">
@@ -1405,7 +1427,7 @@ function TripDetailView({
                         <p className="text-sm text-slate-500">{dropPoint.address}</p>
                         {dropPoint.order && (
                           <>
-                            <p className="mt-1 text-xs text-cyan-700">{dropPoint.order.orderNumber}</p>
+                            <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
                             <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
                               <p className="text-[11px] font-semibold text-amber-800">
                                 Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
@@ -1441,7 +1463,7 @@ function TripDetailView({
                       </Badge>
                     </div>
                     {dropPoint.contactPhone && (
-                      <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-cyan-700">
+                      <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
                         <Phone className="h-4 w-4" />
                         Call Contact
                       </a>

@@ -1,16 +1,31 @@
 ﻿'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Script from 'next/script'
 import { setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
+import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Loader2, Users } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Users } from 'lucide-react'
 import { toast } from 'sonner'
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (config: { client_id: string; callback: (response: { credential?: string }) => void }) => void
+          renderButton: (element: HTMLElement, options: Record<string, unknown>) => void
+        }
+      }
+    }
+  }
+}
 
 export function CustomerLoginPage() {
   const router = useRouter()
@@ -20,6 +35,93 @@ export function CustomerLoginPage() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [rememberMe, setRememberMe] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const googleButtonRef = useRef<HTMLDivElement | null>(null)
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  const googleContinueSection = googleClientId ? (
+    <div className="space-y-3">
+      <div className="relative py-1">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t border-slate-200" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-white px-2 text-slate-500">Or continue with</span>
+        </div>
+      </div>
+      <div className="flex justify-center">
+        <div ref={googleButtonRef} className="w-full flex justify-center" />
+      </div>
+    </div>
+  ) : (
+    <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
+  )
+
+  const handleGoogleCredential = async (credential: string) => {
+    if (!credential) {
+      toast.error('Google sign-in failed. Please try again.')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const response = await fetch('/api/auth/customer/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, rememberMe }),
+      })
+      const rawBody = await response.text()
+      let data: any = null
+      try {
+        data = rawBody ? JSON.parse(rawBody) : null
+      } catch {
+        data = null
+      }
+
+      if (!response.ok || !data?.success || !data?.user) {
+        const apiError = String(data?.error || data?.message || '').trim()
+        const fallbackError = response.status >= 500
+          ? 'Google sign-in is temporarily unavailable. Please use email/password for now.'
+          : 'Google authentication failed'
+        toast.error(apiError || fallbackError)
+        return
+      }
+
+      if (data.token) setTabAuthToken(data.token)
+      toast.success(data.created ? 'Account created successfully' : 'Welcome back')
+      router.replace('/')
+    } catch {
+      toast.error('Unable to reach authentication service. Please check your connection and try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const renderGoogleButton = () => {
+    if (!googleClientId) return
+    if (!window.google?.accounts?.id) return
+    if (!googleButtonRef.current) return
+
+    googleButtonRef.current.innerHTML = ''
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: (response) => {
+        if (response.credential) {
+          void handleGoogleCredential(response.credential)
+        } else {
+          toast.error('Google sign-in failed. Please try again.')
+        }
+      },
+    })
+    window.google.accounts.id.renderButton(googleButtonRef.current, {
+      theme: 'outline',
+      size: 'large',
+      text: 'continue_with',
+      shape: 'pill',
+      logo_alignment: 'left',
+      width: 360,
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -47,6 +149,10 @@ export function CustomerLoginPage() {
     }
   }, [router])
 
+  useEffect(() => {
+    renderGoogleButton()
+  }, [authMode, googleClientId])
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -55,12 +161,22 @@ export function CustomerLoginPage() {
       const response = await fetch('/api/auth/customer/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
       })
-      const data = await response.json()
+      const rawBody = await response.text()
+      let data: any = null
+      try {
+        data = rawBody ? JSON.parse(rawBody) : null
+      } catch {
+        data = null
+      }
 
-      if (!response.ok || !data.success || !data.user) {
-        toast.error(data.error || 'Login failed')
+      if (!response.ok || !data?.success || !data?.user) {
+        const apiError = String(data?.error || data?.message || '').trim()
+        const fallbackError = response.status >= 500
+          ? 'Login service is temporarily unavailable. Please try again shortly.'
+          : 'Login failed'
+        toast.error(apiError || fallbackError)
         return
       }
 
@@ -68,7 +184,7 @@ export function CustomerLoginPage() {
       toast.success('Welcome to Customer Portal')
       router.replace('/')
     } catch {
-      toast.error('An error occurred during login')
+      toast.error('Unable to reach login service. Please check your connection and try again.')
     } finally {
       setIsLoading(false)
     }
@@ -88,10 +204,20 @@ export function CustomerLoginPage() {
           password,
         }),
       })
-      const data = await response.json()
+      const rawBody = await response.text()
+      let data: any = null
+      try {
+        data = rawBody ? JSON.parse(rawBody) : null
+      } catch {
+        data = null
+      }
 
-      if (!response.ok || !data.success || !data.user) {
-        toast.error(data.error || 'Registration failed')
+      if (!response.ok || !data?.success || !data?.user) {
+        const apiError = String(data?.error || data?.message || '').trim()
+        const fallbackError = response.status >= 500
+          ? 'Registration service is temporarily unavailable. Please try again shortly.'
+          : 'Registration failed'
+        toast.error(apiError || fallbackError)
         return
       }
 
@@ -99,7 +225,7 @@ export function CustomerLoginPage() {
       toast.success('Account created successfully')
       router.replace('/')
     } catch {
-      toast.error('An error occurred during registration')
+      toast.error('Unable to reach registration service. Please check your connection and try again.')
     } finally {
       setIsLoading(false)
     }
@@ -115,6 +241,9 @@ export function CustomerLoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-sky-100 flex items-center justify-center px-4 py-10">
+      {googleClientId ? (
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
+      ) : null}
       <Toaster position="top-right" />
       <Card className="w-full max-w-md border-slate-200 bg-white/95 shadow-2xl shadow-sky-200/60 backdrop-blur">
         <CardHeader className="space-y-3">
@@ -122,7 +251,7 @@ export function CustomerLoginPage() {
             <Users className="h-5 w-5" />
           </div>
           <CardTitle className="text-slate-900 text-2xl">Customer Portal Login</CardTitle>
-          <CardDescription className="text-slate-600">Sign in to track and manage your orders.</CardDescription>
+          <CardDescription className="text-slate-600">Log in to track and manage your orders.</CardDescription>
         </CardHeader>
         <CardContent>
           {authMode === 'login' ? (
@@ -133,11 +262,31 @@ export function CustomerLoginPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="customer-password" className="text-slate-700">Password</Label>
-                  <Input id="customer-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                  <div className="relative">
+                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white pr-11 text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                    <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  />
+                  Keep me logged in
+                </label>
                 <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
-                  {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sign In
+                  {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
                 </Button>
+                <ForgotPasswordDialog
+                  accountType="customer"
+                  initialEmail={email}
+                  triggerClassName="w-full text-center text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                />
+                {googleContinueSection}
                 <p className="text-center text-sm text-slate-600">
                   dont have an account?{' '}
                   <button
@@ -161,11 +310,17 @@ export function CustomerLoginPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="reg-password" className="text-slate-700">Password</Label>
-                  <Input id="reg-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                  <div className="relative">
+                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white pr-11 text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                    <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
                 <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
+                {googleContinueSection}
                 <p className="text-center text-sm text-slate-600">
                   already have an account?{' '}
                   <button

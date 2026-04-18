@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "LogiTrack Customer",
+    "slug": "logitrack-customer-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "extra": {
+      "apiBaseUrl": "http://10.0.2.2:8000"
+    }
+  }
+}

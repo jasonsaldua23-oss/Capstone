@@ -8,6 +8,7 @@ from django.http import HttpRequest
 
 TOKEN_NAME = "auth_token"
 TOKEN_EXP_HOURS = 24
+REMEMBER_ME_EXP_HOURS = 24 * 30
 
 
 def hash_password(password: str) -> str:
@@ -22,9 +23,9 @@ def _jwt_secret() -> str:
     return os.getenv("JWT_SECRET", "logistics-management-secret-key-2024")
 
 
-def create_token(payload: dict[str, Any]) -> str:
+def create_token(payload: dict[str, Any], exp_hours: int = TOKEN_EXP_HOURS) -> str:
     now = datetime.now(timezone.utc)
-    exp = now + timedelta(hours=TOKEN_EXP_HOURS)
+    exp = now + timedelta(hours=exp_hours)
     token_payload = {**payload, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
     return jwt.encode(token_payload, _jwt_secret(), algorithm="HS256")
 
