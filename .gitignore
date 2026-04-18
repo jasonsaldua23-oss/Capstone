@@ -57,3 +57,5 @@ __pycache__/
 *.py[cod]
 backend/db.sqlite3
 skills/
+dev*.log
+dev_stdout.log
