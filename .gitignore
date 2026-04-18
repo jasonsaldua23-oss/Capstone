@@ -48,4 +48,8 @@ prompt
 
 server.log
 # Skills directory
-/skills/
+/skills/# Python / Django
+__pycache__/
+*.py[cod]
+backend/db.sqlite3
+skills/

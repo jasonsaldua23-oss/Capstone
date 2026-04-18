@@ -99,6 +99,33 @@ bun run dev
 
 The application will be available at `http://localhost:3000`
 
+## Django Backend Mode (No Frontend Code Changes)
+
+This project is configured so all frontend `/api/*` calls are routed to Django.
+
+1. Start Django backend on port `8000`:
+```bash
+cd backend
+set DJANGO_USE_SQLITE=1
+python manage.py migrate
+python manage.py shell -c "from core.views_api import ensure_demo_accounts; ensure_demo_accounts(); print('ok')"
+python manage.py runserver 0.0.0.0:8000
+```
+
+2. In project root `.env`, set Django API origin:
+```bash
+DJANGO_API_ORIGIN=http://127.0.0.1:8000
+```
+
+3. Restart Next.js dev server:
+```bash
+npm run dev
+```
+
+4. Verify in browser/API:
+- `GET http://localhost:3000/api/health` should return Django response.
+- Existing frontend screens continue using `/api/*` unchanged.
+
 ## 👥 Test Accounts
 
 ### Admin Portal
