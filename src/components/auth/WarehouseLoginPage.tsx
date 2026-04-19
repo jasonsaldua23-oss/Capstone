@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Building2, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 declare global {
@@ -187,59 +187,63 @@ export function WarehouseLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-        <Loader2 className="h-6 w-6 animate-spin text-slate-200" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 flex items-center justify-center px-4 py-10">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
       {googleClientId ? (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
-      <Card className="w-full max-w-md border-slate-700 bg-slate-900/90 shadow-2xl shadow-amber-950/40 backdrop-blur">
+      <Card className="w-full max-w-md border-slate-200 bg-white shadow-xl">
         <CardHeader className="space-y-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-amber-600/20 text-amber-300 ring-1 ring-amber-400/30">
-            <Building2 className="h-5 w-5" />
+          <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <img
+              src="/ann-anns-logo.png"
+              alt="Ann Ann's Beverages Trading logo"
+              className="h-full w-full object-contain p-1"
+            />
           </div>
-          <CardTitle className="text-white text-2xl">Warehouse Portal Login</CardTitle>
-          <CardDescription className="text-slate-300">Log in with your warehouse account.</CardDescription>
+          <CardTitle className="text-slate-900 text-2xl text-center">Ann Ann&apos;s Beverages Trading Warehouse Staff</CardTitle>
+          <CardDescription className="text-slate-500 text-center">Log in with your warehouse staff account.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} autoComplete="off" className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="warehouse-email" className="text-slate-200">Email</Label>
-              <Input id="warehouse-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="warehouse@logistics.com" required className="h-11 border-slate-600 bg-slate-800/80 text-white placeholder:text-slate-400 focus-visible:ring-amber-400" />
+              <Label htmlFor="warehouse-email" className="text-slate-700">Email</Label>
+              <Input id="warehouse-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="warehouse-password" className="text-slate-200">Password</Label>
+              <Label htmlFor="warehouse-password" className="text-slate-700">Password</Label>
               <div className="relative">
-                <Input id="warehouse-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-600 bg-slate-800/80 pr-11 text-white placeholder:text-slate-400 focus-visible:ring-amber-400" />
-                <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-200" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                <Input id="warehouse-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-11 border-slate-300 bg-white pr-11 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500" />
+                <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="flex items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-500 text-amber-600 focus:ring-amber-400"
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
               Keep me logged in
             </label>
-            <Button type="submit" className="w-full h-11 bg-gradient-to-r from-amber-700 to-amber-600 hover:from-amber-600 hover:to-amber-500" disabled={isLoading}>
+            <Button type="submit" className="w-full h-11 bg-indigo-600 text-white hover:bg-indigo-700" disabled={isLoading}>
               {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
             </Button>
             <div className="relative py-1">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-slate-700" />
+                <span className="w-full border-t border-slate-200" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-slate-900 px-2 text-slate-400">Or continue with</span>
+                <span className="bg-white px-2 text-slate-400">Or continue with</span>
               </div>
             </div>
             {googleClientId ? (
@@ -252,7 +256,7 @@ export function WarehouseLoginPage() {
             <ForgotPasswordDialog
               accountType="staff"
               initialEmail={email}
-              triggerClassName="w-full text-center text-sm text-slate-300 hover:text-slate-100 transition-colors"
+              triggerClassName="w-full text-center text-sm text-slate-600 hover:text-slate-900 transition-colors"
             />
           </form>
         </CardContent>

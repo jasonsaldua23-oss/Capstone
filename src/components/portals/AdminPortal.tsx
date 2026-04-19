@@ -1965,12 +1965,8 @@ function VehiclesView() {
   const [form, setForm] = useState({
     licensePlate: '',
     type: 'VAN',
-    make: '',
-    model: '',
-    year: '',
     capacity: '',
     status: 'AVAILABLE',
-    fuelType: '',
     driverId: '',
   })
 
@@ -2027,12 +2023,8 @@ function VehiclesView() {
     setForm({
       licensePlate: '',
       type: 'VAN',
-      make: '',
-      model: '',
-      year: '',
       capacity: '',
       status: 'AVAILABLE',
-      fuelType: '',
       driverId: '',
     })
     setEditingVehicle(null)
@@ -2043,12 +2035,8 @@ function VehiclesView() {
     setForm({
       licensePlate: vehicle.licensePlate || '',
       type: vehicle.type || 'VAN',
-      make: vehicle.make || '',
-      model: vehicle.model || '',
-      year: vehicle.year ? String(vehicle.year) : '',
       capacity: vehicle.capacity ? String(vehicle.capacity) : '',
       status: vehicle.status || 'AVAILABLE',
-      fuelType: vehicle.fuelType || '',
       driverId: vehicle.drivers?.[0]?.driver?.id || '',
     })
     setEditOpen(true)
@@ -2084,12 +2072,8 @@ function VehiclesView() {
           id: mode === 'edit' ? editingVehicle.id : undefined,
           licensePlate: form.licensePlate.trim().toUpperCase(),
           type: form.type,
-          make: form.make.trim() || null,
-          model: form.model.trim() || null,
-          year: form.year ? Number(form.year) : null,
           capacity: form.capacity ? Number(form.capacity) : null,
           status: form.status,
-          fuelType: form.fuelType.trim() || null,
           driverId: form.driverId || null,
         }),
       })
@@ -2138,9 +2122,7 @@ function VehiclesView() {
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="font-semibold">{vehicle.licensePlate}</h3>
-                    <p className="text-sm text-gray-500">
-                      {vehicle.make} {vehicle.model} ({vehicle.year || 'N/A'})
-                    </p>
+                    <p className="text-sm text-gray-500">{vehicle.type || 'Vehicle'}</p>
                   </div>
                   <Badge className={statusColors[vehicle.status] || 'bg-gray-100'}>
                     {vehicle.status?.replace(/_/g, ' ')}
@@ -2200,24 +2182,8 @@ function VehiclesView() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Make</label>
-              <Input value={form.make} onChange={(e) => setForm((f) => ({ ...f, make: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Model</label>
-              <Input value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Year</label>
-              <Input type="number" value={form.year} onChange={(e) => setForm((f) => ({ ...f, year: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Capacity (kg)</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
-            </div>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Fuel Type</label>
-              <Input value={form.fuelType} onChange={(e) => setForm((f) => ({ ...f, fuelType: e.target.value }))} />
             </div>
             <div className="space-y-1 sm:col-span-2">
               {/* Assign Driver Label and Select removed */}
@@ -2261,18 +2227,6 @@ function VehiclesView() {
                 <option value="MAINTENANCE">MAINTENANCE</option>
                 <option value="OUT_OF_SERVICE">OUT OF SERVICE</option>
               </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Make</label>
-              <Input value={form.make} onChange={(e) => setForm((f) => ({ ...f, make: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Model</label>
-              <Input value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Year</label>
-              <Input type="number" value={form.year} onChange={(e) => setForm((f) => ({ ...f, year: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Capacity (kg)</label>
@@ -2804,12 +2758,8 @@ function TransportationView() {
   const [isDeletingVehicle, setIsDeletingVehicle] = useState(false)
   const [vehicleForm, setVehicleForm] = useState({
     licensePlate: '',
-    make: '',
-    model: '',
-    year: '',
     type: 'TRUCK',
     capacity: '',
-    fuelType: 'Diesel',
     status: 'AVAILABLE',
     driverId: '',
     isActive: true,
@@ -2872,8 +2822,8 @@ function TransportationView() {
   }
 
   const saveVehicle = async (mode: 'create' | 'edit') => {
-    if (!vehicleForm.licensePlate.trim() || !vehicleForm.make.trim() || !vehicleForm.model.trim()) {
-      toast.error('License plate, make, and model are required')
+    if (!vehicleForm.licensePlate.trim()) {
+      toast.error('License plate is required')
       return
     }
 
@@ -2895,12 +2845,8 @@ function TransportationView() {
         body: JSON.stringify({
           id: mode === 'edit' ? selectedVehicle.id : undefined,
           licensePlate: vehicleForm.licensePlate.trim(),
-          make: vehicleForm.make.trim(),
-          model: vehicleForm.model.trim(),
-          year: parseInt(vehicleForm.year) || new Date().getFullYear(),
           type: String(vehicleForm.type || '').toUpperCase(),
           capacity: parseInt(vehicleForm.capacity) || 0,
-          fuelType: vehicleForm.fuelType,
           status: String(vehicleForm.status || '').toUpperCase(),
           driverId: vehicleForm.driverId || null,
           isActive: vehicleForm.isActive,
@@ -3039,12 +2985,8 @@ function TransportationView() {
   const resetVehicleForm = () => {
     setVehicleForm({
       licensePlate: '',
-      make: '',
-      model: '',
-      year: '',
       type: 'TRUCK',
       capacity: '',
-      fuelType: 'Diesel',
       status: 'AVAILABLE',
       driverId: '',
       isActive: true,
@@ -3152,18 +3094,6 @@ function TransportationView() {
                   <Input placeholder="License Plate" value={vehicleForm.licensePlate} onChange={(e) => setVehicleForm({...vehicleForm, licensePlate: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Make</label>
-                  <Input placeholder="Make" value={vehicleForm.make} onChange={(e) => setVehicleForm({...vehicleForm, make: e.target.value})} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Model</label>
-                  <Input placeholder="Model" value={vehicleForm.model} onChange={(e) => setVehicleForm({...vehicleForm, model: e.target.value})} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Year</label>
-                  <Input type="number" placeholder="Year" value={vehicleForm.year} onChange={(e) => setVehicleForm({...vehicleForm, year: e.target.value})} />
-                </div>
-                <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Vehicle Type</label>
                   <select value={vehicleForm.type} onChange={(e) => setVehicleForm({...vehicleForm, type: e.target.value})} title="Vehicle Type" className="w-full px-3 py-2 border rounded-md">
                     <option value="TRUCK">Truck</option>
@@ -3175,15 +3105,6 @@ function TransportationView() {
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Capacity (kg)</label>
                   <Input type="number" placeholder="Capacity (kg)" value={vehicleForm.capacity} onChange={(e) => setVehicleForm({...vehicleForm, capacity: e.target.value})} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Fuel Type</label>
-                  <select value={vehicleForm.fuelType} onChange={(e) => setVehicleForm({...vehicleForm, fuelType: e.target.value})} title="Fuel Type" className="w-full px-3 py-2 border rounded-md">
-                    <option>Diesel</option>
-                    <option>Petrol</option>
-                    <option>Electric</option>
-                    <option>Hybrid</option>
-                  </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Status</label>
@@ -3228,7 +3149,7 @@ function TransportationView() {
                 <CardContent className="pt-6">
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                     <div>
-                      <h3 className="font-semibold">{vehicle.make} {vehicle.model}</h3>
+                      <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
                       <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
                       <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
                       <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
@@ -3237,7 +3158,7 @@ function TransportationView() {
                       </Badge>
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', make: vehicle.make || '', model: vehicle.model || '', year: String(vehicle.year || ''), type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), fuelType: vehicle.fuelType || 'Diesel', status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
+                      <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
                       <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>Delete</Button>
                     </div>
                   </div>
@@ -3360,7 +3281,7 @@ function TransportationView() {
                         <option value="">Unassigned</option>
                         {vehicles.map((vehicle: any) => (
                           <option key={vehicle.id} value={vehicle.id} disabled={!isVehicleAssignable(vehicle)}>
-                            {vehicle.licensePlate} - {vehicle.make || 'Vehicle'} {vehicle.model || ''}{!isVehicleAssignable(vehicle) ? ' (Unavailable)' : ''}
+                            {vehicle.licensePlate} - {vehicle.type || 'VEHICLE'}{!isVehicleAssignable(vehicle) ? ' (Unavailable)' : ''}
                           </option>
                         ))}
                       </select>

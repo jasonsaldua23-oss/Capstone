@@ -214,7 +214,7 @@ export function DriverLoginPage() {
                 <img src="/anndrive.png" alt="AnnDrive" className="h-full w-full scale-125 object-contain" />
               </div>
             </div>
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700/80">Driver Workspace</p>
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700/80">Ann Ann's Beverages Trading</p>
             <h1 className="mt-1 text-[2rem] font-black tracking-[-0.02em]">
               <span className="text-[#0f4f8f]">Ann</span>
               <span className="text-[#2f9a34]">Drive</span>
@@ -222,15 +222,15 @@ export function DriverLoginPage() {
             <p className="mt-1 text-[0.95rem] leading-relaxed text-zinc-600">Sign in to start routes and track drops in real time.</p>
           </div>
           <CardContent className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pb-7">
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} autoComplete="off" className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="driver-email" className="text-[13px] font-semibold tracking-[0.01em] text-zinc-700">Email</Label>
-              <Input id="driver-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="driver@logistics.com" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 text-zinc-900 placeholder:text-zinc-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
+              <Input id="driver-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 text-zinc-900 placeholder:text-zinc-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="driver-password" className="text-[13px] font-semibold tracking-[0.01em] text-zinc-700">Password</Label>
               <div className="relative">
-                <Input id="driver-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 pr-11 text-zinc-900 placeholder:text-zinc-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
+                <Input id="driver-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 pr-11 text-zinc-900 placeholder:text-zinc-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
                 <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400 transition-colors hover:text-zinc-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>

@@ -1139,14 +1139,10 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         v = Vehicle.objects.create(
             license_plate=body["licensePlate"],
             type=body["type"],
-            make=body.get("make"),
-            model=body.get("model"),
-            year=body.get("year"),
             color=body.get("color"),
             capacity=body.get("capacity"),
             volume=body.get("volume"),
             status=body.get("status") or VehicleStatus.AVAILABLE,
-            fuel_type=body.get("fuelType"),
             mileage=body.get("mileage") or 0,
             is_active=bool(body.get("isActive", True)),
         )
@@ -1158,7 +1154,7 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         v = Vehicle.objects.get(id=vehicle_id)
     except Vehicle.DoesNotExist:
         return _err("Vehicle not found", 404)
-    mapping = [("licensePlate", "license_plate"), ("type", "type"), ("make", "make"), ("model", "model"), ("year", "year"), ("color", "color"), ("capacity", "capacity"), ("volume", "volume"), ("status", "status"), ("fuelType", "fuel_type"), ("mileage", "mileage")]
+    mapping = [("licensePlate", "license_plate"), ("type", "type"), ("color", "color"), ("capacity", "capacity"), ("volume", "volume"), ("status", "status"), ("mileage", "mileage")]
     for key, attr in mapping:
         if key in body:
             setattr(v, attr, body.get(key))
