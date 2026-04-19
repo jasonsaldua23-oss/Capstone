@@ -1,6 +1,16 @@
 ﻿import { redirect } from 'next/navigation'
+import type { Metadata } from 'next'
 import { CustomerLoginPage as CustomerLoginScreen } from '@/components/auth/CustomerLoginPage'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
+
+export const metadata: Metadata = {
+  title: 'AnnShop',
+  icons: {
+    icon: '/annshop.png',
+    shortcut: '/annshop.png',
+    apple: '/annshop.png',
+  },
+}
 
 export default function CustomerLoginRoute() {
   const variant = resolveAppVariant()

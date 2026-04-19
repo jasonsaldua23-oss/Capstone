@@ -56,6 +56,36 @@ const queryClient = new QueryClient({
   },
 })
 
+const DEFAULT_BRAND_TITLE = "Ann Ann's Beverages Trading"
+const DEFAULT_BRAND_ICON = '/ann-anns-logo.png'
+
+function applyBrowserBranding(title: string, iconPath: string) {
+  if (typeof document === 'undefined') return
+  document.title = title
+
+  const iconSelectors = [
+    'link[rel="icon"]',
+    'link[rel="shortcut icon"]',
+    'link[rel="apple-touch-icon"]',
+  ]
+
+  iconSelectors.forEach((selector) => {
+    let link = document.head.querySelector(selector) as HTMLLinkElement | null
+    if (!link) {
+      link = document.createElement('link')
+      if (selector.includes('apple-touch-icon')) {
+        link.rel = 'apple-touch-icon'
+      } else if (selector.includes('shortcut icon')) {
+        link.rel = 'shortcut icon'
+      } else {
+        link.rel = 'icon'
+      }
+      document.head.appendChild(link)
+    }
+    link.href = iconPath
+  })
+}
+
 interface PortalErrorBoundaryProps {
   children: ReactNode
   onRecover: () => void
@@ -179,6 +209,27 @@ export default function Home() {
       router.replace(getPortalLoginPath(portal))
     }
   }, [isLoading, isMounted, portal, router, user])
+
+  useEffect(() => {
+    if (!isMounted) return
+
+    if (!user) {
+      applyBrowserBranding(DEFAULT_BRAND_TITLE, DEFAULT_BRAND_ICON)
+      return
+    }
+
+    if (portal === 'customer') {
+      applyBrowserBranding('AnnShop', '/annshop.png')
+      return
+    }
+
+    if (portal === 'driver') {
+      applyBrowserBranding('AnnDrive', '/anndrive.png')
+      return
+    }
+
+    applyBrowserBranding(DEFAULT_BRAND_TITLE, DEFAULT_BRAND_ICON)
+  }, [isMounted, portal, user])
 
   const logoutToPortal = (targetPortal: PortalType) => {
     const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal

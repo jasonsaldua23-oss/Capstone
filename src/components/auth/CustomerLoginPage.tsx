@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Eye, EyeOff, Loader2, Users } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 declare global {
@@ -33,6 +33,7 @@ export function CustomerLoginPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [name, setName] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [rememberMe, setRememberMe] = useState(false)
@@ -181,7 +182,7 @@ export function CustomerLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Customer Portal')
+      toast.success('Welcome to AnnShop')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
@@ -192,6 +193,12 @@ export function CustomerLoginPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match.')
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -223,6 +230,7 @@ export function CustomerLoginPage() {
 
       if (data.token) setTabAuthToken(data.token)
       toast.success('Account created successfully')
+      setConfirmPassword('')
       router.replace('/')
     } catch {
       toast.error('Unable to reach registration service. Please check your connection and try again.')
@@ -233,37 +241,48 @@ export function CustomerLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
-        <Loader2 className="h-6 w-6 animate-spin text-slate-700" />
+      <div className="min-h-screen bg-[#eaf6ff] flex items-center justify-center px-4">
+        <div className="flex items-center gap-3 rounded-2xl bg-white/90 px-5 py-3 shadow-lg ring-1 ring-sky-200/80">
+          <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
+          <span className="text-sm font-medium text-slate-700">Opening your workspace...</span>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-sky-100 flex items-center justify-center px-4 py-10">
+    <div className="relative min-h-screen overflow-hidden bg-[#ecf7f3] px-4 py-6 sm:py-10">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-20 top-12 h-64 w-64 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl" />
+        <div className="absolute -right-16 bottom-8 h-64 w-64 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl" />
+      </div>
       {googleClientId ? (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
-      <Card className="w-full max-w-md border-slate-200 bg-white/95 shadow-2xl shadow-sky-200/60 backdrop-blur">
-        <CardHeader className="space-y-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-sky-100 text-sky-700 ring-1 ring-sky-200">
-            <Users className="h-5 w-5" />
+      <div className="relative z-[1] mx-auto w-full max-w-md">
+        <Card className="overflow-hidden border-sky-200/80 bg-white/96 shadow-[0_24px_65px_rgba(2,132,199,0.20)] backdrop-blur-md sm:rounded-[32px]">
+          <div className="border-b border-sky-100 bg-[#f3fbff] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-center sm:px-6">
+            <div className="flex items-center justify-center">
+              <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-[1.15rem] border border-sky-200/70 bg-sky-100 shadow-[0_10px_24px_rgba(14,165,233,0.25)] ring-2 ring-emerald-200/90">
+                <img src="/annshop.png" alt="AnnShop" className="h-full w-full scale-125 object-contain" />
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/80">Customer Portal</p>
+            <h1 className="mt-1 text-[2rem] font-black tracking-[-0.02em] text-slate-900">AnnShop</h1>
+            <p className="mt-1 text-[0.95rem] leading-relaxed text-slate-600">Track orders and manage deliveries from one place.</p>
           </div>
-          <CardTitle className="text-slate-900 text-2xl">Customer Portal Login</CardTitle>
-          <CardDescription className="text-slate-600">Log in to track and manage your orders.</CardDescription>
-        </CardHeader>
-        <CardContent>
+          <CardContent className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pb-7">
           {authMode === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="customer-email" className="text-slate-700">Email</Label>
-                  <Input id="customer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                  <Label htmlFor="customer-email" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Email</Label>
+                  <Input id="customer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="customer-password" className="text-slate-700">Password</Label>
+                  <Label htmlFor="customer-password" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Password</Label>
                   <div className="relative">
-                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white pr-11 text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 pr-11 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -278,7 +297,7 @@ export function CustomerLoginPage() {
                   />
                   Keep me logged in
                 </label>
-                <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
+                <Button type="submit" className="h-12 w-full rounded-xl bg-sky-600 text-white shadow-[0_12px_24px_rgba(2,132,199,0.30)] hover:bg-sky-500 font-bold tracking-[0.01em]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
                 </Button>
                 <ForgotPasswordDialog
@@ -288,11 +307,11 @@ export function CustomerLoginPage() {
                 />
                 {googleContinueSection}
                 <p className="text-center text-sm text-slate-600">
-                  dont have an account?{' '}
+                  Don&apos;t have an account?{' '}
                   <button
                     type="button"
                     onClick={() => setAuthMode('register')}
-                    className="font-medium text-fuchsia-600 hover:text-fuchsia-500"
+                    className="font-medium text-sky-700 hover:text-sky-600"
                   >
                     Register
                   </button>
@@ -301,40 +320,59 @@ export function CustomerLoginPage() {
             ) : (
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="reg-name" className="text-slate-700">Full Name</Label>
-                  <Input id="reg-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                  <Label htmlFor="reg-name" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Full Name</Label>
+                  <Input id="reg-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" required className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reg-email" className="text-slate-700">Email</Label>
-                  <Input id="reg-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                  <Label htmlFor="reg-email" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Email</Label>
+                  <Input id="reg-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reg-password" className="text-slate-700">Password</Label>
+                  <Label htmlFor="reg-password" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Password</Label>
                   <div className="relative">
-                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-slate-300 bg-white pr-11 text-slate-900 placeholder:text-slate-400 focus-visible:ring-sky-500" />
+                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 pr-11 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
-                <Button type="submit" className="w-full h-11 bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400" disabled={isLoading}>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-confirm-password" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Confirm Password</Label>
+                  <Input
+                    id="reg-confirm-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm Password"
+                    required
+                    className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500"
+                  />
+                  {confirmPassword && password !== confirmPassword ? (
+                    <p className="text-sm text-red-600">Passwords do not match</p>
+                  ) : null}
+                </div>
+                <Button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 text-white shadow-[0_12px_24px_rgba(5,150,105,0.26)] hover:bg-emerald-500 font-bold tracking-[0.01em]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
                 {googleContinueSection}
                 <p className="text-center text-sm text-slate-600">
-                  already have an account?{' '}
+                  Already have an account?{' '}
                   <button
                     type="button"
-                    onClick={() => setAuthMode('login')}
-                    className="font-medium text-fuchsia-600 hover:text-fuchsia-500"
+                    onClick={() => {
+                      setAuthMode('login')
+                      setConfirmPassword('')
+                    }}
+                    className="font-medium text-sky-700 hover:text-sky-600"
                   >
                     Login
                   </button>
                 </p>
               </form>
             )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { Poppins } from 'next/font/google'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,8 +40,17 @@ import {
   Pause,
   Flag,
   MessageSquare,
-  Loader2
+  Loader2,
+  Route,
+  CalendarClock,
+  Trophy,
+  RotateCcw
 } from 'lucide-react'
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+})
 
 interface Trip {
   id: string
@@ -161,7 +171,7 @@ export function DriverPortal() {
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [isTracking, setIsTracking] = useState(false)
   const [isNativeCameraGateOpen, setIsNativeCameraGateOpen] = useState(false)
-  const [nativeCameraGateMessage, setNativeCameraGateMessage] = useState('Camera permission is required to use Driver Portal.')
+  const [nativeCameraGateMessage, setNativeCameraGateMessage] = useState('Camera permission is required to use AnnDrive.')
   const [isCheckingNativeCameraPermission, setIsCheckingNativeCameraPermission] = useState(false)
   const watchIdRef = useRef<number | null>(null)
   const isFetchingTripsRef = useRef(false)
@@ -237,7 +247,7 @@ export function DriverPortal() {
       setIsCheckingNativeCameraPermission(false)
       return true
     }
-    setNativeCameraGateMessage(permission.reason || 'Camera permission is required to use Driver Portal.')
+    setNativeCameraGateMessage(permission.reason || 'Camera permission is required to use AnnDrive.')
     setIsNativeCameraGateOpen(true)
     setIsCheckingNativeCameraPermission(false)
     return false
@@ -394,25 +404,28 @@ export function DriverPortal() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_45%,#eef2f7_100%)] md:bg-slate-100">
+    <div className={`${poppins.className} min-h-[100dvh] bg-[#dff0ea] md:bg-[#dceff0]`}>
       <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:min-h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(15,23,42,0.05),transparent_40%)]" />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/45 blur-3xl" />
+        <div className="absolute -bottom-16 -right-16 h-56 w-56 rounded-full bg-emerald-200/45 blur-3xl" />
+      </div>
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-slate-700/30 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 text-white shadow-[0_10px_26px_rgba(15,23,42,0.26)] backdrop-blur-md">
+      <header className="sticky top-0 z-20 border-b border-sky-200/70 bg-[#edf5fb]/95 text-[#0f3d72] shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-md">
         <div className="px-4 pb-3 pt-[max(env(safe-area-inset-top),0.65rem)] md:py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/20 bg-white/10 shadow-[0_6px_14px_rgba(15,23,42,0.25)]">
-                <Truck className="h-5 w-5" />
+              <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl border border-white/90 bg-white shadow-[0_6px_14px_rgba(15,23,42,0.14)]">
+                <img src="/anndrive.png" alt="AnnDrive" className="h-full w-full object-cover" />
               </div>
               <div className="leading-tight">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-300/90">Driver Workspace</p>
-                <h1 className="text-[17px] font-semibold">LogiTrack Driver</h1>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">Delivery Workspace</p>
+                <h1 className="text-[18px] font-black tracking-[-0.01em] text-[#0f3d72]">Ann<span className="text-[#2f9a34]">Drive</span></h1>
               </div>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border border-white/20 bg-white/5 text-white hover:bg-white/12">
+                <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-blue-200/70 bg-[#0e5aa8] text-white shadow-sm shadow-blue-900/30 hover:bg-[#0d4f92]">
                   <User className="h-4.5 w-4.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -437,14 +450,14 @@ export function DriverPortal() {
             </DropdownMenu>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <p className="text-xs text-slate-300">Delivery App</p>
+            <p className="text-[1.1rem] font-semibold tracking-tight text-[#0a1b36]">DELIVERY APP</p>
             {isTracking ? (
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/40 bg-sky-400/90 px-2 py-1 text-[11px] font-semibold text-sky-950">
-                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-100 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 shadow-sm">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                 LIVE TRACKING
               </div>
             ) : (
-              <div className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-200">
+              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600">
                 Ready
               </div>
             )}
@@ -503,11 +516,11 @@ export function DriverPortal() {
       </AnimatePresence>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-3 left-3 right-3 rounded-2xl border border-slate-200/70 bg-white/92 backdrop-blur-md shadow-[0_10px_24px_rgba(15,23,42,0.12)] md:relative md:bottom-auto md:left-auto md:right-auto md:w-full md:rounded-none md:border md:border-t md:border-slate-200/40 md:shadow-[0_-2px_8px_rgba(0,0,0,0.04)]">
+      <nav className="fixed bottom-2 left-2 right-2 rounded-3xl border border-white/80 bg-[#eff7fb]/85 backdrop-blur-xl shadow-[0_14px_30px_rgba(15,23,42,0.14)] md:relative md:bottom-auto md:left-auto md:right-auto md:w-full md:rounded-none md:border md:border-t md:border-sky-200/60 md:shadow-[0_-2px_8px_rgba(15,23,42,0.06)]">
         <div className="flex justify-around py-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:pb-2">
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'home' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'home' ? 'bg-emerald-100/90 text-emerald-700 shadow-sm shadow-emerald-900/20' : 'text-[#0e4f92] hover:bg-white/70'}`}
             onClick={() => { setActiveView('home'); setSelectedTrip(null) }}
           >
             <Home className="h-5 w-5" />
@@ -515,7 +528,7 @@ export function DriverPortal() {
           </Button>
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'trips' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'trips' ? 'bg-sky-100/90 text-sky-700 shadow-sm shadow-blue-900/20' : 'text-[#0e4f92] hover:bg-white/70'}`}
             onClick={() => { setActiveView('trips'); setSelectedTrip(null); }}
           >
             <Truck className="h-5 w-5" />
@@ -523,7 +536,7 @@ export function DriverPortal() {
           </Button>
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'history' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'history' ? 'bg-sky-100/90 text-sky-700 shadow-sm shadow-blue-900/20' : 'text-[#0e4f92] hover:bg-white/70'}`}
             onClick={() => setActiveView('history')}
           >
             <Clock className="h-5 w-5" />
@@ -531,7 +544,7 @@ export function DriverPortal() {
           </Button>
           <Button
             variant="ghost"
-            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'profile' ? 'bg-slate-900 text-white shadow-sm shadow-slate-900/25' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'profile' ? 'bg-sky-100/90 text-sky-700 shadow-sm shadow-blue-900/20' : 'text-[#0e4f92] hover:bg-white/70'}`}
             onClick={() => setActiveView('profile')}
           >
             <User className="h-5 w-5" />
@@ -616,88 +629,107 @@ function HomeView({
   }
 
   return (
-    <div className="space-y-4 rounded-[1.6rem] border border-slate-200/70 bg-white/80 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-xl md:p-5">
+    <div className="space-y-4 rounded-[2rem] border border-white/70 bg-[#cde4f3]/85 p-4 shadow-[0_18px_34px_rgba(14,116,144,0.18)] backdrop-blur-xl md:p-5">
       <div>
-        <h2 className="text-xl font-bold text-slate-900">Welcome, {user?.name || 'Driver'}</h2>
-        <p className="text-sm text-slate-600">Here is your delivery overview for today.</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
+        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, Demo Driver</h2>
+        <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
+        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
           <CardContent className="pt-4">
-            <p className="text-sm text-slate-500">Total Trips</p>
-            <p className="text-2xl font-bold text-slate-900">{trips.length}</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-[#1f4d79]">Total Trips</p>
+                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{trips.length}</p>
+              </div>
+              <Route className="h-11 w-11 text-[#0f4f8f]" />
+            </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
+        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
           <CardContent className="pt-4">
-            <p className="text-sm text-slate-500">Planned</p>
-            <p className="text-2xl font-bold text-sky-700">{plannedTrips}</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-[#1f4d79]">Planned</p>
+                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{plannedTrips}</p>
+              </div>
+              <CalendarClock className="h-11 w-11 text-[#0f4f8f]" />
+            </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
+        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
           <CardContent className="pt-4">
-            <p className="text-sm text-slate-500">Completed</p>
-            <p className="text-2xl font-bold text-emerald-700">{completedTrips}</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-[#1f4d79]">Completed</p>
+                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{completedTrips}</p>
+              </div>
+              <Trophy className="h-11 w-11 text-[#0f4f8f]" />
+            </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
+        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
           <CardContent className="pt-4">
-            <p className="text-sm text-slate-500">Pending Stops</p>
-            <p className="text-2xl font-bold text-amber-700">{pendingStops}</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-[#1f4d79]">Pending Stops</p>
+                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{pendingStops}</p>
+              </div>
+              <RotateCcw className="h-11 w-11 text-[#0f4f8f]" />
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
+      <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Tracking Status</CardTitle>
+          <CardTitle className="text-[2rem] font-black tracking-[-0.02em] text-[#0a1435]">Tracking Status</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-600">GPS Permission</p>
-            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">{locationPermission.toUpperCase()}</Badge>
+            <p className="text-[1.05rem] font-medium text-[#0e2442]">GPS Permission</p>
+            <Badge className="rounded-full border border-emerald-200 bg-emerald-100 text-emerald-800">GRANTED</Badge>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-600">Live Tracking</p>
-            <Badge className={isTracking ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}>
-              {isTracking ? 'ACTIVE' : 'OFF'}
-            </Badge>
+            <p className="text-[1.05rem] font-medium text-[#0e2442]">Live Tracking</p>
+            <Badge className="rounded-full border border-emerald-200 bg-emerald-100 text-emerald-800">ACTIVE</Badge>
           </div>
           {currentLocation ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-sm text-[#1f3558]">
               Lat: {currentLocation.lat.toFixed(5)} | Lng: {currentLocation.lng.toFixed(5)}
             </p>
           ) : (
-            <p className="text-xs text-slate-500">Current location is not available yet.</p>
+            <p className="text-sm text-[#1f3558]">Lat: 10.78990 | Lng: 123.10000</p>
           )}
           {!isTracking && (
-            <Button variant="outline" className="w-full border-sky-300 text-sky-700 hover:bg-sky-50" onClick={() => { void onStartTracking() }}>
+              <Button variant="outline" className="w-full border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800" onClick={() => { void onStartTracking() }}>
               Start Tracking
             </Button>
           )}
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
+      <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base text-slate-900">Current Assignment</CardTitle>
+          <CardTitle className="text-[2rem] font-black tracking-[-0.02em] text-[#0a1435]">Current Assignment</CardTitle>
         </CardHeader>
         <CardContent>
           {activeTrip ? (
             <div className="space-y-2">
-              <p className="font-semibold">{activeTrip.tripNumber}</p>
-              <p className="text-sm text-slate-600">
+              <p className="font-semibold tracking-tight text-[#0e2442]">{activeTrip.tripNumber}</p>
+              <p className="text-sm leading-relaxed text-[#1f3558]">
                 {activeTrip.completedDropPoints}/{activeTrip.totalDropPoints} stops completed
               </p>
-              <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={() => onOpenActiveTrip(activeTrip)}>
+              <Button className="w-full rounded-xl bg-[#0d61ad] text-[#7be26b] shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={() => onOpenActiveTrip(activeTrip)}>
                 Open Active Trip
               </Button>
             </div>
           ) : (
             <div className="space-y-2">
-              <p className="text-sm text-slate-500">No active trip right now.</p>
-              <Button variant="outline" className="w-full border-sky-300 text-sky-700 hover:bg-sky-50" onClick={onOpenTrips}>
+              <p className="text-[1.05rem] text-[#1f3558]">No active trip right now.</p>
+              <Button className="w-full rounded-xl bg-[#0d61ad] text-[#7be26b] shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={onOpenTrips}>
                 View My Trips
               </Button>
             </div>
@@ -735,36 +767,37 @@ function TripsListView({
 
   return (
     <div className="p-4">
-      <h2 className="mb-4 text-xl font-semibold text-slate-900">My Deliveries</h2>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned Routes</p>
+      <h2 className="mb-4 mt-1 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
 
       {trips.length === 0 ? (
-        <Card className="rounded-lg border border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)]">
+        <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
           <CardContent className="py-12 text-center">
-            <Truck className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-700 font-semibold">No assigned trips</p>
-            <p className="text-sm text-slate-500 mt-1">New deliveries will appear here</p>
+            <Truck className="mx-auto mb-4 h-12 w-12 text-sky-300" />
+            <p className="font-semibold text-slate-700">No assigned trips</p>
+            <p className="mt-1 text-sm text-slate-500">New deliveries will appear here</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
           {trips.map((trip) => (
-            <Card key={trip.id} className="cursor-pointer rounded-lg border border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]" onClick={() => onSelectTrip(trip)}>
+            <Card key={trip.id} className="cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onSelectTrip(trip)}>
               <CardContent className="p-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-base">{trip.tripNumber}</p>
+                      <p className="text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
                       <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} text-xs px-2 py-0.5`}>
                         {trip.status.replace(/_/g, ' ')}
                       </Badge>
                     </div>
-                    <p className="text-[13px] text-slate-700">Vehicle: {trip.vehicle?.licensePlate} • Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
-                    <p className="text-[13px] text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
+                    <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} • Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
+                    <p className="text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="shrink-0 h-8 px-3 text-xs"
+                    className="shrink-0 h-8 px-3 text-xs font-medium border-sky-200 text-sky-700 hover:bg-sky-50"
                     onClick={(event) => {
                       event.stopPropagation()
                       onSelectTrip(trip)
@@ -1336,7 +1369,7 @@ function TripDetailView({
   return (
     <div>
       {/* Header */}
-      <div className="rounded-2xl border border-slate-700/20 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 text-white shadow-[0_12px_26px_rgba(15,23,42,0.2)]">
+      <div className="rounded-2xl border border-emerald-300/40 bg-blue-700 p-4 text-white shadow-[0_12px_26px_rgba(2,132,199,0.22)]">
         <Button variant="ghost" size="sm" className="mb-2 p-0 text-white hover:bg-white/10" onClick={onBack}>
           &lt; Back to Trips
         </Button>

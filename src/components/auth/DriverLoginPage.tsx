@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Eye, EyeOff, Loader2, Truck } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 declare global {
@@ -76,7 +76,7 @@ export function DriverLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Driver Portal')
+      toast.success('Welcome to AnnDrive')
       router.replace('/')
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
@@ -176,7 +176,7 @@ export function DriverLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Driver Portal')
+      toast.success('Welcome to AnnDrive')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
@@ -187,59 +187,70 @@ export function DriverLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-200" />
+      <div className="min-h-screen bg-[#ecf7ff] flex items-center justify-center px-4">
+        <div className="flex items-center gap-3 rounded-2xl bg-white/90 px-5 py-3 shadow-lg ring-1 ring-zinc-200">
+          <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
+          <span className="text-sm font-medium text-zinc-700">Preparing driver dashboard...</span>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-emerald-950 flex items-center justify-center px-4 py-10">
+    <div className="relative min-h-screen overflow-hidden bg-[#eaf7f2] px-4 py-6 sm:py-10">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-16 top-12 h-64 w-64 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl" />
+        <div className="absolute -right-20 bottom-6 h-64 w-64 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl" />
+      </div>
       {googleClientId ? (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
-      <Card className="w-full max-w-md border-zinc-700 bg-zinc-900/90 shadow-2xl shadow-emerald-950/40 backdrop-blur">
-        <CardHeader className="space-y-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600/20 text-emerald-300 ring-1 ring-emerald-400/30">
-            <Truck className="h-5 w-5" />
+      <div className="relative z-[1] mx-auto w-full max-w-md">
+        <Card className="overflow-hidden border-emerald-200/80 bg-white/96 shadow-[0_24px_65px_rgba(5,150,105,0.20)] backdrop-blur-md sm:rounded-[32px]">
+          <div className="border-b border-emerald-100 bg-[#f3fcf8] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-center sm:px-6">
+            <div className="flex items-center justify-center">
+              <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-[1.15rem] border border-emerald-200/70 bg-emerald-100 shadow-[0_10px_24px_rgba(5,150,105,0.25)] ring-2 ring-sky-200/90">
+                <img src="/anndrive.png" alt="AnnDrive" className="h-full w-full scale-125 object-contain" />
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700/80">Driver Workspace</p>
+            <h1 className="mt-1 text-[2rem] font-black tracking-[-0.02em] text-zinc-900">AnnDrive</h1>
+            <p className="mt-1 text-[0.95rem] leading-relaxed text-zinc-600">Sign in to start routes and track drops in real time.</p>
           </div>
-          <CardTitle className="text-white text-2xl">Driver Portal Login</CardTitle>
-          <CardDescription className="text-zinc-300">Log in with your driver account.</CardDescription>
-        </CardHeader>
-        <CardContent>
+          <CardContent className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pb-7">
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="driver-email" className="text-zinc-200">Email</Label>
-              <Input id="driver-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="driver@logistics.com" required className="h-11 border-zinc-600 bg-zinc-800/80 text-white placeholder:text-zinc-400 focus-visible:ring-emerald-400" />
+              <Label htmlFor="driver-email" className="text-[13px] font-semibold tracking-[0.01em] text-zinc-700">Email</Label>
+              <Input id="driver-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="driver@logistics.com" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 text-zinc-900 placeholder:text-zinc-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="driver-password" className="text-zinc-200">Password</Label>
+              <Label htmlFor="driver-password" className="text-[13px] font-semibold tracking-[0.01em] text-zinc-700">Password</Label>
               <div className="relative">
-                <Input id="driver-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-11 border-zinc-600 bg-zinc-800/80 pr-11 text-white placeholder:text-zinc-400 focus-visible:ring-emerald-400" />
-                <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400 transition-colors hover:text-zinc-200" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                <Input id="driver-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 pr-11 text-zinc-900 placeholder:text-zinc-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
+                <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400 transition-colors hover:text-zinc-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-zinc-600">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 rounded border-zinc-500 text-emerald-600 focus:ring-emerald-400"
+                className="h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
               />
               Keep me logged in
             </label>
-            <Button type="submit" className="w-full h-11 bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500" disabled={isLoading}>
+            <Button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 text-white shadow-[0_12px_24px_rgba(5,150,105,0.30)] hover:bg-emerald-500 font-bold tracking-[0.01em]" disabled={isLoading}>
               {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
             </Button>
             <div className="relative py-1">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-zinc-700" />
+                <span className="w-full border-t border-zinc-200" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-zinc-900 px-2 text-zinc-400">Or continue with</span>
+                <span className="bg-white px-2 text-zinc-500">Or continue with</span>
               </div>
             </div>
             {googleClientId ? (
@@ -247,16 +258,17 @@ export function DriverLoginPage() {
                 <div ref={googleButtonRef} className="w-full flex justify-center" />
               </div>
             ) : (
-              <p className="text-center text-xs text-zinc-400">Google sign-in is not configured yet.</p>
+              <p className="text-center text-xs text-zinc-500">Google sign-in is not configured yet.</p>
             )}
             <ForgotPasswordDialog
               accountType="staff"
               initialEmail={email}
-              triggerClassName="w-full text-center text-sm text-zinc-300 hover:text-zinc-100 transition-colors"
+              triggerClassName="w-full text-center text-sm text-zinc-600 hover:text-zinc-800 transition-colors"
             />
           </form>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

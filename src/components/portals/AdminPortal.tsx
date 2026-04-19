@@ -5697,6 +5697,7 @@ function UsersView() {
     phone: '',
     roleId: '',
     password: '',
+    confirmPassword: '',
     isActive: true,
   })
 
@@ -5730,6 +5731,7 @@ function UsersView() {
       phone: '',
       roleId: '',
       password: '',
+      confirmPassword: '',
       isActive: true,
     })
     setEmailVerificationRequested(false)
@@ -5747,6 +5749,7 @@ function UsersView() {
       phone: user.phone || '',
       roleId: user.roleId || '',
       password: '',
+      confirmPassword: '',
       isActive: !!user.isActive,
     })
     setEditOpen(true)
@@ -5759,6 +5762,10 @@ function UsersView() {
     }
     if (mode === 'create' && !form.password) {
       toast.error('Password is required for new user')
+      return
+    }
+    if (mode === 'create' && form.password !== form.confirmPassword) {
+      toast.error('Passwords do not match.')
       return
     }
     if (mode === 'create' && !emailVerified) {
@@ -5988,6 +5995,18 @@ function UsersView() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-sm font-medium text-gray-700">Confirm Password</label>
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                value={form.confirmPassword}
+                onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+                placeholder="Confirm Password"
+              />
+              {form.confirmPassword && form.password !== form.confirmPassword ? (
+                <p className="text-sm text-red-600">Passwords do not match</p>
+              ) : null}
             </div>
             {emailVerificationRequested && !emailVerified ? (
               <div className="space-y-1 md:col-span-2">
