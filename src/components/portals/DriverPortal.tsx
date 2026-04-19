@@ -57,6 +57,10 @@ interface Trip {
   tripNumber: string
   status: string
   plannedStartAt: string | null
+  actualStartAt?: string | null
+  actualEndAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
   totalDropPoints: number
   completedDropPoints: number
   driver?: {
@@ -456,11 +460,7 @@ export function DriverPortal() {
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                 LIVE TRACKING
               </div>
-            ) : (
-              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600">
-                Ready
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
@@ -509,7 +509,16 @@ export function DriverPortal() {
           />
         )}
 
-        {activeView === 'history' && <HistoryView />}
+        {activeView === 'history' && (
+          <HistoryView
+            trips={trips}
+            isLoading={isLoading}
+            onOpenTrip={(trip) => {
+              setActiveView('trips')
+              setSelectedTrip(trip)
+            }}
+          />
+        )}
 
         {activeView === 'profile' && <ProfileView user={user} />}
       </motion.main>
@@ -629,7 +638,7 @@ function HomeView({
   }
 
   return (
-    <div className="space-y-4 rounded-[2rem] border border-white/70 bg-[#cde4f3]/85 p-4 shadow-[0_18px_34px_rgba(14,116,144,0.18)] backdrop-blur-xl md:p-5">
+    <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
         <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, Demo Driver</h2>
@@ -637,83 +646,58 @@ function HomeView({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
-          <CardContent className="pt-4">
+        <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+          <CardContent className="min-h-[106px] pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[#1f4d79]">Total Trips</p>
-                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{trips.length}</p>
+                <p className="text-[13px] font-medium text-[#1f4d79]">Total Trips</p>
+                <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{trips.length}</p>
               </div>
-              <Route className="h-11 w-11 text-[#0f4f8f]" />
+              <Route className="h-10 w-10 text-[#0f4f8f]" />
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
-          <CardContent className="pt-4">
+        <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+          <CardContent className="min-h-[106px] pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[#1f4d79]">Planned</p>
-                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{plannedTrips}</p>
+                <p className="text-[13px] font-medium text-[#1f4d79]">Planned</p>
+                <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{plannedTrips}</p>
               </div>
-              <CalendarClock className="h-11 w-11 text-[#0f4f8f]" />
+              <CalendarClock className="h-10 w-10 text-[#0f4f8f]" />
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
-          <CardContent className="pt-4">
+        <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+          <CardContent className="min-h-[106px] pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[#1f4d79]">Completed</p>
-                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{completedTrips}</p>
+                <p className="text-[13px] font-medium text-[#1f4d79]">Completed</p>
+                <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{completedTrips}</p>
               </div>
-              <Trophy className="h-11 w-11 text-[#0f4f8f]" />
+              <Trophy className="h-10 w-10 text-[#0f4f8f]" />
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
-          <CardContent className="pt-4">
+        <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+          <CardContent className="min-h-[106px] pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[#1f4d79]">Pending Stops</p>
-                <p className="text-[2.05rem] font-black leading-none tracking-tight text-[#2f9a34]">{pendingStops}</p>
+                <p className="text-[13px] font-medium leading-tight text-[#1f4d79]">Pending Stops</p>
+                <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{pendingStops}</p>
               </div>
-              <RotateCcw className="h-11 w-11 text-[#0f4f8f]" />
+              <RotateCcw className="h-10 w-10 text-[#0f4f8f]" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+      <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
         <CardHeader className="pb-2">
-          <CardTitle className="text-[2rem] font-black tracking-[-0.02em] text-[#0a1435]">Tracking Status</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-[1.05rem] font-medium text-[#0e2442]">GPS Permission</p>
-            <Badge className="rounded-full border border-emerald-200 bg-emerald-100 text-emerald-800">GRANTED</Badge>
-          </div>
-          <div className="flex items-center justify-between">
-            <p className="text-[1.05rem] font-medium text-[#0e2442]">Live Tracking</p>
-            <Badge className="rounded-full border border-emerald-200 bg-emerald-100 text-emerald-800">ACTIVE</Badge>
-          </div>
-          {currentLocation ? (
-            <p className="text-sm text-[#1f3558]">
-              Lat: {currentLocation.lat.toFixed(5)} | Lng: {currentLocation.lng.toFixed(5)}
-            </p>
-          ) : (
-            <p className="text-sm text-[#1f3558]">Lat: 10.78990 | Lng: 123.10000</p>
-          )}
-          {!isTracking && (
-              <Button variant="outline" className="w-full border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800" onClick={() => { void onStartTracking() }}>
-              Start Tracking
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-3xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-[2rem] font-black tracking-[-0.02em] text-[#0a1435]">Current Assignment</CardTitle>
+          <CardTitle className="text-[1.7rem] font-semibold tracking-[-0.01em] leading-tight">
+            <span className="text-[#0f4f8f]">Current</span>{' '}
+            <span className="text-[#2f9a34]">Assignment</span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {activeTrip ? (
@@ -722,14 +706,14 @@ function HomeView({
               <p className="text-sm leading-relaxed text-[#1f3558]">
                 {activeTrip.completedDropPoints}/{activeTrip.totalDropPoints} stops completed
               </p>
-              <Button className="w-full rounded-xl bg-[#0d61ad] text-[#7be26b] shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={() => onOpenActiveTrip(activeTrip)}>
+              <Button className="h-10 w-full rounded-xl bg-[#0d61ad] text-sm font-semibold text-white shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={() => onOpenActiveTrip(activeTrip)}>
                 Open Active Trip
               </Button>
             </div>
           ) : (
             <div className="space-y-2">
               <p className="text-[1.05rem] text-[#1f3558]">No active trip right now.</p>
-              <Button className="w-full rounded-xl bg-[#0d61ad] text-[#7be26b] shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={onOpenTrips}>
+              <Button className="h-10 w-full rounded-xl bg-[#0d61ad] text-sm font-semibold text-white shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={onOpenTrips}>
                 View My Trips
               </Button>
             </div>
@@ -1859,18 +1843,116 @@ function TripDetailView({
 }
 
 // History View
-function HistoryView() {
+function HistoryView({
+  trips,
+  isLoading,
+  onOpenTrip,
+}: {
+  trips: Trip[]
+  isLoading: boolean
+  onOpenTrip: (trip: Trip) => void
+}) {
+  const completedTrips = [...(trips || [])]
+    .filter((trip) => trip.status === 'COMPLETED')
+    .sort((a, b) => {
+      const aDate = new Date(a.actualEndAt || a.updatedAt || a.createdAt || a.plannedStartAt || 0).getTime()
+      const bDate = new Date(b.actualEndAt || b.updatedAt || b.createdAt || b.plannedStartAt || 0).getTime()
+      return bDate - aDate
+    })
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return 'N/A'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return 'N/A'
+    return d.toLocaleString()
+  }
+
   return (
     <div className="p-4">
       <h2 className="mb-4 text-xl font-semibold text-slate-900">Delivery History</h2>
 
-      <Card>
-        <CardContent className="py-12 text-center">
-          <Clock className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">No delivery history yet</p>
-          <p className="text-sm text-gray-400 mt-1">Completed deliveries will appear here</p>
-        </CardContent>
-      </Card>
+      {isLoading ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Loader2 className="h-6 w-6 animate-spin text-blue-600 mx-auto mb-3" />
+            <p className="text-sm text-slate-600">Loading delivery history...</p>
+          </CardContent>
+        </Card>
+      ) : completedTrips.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Clock className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500">No delivery history yet</p>
+            <p className="text-sm text-gray-400 mt-1">Completed deliveries will appear here</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {completedTrips.map((trip) => (
+            <Card key={trip.id} className="rounded-xl border border-slate-200 shadow-sm">
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{trip.tripNumber}</p>
+                    <p className="text-xs text-slate-500">
+                      Completed: {formatDate(trip.actualEndAt || trip.updatedAt)}
+                    </p>
+                  </div>
+                  <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">COMPLETED</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <p className="text-slate-500">Vehicle</p>
+                    <p className="font-medium text-slate-900">
+                      {trip.vehicle?.licensePlate || 'N/A'} ({trip.vehicle?.type || 'N/A'})
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <p className="text-slate-500">Stops</p>
+                    <p className="font-medium text-slate-900">
+                      {trip.completedDropPoints}/{trip.totalDropPoints}
+                    </p>
+                  </div>
+                </div>
+
+                {trip.dropPoints?.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-700">Stop Details</p>
+                    <div className="space-y-1.5">
+                      {trip.dropPoints.map((stop) => (
+                        <div key={stop.id} className="rounded-md border border-slate-200 p-2 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-slate-900">
+                              #{stop.sequence} {stop.locationName || 'Drop Point'}
+                            </p>
+                            <Badge
+                              className={
+                                stop.status === 'COMPLETED'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              }
+                            >
+                              {stop.status}
+                            </Badge>
+                          </div>
+                          <p className="text-slate-500">{stop.address}, {stop.city}</p>
+                          <p className="text-slate-500">Order: {stop.order?.orderNumber || 'N/A'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <Button className="w-full" variant="outline" onClick={() => onOpenTrip(trip)}>
+                  View Details
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1879,44 +1961,48 @@ function HistoryView() {
 function ProfileView({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isUploadingLicensePhoto, setIsUploadingLicensePhoto] = useState(false)
+  const [isReadingLicenseOcr, setIsReadingLicenseOcr] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const galleryInputRef = useRef<HTMLInputElement | null>(null)
+  const licenseCameraVideoRef = useRef<HTMLVideoElement | null>(null)
+  const licenseCameraStreamRef = useRef<MediaStream | null>(null)
+  const [isLicenseCameraOpen, setIsLicenseCameraOpen] = useState(false)
+  const [isLicenseCameraLoading, setIsLicenseCameraLoading] = useState(false)
+  const [licenseCameraError, setLicenseCameraError] = useState('')
   const [form, setForm] = useState({
     name: '',
     email: '',
     phone: '',
-    address: '',
-    city: '',
-    province: '',
-    zipCode: '',
     licenseNumber: '',
     licenseType: '',
+    licenseExpiry: '',
+    licensePhoto: '',
   })
   const [draft, setDraft] = useState({
     name: '',
     phone: '',
-    address: '',
-    city: '',
-    province: '',
-    zipCode: '',
+    licenseNumber: '',
+    licenseType: '',
+    licenseExpiry: '',
+    licensePhoto: '',
   })
 
   useEffect(() => {
     async function fetchProfile() {
       try {
-        const response = await fetch('/api/driver/profile')
+        const response = await fetch('/api/driver/profile', { credentials: 'include' })
         if (!response.ok) throw new Error('Failed to load profile')
         const payload = await response.json()
-        const profile = payload?.profile
+        const profile = payload?.driver || payload?.profile || {}
         setForm({
           name: profile?.user?.name || user?.name || '',
           email: profile?.user?.email || user?.email || '',
           phone: profile?.phone || profile?.user?.phone || '',
-          address: profile?.address || '',
-          city: profile?.city || '',
-          province: profile?.province || '',
-          zipCode: profile?.zipCode || '',
           licenseNumber: profile?.licenseNumber || '',
           licenseType: profile?.licenseType || '',
+          licenseExpiry: profile?.licenseExpiry ? String(profile.licenseExpiry).slice(0, 10) : '',
+          licensePhoto: profile?.licensePhoto || '',
         })
       } catch (error) {
         toast.error('Failed to load profile')
@@ -1932,16 +2018,233 @@ function ProfileView({ user }: { user: any }) {
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
+  const normalizeDateToInput = (value: string) => {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    const isoLike = raw.match(/\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b/)
+    if (isoLike) {
+      const year = isoLike[1]
+      const month = isoLike[2].padStart(2, '0')
+      const day = isoLike[3].padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+    const mdy = raw.match(/\b(\d{1,2})[-/](\d{1,2})[-/](20\d{2})\b/)
+    if (mdy) {
+      const month = mdy[1].padStart(2, '0')
+      const day = mdy[2].padStart(2, '0')
+      const year = mdy[3]
+      return `${year}-${month}-${day}`
+    }
+    return ''
+  }
+
+  const extractLicenseFieldsFromText = (text: string) => {
+    const normalized = String(text || '').toUpperCase().replace(/\s+/g, ' ')
+    const licenseFromKeyword =
+      normalized.match(/\b(?:LICEN[CS]E\s*(?:NO|NUM(?:BER)?)?|DL(?:\s*NO)?|ID(?:\s*NO)?)\s*[:#-]?\s*([A-Z0-9-]{6,24})\b/i)?.[1] || ''
+    const genericMatches = normalized.match(/\b[A-Z0-9]{10,20}\b/g) || []
+    const bestGeneric = genericMatches.find((token) => /[A-Z]/.test(token) && /\d/.test(token)) || genericMatches[0] || ''
+    const licenseNumber = (licenseFromKeyword || bestGeneric || '').replace(/[^A-Z0-9]/g, '')
+
+    const typeMatch = normalized.match(/\b(?:CLASS|TYPE)\s*[:#-]?\s*([A-Z0-9]{1,3})\b/)
+    const expiryMatch = normalized.match(/\b(?:EXP|EXPIRY|EXPIRATION|VALID UNTIL)\s*[:#-]?\s*([0-9/-]{8,10})\b/)
+    const fallbackDate = normalized.match(/\b(?:20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]20\d{2})\b/)
+
+    return {
+      licenseNumber,
+      licenseType: typeMatch?.[1] || '',
+      licenseExpiry: normalizeDateToInput(expiryMatch?.[1] || fallbackDate?.[0] || ''),
+    }
+  }
+
+  const runLicenseOcr = async (file: File) => {
+    setIsReadingLicenseOcr(true)
+    let worker: any = null
+    try {
+      const { createWorker } = await import('tesseract.js')
+      worker = await createWorker('eng')
+      const { data } = await worker.recognize(file)
+      const extracted = extractLicenseFieldsFromText(data?.text || '')
+
+      let applied = false
+      setDraft((prev) => {
+        const next = { ...prev }
+        if (extracted.licenseNumber && extracted.licenseNumber !== prev.licenseNumber) {
+          next.licenseNumber = extracted.licenseNumber
+          applied = true
+        }
+        if (extracted.licenseType && !prev.licenseType) {
+          next.licenseType = extracted.licenseType
+          applied = true
+        }
+        if (extracted.licenseExpiry && !prev.licenseExpiry) {
+          next.licenseExpiry = extracted.licenseExpiry
+          applied = true
+        }
+        return next
+      })
+      if (applied) {
+        toast.success('License fields auto-filled from ID image')
+      }
+    } catch {
+      // OCR should never block upload flow
+    } finally {
+      if (worker) {
+        try {
+          await worker.terminate()
+        } catch {
+          // ignore worker cleanup errors
+        }
+      }
+      setIsReadingLicenseOcr(false)
+    }
+  }
+
   const openEdit = () => {
     setDraft({
       name: form.name,
       phone: form.phone,
-      address: form.address,
-      city: form.city,
-      province: form.province,
-      zipCode: form.zipCode,
+      licenseNumber: form.licenseNumber,
+      licenseType: form.licenseType,
+      licenseExpiry: form.licenseExpiry,
+      licensePhoto: form.licensePhoto,
     })
     setEditOpen(true)
+  }
+
+  const uploadLicensePhoto = async (file: File) => {
+    setIsUploadingLicensePhoto(true)
+    try {
+      const optimizedFile = await prepareImageForUpload(file, { maxDimension: 1600, maxBytes: 2 * 1024 * 1024 })
+      const formData = new FormData()
+      formData.append('file', optimizedFile)
+
+      const response = await fetch('/api/uploads/driver-license', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false || !payload?.imageUrl) {
+        throw new Error(payload?.error || 'Failed to upload license image')
+      }
+      setDraft((prev) => ({ ...prev, licensePhoto: payload.imageUrl }))
+      void runLicenseOcr(optimizedFile)
+      toast.success('License image uploaded')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to upload license image')
+    } finally {
+      setIsUploadingLicensePhoto(false)
+      if (galleryInputRef.current) galleryInputRef.current.value = ''
+    }
+  }
+
+  const stopLicenseCameraStream = () => {
+    if (licenseCameraStreamRef.current) {
+      licenseCameraStreamRef.current.getTracks().forEach((track) => track.stop())
+      licenseCameraStreamRef.current = null
+    }
+  }
+
+  const closeLicenseCamera = () => {
+    stopLicenseCameraStream()
+    setIsLicenseCameraOpen(false)
+    setIsLicenseCameraLoading(false)
+    setLicenseCameraError('')
+  }
+
+  const openLicenseCamera = () => {
+    setLicenseCameraError('')
+    setIsLicenseCameraOpen(true)
+  }
+
+  const captureLicenseFromCamera = async () => {
+    const video = licenseCameraVideoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      toast.error('Camera is still loading')
+      return
+    }
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Unable to capture photo')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+      if (!blob) throw new Error('Failed to capture photo')
+      const file = new File([blob], `license-camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      closeLicenseCamera()
+      await uploadLicensePhoto(file)
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to capture photo')
+    }
+  }
+
+  useEffect(() => {
+    if (!isLicenseCameraOpen) return
+
+    let cancelled = false
+    const start = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Camera is not available on this device/browser.')
+        }
+        setIsLicenseCameraLoading(true)
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        })
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
+        licenseCameraStreamRef.current = stream
+        if (licenseCameraVideoRef.current) {
+          licenseCameraVideoRef.current.srcObject = stream
+          await licenseCameraVideoRef.current.play().catch(() => {})
+        }
+      } catch (error: any) {
+        setLicenseCameraError(error?.message || 'Unable to access camera.')
+      } finally {
+        if (!cancelled) setIsLicenseCameraLoading(false)
+      }
+    }
+
+    void start()
+    return () => {
+      cancelled = true
+      stopLicenseCameraStream()
+    }
+  }, [isLicenseCameraOpen])
+
+  const takeLicensePhoto = async () => {
+    if (isUploadingLicensePhoto || isSaving) return
+    try {
+      const cap = (window as any)?.Capacitor
+      const isNative = Boolean(cap?.isNativePlatform?.() || (typeof cap?.getPlatform === 'function' && cap.getPlatform() !== 'web'))
+      if (!isNative) {
+        openLicenseCamera()
+        return
+      }
+      const cameraModule = await import('@capacitor/camera')
+      const photo = await cameraModule.Camera.getPhoto({
+        source: cameraModule.CameraSource.Camera,
+        resultType: cameraModule.CameraResultType.Uri,
+        quality: 90,
+        allowEditing: false,
+      })
+      const photoPath = String(photo?.webPath || photo?.path || '').trim()
+      if (!photoPath) throw new Error('Failed to capture photo')
+      const fileResponse = await fetch(photoPath)
+      const blob = await fileResponse.blob()
+      const mimeType = blob.type || 'image/jpeg'
+      const ext = mimeType.includes('png') ? 'png' : 'jpg'
+      const file = new File([blob], `license-camera-${Date.now()}.${ext}`, { type: mimeType })
+      await uploadLicensePhoto(file)
+    } catch {
+      openLicenseCamera()
+    }
   }
 
   const onSave = async () => {
@@ -1952,17 +2255,22 @@ function ProfileView({ user }: { user: any }) {
 
     setIsSaving(true)
     try {
+      const payloadBody: Record<string, string> = {
+        name: draft.name,
+        phone: draft.phone,
+        licenseNumber: draft.licenseNumber,
+        licenseType: draft.licenseType,
+        licensePhoto: draft.licensePhoto,
+      }
+      if (draft.licenseExpiry) {
+        payloadBody.licenseExpiry = new Date(`${draft.licenseExpiry}T00:00:00`).toISOString()
+      }
+
       const response = await fetch('/api/driver/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: draft.name,
-          phone: draft.phone,
-          address: draft.address,
-          city: draft.city,
-          province: draft.province,
-          zipCode: draft.zipCode,
-        }),
+        credentials: 'include',
+        body: JSON.stringify(payloadBody),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -1972,10 +2280,10 @@ function ProfileView({ user }: { user: any }) {
         ...prev,
         name: draft.name,
         phone: draft.phone,
-        address: draft.address,
-        city: draft.city,
-        province: draft.province,
-        zipCode: draft.zipCode,
+        licenseNumber: draft.licenseNumber,
+        licenseType: draft.licenseType,
+        licenseExpiry: draft.licenseExpiry,
+        licensePhoto: draft.licensePhoto,
       }))
       setEditOpen(false)
       toast.success('Profile updated')
@@ -2012,16 +2320,6 @@ function ProfileView({ user }: { user: any }) {
                   <p className="text-sm text-gray-500">Phone</p>
                   <p className="text-sm font-medium text-gray-900">{form.phone || 'N/A'}</p>
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-500">Address</p>
-                  <p className="text-sm font-medium text-gray-900 text-right">{form.address || 'N/A'}</p>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-500">City / Province / Zip</p>
-                  <p className="text-sm font-medium text-gray-900 text-right">
-                    {[form.city, form.province, form.zipCode].filter(Boolean).join(', ') || 'N/A'}
-                  </p>
-                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2 rounded-md border p-3">
@@ -2033,6 +2331,23 @@ function ProfileView({ user }: { user: any }) {
                   <Label>License Type</Label>
                   <p className="text-sm font-medium text-gray-900">{form.licenseType || 'N/A'}</p>
                 </div>
+                <div className="space-y-2 col-span-2">
+                  <Label>License Expiration</Label>
+                  <p className="text-sm font-medium text-gray-900">{form.licenseExpiry || 'N/A'}</p>
+                </div>
+              </div>
+
+              <div className="rounded-md border p-3 space-y-2">
+                <Label>License Photo</Label>
+                {form.licensePhoto ? (
+                  <img
+                    src={form.licensePhoto}
+                    alt="Driver license"
+                    className="h-40 w-full rounded-md border border-slate-200 object-cover"
+                  />
+                ) : (
+                  <p className="text-sm text-gray-500">No license photo uploaded</p>
+                )}
               </div>
 
               <Button className="w-full" onClick={openEdit}>
@@ -2047,7 +2362,7 @@ function ProfileView({ user }: { user: any }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your personal and contact details.</DialogDescription>
+            <DialogDescription>Update your personal details and license info.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
@@ -2060,24 +2375,83 @@ function ProfileView({ user }: { user: any }) {
               <Input id="driver-phone" value={draft.phone} onChange={(e) => onChange('phone', e.target.value)} />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="driver-address">Address</Label>
-              <Input id="driver-address" value={draft.address} onChange={(e) => onChange('address', e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label htmlFor="driver-license-number">License #</Label>
+                <Input
+                  id="driver-license-number"
+                  value={draft.licenseNumber}
+                  onChange={(e) => onChange('licenseNumber', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="driver-license-type">License Type</Label>
+                <Input
+                  id="driver-license-type"
+                  value={draft.licenseType}
+                  onChange={(e) => onChange('licenseType', e.target.value)}
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-2">
-                <Label htmlFor="driver-city">City</Label>
-                <Input id="driver-city" value={draft.city} onChange={(e) => onChange('city', e.target.value)} />
+            <div className="space-y-2">
+              <Label htmlFor="driver-license-expiry">License Expiration</Label>
+              <Input
+                id="driver-license-expiry"
+                type="date"
+                value={draft.licenseExpiry}
+                onChange={(e) => onChange('licenseExpiry', e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>License Photo</Label>
+              {draft.licensePhoto ? (
+                <img
+                  src={draft.licensePhoto}
+                  alt="Driver license preview"
+                  className="h-40 w-full rounded-md border border-slate-200 object-cover"
+                />
+              ) : (
+                <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-slate-300 text-sm text-slate-500">
+                  No image selected
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={isUploadingLicensePhoto || isSaving}
+                >
+                  Upload from Gallery
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void takeLicensePhoto()}
+                  disabled={isUploadingLicensePhoto || isSaving}
+                >
+                  <Camera className="mr-2 h-4 w-4" />
+                  Take Photo
+                </Button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="driver-state">Province</Label>
-                <Input id="driver-state" value={draft.province} onChange={(e) => onChange('province', e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="driver-zip">Zip</Label>
-                <Input id="driver-zip" value={draft.zipCode} onChange={(e) => onChange('zipCode', e.target.value)} />
-              </div>
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void uploadLicensePhoto(file)
+                }}
+              />
+              {isUploadingLicensePhoto ? (
+                <p className="text-xs text-slate-500">Uploading license image...</p>
+              ) : null}
+              {isReadingLicenseOcr ? (
+                <p className="text-xs text-slate-500">Reading ID text and auto-filling fields...</p>
+              ) : null}
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -2087,6 +2461,35 @@ function ProfileView({ user }: { user: any }) {
               <Button className="flex-1" onClick={onSave} disabled={isSaving}>
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isLicenseCameraOpen}
+        onOpenChange={(open) => {
+          if (!open) closeLicenseCamera()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Take License Photo</DialogTitle>
+            <DialogDescription>Use your camera to capture the license ID.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="overflow-hidden rounded-md border border-slate-200 bg-black">
+              <video ref={licenseCameraVideoRef} autoPlay playsInline muted className="h-64 w-full object-cover" />
+            </div>
+            {isLicenseCameraLoading ? <p className="text-sm text-slate-500">Opening camera...</p> : null}
+            {licenseCameraError ? <p className="text-sm text-red-600">{licenseCameraError}</p> : null}
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" variant="outline" onClick={closeLicenseCamera}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void captureLicenseFromCamera()} disabled={Boolean(licenseCameraError)}>
+                Capture
               </Button>
             </div>
           </div>

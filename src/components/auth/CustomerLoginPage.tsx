@@ -269,7 +269,10 @@ export function CustomerLoginPage() {
               </div>
             </div>
             <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/80">Customer Portal</p>
-            <h1 className="mt-1 text-[2rem] font-black tracking-[-0.02em] text-slate-900">AnnShop</h1>
+            <h1 className="mt-1 text-[2rem] font-black tracking-[-0.02em]">
+              <span className="text-[#0f4f8f]">Ann</span>
+              <span className="text-[#2f9a34]">Shop</span>
+            </h1>
             <p className="mt-1 text-[0.95rem] leading-relaxed text-slate-600">Track orders and manage deliveries from one place.</p>
           </div>
           <CardContent className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pb-7">

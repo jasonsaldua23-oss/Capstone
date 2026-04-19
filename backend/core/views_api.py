@@ -1213,12 +1213,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             license_number=body.get("licenseNumber") or f"DRV-{int(timezone.now().timestamp())}",
             license_type=body.get("licenseType") or "B",
             license_expiry=datetime.fromisoformat(body["licenseExpiry"]) if body.get("licenseExpiry") else timezone.now() + timedelta(days=365),
+            license_photo=body.get("licensePhoto"),
             phone=body.get("phone") or user.phone,
             emergency_contact=body.get("emergencyContact"),
-            address=body.get("address"),
-            city=body.get("city"),
-            province=body.get("province"),
-            zip_code=body.get("zipCode"),
             is_active=bool(body.get("isActive", True)),
         )
         return _ok({"success": True, "driver": _serialize_model(d, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})}, 201)
@@ -1229,7 +1226,15 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         d = Driver.objects.select_related("user").get(id=driver_id)
     except Driver.DoesNotExist:
         return _err("Driver not found", 404)
-    mapping = [("licenseNumber", "license_number"), ("licenseType", "license_type"), ("phone", "phone"), ("emergencyContact", "emergency_contact"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("rating", "rating"), ("totalDeliveries", "total_deliveries")]
+    mapping = [
+        ("licenseNumber", "license_number"),
+        ("licenseType", "license_type"),
+        ("licensePhoto", "license_photo"),
+        ("phone", "phone"),
+        ("emergencyContact", "emergency_contact"),
+        ("rating", "rating"),
+        ("totalDeliveries", "total_deliveries"),
+    ]
     for key, attr in mapping:
         if key in body:
             setattr(d, attr, body.get(key))
@@ -1654,9 +1659,17 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         return _ok({"success": True, "driver": _serialize_model(d, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})})
     body = _json_body(request)
-    for key, attr in [("phone", "phone"), ("emergencyContact", "emergency_contact"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code")]:
+    for key, attr in [
+        ("phone", "phone"),
+        ("emergencyContact", "emergency_contact"),
+        ("licenseNumber", "license_number"),
+        ("licenseType", "license_type"),
+        ("licensePhoto", "license_photo"),
+    ]:
         if key in body:
             setattr(d, attr, body.get(key))
+    if "licenseExpiry" in body and body.get("licenseExpiry"):
+        d.license_expiry = datetime.fromisoformat(str(body["licenseExpiry"]).replace("Z", "+00:00"))
     d.save()
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
@@ -1846,6 +1859,17 @@ def upload_customer_avatar(request: HttpRequest) -> JsonResponse:
     return _handle_image_upload(request, "customers", "customer")
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def upload_driver_license(request: HttpRequest) -> JsonResponse:
+    p, err = _require_staff(request)
+    if err:
+        return err
+    if p.get("role") != "DRIVER":
+        return _err("Forbidden", 403)
+    return _handle_image_upload(request, "driver-licenses", "license")
+
+
 def ensure_demo_accounts() -> None:
     super_admin_role, _ = Role.objects.get_or_create(name="SUPER_ADMIN", defaults={"description": "Full system access"})
     driver_role, _ = Role.objects.get_or_create(name="DRIVER", defaults={"description": "Delivery driver"})
@@ -1854,4 +1878,4 @@ def ensure_demo_accounts() -> None:
     driver_user, _ = User.objects.get_or_create(email="driver@logistics.com", defaults={"name": "Demo Driver", "password": hash_password("driver123"), "phone": "+1-555-0103", "role": driver_role, "is_active": True})
     User.objects.get_or_create(email="warehouse@logistics.com", defaults={"name": "Warehouse Staff", "password": hash_password("admin123"), "phone": "+1-555-0102", "role": warehouse_role, "is_active": True})
     Customer.objects.get_or_create(email="customer@example.com", defaults={"name": "Demo Customer", "password": hash_password("customer123"), "phone": "+1-555-0104", "is_active": True})
-    Driver.objects.get_or_create(user=driver_user, defaults={"license_number": f"DEMO-DRIVER-{driver_user.id[-6:].upper()}", "license_type": "B", "license_expiry": timezone.now() + timedelta(days=1500), "phone": driver_user.phone, "city": "Demo City", "province": "Demo Province", "is_active": True})
+    Driver.objects.get_or_create(user=driver_user, defaults={"license_number": f"DEMO-DRIVER-{driver_user.id[-6:].upper()}", "license_type": "B", "license_expiry": timezone.now() + timedelta(days=1500), "phone": driver_user.phone, "is_active": True})
