@@ -3,6 +3,7 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic'
 import { toast } from 'sonner';
 import { useAuth } from '@/app/page';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -29,7 +30,16 @@ import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar } from 'recharts';
 import type { DashboardStats } from '@/types';
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync';
-import { clearTabAuthToken } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
+
+const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
+  ssr: false,
+})
+
+const AddressMapPicker = dynamic(
+  () => import('@/components/maps/AddressMapPicker').then((mod) => mod.AddressMapPicker),
+  { ssr: false }
+)
 
 //   lowStockItems: number
 //   pendingReturns: number
@@ -145,6 +155,52 @@ function formatDayKey(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+async function safeFetchJson(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  options?: { retries?: number; timeoutMs?: number }
+) {
+  const retries = options?.retries ?? 1
+  const timeoutMs = options?.timeoutMs ?? 12000
+  let lastError = 'Request failed'
+  let lastStatus = 0
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const token = getTabAuthToken()
+      const headers = new Headers(init?.headers || {})
+      if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
+
+      const response = await fetch(input, {
+        ...(init || {}),
+        signal: controller.signal,
+        credentials: 'include',
+        headers,
+      })
+      lastStatus = response.status
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data?.success !== false) {
+        return { ok: true as const, data, status: response.status }
+      }
+      lastError = data?.error || `Request failed (${response.status})`
+    } catch (error: any) {
+      lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
+    } finally {
+      window.clearTimeout(timeout)
+    }
+
+    if (attempt < retries) {
+      await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)))
+    }
+  }
+
+  return { ok: false as const, data: null, status: lastStatus, error: lastError }
 }
 
 interface PortalNotification {
@@ -509,12 +565,12 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
   const availableDrivers = Number(stats?.availableDrivers || stats?.activeDrivers || 0)
 
   const statCards = [
-    { label: 'Total Orders', value: dashboardOrderStats.totalOrders, color: 'blue' },
-    { label: 'Processing', value: dashboardOrderStats.processing, color: 'yellow' },
-    { label: 'Loaded / Out for Delivery', value: dashboardOrderStats.loadedOutForDelivery, color: 'purple' },
-    { label: 'Out for Delivery', value: dashboardOrderStats.outForDelivery, color: 'red' },
-    { label: 'Delivered', value: dashboardOrderStats.delivered, color: 'green' },
-    { label: 'Active Trips', value: activeTripsFromData, color: 'indigo' },
+    { label: 'Total Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
+    { label: 'Processing', value: dashboardOrderStats.processing, color: 'yellow', icon: Clock },
+    { label: 'Loaded / Out for Delivery', value: dashboardOrderStats.loadedOutForDelivery, color: 'purple', icon: Truck },
+    { label: 'Out for Delivery', value: dashboardOrderStats.outForDelivery, color: 'red', icon: MapPin },
+    { label: 'Delivered', value: dashboardOrderStats.delivered, color: 'green', icon: CircleCheck },
+    { label: 'Active Trips', value: activeTripsFromData, color: 'indigo', icon: Truck },
   ]
 
   const colorClasses = {
@@ -616,11 +672,15 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {statCards.map((stat, i) => (
-          <Card key={i} className="relative overflow-hidden">
-            <CardContent className="pt-4">
-              <div className={`inline-flex p-2 rounded-lg mb-2 ${colorClasses[stat.color as keyof typeof colorClasses]}`}></div>
-              <p className="text-2xl font-bold">{stat.value.toLocaleString()}</p>
-              <p className="text-sm text-gray-500">{stat.label}</p>
+          <Card key={i} className="relative overflow-hidden rounded-2xl border border-slate-200/80 shadow-sm">
+            <CardContent className="flex min-h-[120px] flex-col justify-between p-5">
+              <div className={`inline-flex w-fit rounded-xl border p-2.5 ${colorClasses[stat.color as keyof typeof colorClasses]}`}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="mt-4">
+                <p className="text-2xl font-bold leading-none">{stat.value.toLocaleString()}</p>
+                <p className="mt-2 text-sm leading-tight text-gray-500">{stat.label}</p>
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -880,6 +940,37 @@ function OrdersView() {
     return raw.replace(/_/g, ' ')
   }
 
+  const formatOrderAddress = (order: any) => {
+    const address = String(order?.shippingAddress || '').trim()
+    const city = String(order?.shippingCity || '').trim()
+    const province = String(order?.shippingProvince || '').trim()
+    const zipCode = String(order?.shippingZipCode || '').trim()
+
+    const normalize = (value: string) =>
+      String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .trim()
+
+    const addressTokens = address
+      .split(',')
+      .map((token: string) => token.trim())
+      .filter(Boolean)
+
+    const existingTokenSet = new Set(addressTokens.map((token: string) => normalize(token)))
+    const extras = [city, province, zipCode].filter((part) => {
+      if (!part) return false
+      const key = normalize(part)
+      if (!key) return false
+      if (existingTokenSet.has(key)) return false
+      existingTokenSet.add(key)
+      return true
+    })
+
+    const combined = [address, ...extras].filter(Boolean).join(', ')
+    return combined || 'N/A'
+  }
+
   const updateOrderStatus = async (
     orderId: string,
     status: 'PROCESSING' | 'PACKED' | 'DISPATCHED' | 'OUT_FOR_DELIVERY' | 'DELIVERED',
@@ -1080,7 +1171,7 @@ function OrdersView() {
                   <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
                   <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
                   <p className="text-sm text-gray-600">
-                    {[selectedOrder.shippingAddress, selectedOrder.shippingCity, selectedOrder.shippingProvince, selectedOrder.shippingZipCode].filter(Boolean).join(', ') || 'N/A'}
+                    {formatOrderAddress(selectedOrder)}
                   </p>
                 </div>
                 <div className="rounded-md border p-3">
@@ -1239,14 +1330,50 @@ function TripsView() {
     .map((entry) => entry?.vehicle)
     .find((vehicle) => vehicle?.id)
 
+  const fetchSavedRoutes = async () => {
+    try {
+      const response = await fetch('/api/trips/saved-routes?limit=200')
+      if (!response.ok) throw new Error('Failed to load saved routes')
+      const data = await response.json().catch(() => ({}))
+      setSavedRoutes(getCollection<any>(data, ['savedRoutes']))
+    } catch (error) {
+      console.error('Failed to fetch saved routes:', error)
+      setSavedRoutes([])
+    }
+  }
+
+  const deleteSavedRouteDraft = async (routeId: string) => {
+    const response = await fetch('/api/trips/saved-routes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: routeId }),
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(payload?.error || 'Failed to delete saved route')
+    }
+  }
+
+  const removeSavedRoute = async (routeId: string) => {
+    try {
+      await deleteSavedRouteDraft(routeId)
+      setSavedRoutes((prev) => prev.filter((route) => route.id !== routeId))
+      setSelectedSavedRouteId((prev) => (prev === routeId ? '' : prev))
+      toast.success('Route deleted')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to delete route')
+    }
+  }
+
   useEffect(() => {
     async function fetchTripsAndMeta() {
       try {
-        const [tripsResponse, warehousesResponse, driversResponse, vehiclesResponse] = await Promise.all([
+        const [tripsResponse, warehousesResponse, driversResponse, vehiclesResponse, savedRoutesResponse] = await Promise.all([
           fetch('/api/trips?limit=100'),
           fetch('/api/warehouses'),
           fetch('/api/drivers'),
           fetch('/api/vehicles?status=AVAILABLE'),
+          fetch('/api/trips/saved-routes?limit=200'),
         ])
 
         if (tripsResponse.ok) {
@@ -1284,6 +1411,11 @@ function TripsView() {
           if (list[0]?.id) {
             setSelectedRouteVehicleId((prev) => prev || list[0].id)
           }
+        }
+
+        if (savedRoutesResponse.ok) {
+          const savedRoutesData = await savedRoutesResponse.json().catch(() => ({}))
+          setSavedRoutes(getCollection<any>(savedRoutesData, ['savedRoutes']))
         }
       } catch (error) {
         console.error('Failed to fetch trips meta:', error)
@@ -1410,6 +1542,11 @@ function TripsView() {
         throw new Error(data?.error || 'Failed to create trip')
       }
       toast.success('Trip created from route')
+      try {
+        await deleteSavedRouteDraft(selectedSavedRoute.id)
+      } catch (deleteError) {
+        console.error('Failed to delete saved route:', deleteError)
+      }
       setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
       setSelectedSavedRouteId('')
       setCreateTripOpen(false)
@@ -1419,6 +1556,11 @@ function TripsView() {
       const lowerMessage = message.toLowerCase()
 
       if (lowerMessage.includes('no eligible orders') || lowerMessage.includes('already assigned')) {
+        try {
+          await deleteSavedRouteDraft(selectedSavedRoute.id)
+        } catch (deleteError) {
+          console.error('Failed to delete stale saved route:', deleteError)
+        }
         setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
         setSelectedSavedRouteId('')
         setCreateTripOpen(false)
@@ -1432,7 +1574,7 @@ function TripsView() {
     }
   }
 
-  const saveRouteDraft = () => {
+  const saveRouteDraft = async () => {
     if (!routeDate || !routeWarehouseId || !selectedRouteCity || selectedRouteOrderIds.length === 0) {
       toast.error('Select date, warehouse, city and at least one order')
       return
@@ -1447,25 +1589,38 @@ function TripsView() {
       return
     }
 
-    const routeId = `route-${Date.now()}`
-    setSavedRoutes((prev) => [
-      {
-        id: routeId,
-        date: routeDate,
-        warehouseId: routeWarehouseId,
-        warehouseName: warehouse?.name || 'Unknown Warehouse',
-        city: selectedRouteCity,
-        totalDistanceKm: Number(group.totalDistanceKm || 0),
-        orderIds: selectedRouteOrderIds,
-        orders: selectedOrders,
-        createdAt: new Date().toISOString(),
-      },
-      ...prev,
-    ])
+    try {
+      const response = await fetch('/api/trips/saved-routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: routeDate,
+          warehouseId: routeWarehouseId,
+          warehouseName: warehouse?.name || 'Unknown Warehouse',
+          city: selectedRouteCity,
+          totalDistanceKm: Number(group.totalDistanceKm || 0),
+          orderIds: selectedRouteOrderIds,
+          orders: selectedOrders,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to save route')
+      }
 
-    setSelectedSavedRouteId(routeId)
-    setCreateRouteOpen(false)
-    toast.success('Route saved. Assign driver later in New Trip.')
+      const savedRoute = data?.savedRoute
+      if (savedRoute?.id) {
+        setSavedRoutes((prev) => [savedRoute, ...prev.filter((route) => route.id !== savedRoute.id)])
+        setSelectedSavedRouteId(savedRoute.id)
+      } else {
+        await fetchSavedRoutes()
+      }
+
+      setCreateRouteOpen(false)
+      toast.success('Route saved. Assign driver later in New Trip.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save route')
+    }
   }
 
   const statusColors: Record<string, string> = {
@@ -1517,7 +1672,20 @@ function TripsView() {
                 <div key={route.id} className="rounded-md border">
                   <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b">
                     <p className="font-medium">{route.city}</p>
-                    <p className="text-xs text-gray-600">{route.orderIds.length} orders - {Number(route.totalDistanceKm || 0).toFixed(2)} km total</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-gray-600">{route.orderIds.length} orders - {Number(route.totalDistanceKm || 0).toFixed(2)} km total</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          void removeSavedRoute(route.id)
+                        }}
+                      >
+                        Delete Route
+                      </Button>
+                    </div>
                   </div>
                   <div className="p-3 space-y-2">
                     <p className="text-xs text-gray-500">
@@ -1776,7 +1944,9 @@ function TripsView() {
                 </p>
                 <Button
                   className="w-full bg-blue-600 text-white hover:bg-blue-700"
-                  onClick={saveRouteDraft}
+                  onClick={() => {
+                    void saveRouteDraft()
+                  }}
                   disabled={
                     loadingRoutePlans ||
                     !routeDate ||
@@ -1794,27 +1964,10 @@ function TripsView() {
               {/* Delivery Route Map - styled like Warehouse Portal */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Delivery Locations Map</CardTitle>
+                  <CardTitle>Delivery Locations</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="w-full rounded-xl border bg-gray-50 p-6 flex flex-col items-center">
-                    <h2 className="text-xl font-bold mb-2">Delivery Route Map</h2>
-                    <p className="mb-6 text-gray-600">{(() => {
-                      // Count warehouse + selected orders
-                      const wh = warehouses.find((w) => w.id === routeWarehouseId);
-                      let count = 0;
-                      if (wh) count += 1;
-                      // Find selected city group and orders
-                      let selectedOrders: any[] = [];
-                      if (routePlans && selectedRouteCity) {
-                        const group = routePlans.find((g) => g.city === selectedRouteCity);
-                        if (group) {
-                          selectedOrders = toArray<any>(group.orders).filter((order: any) => selectedRouteOrderIds.includes(order.id)) as any[];
-                          count += selectedOrders.length;
-                        }
-                      }
-                      return `${count} delivery location${count === 1 ? '' : 's'} selected`;
-                    })()}</p>
                     {/* Warehouse as starting point */}
                     {(() => {
                       const wh = warehouses.find((w) => w.id === routeWarehouseId);
@@ -2470,6 +2623,7 @@ function DriversView() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to assign vehicle')
       }
+      await fetchDrivers()
       toast.success('Vehicle assigned to driver')
       setAssignDriver(null)
       setAssignVehicleId('')
@@ -3152,7 +3306,7 @@ function TransportationView() {
                       <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
                       <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
                       <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
-                      <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
+                      <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.user?.name || vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
                       <Badge className={String(vehicle.status).toUpperCase().includes('MAINTENANCE') ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}>
                         {vehicle.status || 'Active'}
                       </Badge>
@@ -3409,6 +3563,10 @@ function WarehousesView() {
   const [warehouseStaffUsers, setWarehouseStaffUsers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isAutofillingLocation, setIsAutofillingLocation] = useState(false)
+  const [isMapPickerOpen, setIsMapPickerOpen] = useState(false)
+  const [mapPickerLatitude, setMapPickerLatitude] = useState<number | null>(null)
+  const [mapPickerLongitude, setMapPickerLongitude] = useState<number | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [manageOpen, setManageOpen] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(false)
@@ -3423,6 +3581,8 @@ function WarehousesView() {
     province: '',
     zipCode: '',
     country: 'USA',
+    latitude: '',
+    longitude: '',
     capacity: '',
     managerId: '',
     isActive: true,
@@ -3464,11 +3624,20 @@ function WarehousesView() {
       const users = toArray<any>(usersPayload?.data ?? usersPayload?.users ?? usersPayload)
       const roles = toArray<any>(rolesPayload?.data ?? rolesPayload?.roles ?? rolesPayload)
 
-      const warehouseRole = roles.find((role) => role?.name === 'WAREHOUSE_STAFF')
+      const warehouseRoles = roles.filter((role) => String(role?.name || '').toUpperCase().includes('WAREHOUSE'))
+      const warehouseRoleIds = new Set(warehouseRoles.map((role) => String(role?.id || '')).filter(Boolean))
       const scopedUsers = users.filter((entry) => {
-        if (!entry?.isActive) return false
-        if (warehouseRole?.id) return entry?.roleId === warehouseRole.id
-        return entry?.role?.name === 'WAREHOUSE_STAFF'
+        if (entry?.isActive === false) return false
+
+        const userRoleId = String(entry?.roleId || entry?.role?.id || '')
+        const userRoleName = String(entry?.role?.name || '').toUpperCase()
+
+        if (warehouseRoleIds.size > 0) {
+          if (userRoleId && warehouseRoleIds.has(userRoleId)) return true
+          return userRoleName.includes('WAREHOUSE')
+        }
+
+        return userRoleName.includes('WAREHOUSE')
       })
 
       setWarehouseStaffUsers(scopedUsers)
@@ -3487,6 +3656,8 @@ function WarehousesView() {
       province: '',
       zipCode: '',
       country: 'USA',
+      latitude: '',
+      longitude: '',
       capacity: '',
       managerId: '',
       isActive: true,
@@ -3494,9 +3665,131 @@ function WarehousesView() {
     setSelectedWarehouse(null)
   }
 
+  const applyLocationAutofill = (payload: {
+    latitude?: number
+    longitude?: number
+    city?: string
+    province?: string
+    zipCode?: string
+    country?: string
+    address?: string
+  }) => {
+    setForm((prev) => ({
+      ...prev,
+      latitude:
+        typeof payload.latitude === 'number' && Number.isFinite(payload.latitude)
+          ? payload.latitude.toFixed(6)
+          : prev.latitude,
+      longitude:
+        typeof payload.longitude === 'number' && Number.isFinite(payload.longitude)
+          ? payload.longitude.toFixed(6)
+          : prev.longitude,
+      city: payload.city || prev.city,
+      province: payload.province || prev.province,
+      zipCode: payload.zipCode || prev.zipCode,
+      country: payload.country || prev.country,
+      address: payload.address || prev.address,
+    }))
+  }
+
+  const autofillFromNominatimResult = (result: any, fallbackAddress?: string) => {
+    const address = result?.address || {}
+    const city = String(address.city || address.town || address.village || address.municipality || '').trim()
+    const province = String(address.state || address.region || address.county || '').trim()
+    const zipCode = String(address.postcode || '').trim()
+    const country = String(address.country || '').trim()
+    const latitude = Number(result?.lat)
+    const longitude = Number(result?.lon)
+    const fullAddress = String(result?.display_name || '').trim()
+
+    applyLocationAutofill({
+      latitude,
+      longitude,
+      city,
+      province,
+      zipCode,
+      country,
+      address: fallbackAddress || fullAddress,
+    })
+  }
+
+  const openMapPicker = () => {
+    const latitudeValue = form.latitude.trim() ? Number(form.latitude) : null
+    const longitudeValue = form.longitude.trim() ? Number(form.longitude) : null
+    setMapPickerLatitude(typeof latitudeValue === 'number' && Number.isFinite(latitudeValue) ? latitudeValue : null)
+    setMapPickerLongitude(typeof longitudeValue === 'number' && Number.isFinite(longitudeValue) ? longitudeValue : null)
+    setIsMapPickerOpen(true)
+  }
+
+  const pickCurrentLocationInMap = async () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported on this browser')
+      return
+    }
+
+    setIsAutofillingLocation(true)
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 0,
+        })
+      })
+
+      setMapPickerLatitude(position.coords.latitude)
+      setMapPickerLongitude(position.coords.longitude)
+      toast.success('Current location selected on map')
+    } catch {
+      toast.error('Unable to access current location')
+    } finally {
+      setIsAutofillingLocation(false)
+    }
+  }
+
+  const applyPinnedLocationFromMap = async () => {
+    if (typeof mapPickerLatitude !== 'number' || typeof mapPickerLongitude !== 'number') {
+      toast.error('Pin a location on the map first')
+      return
+    }
+
+    setIsAutofillingLocation(true)
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(mapPickerLatitude))}&lon=${encodeURIComponent(String(mapPickerLongitude))}&addressdetails=1`
+      )
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error('Failed to reverse-geocode selected location')
+      }
+
+      autofillFromNominatimResult(result)
+      setIsMapPickerOpen(false)
+      toast.success('Pinned location saved and address auto-filled')
+    } catch {
+      applyLocationAutofill({ latitude: mapPickerLatitude, longitude: mapPickerLongitude })
+      setIsMapPickerOpen(false)
+      toast.success('Pinned location saved')
+    } finally {
+      setIsAutofillingLocation(false)
+    }
+  }
+
   const saveWarehouse = async (mode: 'create' | 'edit') => {
     if (!form.name.trim() || !form.code.trim() || !form.address.trim() || !form.city.trim() || !form.province.trim() || !form.zipCode.trim()) {
       toast.error('Name, code, address, city, province and zip code are required')
+      return
+    }
+
+    const latitudeValue = form.latitude.trim() ? Number(form.latitude) : null
+    const longitudeValue = form.longitude.trim() ? Number(form.longitude) : null
+    if (form.latitude.trim() && !Number.isFinite(latitudeValue)) {
+      toast.error('Latitude is invalid')
+      return
+    }
+    if (form.longitude.trim() && !Number.isFinite(longitudeValue)) {
+      toast.error('Longitude is invalid')
       return
     }
 
@@ -3515,6 +3808,8 @@ function WarehousesView() {
           province: form.province.trim(),
           zipCode: form.zipCode.trim(),
           country: form.country.trim() || 'USA',
+          latitude: latitudeValue,
+          longitude: longitudeValue,
           capacity: form.capacity ? Number(form.capacity) : 1000,
           managerId: form.managerId || null,
           isActive: form.isActive,
@@ -3546,6 +3841,8 @@ function WarehousesView() {
       province: warehouse.province || '',
       zipCode: warehouse.zipCode || '',
       country: warehouse.country || 'USA',
+      latitude: typeof warehouse.latitude === 'number' ? String(warehouse.latitude) : '',
+      longitude: typeof warehouse.longitude === 'number' ? String(warehouse.longitude) : '',
       capacity: warehouse.capacity ? String(warehouse.capacity) : '',
       managerId: warehouse.managerId || '',
       isActive: !!warehouse.isActive,
@@ -3839,7 +4136,24 @@ function WarehousesView() {
               <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
             </div>
                 <div className="space-y-1 sm:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Address</label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium text-gray-700">Address</label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => {
+                      openMapPicker()
+                    }}
+                    disabled={isAutofillingLocation || isSubmitting}
+                  >
+                    <MapPin className="mr-1 h-3.5 w-3.5" />
+                    Pin Location
+                  </Button>
+                </div>
+              </div>
               <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
             </div>
             <div className="space-y-1">
@@ -3857,6 +4171,14 @@ function WarehousesView() {
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Capacity</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Latitude</label>
+              <Input value={form.latitude} onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))} placeholder="e.g. 10.315699" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Longitude</label>
+              <Input value={form.longitude} onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))} placeholder="e.g. 123.885437" />
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium text-gray-700">Assign Warehouse Staff</label>
@@ -3901,7 +4223,24 @@ function WarehousesView() {
               <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
             </div>
                     <div className="space-y-1 sm:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Address</label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium text-gray-700">Address</label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => {
+                      openMapPicker()
+                    }}
+                    disabled={isAutofillingLocation || isSubmitting}
+                  >
+                    <MapPin className="mr-1 h-3.5 w-3.5" />
+                    Pin Location
+                  </Button>
+                </div>
+              </div>
               <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
             </div>
             <div className="space-y-1">
@@ -3919,6 +4258,14 @@ function WarehousesView() {
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Capacity</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Latitude</label>
+              <Input value={form.latitude} onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))} placeholder="e.g. 10.315699" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Longitude</label>
+              <Input value={form.longitude} onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))} placeholder="e.g. 123.885437" />
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium text-gray-700">Assign Warehouse Staff</label>
@@ -3950,6 +4297,59 @@ function WarehousesView() {
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save Changes
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isMapPickerOpen} onOpenChange={setIsMapPickerOpen}>
+        <DialogContent className="max-w-3xl w-[95vw]">
+          <DialogHeader>
+            <DialogTitle>Pin Warehouse Location</DialogTitle>
+            <DialogDescription>Click on the map to pin manually, or use your current location.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-gray-600">
+                {typeof mapPickerLatitude === 'number' && typeof mapPickerLongitude === 'number'
+                  ? `Selected: ${mapPickerLatitude.toFixed(6)}, ${mapPickerLongitude.toFixed(6)}`
+                  : 'No location selected yet'}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void pickCurrentLocationInMap()
+                }}
+                disabled={isAutofillingLocation}
+              >
+                {isAutofillingLocation ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <MapPin className="mr-1 h-3.5 w-3.5" />}
+                Use My Location
+              </Button>
+            </div>
+            <AddressMapPicker
+              latitude={mapPickerLatitude}
+              longitude={mapPickerLongitude}
+              onChange={(latitude, longitude) => {
+                setMapPickerLatitude(latitude)
+                setMapPickerLongitude(longitude)
+              }}
+            />
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setIsMapPickerOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  void applyPinnedLocationFromMap()
+                }}
+                disabled={isAutofillingLocation || typeof mapPickerLatitude !== 'number' || typeof mapPickerLongitude !== 'number'}
+              >
+                {isAutofillingLocation ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Apply Pin
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -4212,10 +4612,15 @@ function InventoryView() {
   const fetchInventory = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/inventory', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed inventory fetch')
-      const data = await response.json()
-      setInventory(getCollection<any>(data, ['inventory']))
+      const result = await safeFetchJson('/api/inventory', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setInventory([])
+        if (result.status !== 401 && result.status !== 403) {
+          toast.error('Failed to load inventory')
+        }
+        return
+      }
+      setInventory(getCollection<any>(result.data, ['inventory']))
     } catch (error) {
       console.error(error)
       toast.error('Failed to load inventory')
@@ -4226,10 +4631,15 @@ function InventoryView() {
 
   const fetchWarehouses = async () => {
     try {
-      const response = await fetch('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed warehouse fetch')
-      const data = await response.json()
-      const list = getCollection<any>(data, ['warehouses'])
+      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setWarehouses([])
+        if (result.status !== 401 && result.status !== 403) {
+          toast.error('Failed to load warehouses')
+        }
+        return
+      }
+      const list = getCollection<any>(result.data, ['warehouses'])
       setWarehouses(list)
       if (list[0]?.id && !stockInWarehouseId) setStockInWarehouseId(list[0].id)
     } catch (error) {
@@ -4240,10 +4650,15 @@ function InventoryView() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch('/api/products?page=1&pageSize=500', { cache: 'no-store' })
-      if (!response.ok) throw new Error('Failed product fetch')
-      const data = await response.json()
-      setProducts(getCollection<any>(data, ['products']))
+      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setProducts([])
+        if (result.status !== 401 && result.status !== 403) {
+          toast.error('Failed to load products')
+        }
+        return
+      }
+      setProducts(getCollection<any>(result.data, ['products']))
     } catch (error) {
       console.error(error)
       toast.error('Failed to load products')
@@ -4488,7 +4903,16 @@ function InventoryView() {
                         <td className="p-4 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
                         <td className="p-4">
                           <div className="flex items-center gap-3">
-                            <img src={item.product?.imageUrl || '/logo.svg'} alt={item.product?.name || 'Product'} className="h-10 w-10 rounded-md object-cover border bg-white" />
+                            <img
+                              src={item.product?.imageUrl || '/logo.svg'}
+                              alt={item.product?.name || 'Product'}
+                              className="h-10 w-10 rounded-md object-cover border bg-white"
+                              onError={(event) => {
+                                const target = event.currentTarget
+                                if (target.src.endsWith('/logo.svg')) return
+                                target.src = '/logo.svg'
+                              }}
+                            />
                             <div>
                               <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
                               <p className="text-xs text-gray-500">{item.product?.category?.name || 'General'}</p>
@@ -4875,7 +5299,6 @@ function ReturnsView() {
     const qty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
     return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0)
   }, 0)
-  const totalDamagedReturnedQty = totalReplacedQty
   const resolvedOnDelivery = returns.filter((item) => {
     const meta = parseMeta(item?.notes)
     return String(item?.status || '').toUpperCase() === 'PROCESSED' &&
@@ -4891,35 +5314,49 @@ function ReturnsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Total Cases</p>
-            <p className="text-2xl font-bold">{totalIssues}</p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+              <Package className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Total Cases</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{totalIssues}</p>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Resolved on Delivery</p>
-            <p className="text-2xl font-bold">{resolvedOnDelivery}</p>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Resolved on Delivery</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{resolvedOnDelivery}</p>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Needs Follow-up</p>
-            <p className="text-2xl font-bold">{needsFollowUp}</p>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-amber-50 p-2.5 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Needs Follow-up</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{needsFollowUp}</p>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Total Replaced Qty</p>
-            <p className="text-2xl font-bold">{totalReplacedQty}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Total Damaged Returned Qty</p>
-            <p className="text-2xl font-bold">{totalDamagedReturnedQty}</p>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
+              <BarChart3 className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Total Replaced Qty</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{totalReplacedQty}</p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -5033,24 +5470,74 @@ function ReturnsView() {
 
 function TrackingView() {
   const [trips, setTrips] = useState<any[]>([])
+  const [ordersForMap, setOrdersForMap] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
+
+  const isDropPointCompleted = (status: unknown) => {
+    const value = String(status || '').toUpperCase()
+    return ['COMPLETED', 'DELIVERED', 'FULFILLED'].includes(value)
+  }
+
+  const isCompletedOrderStatus = (status: unknown) => {
+    const value = String(status || '').toUpperCase()
+    return ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(value)
+  }
+
+  const isDateMatch = (value: unknown, dayKey: string) => {
+    if (!value || !dayKey) return false
+    const raw = String(value).trim()
+    if (!raw) return false
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw) && raw.slice(0, 10) === dayKey) return true
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return false
+    return formatDayKey(parsed) === dayKey
+  }
+
+  const orderMatchesTrackingDay = (order: any) => {
+    if (!trackingDate) return true
+    if (order?.deliveryDate) return isDateMatch(order.deliveryDate, trackingDate)
+    return isDateMatch(order?.createdAt, trackingDate)
+  }
+
+  const fetchTrackingTrips = async () => {
+    setIsLoading(true)
+    try {
+      const query = new URLSearchParams({
+        limit: '200',
+        includeTracking: '1',
+      })
+      if (trackingDate) query.set('trackingDate', trackingDate)
+      const [tripsResponse, ordersResponse] = await Promise.all([
+        fetch(`/api/trips?${query.toString()}`),
+        fetch('/api/orders?limit=300&includeItems=none'),
+      ])
+
+      if (tripsResponse.ok) {
+        const data = await tripsResponse.json()
+        setTrips(getCollection(data, ['trips']))
+      } else {
+        setTrips([])
+      }
+
+      if (ordersResponse.ok) {
+        const ordersPayload = await ordersResponse.json()
+        setOrdersForMap(getCollection(ordersPayload, ['orders']))
+      } else {
+        setOrdersForMap([])
+      }
+    } catch (error) {
+      console.error('Failed to fetch live tracking data:', error)
+      setTrips([])
+      setOrdersForMap([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function fetchTrackingTrips() {
-      try {
-        const response = await fetch('/api/trips?limit=100')
-        if (response.ok) {
-          const data = await response.json()
-          setTrips(getCollection(data, ['trips']))
-        }
-      } catch (error) {
-        console.error('Failed to fetch live tracking data:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
     fetchTrackingTrips()
-  }, [])
+  }, [trackingDate])
 
   const activeTrips = useMemo(
     () => trips.filter((trip: any) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))),
@@ -5058,9 +5545,160 @@ function TrackingView() {
   )
 
   const recentLocations = activeTrips
-    .flatMap((trip: any) => toArray<any>(trip.dropPoints))
-    .filter((dropPoint) => typeof dropPoint?.latitude === 'number' && typeof dropPoint?.longitude === 'number')
-    .slice(0, 3)
+    .flatMap((trip: any) => toArray<any>(trip.locationLogs || []))
+    .filter((log) => typeof log?.latitude === 'number' && typeof log?.longitude === 'number')
+    .sort((a, b) => new Date(b.recordedAt || 0).getTime() - new Date(a.recordedAt || 0).getTime())
+    .slice(0, 5)
+
+  const mapData = useMemo(() => {
+    const locations: Array<{
+      id: string
+      driverName: string
+      vehiclePlate: string
+      lat: number
+      lng: number
+      status: string
+      markerColor?: string
+      markerLabel?: string
+    }> = []
+    const routeLines: Array<{
+      id: string
+      points: [number, number][]
+      color: string
+      label?: string
+    }> = []
+
+    const tripsForMap = trips.filter((trip: any) => ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip?.status)))
+    const dayOrders = ordersForMap.filter((order: any) => orderMatchesTrackingDay(order))
+    const dayOrderIds = new Set(
+      dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
+    )
+    const tripOrderIds = new Set<string>()
+
+    tripsForMap.forEach((trip: any) => {
+      const dropPoints = toArray<any>(trip.dropPoints)
+        .filter((point) => {
+          const orderId = String(point?.orderId || '').trim()
+          if (!trackingDate) return true
+          if (!orderId) return false
+          return dayOrderIds.has(orderId)
+        })
+        .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
+        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+
+      const logs = toArray<any>(trip.locationLogs)
+        .filter((log) => typeof log?.latitude === 'number' && typeof log?.longitude === 'number')
+        .sort((a, b) => new Date(a.recordedAt || 0).getTime() - new Date(b.recordedAt || 0).getTime())
+
+      const latestLog = logs[logs.length - 1]
+      const latestLocation = trip.latestLocation
+      const driverLat = Number(latestLog?.latitude ?? latestLocation?.latitude)
+      const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude)
+      const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
+      const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
+      const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
+
+      if (hasDriverPosition) {
+        locations.push({
+          id: `driver-${trip.id}`,
+          driverName,
+          vehiclePlate,
+          lat: driverLat,
+          lng: driverLng,
+          status: String(trip?.status || 'IN_PROGRESS'),
+          markerColor: '#0f172a',
+          markerLabel: `Driver (${vehiclePlate})`,
+        })
+      }
+
+      dropPoints.forEach((dropPoint: any) => {
+        const dropPointOrderId = String(dropPoint?.orderId || '').trim()
+        if (dropPointOrderId) {
+          tripOrderIds.add(dropPointOrderId)
+        }
+        const completed = isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
+        locations.push({
+          id: `order-${trip.id}-${dropPoint.id || dropPoint.sequence}`,
+          driverName: String(dropPoint.orderNumber || dropPoint.locationName || dropPoint.address || 'Order Stop'),
+          vehiclePlate: String(dropPoint.locationName || trip?.tripNumber || 'Trip'),
+          lat: Number(dropPoint.latitude),
+          lng: Number(dropPoint.longitude),
+          status: String(dropPoint.orderStatus || dropPoint.status || 'PENDING'),
+          markerColor: completed ? '#2563eb' : '#16a34a',
+          markerType: 'pin',
+          markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+        })
+      })
+
+      if (logs.length > 1) {
+        routeLines.push({
+          id: `completed-${trip.id}`,
+          points: logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
+          color: '#2563eb',
+          label: `${trip.tripNumber || 'Trip'} - Completed route`,
+        })
+      }
+
+      const pendingPoints = dropPoints.filter(
+        (point: any) => !isDropPointCompleted(point?.status) && !isDropPointCompleted(point?.orderStatus)
+      )
+      if (hasDriverPosition && pendingPoints.length > 0) {
+        routeLines.push({
+          id: `remaining-${trip.id}`,
+          points: [
+            [driverLat, driverLng],
+            ...pendingPoints.map((point: any) => [Number(point.latitude), Number(point.longitude)] as [number, number]),
+          ],
+          color: '#16a34a',
+          label: `${trip.tripNumber || 'Trip'} - Remaining route`,
+        })
+      } else if (logs.length <= 1 && dropPoints.length > 1) {
+        for (let index = 0; index < dropPoints.length - 1; index += 1) {
+          const nextPoint = dropPoints[index + 1]
+          routeLines.push({
+            id: `planned-${trip.id}-${index}`,
+            points: [
+              [Number(dropPoints[index].latitude), Number(dropPoints[index].longitude)],
+              [Number(nextPoint.latitude), Number(nextPoint.longitude)],
+            ],
+            color: isDropPointCompleted(nextPoint?.status) || isDropPointCompleted(nextPoint?.orderStatus) ? '#2563eb' : '#16a34a',
+            label: `${trip.tripNumber || 'Trip'} route segment`,
+          })
+        }
+      }
+    })
+
+    dayOrders.forEach((order: any) => {
+      const orderId = String(order?.id || '').trim()
+      if (orderId && tripOrderIds.has(orderId)) return
+
+      const lat = Number(order?.shippingLatitude)
+      const lng = Number(order?.shippingLongitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+      const completed = isCompletedOrderStatus(order?.status)
+      locations.push({
+        id: `standalone-order-${order.id}`,
+        driverName: String(order?.orderNumber || 'Order'),
+        vehiclePlate: String(order?.shippingAddress || 'Customer location'),
+        lat,
+        lng,
+        status: String(order?.status || 'PROCESSING'),
+        markerColor: completed ? '#2563eb' : '#16a34a',
+        markerType: 'pin',
+        markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+      })
+    })
+
+    return { locations, routeLines }
+  }, [ordersForMap, trackingDate, trips])
+
+  const mapLocations = mapData.locations
+  const routeLines = mapData.routeLines
+
+  const mapCenter = (mapLocations[0]
+    ? [mapLocations[0].lat, mapLocations[0].lng]
+    : [10.55, 122.95]) as [number, number]
 
   return (
     <div className="space-y-6">
@@ -5069,26 +5707,36 @@ function TrackingView() {
           <h1 className="text-2xl font-bold text-gray-900">Live Tracking</h1>
           <p className="text-gray-500">Monitor active deliveries in real-time</p>
         </div>
-        <Button className="gap-2">
-          <MapPin className="h-4 w-4" />
-          Refresh Map
-        </Button>
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={trackingDate}
+            onChange={(event) => setTrackingDate(event.target.value)}
+            className="w-[160px]"
+          />
+          <Button className="gap-2" onClick={fetchTrackingTrips} disabled={isLoading}>
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+            Refresh Map
+          </Button>
+        </div>
+      </div>
+
+      <div className="text-sm text-slate-600">
+        Route colors: <span className="font-medium text-blue-600">Blue = Completed</span> •{' '}
+        <span className="font-medium text-green-600">Green = Not Completed</span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
           <Card className="h-[500px]">
             <CardContent className="p-0 h-full">
-              <div className="h-full bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <MapPin className="h-16 w-16 text-blue-400 mx-auto mb-4" />
-                  <p className="text-blue-600 font-medium">Live Trip Map Area</p>
-                  <p className="text-sm text-blue-500 mt-2">
-                    Active trip count: {activeTrips.length}
-                  </p>
-                  <p className="text-xs text-blue-400 mt-4">Map tiles can be integrated here</p>
-                </div>
-              </div>
+              <LiveTrackingMap
+                locations={mapLocations}
+                routeLines={routeLines}
+                center={mapCenter}
+                zoom={mapLocations.length > 0 ? 12 : 10}
+                restrictToNegrosOccidental
+              />
             </CardContent>
           </Card>
         </div>
@@ -5133,10 +5781,12 @@ function TrackingView() {
                 <p className="text-sm text-gray-500">No coordinate logs available</p>
               ) : (
                 <div className="space-y-2 text-sm">
-                  {recentLocations.map((dropPoint: any) => (
-                    <div key={dropPoint.id} className="flex justify-between gap-2">
-                      <span className="text-gray-500 truncate">{dropPoint.locationName || 'Drop Point'}</span>
-                      <span>{dropPoint.latitude.toFixed(4)}, {dropPoint.longitude.toFixed(4)}</span>
+                  {recentLocations.map((log: any) => (
+                    <div key={log.id} className="flex justify-between gap-2">
+                      <span className="text-gray-500 truncate">
+                        {new Date(log.recordedAt || log.createdAt || Date.now()).toLocaleTimeString()}
+                      </span>
+                      <span>{Number(log.latitude).toFixed(4)}, {Number(log.longitude).toFixed(4)}</span>
                     </div>
                   ))}
                 </div>

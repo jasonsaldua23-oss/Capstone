@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
           source: "/api/:path*",
           destination: `${djangoApiOrigin}/api/:path*`,
         },
+        {
+          source: "/uploads/:path*",
+          destination: `${djangoApiOrigin}/uploads/:path*`,
+        },
       ],
       afterFiles: [],
       fallback: [],

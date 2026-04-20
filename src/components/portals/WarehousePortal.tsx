@@ -1,6 +1,7 @@
 ﻿'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,6 +49,10 @@ import {
   CircleCheck
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
+
+const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
+  ssr: false,
+})
 
 type WarehouseView =
   | 'dashboard'
@@ -162,6 +167,9 @@ interface WarehouseOrderItem {
   shippingProvince?: string
   shippingZipCode?: string
   shippingCountry?: string
+  shippingLatitude?: number | null
+  shippingLongitude?: number | null
+  deliveryDate?: string | null
   items?: Array<{
     id: string
     quantity: number
@@ -192,6 +200,10 @@ interface WarehouseTripItem {
   dropPoints?: Array<{
     id: string
     status: string
+    orderId?: string
+    orderStatus?: string
+    orderNumber?: string
+    sequence?: number
     latitude?: number | null
     longitude?: number | null
     locationName?: string
@@ -404,6 +416,7 @@ export function WarehousePortal() {
   const [selectedRouteDriverId, setSelectedRouteDriverId] = useState('')
   const [selectedSavedRouteId, setSelectedSavedRouteId] = useState('')
   const [selectedRouteVehicleId, setSelectedRouteVehicleId] = useState('')
+  const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
   const [loadingInventory, setLoadingInventory] = useState(true)
@@ -485,6 +498,29 @@ export function WarehousePortal() {
     return assigned
   }, [drivers, selectedRouteDriverId])
 
+  const deleteSavedRouteDraft = async (routeId: string) => {
+    const response = await fetch('/api/trips/saved-routes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: routeId }),
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(payload?.error || 'Failed to delete saved route')
+    }
+  }
+
+  const removeSavedRoute = async (routeId: string) => {
+    try {
+      await deleteSavedRouteDraft(routeId)
+      setSavedRoutes((prev) => prev.filter((route) => route.id !== routeId))
+      setSelectedSavedRouteId((prev) => (prev === routeId ? '' : prev))
+      toast.success('Route deleted')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to delete route')
+    }
+  }
+
   useEffect(() => {
     if (createRouteOpen && warehouses.length > 0) {
       if (!routeWarehouseId) {
@@ -517,14 +553,6 @@ export function WarehousePortal() {
       : trips
   }, [assignedWarehouse, trips])
 
-  const scopedInventory = useMemo(() => {
-    if (!assignedWarehouse) return inventory
-    const hasInventoryWarehouseRefs = inventory.some((item) => item?.warehouse?.id)
-    return hasInventoryWarehouseRefs
-      ? inventory.filter((item) => item?.warehouse?.id === assignedWarehouse.id)
-      : inventory
-  }, [assignedWarehouse, inventory])
-
   const scopedOrders = useMemo(() => {
     if (!assignedWarehouse) return orders
     const hasOrderWarehouseRefs = orders.some((item) => item?.warehouseId)
@@ -532,6 +560,151 @@ export function WarehousePortal() {
       ? orders.filter((item) => item?.warehouseId === assignedWarehouse.id)
       : orders
   }, [assignedWarehouse, orders])
+
+  const isDropPointCompleted = (status: unknown) => {
+    const value = String(status || '').toUpperCase()
+    return ['COMPLETED', 'DELIVERED', 'FULFILLED'].includes(value)
+  }
+
+  const isCompletedOrderStatus = (status: unknown) => {
+    const value = String(status || '').toUpperCase()
+    return ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(value)
+  }
+
+  const isDateMatch = (value: unknown, dayKey: string) => {
+    if (!value || !dayKey) return false
+    const raw = String(value).trim()
+    if (!raw) return false
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw) && raw.slice(0, 10) === dayKey) return true
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return false
+    return formatDayKey(parsed) === dayKey
+  }
+
+  const orderMatchesTrackingDay = (order: WarehouseOrderItem) => {
+    if (!trackingDate) return true
+    if (order?.deliveryDate) return isDateMatch(order.deliveryDate, trackingDate)
+    return isDateMatch(order?.createdAt, trackingDate)
+  }
+
+  const liveMapData = useMemo(() => {
+    const locations: Array<{
+      id: string
+      driverName: string
+      vehiclePlate: string
+      lat: number
+      lng: number
+      status: string
+      markerColor?: string
+      markerLabel?: string
+      markerType?: 'pin' | 'dot' | 'default'
+    }> = []
+    const routeLines: Array<{
+      id: string
+      points: [number, number][]
+      color: string
+      label?: string
+    }> = []
+
+    const dayOrders = scopedOrders.filter((order) => orderMatchesTrackingDay(order))
+    const dayOrderIds = new Set(
+      dayOrders.map((order) => String(order?.id || '').trim()).filter(Boolean)
+    )
+    const tripOrderIds = new Set<string>()
+
+    scopedTrips
+      .filter((trip) => ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip.status)))
+      .forEach((trip) => {
+        const dropPoints = (trip.dropPoints || [])
+          .filter((point) => {
+            const orderId = String(point?.orderId || '').trim()
+            if (!trackingDate) return true
+            if (!orderId) return false
+            return dayOrderIds.has(orderId)
+          })
+          .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
+          .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+
+        dropPoints.forEach((dropPoint) => {
+          const dropPointOrderId = String(dropPoint?.orderId || '').trim()
+          if (dropPointOrderId) tripOrderIds.add(dropPointOrderId)
+
+          const completed =
+            isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
+
+          locations.push({
+            id: `trip-order-${trip.id}-${dropPoint.id}`,
+            driverName: String(dropPoint.orderNumber || dropPoint.locationName || 'Order Stop'),
+            vehiclePlate: String(dropPoint.locationName || trip?.tripNumber || 'Trip'),
+            lat: Number(dropPoint.latitude),
+            lng: Number(dropPoint.longitude),
+            status: String(dropPoint.orderStatus || dropPoint.status || 'PENDING'),
+            markerColor: completed ? '#2563eb' : '#16a34a',
+            markerType: 'pin',
+            markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+          })
+        })
+
+        if (dropPoints.length > 1) {
+          for (let index = 0; index < dropPoints.length - 1; index += 1) {
+            const current = dropPoints[index]
+            const next = dropPoints[index + 1]
+            const nextCompleted =
+              isDropPointCompleted(next?.status) || isDropPointCompleted(next?.orderStatus)
+            routeLines.push({
+              id: `warehouse-route-${trip.id}-${index}`,
+              points: [
+                [Number(current.latitude), Number(current.longitude)],
+                [Number(next.latitude), Number(next.longitude)],
+              ],
+              color: nextCompleted ? '#2563eb' : '#16a34a',
+              label: `${trip.tripNumber || 'Trip'} route segment`,
+            })
+          }
+        }
+      })
+
+    dayOrders.forEach((order) => {
+      if (order?.id && tripOrderIds.has(order.id)) return
+      const lat = Number(order?.shippingLatitude)
+      const lng = Number(order?.shippingLongitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+      const completed = isCompletedOrderStatus(order?.status)
+      locations.push({
+        id: `warehouse-standalone-order-${order.id}`,
+        driverName: String(order?.orderNumber || 'Order'),
+        vehiclePlate: String(order?.shippingAddress || 'Customer location'),
+        lat,
+        lng,
+        status: String(order?.status || 'PROCESSING'),
+        markerColor: completed ? '#2563eb' : '#16a34a',
+        markerType: 'pin',
+        markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+      })
+    })
+
+    return { locations, routeLines }
+  }, [scopedOrders, scopedTrips, trackingDate])
+
+  const liveTrackingLocations = liveMapData.locations
+  const liveTrackingRouteLines = liveMapData.routeLines
+  const liveTrackingCenter = (liveTrackingLocations[0]
+    ? [liveTrackingLocations[0].lat, liveTrackingLocations[0].lng]
+    : [10.55, 122.95]) as [number, number]
+
+  const liveTrackingRecentLocations = useMemo(
+    () => liveTrackingLocations.slice(0, 5),
+    [liveTrackingLocations]
+  )
+
+  const scopedInventory = useMemo(() => {
+    if (!assignedWarehouse) return inventory
+    const hasInventoryWarehouseRefs = inventory.some((item) => item?.warehouse?.id)
+    return hasInventoryWarehouseRefs
+      ? inventory.filter((item) => item?.warehouse?.id === assignedWarehouse.id)
+      : inventory
+  }, [assignedWarehouse, inventory])
 
   const scopedReturns = useMemo(() => {
     if (!assignedWarehouse) return returns
@@ -559,7 +732,6 @@ export function WarehousePortal() {
     }
 
     let replacedQty = 0
-    let damagedReturnedQty = 0
     let resolvedOnDelivery = 0
     let needsFollowUp = 0
 
@@ -570,7 +742,6 @@ export function WarehousePortal() {
       const qty = Number(entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
       if (qty > 0) {
         replacedQty += qty
-        damagedReturnedQty += qty
       }
       if (status === 'PROCESSED' && mode === 'SPARE_STOCK_IMMEDIATE') {
         resolvedOnDelivery += 1
@@ -582,7 +753,6 @@ export function WarehousePortal() {
 
     return {
       replacedQty,
-      damagedReturnedQty,
       resolvedOnDelivery,
       needsFollowUp,
       totalCases: scopedReturns.length,
@@ -1108,6 +1278,26 @@ export function WarehousePortal() {
     }
   }
 
+  const fetchSavedRoutesData = async () => {
+    try {
+      const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 1 })
+      if (!result.ok) {
+        setSavedRoutes([])
+        toast.error('Failed to load saved routes')
+        return
+      }
+      if ((result.data as any)?.success === false) {
+        setSavedRoutes([])
+        toast.error(String((result.data as any)?.error || 'Failed to load saved routes'))
+        return
+      }
+      setSavedRoutes(getCollection<SavedRouteDraft>(result.data, ['savedRoutes']))
+    } catch {
+      setSavedRoutes([])
+      toast.error('Failed to load saved routes')
+    }
+  }
+
   const createRoutePlan = async (silent = false, inputDate?: string, inputWarehouseId?: string) => {
     const effectiveDate = inputDate ?? routeDate
     const effectiveWarehouseId = inputWarehouseId ?? routeWarehouseId
@@ -1207,6 +1397,11 @@ export function WarehousePortal() {
         throw new Error(data?.error || 'Failed to create trip')
       }
       toast.success('Trip created from route')
+      try {
+        await deleteSavedRouteDraft(selectedSavedRoute.id)
+      } catch (deleteError) {
+        console.error('Failed to delete saved route:', deleteError)
+      }
       setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
       setSelectedSavedRouteId('')
       setCreateTripOpen(false)
@@ -1218,6 +1413,11 @@ export function WarehousePortal() {
       const lowerMessage = message.toLowerCase()
 
       if (lowerMessage.includes('no eligible orders') || lowerMessage.includes('already assigned')) {
+        try {
+          await deleteSavedRouteDraft(selectedSavedRoute.id)
+        } catch (deleteError) {
+          console.error('Failed to delete stale saved route:', deleteError)
+        }
         setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
         setSelectedSavedRouteId('')
         setCreateTripOpen(false)
@@ -1233,7 +1433,7 @@ export function WarehousePortal() {
     }
   }
 
-  const saveRouteDraft = () => {
+  const saveRouteDraft = async () => {
     if (!routeDate || !routeWarehouseId || !selectedRouteCity || selectedRouteOrderIds.length === 0) {
       toast.error('Select date, warehouse, city and at least one order')
       return
@@ -1248,23 +1448,38 @@ export function WarehousePortal() {
       return
     }
 
-    const routeId = `route-${Date.now()}`
-    const nextRoute: SavedRouteDraft = {
-      id: routeId,
-      date: routeDate,
-      warehouseId: routeWarehouseId,
-      warehouseName: warehouse?.name || 'Unknown Warehouse',
-      city: selectedRouteCity,
-      totalDistanceKm: Number(group.totalDistanceKm || 0),
-      orderIds: selectedRouteOrderIds,
-      orders: selectedOrders,
-      createdAt: new Date().toISOString(),
-    }
+    try {
+      const response = await fetch('/api/trips/saved-routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: routeDate,
+          warehouseId: routeWarehouseId,
+          warehouseName: warehouse?.name || 'Unknown Warehouse',
+          city: selectedRouteCity,
+          totalDistanceKm: Number(group.totalDistanceKm || 0),
+          orderIds: selectedRouteOrderIds,
+          orders: selectedOrders,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to save route')
+      }
 
-    setSavedRoutes((prev) => [nextRoute, ...prev])
-    setSelectedSavedRouteId(routeId)
-    setCreateRouteOpen(false)
-    toast.success('Route saved. Assign driver later in New Trip.')
+      const savedRoute = data?.savedRoute
+      if (savedRoute?.id) {
+        setSavedRoutes((prev) => [savedRoute, ...prev.filter((route) => route.id !== savedRoute.id)])
+        setSelectedSavedRouteId(savedRoute.id)
+      } else {
+        await fetchSavedRoutesData()
+      }
+
+      setCreateRouteOpen(false)
+      toast.success('Route saved. Assign driver later in New Trip.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save route')
+    }
   }
 
   useEffect(() => {
@@ -1284,6 +1499,7 @@ export function WarehousePortal() {
         await fetchReturnsData()
         await fetchDriversData()
         await fetchVehiclesData()
+        await fetchSavedRoutesData()
       } finally {
         isRefreshingAllRef.current = false
       }
@@ -1660,6 +1876,37 @@ export function WarehousePortal() {
     return raw.replace(/_/g, ' ')
   }
 
+  const formatWarehouseOrderAddress = (order: WarehouseOrderItem | null) => {
+    const address = String(order?.shippingAddress || '').trim()
+    const city = String(order?.shippingCity || '').trim()
+    const province = String(order?.shippingProvince || '').trim()
+    const zipCode = String(order?.shippingZipCode || '').trim()
+
+    const normalize = (value: string) =>
+      String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .trim()
+
+    const addressTokens = address
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean)
+
+    const existingTokenSet = new Set(addressTokens.map((token) => normalize(token)))
+    const extras = [city, province, zipCode].filter((part) => {
+      if (!part) return false
+      const key = normalize(part)
+      if (!key) return false
+      if (existingTokenSet.has(key)) return false
+      existingTokenSet.add(key)
+      return true
+    })
+
+    const combined = [address, ...extras].filter(Boolean).join(', ')
+    return combined || 'N/A'
+  }
+
   const updateWarehouseOrderStatus = async (
     orderId: string,
     status: 'PROCESSING' | 'PACKED' | 'DISPATCHED' | 'OUT_FOR_DELIVERY' | 'DELIVERED',
@@ -1909,29 +2156,39 @@ export function WarehousePortal() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Assigned Warehouse</p>
-                    <p className="text-3xl font-bold">{assignedWarehouse ? 1 : 0}</p>
-                    <p className="mt-1 text-xs text-gray-500 truncate">
-                      {assignedWarehouse ? `${assignedWarehouse.name} (${assignedWarehouse.code})` : 'No warehouse assigned'}
-                    </p>
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+                      <Warehouse className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-500">Assigned Warehouse</p>
+                      <p className="mt-1 text-3xl font-bold leading-none">{assignedWarehouse ? 1 : 0}</p>
+                      <p className="mt-1 text-xs text-gray-500 truncate">
+                        {assignedWarehouse ? `${assignedWarehouse.name} (${assignedWarehouse.code})` : 'No warehouse assigned'}
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Inventory Items</p>
-                    <p className="text-3xl font-bold">{scopedInventory.length}</p>
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
+                      <Boxes className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-500">Inventory Items</p>
+                      <p className="mt-1 text-3xl font-bold leading-none">{scopedInventory.length}</p>
+                    </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-gray-500">Low Stock</p>
-                        <p className="text-3xl font-bold text-red-600">{lowStockCount}</p>
-                      </div>
-                      <AlertTriangle className="h-8 w-8 text-red-500" />
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-rose-50 p-2.5 text-rose-600">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-gray-500">Low Stock</p>
+                      <p className="mt-1 text-3xl font-bold leading-none text-red-600">{lowStockCount}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -2082,6 +2339,9 @@ export function WarehousePortal() {
               setSelectedTrip={setSelectedTrip}
               onOpenCreateRoute={() => setCreateRouteOpen(true)}
               onOpenCreateTrip={() => setCreateTripOpen(true)}
+              onDeleteSavedRoute={(routeId) => {
+                void removeSavedRoute(routeId)
+              }}
             />
           )}
 
@@ -2094,35 +2354,49 @@ export function WarehousePortal() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Total Cases</p>
-                    <p className="text-2xl font-bold">{replacementSummary.totalCases}</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+                      <ClipboardList className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-500">Total Cases</p>
+                      <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.totalCases}</p>
+                    </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Resolved on Delivery</p>
-                    <p className="text-2xl font-bold">{replacementSummary.resolvedOnDelivery}</p>
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
+                      <PackageCheck className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-500">Resolved on Delivery</p>
+                      <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.resolvedOnDelivery}</p>
+                    </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Needs Follow-up</p>
-                    <p className="text-2xl font-bold">{replacementSummary.needsFollowUp}</p>
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-amber-50 p-2.5 text-amber-600">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-500">Needs Follow-up</p>
+                      <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.needsFollowUp}</p>
+                    </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Total Replaced Qty</p>
-                    <p className="text-2xl font-bold">{replacementSummary.replacedQty}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-gray-500">Total Damaged Returned Qty</p>
-                    <p className="text-2xl font-bold">{replacementSummary.damagedReturnedQty}</p>
+                <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+                  <CardContent className="flex h-full items-start gap-3 p-5">
+                    <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
+                      <Boxes className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-500">Total Replaced Qty</p>
+                      <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.replacedQty}</p>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -2237,26 +2511,45 @@ export function WarehousePortal() {
                   <h1 className="text-2xl font-bold text-gray-900">Live Tracking</h1>
                   <p className="text-gray-500">Monitor active deliveries in real-time</p>
                 </div>
-                <Button className="gap-2">
-                  <MapPin className="h-4 w-4" />
-                  Refresh Map
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={trackingDate}
+                    onChange={(event) => setTrackingDate(event.target.value)}
+                    className="w-[160px]"
+                  />
+                  <Button
+                    className="gap-2"
+                    onClick={async () => {
+                      await Promise.all([
+                        fetchTripsData(),
+                        fetchOrdersData({ showLoading: false, silent: true }),
+                      ])
+                    }}
+                    disabled={loadingTrips || loadingOrders}
+                  >
+                    {(loadingTrips || loadingOrders) ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+                    Refresh Map
+                  </Button>
+                </div>
+              </div>
+
+              <div className="text-sm text-slate-600">
+                Route colors: <span className="font-medium text-blue-600">Blue = Completed</span> •{' '}
+                <span className="font-medium text-green-600">Green = Not Completed</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                 <div className="lg:col-span-2">
                   <Card className="h-[500px]">
                     <CardContent className="h-full p-0">
-                      <div className="flex h-full items-center justify-center rounded-lg bg-gradient-to-br from-blue-100 to-blue-200">
-                        <div className="text-center">
-                          <MapPin className="mx-auto mb-4 h-16 w-16 text-blue-400" />
-                          <p className="font-medium text-blue-600">Live Trip Map Area</p>
-                          <p className="mt-2 text-sm text-blue-500">
-                            Active trip count: {scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length}
-                          </p>
-                          <p className="mt-4 text-xs text-blue-400">Map tiles can be integrated here</p>
-                        </div>
-                      </div>
+                      <LiveTrackingMap
+                        locations={liveTrackingLocations}
+                        routeLines={liveTrackingRouteLines}
+                        center={liveTrackingCenter}
+                        zoom={liveTrackingLocations.length > 0 ? 12 : 10}
+                        restrictToNegrosOccidental
+                      />
                     </CardContent>
                   </Card>
                 </div>
@@ -2302,30 +2595,21 @@ export function WarehousePortal() {
                       <CardTitle className="text-lg">Recent Locations</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {scopedTrips
-                        .filter((trip) => isActiveTripStatus(trip.status))
-                        .flatMap((trip) => trip.dropPoints ?? [])
-                        .filter((dropPoint) => typeof dropPoint?.latitude === 'number' && typeof dropPoint?.longitude === 'number')
-                        .slice(0, 3).length === 0 ? (
+                      {liveTrackingRecentLocations.length === 0 ? (
                         <p className="text-sm text-gray-500">No coordinate logs available</p>
                       ) : (
                         <div className="space-y-2 text-sm">
-                          {scopedTrips
-                            .filter((trip) => isActiveTripStatus(trip.status))
-                            .flatMap((trip) => trip.dropPoints ?? [])
-                            .filter((dropPoint) => typeof dropPoint?.latitude === 'number' && typeof dropPoint?.longitude === 'number')
-                            .slice(0, 3)
-                            .map((dropPoint) => {
-                              const latitude = Number(dropPoint.latitude ?? 0)
-                              const longitude = Number(dropPoint.longitude ?? 0)
+                          {liveTrackingRecentLocations.map((point) => {
+                            const latitude = Number(point.lat ?? 0)
+                            const longitude = Number(point.lng ?? 0)
 
-                              return (
-                                <div key={dropPoint.id} className="flex justify-between gap-2">
-                                  <span className="truncate text-gray-500">{dropPoint.locationName || 'Drop Point'}</span>
-                                  <span>{latitude.toFixed(4)}, {longitude.toFixed(4)}</span>
-                                </div>
-                              )
-                            })}
+                            return (
+                              <div key={point.id} className="flex justify-between gap-2">
+                                <span className="truncate text-gray-500">{point.driverName || 'Order location'}</span>
+                                <span>{latitude.toFixed(4)}, {longitude.toFixed(4)}</span>
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </CardContent>
@@ -2385,6 +2669,11 @@ export function WarehousePortal() {
                                     src={item.product?.imageUrl || '/logo.svg'}
                                     alt={item.product?.name || 'Product'}
                                     className="h-10 w-10 rounded-md object-cover border bg-white"
+                                    onError={(event) => {
+                                      const target = event.currentTarget
+                                      if (target.src.endsWith('/logo.svg')) return
+                                      target.src = '/logo.svg'
+                                    }}
                                   />
                                   <div>
                                     <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
@@ -2845,7 +3134,9 @@ export function WarehousePortal() {
                 </p>
                 <Button
                   className="w-full bg-blue-600 text-white hover:bg-blue-700"
-                  onClick={saveRouteDraft}
+                  onClick={() => {
+                    void saveRouteDraft()
+                  }}
                   disabled={
                     loadingRoutePlans ||
                     !routeDate ||
@@ -2861,25 +3152,10 @@ export function WarehousePortal() {
             <div className="flex-1 flex flex-col bg-gray-50 p-10 overflow-y-auto min-w-0">
               <Card>
                 <CardHeader>
-                  <CardTitle>Delivery Locations Map</CardTitle>
+                  <CardTitle>Delivery Locations</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="w-full rounded-xl border bg-gray-50 p-6 flex flex-col items-center">
-                    <h2 className="text-xl font-bold mb-2">Delivery Route Map</h2>
-                    <p className="mb-6 text-gray-600">{(() => {
-                      const wh = warehouses.find((w) => w.id === routeWarehouseId)
-                      let count = 0
-                      if (wh) count += 1
-                      let selectedOrders: RoutePlanOrderItem[] = []
-                      if (routePlans && selectedRouteCity) {
-                        const group = routePlans.find((g) => g.city === selectedRouteCity)
-                        if (group) {
-                          selectedOrders = group.orders.filter((order) => selectedRouteOrderIds.includes(order.id))
-                          count += selectedOrders.length
-                        }
-                      }
-                      return `${count} delivery location${count === 1 ? '' : 's'} selected`
-                    })()}</p>
                     {(() => {
                       const wh = warehouses.find((w) => w.id === routeWarehouseId)
                       if (!wh) return <div className="mb-4 text-gray-400">Select a warehouse to start</div>
@@ -3027,7 +3303,7 @@ export function WarehousePortal() {
                   <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
                   <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
                   <p className="text-sm text-gray-600">
-                    {[selectedOrder.shippingAddress, selectedOrder.shippingCity, selectedOrder.shippingProvince, selectedOrder.shippingZipCode].filter(Boolean).join(', ') || 'N/A'}
+                    {formatWarehouseOrderAddress(selectedOrder)}
                   </p>
                 </div>
                 <div className="rounded-md border p-3">

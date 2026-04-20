@@ -126,6 +126,27 @@ npm run dev
 - `GET http://localhost:3000/api/health` should return Django response.
 - Existing frontend screens continue using `/api/*` unchanged.
 
+## Google OAuth Setup (Fix `Error 400: origin_mismatch`)
+
+This app uses Google Identity Services in the browser. The OAuth client must allow the exact frontend origin.
+
+1. In Google Cloud Console, open:
+`APIs & Services -> Credentials -> OAuth 2.0 Client IDs -> your web client`
+2. Ensure client type is **Web application**.
+3. Under **Authorized JavaScript origins**, add every frontend origin you use, for example:
+   - `http://localhost:3000`
+   - `http://127.0.0.1:3000`
+   - `http://localhost:3001`
+   - `http://127.0.0.1:3001`
+4. Save, then wait 1-5 minutes for Google propagation.
+5. In `.env`, keep these values aligned to the same web client:
+   - `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+   - `GOOGLE_OAUTH_CLIENT_ID`
+   - `GOOGLE_OAUTH_CLIENT_SECRET`
+6. Restart Next.js and Django after `.env` changes.
+
+Note: this project sends the Google ID token to backend endpoints (`/api/auth/customer/google` and `/api/auth/staff/google`) for verification, so both frontend and backend must use the same Google web client ID.
+
 ## 👥 Test Accounts
 
 ### Admin Portal

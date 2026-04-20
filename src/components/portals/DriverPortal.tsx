@@ -25,7 +25,6 @@ import {
   Truck, 
   Package, 
   Home,
-  MapPin, 
   User, 
   LogOut, 
   Menu,
@@ -83,6 +82,8 @@ interface DropPoint {
   locationName: string
   address: string
   city: string
+  latitude?: number | null
+  longitude?: number | null
   contactName: string | null
   contactPhone: string | null
   deliveryPhoto?: string | null
@@ -423,7 +424,7 @@ export function DriverPortal() {
                 <img src="/anndrive.png" alt="AnnDrive" className="h-full w-full object-cover" />
               </div>
               <div className="leading-tight">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">Delivery Workspace</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">Ann Ann's Beveraes Trading</p>
                 <h1 className="text-[18px] font-black tracking-[-0.01em] text-[#0f3d72]">Ann<span className="text-[#2f9a34]">Drive</span></h1>
               </div>
             </div>
@@ -1400,22 +1401,6 @@ function TripDetailView({
           </Button>
         </div>
       )}
-
-      {/* Map Placeholder */}
-      <div className="mx-4 mt-4">
-        <div className="relative flex h-48 items-center justify-center rounded-lg border border-slate-200/50 bg-slate-50/80 shadow-[0_2px_6px_rgba(0,0,0,0.04)]">
-          <div className="text-center">
-            <MapPin className="h-10 w-10 text-sky-600 mx-auto mb-2" />
-            <p className="text-slate-700 text-sm">Route Map</p>
-          </div>
-          {isTracking && currentLocation && (
-            <div className="absolute bottom-2 left-2 bg-white px-2 py-1 rounded text-xs text-slate-700">
-              <Navigation className="inline h-3 w-3 mr-1 text-emerald-500" />
-              Tracking active
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Drop Points List */}
       <div className="p-4">

@@ -54,6 +54,7 @@ urlpatterns = [
     path("driver/replacements/from-spare-stock", v.driver_replacements_from_spare_stock),
     path("driver/spare-stock", v.driver_spare_stock),
     path("trips/route-plan", v.trips_route_plan),
+    path("trips/saved-routes", v.trips_saved_routes),
     path("trips/<str:trip_id>/start", v.trip_start),
     path("trips/<str:trip_id>/drop-points/<str:drop_point_id>", v.trip_drop_point_update),
     path("trips/<str:trip_id>/stops/<str:stop_id>", v.trip_stop_update),

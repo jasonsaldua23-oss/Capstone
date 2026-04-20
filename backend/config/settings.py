@@ -36,8 +36,12 @@ def _parse_database_url(url: str) -> dict:
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": parsed.hostname or "",
         "PORT": str(parsed.port or "5432"),
-        "CONN_MAX_AGE": int(query.get("conn_max_age", ["60"])[0]),
-        "OPTIONS": {"sslmode": query.get("sslmode", ["require"])[0]},
+        "CONN_MAX_AGE": int(query.get("conn_max_age", ["0"])[0]),
+        "CONN_HEALTH_CHECKS": False,
+        "OPTIONS": {
+            "sslmode": query.get("sslmode", ["require"])[0],
+            "connect_timeout": int(query.get("connect_timeout", ["10"])[0]),
+        },
     }
 
 

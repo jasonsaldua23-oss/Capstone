@@ -59,6 +59,7 @@ type WarehouseTripsSectionProps = {
   setSelectedTrip: Dispatch<SetStateAction<TripItem | null>>
   onOpenCreateRoute: () => void
   onOpenCreateTrip: () => void
+  onDeleteSavedRoute: (routeId: string) => void
 }
 
 export function WarehouseTripsSection({
@@ -71,6 +72,7 @@ export function WarehouseTripsSection({
   setSelectedTrip,
   onOpenCreateRoute,
   onOpenCreateTrip,
+  onDeleteSavedRoute,
 }: WarehouseTripsSectionProps) {
   const normalizeTripStatus = (status: string | null | undefined) => {
     const value = String(status || '').toUpperCase()
@@ -111,7 +113,18 @@ export function WarehouseTripsSection({
                 <div key={route.id} className="rounded-md border">
                   <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b">
                     <p className="font-medium">{route.city}</p>
-                    <p className="text-xs text-gray-600">{route.orderIds.length} orders • {Number(route.totalDistanceKm || 0).toFixed(2)} km total</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-gray-600">{route.orderIds.length} orders • {Number(route.totalDistanceKm || 0).toFixed(2)} km total</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                        onClick={() => onDeleteSavedRoute(route.id)}
+                      >
+                        Delete Route
+                      </Button>
+                    </div>
                   </div>
                   <div className="p-3 space-y-2">
                     <p className="text-xs text-gray-500">

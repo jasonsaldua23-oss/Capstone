@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect } from 'react'
-import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
 interface AddressMapPickerProps {
@@ -17,7 +18,17 @@ const NEGROS_OCCIDENTAL_BOUNDS: [[number, number], [number, number]] = [
 const NEGROS_OCCIDENTAL_CENTER: [number, number] = [10.55, 122.95]
 const MapContainerUnsafe = MapContainer as any
 const TileLayerUnsafe = TileLayer as any
-const CircleMarkerUnsafe = CircleMarker as any
+const MarkerUnsafe = Marker as any
+
+const PickerPinIcon = L.icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
 
 const isWithinNegrosOccidental = (lat: number, lng: number) =>
   lat >= NEGROS_OCCIDENTAL_BOUNDS[0][0] &&
@@ -75,13 +86,7 @@ export function AddressMapPicker({ latitude, longitude, onChange }: AddressMapPi
           />
           <MapClickHandler onChange={onChange} />
           <RecenterMap latitude={latitude} longitude={longitude} />
-          {hasPin && (
-            <CircleMarkerUnsafe
-              center={[latitude as number, longitude as number]}
-              radius={8}
-              pathOptions={{ color: '#7e22ce', fillColor: '#a855f7', fillOpacity: 0.85 }}
-            />
-          )}
+          {hasPin && <MarkerUnsafe position={[latitude as number, longitude as number]} icon={PickerPinIcon} />}
         </MapContainerUnsafe>
       </div>
       <p className="text-xs text-gray-500">Click on the map to pin your delivery location.</p>

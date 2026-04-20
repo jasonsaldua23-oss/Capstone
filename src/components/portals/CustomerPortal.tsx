@@ -41,13 +41,13 @@ import {
   Minus,
   Trash2,
   CreditCard,
-  LocateFixed,
   ArrowLeft,
   ChevronRight,
   Camera,
   Star,
   Download,
   FileText,
+  Pencil,
 } from 'lucide-react'
 
 const poppins = Poppins({
@@ -100,6 +100,7 @@ interface Product {
   imageUrl?: string | null
   unit: string
   price: number
+  availableQuantity?: number
   inventory?: Array<{
     quantity: number
     reservedQuantity: number
@@ -162,6 +163,14 @@ interface DeliveryIssueSummary {
   reason: string
   hasEvidence: boolean
   rawStatus: string
+}
+
+function extractCustomerPayload(payload: any) {
+  if (!payload || typeof payload !== 'object') return null
+  if (payload.customer && typeof payload.customer === 'object') return payload.customer
+  if (payload.data && typeof payload.data === 'object') return payload.data
+  if (payload.user && typeof payload.user === 'object') return payload.user
+  return null
 }
 
 const AddressMapPicker = dynamic(
@@ -423,7 +432,7 @@ export function CustomerPortal() {
       })
       if (!response.ok) throw new Error('Failed to load customer profile')
       const payload = await response.json().catch(() => ({}))
-      const customer = payload?.data
+      const customer = extractCustomerPayload(payload)
       if (!customer) throw new Error('Customer profile is missing')
       hydrateAddressFromProfile(customer)
     } catch (error: any) {
@@ -514,10 +523,19 @@ export function CustomerPortal() {
       const response = await fetch('/api/products?page=1&pageSize=100')
       if (!response.ok) throw new Error('Failed to fetch products')
       const payload = await response.json()
-      const sourceProducts: Product[] = payload?.data || []
+      const sourceProducts: Product[] = Array.isArray(payload?.products)
+        ? payload.products
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : []
       setProducts(
         sourceProducts.filter((p) => {
-          const available = (p.inventory || []).reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
+          if ((p as any)?.isActive === false) return false
+          const explicitAvailable = Number((p as any)?.availableQuantity)
+          if (Number.isFinite(explicitAvailable)) return explicitAvailable > 0
+          const inventory = Array.isArray(p.inventory) ? p.inventory : []
+          if (inventory.length === 0) return true
+          const available = inventory.reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
           return available > 0
         })
       )
@@ -624,8 +642,13 @@ export function CustomerPortal() {
     toast.success('Logged out successfully')
   }
 
-  const getAvailableQty = (product: Product) =>
-    (product.inventory || []).reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
+  const getAvailableQty = (product: Product) => {
+    const explicitAvailable = Number((product as any)?.availableQuantity)
+    if (Number.isFinite(explicitAvailable)) {
+      return Math.max(0, Math.floor(explicitAvailable))
+    }
+    return (product.inventory || []).reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
+  }
 
   const addToCart = (product: Product, requestedQty = 1) => {
     const available = getAvailableQty(product)
@@ -1388,8 +1411,9 @@ export function CustomerPortal() {
       })
       const data = await response.json()
       if (!response.ok || data?.success === false) throw new Error(data?.error || 'Failed to save')
-      if (data?.data) {
-        hydrateAddressFromProfile(data.data)
+      const updatedCustomer = extractCustomerPayload(data)
+      if (updatedCustomer) {
+        hydrateAddressFromProfile(updatedCustomer)
       }
       await loadCustomerProfile()
       toast.success('Address saved successfully')
@@ -1459,6 +1483,8 @@ export function CustomerPortal() {
       const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
       const isCountryLike = (value: string) => /philippines/i.test(String(value || ''))
       const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
+      const isStreetLike = (value: string) =>
+        /\b(street|st\.?|road|rd\.?|avenue|ave\.?|highway|hwy|drive|dr\.?|lane|ln\.?|boulevard|blvd\.?|way|purok\s*\d*)\b/i.test(String(value || ''))
 
       const barangayFromDisplay =
         displayParts.find((part: string) => /^(barangay|brgy\.?)\s+/i.test(part)) ||
@@ -1519,11 +1545,16 @@ export function CustomerPortal() {
         if (isPostalLike(part)) return false
         if (normalizeAddressToken(part) === normalizeAddressToken(province)) return false
         if (city && normalizeAddressToken(part) === normalizeAddressToken(city)) return false
+        if (streetName && normalizeAddressToken(part) === normalizeAddressToken(streetName)) return false
+        if (isStreetLike(part)) return false
         return true
       })
 
       let barangay = String(
         addr.barangay ||
+          addr.suburb ||
+          addr.neighbourhood ||
+          addr.quarter ||
           addr.city_district ||
           addr.village ||
           addr.hamlet ||
@@ -1540,8 +1571,7 @@ export function CustomerPortal() {
       if (!barangay) {
         const likelyBarangay =
           localityTokens.find((token) => /barangay|brgy|poblacion|purok|sitio/i.test(token)) ||
-          localityTokens[1] ||
-          localityTokens[0] ||
+          localityTokens.find((token) => !isStreetLike(token)) ||
           ''
         barangay = String(likelyBarangay || '').trim()
       }
@@ -1563,6 +1593,12 @@ export function CustomerPortal() {
 
       // Avoid putting city value into barangay when reverse geocoder returns coarse data.
       if (barangay && city && normalizeAddressToken(barangay) === normalizeAddressToken(city)) {
+        barangay = ''
+      }
+      if (barangay && streetName && normalizeAddressToken(barangay) === normalizeAddressToken(streetName)) {
+        barangay = ''
+      }
+      if (barangay && isStreetLike(barangay)) {
         barangay = ''
       }
 
@@ -1730,7 +1766,7 @@ export function CustomerPortal() {
         throw new Error(payload?.error || 'Failed to update profile')
       }
 
-      const updatedCustomer = payload?.data
+      const updatedCustomer = extractCustomerPayload(payload)
       if (updatedCustomer) {
         setProfileName(String(updatedCustomer.name || '').trim())
         setProfileEmail(String(updatedCustomer.email || '').trim())
@@ -1893,7 +1929,7 @@ export function CustomerPortal() {
                 <img src="/annshop.png" alt="AnnShop" className="h-full w-full object-cover" />
               </div>
               <div className="leading-tight">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">Shop with ease</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">Ann Ann's Beverages Trading</p>
                 <h1 className="text-[18px] font-black tracking-[-0.01em] text-[#0f3d72]">Ann<span className="text-[#2f9a34]">Shop</span></h1>
               </div>
             </div>
@@ -1995,6 +2031,7 @@ export function CustomerPortal() {
             ) : (
               <div className="grid grid-cols-2 gap-4 px-4 pb-2 pt-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                 {filteredProducts.map((p, index) => {
+                  const availableQty = p ? getAvailableQty(p) : 0
                   return (
                     <Card
                       key={p?.id || `placeholder-${index}`}
@@ -2008,31 +2045,31 @@ export function CustomerPortal() {
                           <img
                             src={getProductImage(p.imageUrl)}
                             alt={p.name}
-                            className="aspect-[11/10] w-full rounded-lg object-contain opacity-30"
+                            className="aspect-[11/10] w-full rounded-lg object-contain"
                           />
                         ) : (
                           <div className="grid aspect-[11/10] w-full place-items-center rounded-lg bg-[#dcebd8]">
                             <Package className="h-16 w-16 text-slate-400/60" />
                           </div>
                         )}
-                        <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                          <Package className="h-16 w-16 text-slate-400/35" />
-                        </div>
                       </div>
 
                       <CardContent className="space-y-1 px-4 pb-4 pt-1">
                         <p className="line-clamp-1 text-[1.05rem] font-medium leading-tight tracking-[-0.01em] text-slate-900">{p?.name || 'Product Name'}</p>
                         <p className="text-[0.98rem] font-medium leading-tight text-slate-500">{p ? formatPeso(p.price || 0) : '$ Price'}</p>
-                        <div className="hidden items-center justify-end pt-0">
+                        <p className="text-xs text-slate-500">{availableQty > 0 ? `${availableQty} available` : 'Out of stock'}</p>
+                        <div className="flex items-center justify-end pt-1">
                           <Button
                             size="sm"
                             className="h-7 rounded-full bg-sky-600 px-3 text-[11px] font-semibold text-white shadow-sm shadow-sky-700/20 transition-all hover:bg-sky-500 hover:shadow-md hover:shadow-sky-700/30"
-                            onClick={() => {
+                            disabled={!p || availableQty <= 0}
+                            onClick={(event) => {
+                              event.stopPropagation()
                               if (p) openAddToCartDialog(p)
                             }}
                           >
                             <ShoppingCart className="mr-1 h-3 w-3" />
-                            Add to Cart
+                            {availableQty > 0 ? 'Add to Cart' : 'Out of Stock'}
                           </Button>
                         </div>
                       </CardContent>
@@ -2045,34 +2082,41 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'cart' && (
-          <section className="-mx-4 -mt-4 bg-white/70 pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-emerald-100/70 md:bg-white/88 md:pb-4 md:shadow-[0_14px_32px_rgba(5,150,105,0.08)] md:backdrop-blur-md">
-            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] border-b border-emerald-100/60 bg-white/90 px-3 py-3 md:static md:rounded-t-[1.6rem]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100" onClick={() => setActiveView('home')}>
-                      <ArrowLeft className="h-4 w-4" />
-                    </Button>
-                    <h2 className="text-lg font-bold tracking-tight text-slate-900">Shopping cart ({cart.length})</h2>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 rounded-full px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                    onClick={() => setIsAddressDialogOpen(true)}
-                  >
-                    Edit
+          <section className="-mx-4 -mt-4 min-h-[calc(100dvh-9.5rem)] bg-[linear-gradient(180deg,#f5f8fc_0%,#ebf3fb_55%,#e9f0f6_100%)] pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-emerald-100/70 md:pb-4 md:shadow-[0_14px_32px_rgba(5,150,105,0.08)] md:backdrop-blur-md">
+            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur md:static md:rounded-t-[1.6rem]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-100" onClick={() => setActiveView('home')}>
+                    <ArrowLeft className="h-4 w-4" />
                   </Button>
+                  <h2 className="text-[1.15rem] font-bold tracking-tight text-slate-900">Shopping cart ({cart.length})</h2>
                 </div>
-                <p className="pl-10 text-xs text-slate-500 truncate">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingProvince || 'Province'}</p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  onClick={() => setIsAddressDialogOpen(true)}
+                  title="Edit delivery address"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
               </div>
+              <div className="mt-2 flex items-start gap-2 pl-10">
+                <MapPin className="mt-0.5 h-4 w-4 text-slate-500" />
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500">Delivery address</p>
+                  <p className="truncate text-sm text-slate-700">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingProvince || 'Province'}</p>
+                </div>
+              </div>
+            </div>
 
-            <div className="space-y-2 px-2 pt-2">
+            <div className="space-y-3 px-3 pt-3">
               {cart.map((item) => {
                 const selected = selectedCartIds.has(item.productId)
                 return (
-                  <Card key={item.productId} className="rounded-2xl border border-emerald-100 bg-white/96 shadow-[0_8px_18px_rgba(5,150,105,0.06)] backdrop-blur-sm">
-                    <CardContent className="p-2">
-                      <div className="flex gap-2">
+                  <Card key={item.productId} className="rounded-3xl border border-white/80 bg-[linear-gradient(120deg,#f6f2e8_0%,#edf5fd_65%,#e9f2fc_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.12)]">
+                    <CardContent className="p-3">
+                      <div className="flex items-center gap-3">
                         <button
                           type="button"
                           onClick={() => {
@@ -2083,26 +2127,28 @@ export function CustomerPortal() {
                               return next
                             })
                           }}
-                          className={`mt-9 h-6 w-6 rounded-full border ${selected ? 'border-emerald-600 bg-emerald-600' : 'border-emerald-200 bg-white'}`}
+                          className={`grid h-6 w-6 place-items-center rounded-full border transition-all ${selected ? 'border-emerald-600 bg-emerald-600 text-white shadow-[0_4px_10px_rgba(5,150,105,0.32)]' : 'border-slate-300 bg-white text-transparent'}`}
                           title="Select item"
-                        />
+                        >
+                          <CheckCircle className="h-3.5 w-3.5" />
+                        </button>
                         <img
                           src={getProductImage(item.imageUrl)}
                           alt={item.name}
-                          className="h-[92px] w-[92px] rounded-xl border border-emerald-100 object-cover bg-white"
+                          className="h-[96px] w-[96px] rounded-2xl border border-white/90 object-cover bg-white shadow-[0_8px_16px_rgba(15,23,42,0.10)]"
                         />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[15px] font-semibold text-slate-900">{item.name}</p>
-                          <p className="mt-1 inline-block max-w-full truncate rounded-full border border-sky-100 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700">{item.unit}</p>
-                          <p className="mt-1 text-[29px] leading-none font-bold text-emerald-700">{formatPeso(item.unitPrice)}</p>
-                          <div className="mt-1 flex items-center justify-between">
-                            <div className="flex items-center rounded-full border border-sky-100 bg-sky-50/70">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="truncate text-[1.05rem] font-semibold text-slate-900">{item.name}</p>
+                          <p className="inline-block max-w-full truncate rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">{item.unit}</p>
+                          <p className="text-[2rem] font-bold leading-none text-emerald-700">{formatPeso(item.unitPrice)}</p>
+                          <div className="pt-0.5">
+                            <div className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50/80 px-1">
                               <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full text-sky-700 hover:bg-sky-100" onClick={() => updateCartQty(item.productId, item.quantity - 1)}>
-                                <Minus className="h-3 w-3" />
+                                <Minus className="h-3.5 w-3.5" />
                               </Button>
-                              <div className="w-7 text-center text-sm font-medium text-slate-800">{item.quantity}</div>
+                              <div className="min-w-[2.2rem] px-1 text-center text-base font-medium text-slate-800">{item.quantity}</div>
                               <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full text-sky-700 hover:bg-sky-100" onClick={() => updateCartQty(item.productId, item.quantity + 1)}>
-                                <Plus className="h-3 w-3" />
+                                <Plus className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                           </div>
@@ -2119,26 +2165,41 @@ export function CustomerPortal() {
             </div>
 
             {cart.length > 0 ? (
-              <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-3 py-2 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200">
-                <div className="flex items-center gap-2">
+              <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200/70 bg-white/95 px-3 py-2 backdrop-blur md:static md:mt-3 md:rounded-b-2xl md:border md:border-slate-200">
+                <div className="flex items-center gap-2 rounded-2xl bg-[#f3efe4] px-2 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
                   <button
                     type="button"
-                    className={`h-6 w-6 rounded-full border ${allCartSelected ? 'border-rose-500 bg-rose-500' : 'border-gray-300 bg-white'}`}
+                    className={`grid h-6 w-6 place-items-center rounded-full border transition-all ${allCartSelected ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}
                     onClick={() => {
                       setSelectedCartIds(allCartSelected ? new Set() : new Set(cart.map((item) => item.productId)))
                     }}
                     title="Select all"
-                  />
-                  <span className="text-sm text-gray-700">All</span>
-                  <div className="ml-auto mr-2 text-xl font-semibold">{formatPeso(selectedSubtotal)}</div>
+                  >
+                    <CheckCircle className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="min-w-0 flex-1 leading-tight">
+                    <p className="text-sm font-medium text-slate-700">All selected</p>
+                    <p className="text-xs text-slate-500">({selectedCount} item{selectedCount > 1 ? 's' : ''})</p>
+                  </div>
+                  <div className="pr-1 text-right leading-tight">
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Sub-total</p>
+                    <p className="text-xl font-bold text-slate-900">{formatPeso(selectedSubtotal)}</p>
+                  </div>
                   {selectedCount > 0 ? (
                     <Button
-                      className="h-11 rounded-xl bg-rose-500 px-7 text-white hover:bg-rose-600"
+                      className="h-11 rounded-2xl bg-gradient-to-r from-rose-600 to-rose-500 px-6 text-white shadow-[0_8px_18px_rgba(244,63,94,0.36)] hover:from-rose-700 hover:to-rose-600"
                       onClick={() => setActiveView('checkout')}
                     >
                       Check out
                     </Button>
-                  ) : null}
+                  ) : (
+                    <Button
+                      disabled
+                      className="h-11 rounded-2xl bg-slate-300 px-6 text-white"
+                    >
+                      Check out
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -2161,7 +2222,7 @@ export function CustomerPortal() {
                 No selected items. Go back to cart and select item(s) to checkout.
               </div>
             ) : (
-              <div className="space-y-3 p-3">
+              <div className="space-y-2 p-2.5 md:space-y-3 md:p-3">
                 <Card className="border-0 shadow-none">
                   <CardContent className="space-y-1 p-4">
                     <div className="flex items-center justify-between">
@@ -2187,7 +2248,7 @@ export function CustomerPortal() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm text-slate-800">{item.name}</p>
                           <p className="mt-1 inline-block max-w-full truncate rounded border bg-gray-50 px-2 py-1 text-xs text-gray-600">{item.unit}</p>
-                          <p className="mt-1 text-xl font-semibold text-rose-600">{formatPeso(item.unitPrice)}</p>
+                          <p className="mt-1 text-xl font-semibold text-emerald-700">{formatPeso(item.unitPrice)}</p>
                           <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
                         </div>
                       </div>
@@ -2195,54 +2256,79 @@ export function CustomerPortal() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-0 shadow-none">
-                  <CardContent className="space-y-3 p-4">
+                <Card className="rounded-2xl border border-slate-200/90 bg-[#f8fafc] shadow-none">
+                  <CardContent className="space-y-2 p-3 md:space-y-2.5 md:p-3.5">
                     <div className="flex items-center justify-between">
-                      <Label className="text-sm font-medium">Payment method</Label>
-                      <p className="text-xs text-gray-500">{paymentMethod}</p>
+                      <Label className="text-[13px] font-semibold text-slate-800 md:text-sm">Payment method</Label>
+                      <p className="text-[9px] font-semibold tracking-[0.08em] text-slate-500 md:text-[10px]">{String(paymentMethod || '').replace(/_/g, ' ')}</p>
                     </div>
                     <div className="grid gap-2">
                       {(['COD', 'GCASH', 'MAYA', 'BANK_TRANSFER'] as PaymentMethod[]).map((m) => (
+                        (() => {
+                          const label = String(m).replace(/_/g, ' ')
+                          const iconBadge =
+                            m === 'COD' ? (
+                              <span className="grid h-6 w-6 place-items-center rounded-lg border border-emerald-200 bg-emerald-50 text-[11px] md:h-7 md:w-7 md:text-xs">💵</span>
+                            ) : m === 'GCASH' ? (
+                              <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-[9px] font-bold text-white md:h-7 md:w-7 md:text-[10px]">G</span>
+                            ) : m === 'MAYA' ? (
+                              <span className="grid h-6 w-6 place-items-center rounded-lg bg-gradient-to-br from-black via-slate-900 to-emerald-600 text-[8px] font-bold text-white md:h-7 md:w-7 md:text-[9px]">M</span>
+                            ) : (
+                              <span className="grid h-6 w-6 place-items-center rounded-lg border border-slate-300 bg-slate-100 text-[11px] md:h-7 md:w-7 md:text-xs">🏦</span>
+                            )
+
+                          return (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setPaymentMethod(m)}
-                          className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                            paymentMethod === m ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-gray-200 bg-white text-slate-700'
+                          className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-[13px] font-medium transition-all md:py-2 md:text-sm ${
+                            paymentMethod === m ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/30'
                           }`}
                         >
-                          <span>{m}</span>
-                          <span className={`h-4 w-4 rounded-full border ${paymentMethod === m ? 'border-rose-500 bg-rose-500' : 'border-gray-300 bg-white'}`} />
+                          <span className="flex items-center gap-2.5">
+                            {iconBadge}
+                            <span>{label}</span>
+                          </span>
+                          <span className={`h-3.5 w-3.5 rounded-full border md:h-4 md:w-4 ${paymentMethod === m ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300 bg-white'}`} />
                         </button>
+                          )
+                        })()
                       ))}
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="border-0 shadow-none">
-                  <CardContent className="space-y-2 p-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Subtotal</span>
-                      <span>{formatPeso(selectedSubtotal)}</span>
+                <Card className="rounded-2xl border border-slate-200/90 bg-[#f8fafc] shadow-none">
+                  <CardContent className="space-y-2 p-3 md:space-y-2.5 md:p-3.5">
+                    <div className="flex items-center justify-between text-[13px] md:text-sm">
+                      <span className="text-slate-600">Subtotal</span>
+                      <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
                     </div>
-                    <div className="h-px bg-gray-100" />
-                    <div className="flex items-center justify-between font-semibold">
+                    <div className="h-px bg-slate-100" />
+                    <div className="flex items-center justify-between text-[15px] font-semibold text-slate-900 md:text-base">
                       <span>Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</span>
-                      <span className="text-rose-600">{formatPeso(selectedSubtotal)}</span>
+                      <span className="text-emerald-600">{formatPeso(selectedSubtotal)}</span>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="border-0 shadow-none">
-                  <CardContent className="space-y-2 p-4">
-                    <Label className="text-sm font-medium">Order note (optional)</Label>
-                    <Textarea placeholder="Add note for delivery" value={notes} onChange={(e) => setNotes(e.target.value)} />
-                    <Label className="text-sm font-medium">Delivery date</Label>
+                <Card className="rounded-2xl border border-slate-200/90 bg-[#f8fafc] shadow-none">
+                  <CardContent className="space-y-2 p-3 md:space-y-2.5 md:p-3.5">
+                    <Label className="text-[13px] font-semibold text-slate-800 md:text-sm">Order note (optional)</Label>
+                    <Textarea
+                      placeholder="Add note for delivery"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className="min-h-[64px] rounded-xl border-slate-200 bg-white text-[13px] text-slate-700 placeholder:text-slate-400 focus-visible:ring-emerald-500 md:min-h-[72px] md:text-sm"
+                    />
+                    <Label className="text-[13px] font-semibold text-slate-800 md:text-sm">Delivery date</Label>
                     <Input
                       type="date"
                       value={deliveryDate}
                       min={new Date().toISOString().split('T')[0]}
                       onChange={e => setDeliveryDate(e.target.value)}
+                      className="h-10 rounded-xl border-slate-200 bg-white text-[13px] text-slate-700 focus-visible:ring-emerald-500 md:h-11 md:text-sm"
                     />
                   </CardContent>
                 </Card>
@@ -2254,7 +2340,7 @@ export function CustomerPortal() {
                 <div className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-gray-500">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
-                    <p className="text-2xl font-semibold text-rose-600">{formatPeso(selectedSubtotal)}</p>
+                    <p className="text-2xl font-semibold text-emerald-700">{formatPeso(selectedSubtotal)}</p>
                   </div>
                   <Button
                     className="h-11 rounded-xl bg-rose-500 px-8 text-white hover:bg-rose-600"
@@ -2685,6 +2771,11 @@ export function CustomerPortal() {
 
       <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
         <DialogContent className="max-w-md">
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+          >
           <DialogHeader>
             <DialogTitle>Edit Profile</DialogTitle>
             <DialogDescription>Update your account details and profile picture.</DialogDescription>
@@ -2755,6 +2846,7 @@ export function CustomerPortal() {
               )}
             </Button>
           </div>
+          </motion.div>
         </DialogContent>
       </Dialog>
 
@@ -2772,6 +2864,11 @@ export function CustomerPortal() {
         }}
       >
         <DialogContent className="max-w-md">
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+          >
           <DialogHeader>
             <DialogTitle>Crop Profile Photo</DialogTitle>
             <DialogDescription>Adjust and confirm before upload.</DialogDescription>
@@ -2836,6 +2933,7 @@ export function CustomerPortal() {
               )}
             </Button>
           </div>
+          </motion.div>
         </DialogContent>
       </Dialog>
 
@@ -2845,7 +2943,11 @@ export function CustomerPortal() {
             <DialogTitle>Edit Address</DialogTitle>
             <DialogDescription>Set your address in Negros Occidental, Philippines.</DialogDescription>
           </DialogHeader>
-
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+          >
           <div className="border-b px-4 py-3 flex items-center justify-between">
             <DialogClose asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -2996,7 +3098,7 @@ export function CustomerPortal() {
                   Pin Address on Map
                 </Label>
                 <Button type="button" variant="outline" size="sm" onClick={useCurrentLocation}>
-                  <LocateFixed className="h-4 w-4 mr-1" />
+                  <MapPin className="h-4 w-4 mr-1" />
                   Use Current Location
                 </Button>
               </div>
@@ -3030,6 +3132,7 @@ export function CustomerPortal() {
               Save
             </Button>
           </div>
+          </motion.div>
         </DialogContent>
       </Dialog>
 
@@ -3040,41 +3143,41 @@ export function CustomerPortal() {
           if (!open) setPendingCartProduct(null)
         }}
       >
-        <DialogContent className="max-w-[280px] p-3">
-          <DialogHeader>
-            <DialogTitle className="text-lg">Add to Cart</DialogTitle>
-            <DialogDescription className="text-xs">
+        <DialogContent className="max-w-[360px] rounded-3xl border border-white/70 bg-white/50 p-4 shadow-[0_22px_56px_rgba(15,23,42,0.24)] backdrop-blur-3xl backdrop-saturate-125 sm:max-w-[540px] sm:p-7">
+          <DialogHeader className="text-center">
+            <DialogTitle className="text-3xl font-bold leading-none tracking-tight text-slate-900 sm:text-5xl">Add to Cart</DialogTitle>
+            <DialogDescription className="pt-1 text-lg text-slate-700 sm:text-[1.75rem]">
               {pendingCartProduct ? `Set quantity for ${pendingCartProduct.name}` : 'Set quantity'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Quantity</Label>
-              <div className="grid grid-cols-[32px_1fr_32px] items-center gap-1.5">
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.24, ease: 'easeOut' }}
+            className="space-y-4 sm:space-y-5"
+          >
+            <div className="space-y-2 sm:space-y-3">
+              <Label className="text-xl font-semibold text-slate-900 sm:text-2xl">Quantity</Label>
+              <div className="flex items-center overflow-hidden rounded-full border border-emerald-100/90 bg-white/95 shadow-[0_8px_20px_rgba(5,150,105,0.12)]">
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-8"
+                  className="h-12 w-12 rounded-none border-r border-emerald-100 text-emerald-700 transition-all hover:bg-emerald-50 active:scale-95 sm:h-14 sm:w-16"
                   onClick={() => adjustPendingCartQty(-1)}
                   disabled={!pendingCartProduct || Number(pendingCartQty || 1) <= 1}
                   aria-label="Decrease quantity"
                 >
-                  <Minus className="h-3.5 w-3.5" />
+                  <Minus className="h-5 w-5 sm:h-6 sm:w-6" />
                 </Button>
-                <Input
-                  type="number"
-                  min={1}
-                  max={pendingCartProduct ? getAvailableQty(pendingCartProduct) : 1}
-                  value={pendingCartQty}
-                  onChange={(e) => setPendingCartQty(e.target.value)}
-                  className="h-9"
-                />
+                <div className="flex h-12 flex-1 items-center justify-center text-3xl font-semibold leading-none text-slate-900 sm:h-14 sm:text-4xl">
+                  {Math.max(1, Math.floor(Number(pendingCartQty || 1) || 1))}
+                </div>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-8"
+                  className="h-12 w-12 rounded-none border-l border-emerald-100 text-emerald-700 transition-all hover:bg-emerald-50 active:scale-95 sm:h-14 sm:w-16"
                   onClick={() => adjustPendingCartQty(1)}
                   disabled={
                     !pendingCartProduct ||
@@ -3082,18 +3185,17 @@ export function CustomerPortal() {
                   }
                   aria-label="Increase quantity"
                 >
-                  <Plus className="h-3.5 w-3.5" />
+                  <Plus className="h-5 w-5 sm:h-6 sm:w-6" />
                 </Button>
               </div>
-              <p className="text-[11px] text-gray-500">
+              <p className="text-base text-emerald-700/70 sm:text-xl">
                 Max available: {pendingCartProduct ? getAvailableQty(pendingCartProduct) : 0}
               </p>
             </div>
-            <div className="flex justify-end gap-1.5 pt-1">
+            <div className="flex justify-end gap-3 pt-1">
               <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs"
+                variant="ghost"
+                className="h-10 rounded-xl px-4 text-xl font-medium text-slate-700 hover:bg-emerald-50 sm:h-12 sm:px-5 sm:text-2xl"
                 onClick={() => {
                   setIsAddToCartDialogOpen(false)
                   setPendingCartProduct(null)
@@ -3101,9 +3203,13 @@ export function CustomerPortal() {
               >
                 Cancel
               </Button>
-              <Button size="sm" className="h-8 px-3 text-xs" onClick={confirmAddToCart}>Add to Cart</Button>
+              <motion.div whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.02 }}>
+                <Button className="h-10 rounded-xl bg-emerald-600 px-5 text-xl font-semibold text-white shadow-[0_10px_24px_rgba(5,150,105,0.34)] transition-all hover:bg-emerald-500 sm:h-12 sm:px-6 sm:text-2xl" onClick={confirmAddToCart}>
+                  Add to Cart
+                </Button>
+              </motion.div>
             </div>
-          </div>
+          </motion.div>
         </DialogContent>
       </Dialog>
 
@@ -3117,107 +3223,105 @@ export function CustomerPortal() {
         }}
       >
         {selectedOrder && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{selectedOrder.orderNumber}</DialogTitle>
-              <DialogDescription>
-                Status: <span className="font-medium text-gray-900">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</span>
-              </DialogDescription>
-            </DialogHeader>
+          <DialogContent className="max-w-[360px] rounded-3xl border border-white/70 bg-white/55 p-4 shadow-[0_22px_56px_rgba(15,23,42,0.24)] backdrop-blur-3xl backdrop-saturate-125 sm:max-w-[420px]">
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <DialogHeader className="space-y-0.5 text-center">
+                <DialogTitle className="text-[1.9rem] font-bold tracking-tight text-slate-900">{selectedOrder.orderNumber}</DialogTitle>
+                <DialogDescription className="text-[1.05rem] text-slate-700">
+                  Status: <span className="font-semibold uppercase text-[#0f4f8f]">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</span>
+                </DialogDescription>
+              </DialogHeader>
 
-            <div className="space-y-3">
-              {[...orderStages].reverse().map((stage) => {
-                const stageIndex = orderStages.indexOf(stage)
-                const currentIndex = getOrderStageIndex(selectedOrder.status, selectedOrder.paymentStatus)
-                const isCompleted = stageIndex <= currentIndex
-                const isCurrent = stageIndex === currentIndex
-
-                return (
-                  <div key={stage} className="flex items-center gap-3">
-                    <div
-                      className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold ${
-                        isCompleted ? 'bg-teal-700 text-white' : 'bg-gray-200 text-gray-500'
-                      }`}
-                    >
-                      {isCompleted ? <CheckCircle className="h-4 w-4" /> : stageIndex + 1}
+              <div className="relative mt-4 space-y-2.5 pl-1">
+                {orderStages.map((stage, idx) => {
+                  const currentIndex = getOrderStageIndex(selectedOrder.status, selectedOrder.paymentStatus)
+                  const isCompleted = idx <= currentIndex
+                  const isCurrent = idx === currentIndex
+                  const stageLabel = stage === 'Loaded' ? 'Loaded' : stage
+                  return (
+                    <div key={stage} className="relative flex items-center gap-3">
+                      {idx < orderStages.length - 1 ? (
+                        <span className={`absolute left-3 top-6 h-8 w-[2px] ${isCompleted ? 'bg-emerald-600' : 'bg-slate-300'}`} />
+                      ) : null}
+                      <span
+                        className={`relative z-[1] grid h-6 w-6 place-items-center rounded-full text-xs font-semibold ${
+                          isCompleted ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {isCompleted ? <CheckCircle className="h-4 w-4" /> : idx + 1}
+                      </span>
+                      <p className={`text-[1.05rem] ${isCurrent ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>{stageLabel}</p>
                     </div>
-                    <p className={`text-sm ${isCurrent ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>{stage}</p>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
 
-            <div className="space-y-2">
-              {selectedOrder.items?.map((item) => (
-                <div key={item.id} className="flex items-center justify-between text-sm py-1">
-                  <div className="flex items-center gap-2">
-                    <img
-                      src={getProductImage(item.product.imageUrl)}
-                      alt={item.product.name}
-                      className="h-9 w-9 rounded-md border border-cyan-100 object-cover bg-white"
-                    />
-                    <span>{item.product.name} x {item.quantity}</span>
+              <div className="mt-4 rounded-xl border border-slate-200/80 bg-white/90 p-2.5">
+                {selectedOrder.items?.slice(0, 1).map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <img
+                        src={getProductImage(item.product.imageUrl)}
+                        alt={item.product.name}
+                        className="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white"
+                      />
+                      <span className="truncate text-[1rem] text-slate-900">{item.product.name} x {item.quantity}</span>
+                    </div>
+                    <span className="shrink-0 text-[1rem] font-medium text-slate-900">{formatPeso(item.unitPrice * item.quantity)}</span>
                   </div>
-                  <span>{formatPeso(item.unitPrice * item.quantity)}</span>
+                ))}
+              </div>
+
+              <p className="mt-3 text-[1.15rem] font-semibold text-slate-900">Total: {formatPeso(selectedOrder.totalAmount)}</p>
+
+              {deliveryIssuesByOrderId[selectedOrder.id] ? (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {deliveryIssuesByOrderId[selectedOrder.id].label}: {deliveryIssuesByOrderId[selectedOrder.id].reason}
                 </div>
-              ))}
-              <p className="font-semibold pt-1">Total: {formatPeso(selectedOrder.totalAmount)}</p>
-            </div>
+              ) : null}
 
-            {isOrderDelivered(selectedOrder) ? (
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsReceiptDialogOpen(true)}
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Receipt
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {isOrderTrackable(selectedOrder.status) && String(selectedOrder.paymentStatus || '').toLowerCase() !== 'pending_approval' ? (
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-xl border-slate-300 bg-white/70 text-slate-600 hover:bg-slate-100"
+                    onClick={() => {
+                      setSelectedOrder(null)
+                      openTrackView(selectedOrder.id)
+                    }}
+                  >
+                    Track
+                  </Button>
+                ) : isOrderCancellable(selectedOrder.status, selectedOrder.paymentStatus) ? (
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-xl border-red-200 bg-white/70 text-red-600 hover:bg-red-50"
+                    onClick={() => void cancelOrder(selectedOrder.id)}
+                  >
+                    Cancel
+                  </Button>
+                ) : isOrderDelivered(selectedOrder) ? (
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-xl border-slate-300 bg-white/70 text-slate-700 hover:bg-slate-100"
+                    onClick={() => setIsReceiptDialogOpen(true)}
+                  >
+                    Receipt
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="h-11 rounded-xl border-slate-300 bg-white/60 text-slate-400" disabled>
+                    Not Available
+                  </Button>
+                )}
+                <Button className="h-11 rounded-xl bg-[#174f97] text-white shadow-[0_8px_18px_rgba(23,79,151,0.35)] hover:bg-[#123f79]" onClick={() => setSelectedOrder(null)}>
+                  Close
                 </Button>
               </div>
-            ) : null}
-
-            {deliveryIssuesByOrderId[selectedOrder.id] ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
-                <p className="text-sm font-semibold text-amber-900">
-                  Replacement: {deliveryIssuesByOrderId[selectedOrder.id].label}
-                </p>
-                <p className="text-xs text-amber-800">{deliveryIssuesByOrderId[selectedOrder.id].reason}</p>
-                <p className="text-xs text-amber-700">
-                  Evidence: {deliveryIssuesByOrderId[selectedOrder.id].hasEvidence ? 'Attached by driver' : 'No photo attached'}
-                </p>
-              </div>
-            ) : null}
-
-            <div className="grid grid-cols-2 gap-2">
-              {isOrderTrackable(selectedOrder.status) && String(selectedOrder.paymentStatus || '').toLowerCase() !== 'pending_approval' ? (
-                <Button
-                  className="bg-teal-700 text-white hover:bg-teal-800"
-                  onClick={() => {
-                    setSelectedOrder(null)
-                    openTrackView(selectedOrder.id)
-                  }}
-                >
-                  <Truck className="h-4 w-4 mr-2" />
-                  Track Order
-                </Button>
-              ) : isOrderCancellable(selectedOrder.status, selectedOrder.paymentStatus) ? (
-                <Button
-                  variant="outline"
-                  className="border-red-200 text-red-600 hover:bg-red-50"
-                  onClick={() => void cancelOrder(selectedOrder.id)}
-                >
-                  Cancel Order
-                </Button>
-              ) : (
-                <Button variant="outline" disabled>
-                  Not Available
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => setSelectedOrder(null)}>
-                Close
-              </Button>
-            </div>
+            </motion.div>
           </DialogContent>
         )}
       </Dialog>
@@ -3225,7 +3329,12 @@ export function CustomerPortal() {
       <Dialog open={Boolean(selectedOrder) && isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
         {selectedOrder && isOrderDelivered(selectedOrder) ? (
           <DialogContent showCloseButton={false} className="w-[95vw] max-w-sm h-[90vh] p-0 overflow-hidden">
-            <div className="flex h-full flex-col bg-slate-100">
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="flex h-full flex-col bg-slate-100"
+            >
               <div className="flex items-center border-b bg-white px-3 py-3">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsReceiptDialogOpen(false)}>
                   <ArrowLeft className="h-5 w-5" />
@@ -3314,7 +3423,7 @@ export function CustomerPortal() {
                   Download
                 </Button>
               </div>
-            </div>
+            </motion.div>
           </DialogContent>
         ) : null}
       </Dialog>
@@ -3322,6 +3431,11 @@ export function CustomerPortal() {
       <Dialog open={!!ratingDialogOrder} onOpenChange={(open) => !open && setRatingDialogOrder(null)}>
         {ratingDialogOrder && (
           <DialogContent>
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
             <DialogHeader>
               <DialogTitle>Rate Order {ratingDialogOrder.orderNumber}</DialogTitle>
               <DialogDescription>Share your delivery experience.</DialogDescription>
@@ -3364,6 +3478,7 @@ export function CustomerPortal() {
                 </Button>
               </div>
             </div>
+            </motion.div>
           </DialogContent>
         )}
       </Dialog>

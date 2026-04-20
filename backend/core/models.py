@@ -467,6 +467,27 @@ class TripDropPoint(models.Model):
         constraints = [models.UniqueConstraint(fields=["trip", "sequence"], name="unique_trip_sequence")]
 
 
+class SavedRouteDraft(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    date = models.DateField()
+    warehouse_id = models.CharField(max_length=25)
+    warehouse_name = models.CharField(max_length=255)
+    city = models.CharField(max_length=100)
+    total_distance_km = models.FloatField(default=0)
+    order_ids = models.JSONField(default=list)
+    orders_json = models.JSONField(default=list)
+    created_by_user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name="saved_route_drafts")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "SavedRouteDraft"
+        indexes = [
+            models.Index(fields=["date", "warehouse_id"]),
+            models.Index(fields=["created_by_user", "created_at"]),
+        ]
+
+
 class LocationLog(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name="location_logs")
