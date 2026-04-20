@@ -313,6 +313,19 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
             if dp.order_id and dp.order:
                 row["orderStatus"] = dp.order.status
                 row["orderNumber"] = dp.order.order_number
+
+                # Backfill coordinates for old trips where TripDropPoint lat/lng were saved as null.
+                if _to_float_or_none(row.get("latitude")) is None or _to_float_or_none(row.get("longitude")) is None:
+                    logistics = getattr(dp.order, "logistics", None)
+                    fallback_lat = _to_float_or_none(
+                        (logistics.shipping_latitude if logistics else None) or getattr(dp.order.customer, "latitude", None)
+                    )
+                    fallback_lng = _to_float_or_none(
+                        (logistics.shipping_longitude if logistics else None) or getattr(dp.order.customer, "longitude", None)
+                    )
+                    if fallback_lat is not None and fallback_lng is not None:
+                        row["latitude"] = fallback_lat
+                        row["longitude"] = fallback_lng
             drop_points.append(row)
         data["dropPoints"] = drop_points
     return data
@@ -1891,7 +1904,22 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         if not order:
             continue
         log = OrderLogistics.objects.filter(order=order).first()
-        TripDropPoint.objects.create(trip=trip, order=order, sequence=seq, location_name=(log.shipping_name if log else f"Order {order.order_number}"), address=(log.shipping_address if log else "Address"), city=(log.shipping_city if log else "City"), province=(log.shipping_province if log else "Province"), zip_code=(log.shipping_zip_code if log else "00000"), latitude=(log.shipping_latitude if log else None), longitude=(log.shipping_longitude if log else None), contact_name=(log.shipping_name if log else None), contact_phone=(log.shipping_phone if log else None))
+        drop_latitude = _to_float_or_none((log.shipping_latitude if log else None) or getattr(order.customer, "latitude", None))
+        drop_longitude = _to_float_or_none((log.shipping_longitude if log else None) or getattr(order.customer, "longitude", None))
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=order,
+            sequence=seq,
+            location_name=(log.shipping_name if log else f"Order {order.order_number}"),
+            address=(log.shipping_address if log else "Address"),
+            city=(log.shipping_city if log else "City"),
+            province=(log.shipping_province if log else "Province"),
+            zip_code=(log.shipping_zip_code if log else "00000"),
+            latitude=drop_latitude,
+            longitude=drop_longitude,
+            contact_name=(log.shipping_name if log else None),
+            contact_phone=(log.shipping_phone if log else None),
+        )
         seq += 1
     trip.total_drop_points = trip.drop_points.count()
     trip.save(update_fields=["total_drop_points", "updated_at"])

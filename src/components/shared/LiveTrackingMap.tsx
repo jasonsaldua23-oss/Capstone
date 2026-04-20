@@ -25,7 +25,7 @@ export type DriverLocation = {
   status: string;
   markerColor?: string;
   markerLabel?: string;
-  markerType?: 'pin' | 'dot' | 'default';
+  markerType?: 'pin' | 'dot' | 'truck' | 'default';
 };
 
 export type LiveRouteLine = {
@@ -61,6 +61,7 @@ function MapBoundsGuard({ enabled }: { enabled: boolean }) {
 }
 
 const pinIconCache = new Map<string, L.Icon>();
+const truckIconCache = new Map<string, L.Icon>();
 
 function getPinIcon(color: string) {
   const normalized = color || '#16a34a';
@@ -91,6 +92,33 @@ function getPinIcon(color: string) {
   });
 
   pinIconCache.set(cacheKey, icon);
+  return icon;
+}
+
+function getTruckIcon(color: string) {
+  const normalized = color || '#1d4ed8';
+  const cacheKey = normalized.toLowerCase();
+  const cached = truckIconCache.get(cacheKey);
+  if (cached) return cached;
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+      <circle cx="26" cy="26" r="24" fill="${normalized}" fill-opacity="0.98" stroke="rgba(0,0,0,0.32)" stroke-width="1.4"/>
+      <path d="M12 22h18v8h4.3l3.2 4v4h-2.8a3.9 3.9 0 0 1-7.8 0h-8.1a3.9 3.9 0 0 1-7.8 0H12z" fill="#ffffff"/>
+      <rect x="30.2" y="24.2" width="6.6" height="4.9" rx="1.1" fill="#ffffff"/>
+      <circle cx="15.9" cy="38" r="1.9" fill="${normalized}"/>
+      <circle cx="29.8" cy="38" r="1.9" fill="${normalized}"/>
+    </svg>
+  `.trim();
+
+  const icon = L.icon({
+    iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -16],
+  });
+
+  truckIconCache.set(cacheKey, icon);
   return icon;
 }
 
@@ -136,7 +164,17 @@ export default function LiveTrackingMap({
         )}
         
         {locations.map((loc) => (
-          loc.markerType === 'pin' ? (
+          loc.markerType === 'truck' ? (
+            <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={getTruckIcon(loc.markerColor || '#1d4ed8')} zIndexOffset={1000}>
+              <Popup>
+                <div className="text-sm">
+                  <p className="font-bold text-base mb-1">{loc.driverName}</p>
+                  <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
+                  <p className="text-gray-600">Status: <span className="capitalize">{loc.status.toLowerCase()}</span></p>
+                </div>
+              </Popup>
+            </Marker>
+          ) : loc.markerType === 'pin' ? (
             <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={getPinIcon(loc.markerColor || '#16a34a')}>
               <Popup>
                 <div className="text-sm">

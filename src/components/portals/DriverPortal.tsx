@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Poppins } from 'next/font/google'
+import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,6 +50,10 @@ import {
 const poppins = Poppins({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700', '800'],
+})
+
+const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
+  ssr: false,
 })
 
 interface Trip {
@@ -837,6 +842,8 @@ function TripDetailView({
   const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
   const [isSpareReplacing, setIsSpareReplacing] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [roadRoutePoints, setRoadRoutePoints] = useState<[number, number][]>([])
+  const [previewDriverLocation, setPreviewDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const spareGalleryInputRef = useRef<HTMLInputElement | null>(null)
@@ -1349,7 +1356,152 @@ function TripDetailView({
     setActiveDropPoint(nextActionable)
   }, [trip.id, trip.dropPoints])
 
+  useEffect(() => {
+    if (currentLocation?.lat && currentLocation?.lng) {
+      setPreviewDriverLocation({ lat: currentLocation.lat, lng: currentLocation.lng })
+      return
+    }
+    if (!navigator.geolocation) return
+
+    let cancelled = false
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (cancelled) return
+        const lat = Number(position.coords.latitude)
+        const lng = Number(position.coords.longitude)
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setPreviewDriverLocation({ lat, lng })
+        }
+      },
+      () => {
+        // Best effort only for map preview marker.
+      },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+    )
+
+    return () => {
+      cancelled = true
+    }
+  }, [trip.id, currentLocation?.lat, currentLocation?.lng])
+
   const cameraPermissionSteps = getCameraPermissionSteps()
+  const toCoordinate = (value: unknown) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  const sortedDropPoints = [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)
+  const mappableDropPoints = sortedDropPoints
+    .map((point) => {
+      const latitude = toCoordinate(point.latitude)
+      const longitude = toCoordinate(point.longitude)
+      return {
+        ...point,
+        latitude,
+        longitude,
+      }
+    })
+    .filter((point) => point.latitude !== null && point.longitude !== null)
+  const firstStopLocation = mappableDropPoints[0]
+  const effectiveDriverLocation = currentLocation || previewDriverLocation
+  const driverLocationMarker = (() => {
+    const lat = toCoordinate(effectiveDriverLocation?.lat ?? firstStopLocation?.latitude)
+    const lng = toCoordinate(effectiveDriverLocation?.lng ?? firstStopLocation?.longitude)
+    if (lat === null || lng === null) return null
+    return {
+      id: `driver-${trip.id}`,
+      driverName: effectiveDriverLocation ? 'You (Driver)' : 'Driver (Waiting for GPS)',
+      vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
+      lat,
+      lng,
+      status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
+      markerLabel: effectiveDriverLocation ? 'Current location' : 'Using first stop until GPS updates',
+      markerType: 'truck' as const,
+      markerColor: '#1d4ed8',
+    }
+  })()
+
+  const dropPointMapLocations = mappableDropPoints.map((point) => ({
+    id: point.id,
+    driverName: point.locationName || `Stop ${point.sequence}`,
+    vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
+    lat: point.latitude as number,
+    lng: point.longitude as number,
+    status: point.status || 'PENDING',
+    markerLabel: `${point.sequence}. ${point.address || point.city || 'Drop Point'}`,
+    markerType: 'pin' as const,
+  }))
+
+  const mapLocations = driverLocationMarker ? [driverLocationMarker, ...dropPointMapLocations] : dropPointMapLocations
+  const routeWaypoints = mapLocations.map((point) => ({ lat: point.lat, lng: point.lng }))
+  const routeWaypointsKey = routeWaypoints
+    .map((point) => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`)
+    .join('|')
+
+  useEffect(() => {
+    const uniqueWaypoints = routeWaypoints.filter((point, index, list) => {
+      if (index === 0) return true
+      const prev = list[index - 1]
+      return !(Math.abs(point.lat - prev.lat) < 0.000001 && Math.abs(point.lng - prev.lng) < 0.000001)
+    })
+
+    if (uniqueWaypoints.length < 2) {
+      setRoadRoutePoints([])
+      return
+    }
+
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 12000)
+
+    const run = async () => {
+      try {
+        const coordinates = uniqueWaypoints
+          .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
+          .join(';')
+
+        const response = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
+          { signal: controller.signal }
+        )
+        const payload = await response.json().catch(() => ({}))
+        const coords = payload?.routes?.[0]?.geometry?.coordinates
+        if (!response.ok || !Array.isArray(coords) || coords.length < 2) {
+          setRoadRoutePoints([])
+          return
+        }
+        const points = coords
+          .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
+          .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+        setRoadRoutePoints(points.length > 1 ? points : [])
+      } catch {
+        setRoadRoutePoints([])
+      }
+    }
+
+    void run()
+
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [trip.id, routeWaypointsKey])
+
+  const fallbackRoutePoints = routeWaypoints.map((point) => [point.lat, point.lng] as [number, number])
+  const routeLinePoints = roadRoutePoints.length > 1 ? roadRoutePoints : fallbackRoutePoints
+  const mapRouteLines = routeLinePoints.length > 1
+    ? [
+        {
+          id: `trip-${trip.id}-route`,
+          points: routeLinePoints,
+          color: '#2563eb',
+          label: `${trip.tripNumber} route`,
+        },
+      ]
+    : []
+  const mapCenter = (driverLocationMarker
+    ? [driverLocationMarker.lat, driverLocationMarker.lng]
+    : mapLocations[0]
+    ? [mapLocations[0].lat, mapLocations[0].lng]
+    : [10.6765, 122.9511]) as [number, number]
 
   return (
     <div>
@@ -1401,6 +1553,24 @@ function TripDetailView({
           </Button>
         </div>
       )}
+
+      {/* Route Map */}
+      <div className="p-4 pt-0">
+        <h3 className="font-semibold text-slate-900">Route Map</h3>
+        <p className="mb-3 text-xs text-slate-500">Showing only your assigned trip route.</p>
+        {mapLocations.length === 0 ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
+            No map data for this trip yet. Add delivery coordinates to order shipping addresses.
+          </div>
+        ) : (
+          <LiveTrackingMap
+            locations={mapLocations}
+            routeLines={mapRouteLines}
+            center={mapCenter}
+            zoom={13}
+          />
+        )}
+      </div>
 
       {/* Drop Points List */}
       <div className="p-4">

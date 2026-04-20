@@ -1525,12 +1525,12 @@ function TripsView() {
 
     setCreatingTripFromRoute(true)
     try {
-      const response = await fetch('/api/trips/route-plan', {
+      const response = await fetch('/api/trips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: selectedSavedRoute.date,
-          city: selectedSavedRoute.city,
+          plannedStartAt: selectedSavedRoute.date,
+          status: 'PLANNED',
           warehouseId: selectedSavedRoute.warehouseId,
           driverId: selectedRouteDriverId,
           vehicleId: selectedDriverAssignedVehicle.id,
