@@ -12,13 +12,15 @@ export async function normalizeLegacyOrderStatuses() {
         UPDATE "Order"
         SET "status" = CASE
           WHEN UPPER(CAST("status" AS TEXT)) = 'FAILED_DELIVERY' THEN 'CANCELLED'
-          WHEN UPPER(CAST("status" AS TEXT)) = 'UNAPPROVED' THEN 'PROCESSING'
-          WHEN UPPER(CAST("status" AS TEXT)) = 'CONFIRMED' THEN 'PROCESSING'
-          WHEN UPPER(CAST("status" AS TEXT)) = 'READY_FOR_PICKUP' THEN 'PACKED'
-          WHEN UPPER(CAST("status" AS TEXT)) = 'IN_TRANSIT' THEN 'DISPATCHED'
+          WHEN UPPER(CAST("status" AS TEXT)) = 'UNAPPROVED' THEN 'PREPARING'
+          WHEN UPPER(CAST("status" AS TEXT)) = 'PROCESSING' THEN 'PREPARING'
+          WHEN UPPER(CAST("status" AS TEXT)) = 'PACKED' THEN 'PREPARING'
+          WHEN UPPER(CAST("status" AS TEXT)) = 'READY_FOR_PICKUP' THEN 'PREPARING'
+          WHEN UPPER(CAST("status" AS TEXT)) = 'IN_TRANSIT' THEN 'OUT_FOR_DELIVERY'
+          WHEN UPPER(CAST("status" AS TEXT)) = 'DISPATCHED' THEN 'OUT_FOR_DELIVERY'
           ELSE "status"
         END
-        WHERE UPPER(CAST("status" AS TEXT)) IN ('FAILED_DELIVERY', 'UNAPPROVED', 'CONFIRMED', 'READY_FOR_PICKUP', 'IN_TRANSIT')
+        WHERE UPPER(CAST("status" AS TEXT)) IN ('FAILED_DELIVERY', 'UNAPPROVED', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'IN_TRANSIT', 'DISPATCHED')
       `
       hasNormalizedLegacyStatuses = true
     })().finally(() => {

@@ -1,10 +1,11 @@
-﻿
+
 "use client";
 
 
 import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { useAuth } from '@/app/page';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -27,7 +28,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil } from 'lucide-react';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
-import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar } from 'recharts';
+import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer } from 'recharts';
 import type { DashboardStats } from '@/types';
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync';
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
@@ -157,6 +158,213 @@ function formatDayKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
+function toIsoDateTime(value: unknown) {
+  if (!value) return null
+  const date = new Date(String(value))
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
+function formatDateTime(value: unknown) {
+  const iso = toIsoDateTime(value)
+  if (!iso) return 'N/A'
+  return new Date(iso).toLocaleString()
+}
+
+function formatDayLabel(value: unknown) {
+  const iso = toIsoDateTime(value)
+  if (!iso) return 'Unknown'
+  const date = new Date(iso)
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+function withinRange(value: unknown, startAt: Date) {
+  const iso = toIsoDateTime(value)
+  if (!iso) return false
+  return new Date(iso).getTime() >= startAt.getTime()
+}
+
+function toCsvValue(value: unknown) {
+  if (value === null || value === undefined) return ''
+  const normalized = String(value).replace(/\r?\n/g, ' ').replace(/"/g, '""')
+  return `"${normalized}"`
+}
+
+function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
+  if (!rows.length) {
+    toast.error(`No data to export for ${filename}`)
+    return
+  }
+  const headers = Object.keys(rows[0])
+  const csvLines = [headers.join(',')]
+  rows.forEach((row) => {
+    csvLines.push(headers.map((header) => toCsvValue(row[header])).join(','))
+  })
+
+  const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function downloadPdf(
+  filename: string,
+  title: string,
+  rows: Array<Record<string, unknown>>,
+  options?: { companyName?: string; subtitle?: string; preparedBy?: string }
+) {
+  if (!rows.length) {
+    toast.error(`No data to export for ${filename}`)
+    return
+  }
+
+  const pdfDoc = await PDFDocument.create()
+  const page = pdfDoc.addPage([842, 595])
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+
+  const companyName = options?.companyName || "Ann Ann's Beverages Trading"
+  const subtitle = options?.subtitle || 'Logistics Management System'
+  const preparedBy = options?.preparedBy || 'System Administrator'
+
+  const margin = 28
+  const usableWidth = 842 - margin * 2
+  const lineHeight = 14
+  const maxRows = Math.min(rows.length, 180)
+  const headers = Object.keys(rows[0]).slice(0, 8)
+  const colWidth = usableWidth / Math.max(1, headers.length)
+
+  let y = 560
+  page.drawText(companyName, {
+    x: margin,
+    y,
+    size: 16,
+    font: boldFont,
+    color: rgb(0.08, 0.08, 0.08),
+  })
+  y -= 16
+  page.drawText(subtitle, {
+    x: margin,
+    y,
+    size: 10,
+    font,
+    color: rgb(0.25, 0.25, 0.25),
+  })
+  y -= 18
+  page.drawText(title, {
+    x: margin,
+    y,
+    size: 14,
+    font: boldFont,
+    color: rgb(0.1, 0.1, 0.1),
+  })
+  y -= 14
+  page.drawText(`Generated: ${new Date().toLocaleString()} | Prepared by: ${preparedBy}`, {
+    x: margin,
+    y,
+    size: 9,
+    font,
+    color: rgb(0.35, 0.35, 0.35),
+  })
+  y -= 18
+
+  headers.forEach((header, index) => {
+    page.drawText(header, {
+      x: margin + index * colWidth,
+      y,
+      size: 9,
+      font: boldFont,
+      color: rgb(0.15, 0.15, 0.15),
+      maxWidth: colWidth - 6,
+    })
+  })
+  y -= lineHeight
+
+  for (let i = 0; i < maxRows; i += 1) {
+    if (y < 30) {
+      const nextPage = pdfDoc.addPage([842, 595])
+      y = 560
+      headers.forEach((header, index) => {
+        nextPage.drawText(header, {
+          x: margin + index * colWidth,
+          y,
+          size: 9,
+          font: boldFont,
+          color: rgb(0.15, 0.15, 0.15),
+          maxWidth: colWidth - 6,
+        })
+      })
+      y -= lineHeight
+      const row = rows[i]
+      headers.forEach((header, index) => {
+        const value = String(row[header] ?? '')
+        nextPage.drawText(value, {
+          x: margin + index * colWidth,
+          y,
+          size: 8,
+          font,
+          color: rgb(0.25, 0.25, 0.25),
+          maxWidth: colWidth - 6,
+        })
+      })
+      y -= lineHeight
+      continue
+    }
+
+    const row = rows[i]
+    headers.forEach((header, index) => {
+      const value = String(row[header] ?? '')
+      page.drawText(value, {
+        x: margin + index * colWidth,
+        y,
+        size: 8,
+        font,
+        color: rgb(0.25, 0.25, 0.25),
+        maxWidth: colWidth - 6,
+      })
+    })
+    y -= lineHeight
+  }
+
+  page.drawText('Prepared by: ____________________', {
+    x: margin,
+    y: 26,
+    size: 9,
+    font,
+    color: rgb(0.25, 0.25, 0.25),
+  })
+  page.drawText('Reviewed by: ____________________', {
+    x: margin + 240,
+    y: 26,
+    size: 9,
+    font,
+    color: rgb(0.25, 0.25, 0.25),
+  })
+  page.drawText('Approved by: ____________________', {
+    x: margin + 480,
+    y: 26,
+    size: 9,
+    font,
+    color: rgb(0.25, 0.25, 0.25),
+  })
+
+  const bytes = await pdfDoc.save()
+  const blob = new Blob([bytes], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 async function safeFetchJson(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -251,8 +459,11 @@ export function AdminPortal() {
     fetchDashboardStats()
   }, [])
 
-  const fetchNotifications = async () => {
-    setNotificationsLoading(true)
+  const fetchNotifications = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false
+    if (!silent) {
+      setNotificationsLoading(true)
+    }
     try {
       const response = await fetch('/api/notifications', { cache: 'no-store' })
       if (!response.ok) return
@@ -261,10 +472,19 @@ export function AdminPortal() {
       const list = Array.isArray(payload?.notifications) ? payload.notifications : []
       setNotifications(list)
       setUnreadNotifications(Number(payload?.unreadCount || 0))
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error)
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      const isTransientFetchFailure =
+        message.includes('Failed to fetch') ||
+        message.includes('NetworkError') ||
+        error?.name === 'AbortError'
+      if (!isTransientFetchFailure) {
+        console.error('Failed to fetch notifications:', error)
+      }
     } finally {
-      setNotificationsLoading(false)
+      if (!silent) {
+        setNotificationsLoading(false)
+      }
     }
   }
 
@@ -292,9 +512,9 @@ export function AdminPortal() {
   }
 
   useEffect(() => {
-    fetchNotifications()
+    void fetchNotifications({ silent: true })
     const interval = setInterval(() => {
-      fetchNotifications()
+      void fetchNotifications({ silent: true })
     }, 60000)
 
     return () => clearInterval(interval)
@@ -842,6 +1062,19 @@ function OrdersView() {
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
+  const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false)
+  const [dispatchForm, setDispatchForm] = useState({
+    itemsVerified: false,
+    quantityVerified: false,
+    packagingVerified: false,
+    vehicleAssigned: false,
+    driverAssigned: false,
+    signoffName: '',
+    shortLoadQty: 0,
+    damagedOnLoadingQty: 0,
+    holdReason: '',
+    exceptionNotes: '',
+  })
 
   useEffect(() => {
     let isMounted = true
@@ -860,6 +1093,12 @@ function OrdersView() {
           clearTabAuthToken()
           response = await requestOrders()
           data = await response.json().catch(() => ({}))
+          if (response.status === 401 || response.status === 403) {
+            if (isMounted) {
+              setOrders([])
+            }
+            return
+          }
         }
 
         if (!response.ok || data?.success === false) {
@@ -935,9 +1174,38 @@ function OrdersView() {
       return 'PENDING'
     }
     const raw = String(status || '').toUpperCase()
-    if (raw === 'PACKED') return 'LOADED'
-    if (raw === 'DISPATCHED') return 'OUT FOR DELIVERY'
+    if (['PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(raw)) return 'PREPARING'
+    if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
+    if (raw === 'FAILED_DELIVERY') return 'CANCELLED'
     return raw.replace(/_/g, ' ')
+  }
+
+  const formatWarehouseStage = (stage: string | null | undefined) => {
+    const value = String(stage || 'READY_TO_LOAD').toUpperCase()
+    return value.replace(/_/g, ' ')
+  }
+
+  const mergeOrderState = (orderId: string, updatedOrder: any, fallbackStatus?: string) => {
+    setOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId
+          ? {
+              ...order,
+              ...(updatedOrder || {}),
+              status: updatedOrder?.status || fallbackStatus || order.status,
+            }
+          : order
+      )
+    )
+    setSelectedOrder((prev) =>
+      prev && prev.id === orderId
+        ? {
+            ...prev,
+            ...(updatedOrder || {}),
+            status: updatedOrder?.status || fallbackStatus || prev.status,
+          }
+        : prev
+    )
   }
 
   const formatOrderAddress = (order: any) => {
@@ -973,7 +1241,7 @@ function OrdersView() {
 
   const updateOrderStatus = async (
     orderId: string,
-    status: 'PROCESSING' | 'PACKED' | 'DISPATCHED' | 'OUT_FOR_DELIVERY' | 'DELIVERED',
+    status: 'PREPARING' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -1005,40 +1273,57 @@ function OrdersView() {
       }
 
       const updatedOrder = payload?.order
-      setOrders((prev) =>
-        prev.map((order) =>
-          order.id === orderId
-            ? {
-                ...order,
-                status: updatedOrder?.status ?? status,
-                paymentStatus: updatedOrder?.paymentStatus ?? order.paymentStatus,
-                confirmedAt: updatedOrder?.confirmedAt ?? (order as any).confirmedAt,
-                processedAt: updatedOrder?.processedAt ?? (order as any).processedAt,
-                shippedAt: updatedOrder?.shippedAt ?? (order as any).shippedAt,
-                deliveredAt: updatedOrder?.deliveredAt ?? (order as any).deliveredAt,
-                notes: reason || order.notes,
-              }
-            : order
-        )
-      )
-      setSelectedOrder((prev) =>
-        prev && prev.id === orderId
-          ? {
-              ...prev,
-              status: updatedOrder?.status ?? status,
-              paymentStatus: updatedOrder?.paymentStatus ?? prev.paymentStatus,
-              confirmedAt: updatedOrder?.confirmedAt ?? (prev as any).confirmedAt,
-              processedAt: updatedOrder?.processedAt ?? (prev as any).processedAt,
-              shippedAt: updatedOrder?.shippedAt ?? (prev as any).shippedAt,
-              deliveredAt: updatedOrder?.deliveredAt ?? (prev as any).deliveredAt,
-              notes: reason || prev.notes,
-            }
-          : prev
-      )
+      mergeOrderState(orderId, updatedOrder, status)
       emitDataSync(['orders', 'trips'])
       toast.success('Order status updated')
+      return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
+      return false
+    } finally {
+      setUpdatingOrderId(null)
+    }
+  }
+
+  const updateWarehouseStage = async (
+    orderId: string,
+    stage: 'READY_TO_LOAD' | 'LOADED' | 'DISPATCHED',
+    payload: Partial<typeof dispatchForm> = {}
+  ) => {
+    setUpdatingOrderId(orderId)
+    try {
+      const response = await fetch(`/api/orders/${orderId}/warehouse-stage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          warehouseStage: stage,
+          checklist: {
+            itemsVerified: payload.itemsVerified,
+            quantityVerified: payload.quantityVerified,
+            packagingVerified: payload.packagingVerified,
+            vehicleAssigned: payload.vehicleAssigned,
+            driverAssigned: payload.driverAssigned,
+          },
+          signoffName: payload.signoffName,
+          shortLoadQty: payload.shortLoadQty,
+          damagedOnLoadingQty: payload.damagedOnLoadingQty,
+          holdReason: payload.holdReason,
+          exceptionNotes: payload.exceptionNotes,
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result?.success === false) {
+        throw new Error(result?.error || 'Failed to update warehouse stage')
+      }
+
+      mergeOrderState(orderId, result?.order)
+      emitDataSync(['orders', 'trips'])
+      toast.success(result?.message || `Warehouse stage moved to ${stage.replace(/_/g, ' ')}`)
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update warehouse stage')
+      return false
     } finally {
       setUpdatingOrderId(null)
     }
@@ -1128,8 +1413,8 @@ function OrdersView() {
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                            onClick={() => updateOrderStatus(order.id, 'PROCESSING')}
-                            disabled={(!['PENDING', 'CONFIRMED', 'UNAPPROVED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
+                            onClick={() => updateOrderStatus(order.id, 'PREPARING')}
+                            disabled={(!['PENDING', 'CONFIRMED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
                             title="Approve order"
                           >
                             <CircleCheck className="h-5 w-5" />
@@ -1166,6 +1451,21 @@ function OrdersView() {
                   <p className="font-semibold">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</p>
                 </div>
                 <div className="rounded-md border p-3 space-y-1">
+                  <p className="text-xs text-gray-500">Warehouse Stage</p>
+                  <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
+                  <p className="text-xs text-gray-600">
+                    Checklist: {selectedOrder.checklistItemsVerified ? 'Items' : '-'} {selectedOrder.checklistQuantityVerified ? '| Qty' : ''}{' '}
+                    {selectedOrder.checklistPackagingVerified ? '| Packaging' : ''} {selectedOrder.checklistVehicleAssigned ? '| Vehicle' : ''}{' '}
+                    {selectedOrder.checklistDriverAssigned ? '| Driver' : ''}
+                  </p>
+                  {(selectedOrder.exceptionHoldReason || selectedOrder.exceptionShortLoadQty || selectedOrder.exceptionDamagedOnLoadingQty) ? (
+                    <p className="text-xs text-red-600">
+                      Exceptions: short load {Number(selectedOrder.exceptionShortLoadQty || 0)}, damaged {Number(selectedOrder.exceptionDamagedOnLoadingQty || 0)}
+                      {selectedOrder.exceptionHoldReason ? `, hold: ${selectedOrder.exceptionHoldReason}` : ''}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="rounded-md border p-3 space-y-1">
                   <p className="font-medium">Client Information</p>
                   <p className="text-sm text-gray-700">{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
                   <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
@@ -1188,21 +1488,22 @@ function OrdersView() {
                 </div>
                 {(() => {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
+                  const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()
                   const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
                   return (
                     <div className="grid grid-cols-2 gap-2">
-                      {!isPendingApproval && selectedOrderStatus === 'PROCESSING' ? (
+                      {!isPendingApproval && selectedOrderStatus === 'PREPARING' ? (
                         <Button
-                          className="bg-red-600 text-white hover:bg-red-700"
-                          onClick={() => void updateOrderStatus(selectedOrder.id, 'PACKED')}
+                          className="bg-amber-600 text-white hover:bg-amber-700"
+                          onClick={() => void updateWarehouseStage(selectedOrder.id, 'LOADED')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
                           Mark as Loaded
                         </Button>
-                      ) : isPendingApproval || ['PENDING', 'CONFIRMED', 'UNAPPROVED'].includes(selectedOrderStatus) ? (
+                      ) : isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
                         <Button
                           className="bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={() => void updateOrderStatus(selectedOrder.id, 'PROCESSING')}
+                          onClick={() => void updateOrderStatus(selectedOrder.id, 'PREPARING')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
                           Approve Order
@@ -1212,6 +1513,47 @@ function OrdersView() {
                           No Action
                         </Button>
                       )}
+                      {!isPendingApproval && selectedWarehouseStage !== 'READY_TO_LOAD' ? (
+                        <Button
+                          variant="outline"
+                          onClick={() => void updateWarehouseStage(selectedOrder.id, 'READY_TO_LOAD')}
+                          disabled={updatingOrderId === selectedOrder.id}
+                        >
+                          Set Ready To Load
+                        </Button>
+                      ) : null}
+                      {!isPendingApproval && selectedWarehouseStage === 'LOADED' ? (
+                        <Button
+                          className="bg-blue-600 text-white hover:bg-blue-700"
+                          onClick={() => {
+                            setDispatchForm({
+                              itemsVerified: !!selectedOrder.checklistItemsVerified,
+                              quantityVerified: !!selectedOrder.checklistQuantityVerified,
+                              packagingVerified: !!selectedOrder.checklistPackagingVerified,
+                              vehicleAssigned: !!selectedOrder.checklistVehicleAssigned,
+                              driverAssigned: !!selectedOrder.checklistDriverAssigned,
+                              signoffName: String(selectedOrder.dispatchSignedOffBy || ''),
+                              shortLoadQty: Number(selectedOrder.exceptionShortLoadQty || 0),
+                              damagedOnLoadingQty: Number(selectedOrder.exceptionDamagedOnLoadingQty || 0),
+                              holdReason: String(selectedOrder.exceptionHoldReason || ''),
+                              exceptionNotes: String(selectedOrder.exceptionNotes || ''),
+                            })
+                            setDispatchDialogOpen(true)
+                          }}
+                          disabled={updatingOrderId === selectedOrder.id}
+                        >
+                          Dispatch With Checklist
+                        </Button>
+                      ) : null}
+                      {!isPendingApproval && selectedOrderStatus === 'OUT_FOR_DELIVERY' ? (
+                        <Button
+                          className="bg-emerald-600 text-white hover:bg-emerald-700"
+                          onClick={() => void updateOrderStatus(selectedOrder.id, 'DELIVERED')}
+                          disabled={updatingOrderId === selectedOrder.id}
+                        >
+                          Mark Delivered
+                        </Button>
+                      ) : null}
                       <Button variant="outline" onClick={() => setSelectedOrder(null)}>
                         Close
                       </Button>
@@ -1221,6 +1563,95 @@ function OrdersView() {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dispatchDialogOpen} onOpenChange={setDispatchDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dispatch Checklist & Signoff</DialogTitle>
+            <DialogDescription>Complete required checks before dispatching this order.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {[
+                ['itemsVerified', 'Items verified'],
+                ['quantityVerified', 'Quantity verified'],
+                ['packagingVerified', 'Packaging verified'],
+                ['vehicleAssigned', 'Vehicle assigned'],
+                ['driverAssigned', 'Driver assigned'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 rounded border p-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean((dispatchForm as any)[key])}
+                    onChange={(event) =>
+                      setDispatchForm((prev) => ({
+                        ...prev,
+                        [key]: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+
+            <Input
+              placeholder="Signoff name (required)"
+              value={dispatchForm.signoffName}
+              onChange={(event) => setDispatchForm((prev) => ({ ...prev, signoffName: event.target.value }))}
+            />
+
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                type="number"
+                min={0}
+                placeholder="Short load qty"
+                value={dispatchForm.shortLoadQty}
+                onChange={(event) => setDispatchForm((prev) => ({ ...prev, shortLoadQty: Number(event.target.value || 0) }))}
+              />
+              <Input
+                type="number"
+                min={0}
+                placeholder="Damaged on loading qty"
+                value={dispatchForm.damagedOnLoadingQty}
+                onChange={(event) => setDispatchForm((prev) => ({ ...prev, damagedOnLoadingQty: Number(event.target.value || 0) }))}
+              />
+            </div>
+
+            <Input
+              placeholder="Hold reason (leave blank if no hold)"
+              value={dispatchForm.holdReason}
+              onChange={(event) => setDispatchForm((prev) => ({ ...prev, holdReason: event.target.value }))}
+            />
+
+            <textarea
+              className="w-full min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              placeholder="Exception notes"
+              value={dispatchForm.exceptionNotes}
+              onChange={(event) => setDispatchForm((prev) => ({ ...prev, exceptionNotes: event.target.value }))}
+            />
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setDispatchDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                onClick={async () => {
+                  if (!selectedOrder?.id) return
+                  const done = await updateWarehouseStage(selectedOrder.id, 'DISPATCHED', dispatchForm)
+                  if (done) {
+                    setDispatchDialogOpen(false)
+                  }
+                }}
+                disabled={updatingOrderId === selectedOrder?.id}
+              >
+                Confirm Dispatch
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1251,11 +1682,11 @@ function OrdersView() {
                         toast.error('Rejection reason is required')
                         return
                       }
-                      if (!['PROCESSING'].includes(rejectOrder.status)) {
+                      if (!['PREPARING'].includes(rejectOrder.status)) {
                         toast.error('You can only update eligible delivery orders')
                         return
                       }
-                      await updateOrderStatus(rejectOrder.id, 'PACKED', rejectReason.trim())
+                      await updateOrderStatus(rejectOrder.id, 'PREPARING', rejectReason.trim())
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}
@@ -5258,12 +5689,16 @@ function ReturnsView() {
 
   const formatIssueStatus = (item: any) => {
     const rawStatus = String(item?.status || '').toUpperCase()
-    return rawStatus === 'PROCESSED' ? 'Resolved' : 'Follow-up Required'
+    if (rawStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
+    if (rawStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
+    if (rawStatus === 'COMPLETED') return 'Completed'
+    if (rawStatus === 'IN_PROGRESS') return 'In Progress'
+    return 'Reported'
   }
 
   const updateIssueStatus = async (
     replacementId: string,
-    status: 'PROCESSED' | 'REJECTED',
+    status: 'COMPLETED' | 'NEEDS_FOLLOW_UP',
     options?: { notes?: string; createReplacementOrder?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
@@ -5285,7 +5720,7 @@ function ReturnsView() {
       }
 
       setReturns((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
-      toast.success(status === 'PROCESSED' ? 'Replacement marked as resolved' : 'Replacement marked for follow-up')
+      toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
     } finally {
@@ -5301,10 +5736,24 @@ function ReturnsView() {
   }, 0)
   const resolvedOnDelivery = returns.filter((item) => {
     const meta = parseMeta(item?.notes)
-    return String(item?.status || '').toUpperCase() === 'PROCESSED' &&
-      String(item?.replacementMode || meta?.replacementMode || '').toUpperCase() === 'SPARE_STOCK_IMMEDIATE'
+    const rawStatus = String(item?.status || '').toUpperCase()
+    const normalizedStatus =
+      rawStatus === 'REQUESTED'
+        ? 'REPORTED'
+        : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+          ? 'IN_PROGRESS'
+          : rawStatus === 'REJECTED'
+            ? 'NEEDS_FOLLOW_UP'
+            : rawStatus === 'PROCESSED'
+              ? 'COMPLETED'
+              : rawStatus
+    const mode = String(item?.replacementMode || meta?.replacementMode || '').toUpperCase()
+    return normalizedStatus === 'RESOLVED_ON_DELIVERY' || (normalizedStatus === 'COMPLETED' && mode === 'SPARE_STOCK_IMMEDIATE')
   }).length
-  const needsFollowUp = returns.filter((item) => String(item?.status || '').toUpperCase() === 'REJECTED').length
+  const needsFollowUp = returns.filter((item) => {
+    const rawStatus = String(item?.status || '').toUpperCase()
+    return rawStatus === 'NEEDS_FOLLOW_UP' || rawStatus === 'REJECTED'
+  }).length
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -5417,7 +5866,7 @@ function ReturnsView() {
                         <td className="p-4">
                           <Badge
                             className={
-                              statusLabel === 'Follow-up Required'
+                              statusLabel === 'Needs Follow-up'
                                 ? 'bg-red-100 text-red-700 hover:bg-red-100'
                                 : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
                             }
@@ -5430,21 +5879,21 @@ function ReturnsView() {
                         </td>
                         <td className="p-4">
                           <div className="flex flex-wrap gap-2">
-                            {String(item?.status || '').toUpperCase() !== 'PROCESSED' ? (
+                            {String(item?.status || '').toUpperCase() !== 'COMPLETED' && String(item?.status || '').toUpperCase() !== 'RESOLVED_ON_DELIVERY' ? (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => updateIssueStatus(item.id, 'PROCESSED', { notes: 'Marked resolved by admin' })}
+                                onClick={() => updateIssueStatus(item.id, 'COMPLETED', { notes: 'Marked completed by admin' })}
                                 disabled={updatingReplacementId === item.id}
                               >
-                                Mark Resolved
+                                Mark Completed
                               </Button>
                             ) : null}
-                            {String(item?.status || '').toUpperCase() !== 'REJECTED' ? (
+                            {String(item?.status || '').toUpperCase() !== 'NEEDS_FOLLOW_UP' ? (
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => updateIssueStatus(item.id, 'REJECTED', { notes: 'Marked for follow-up by admin' })}
+                                onClick={() => updateIssueStatus(item.id, 'NEEDS_FOLLOW_UP', { notes: 'Marked for follow-up by admin' })}
                                 disabled={updatingReplacementId === item.id}
                               >
                                 Needs Follow-up
@@ -5500,6 +5949,13 @@ function TrackingView() {
     return isDateMatch(order?.createdAt, trackingDate)
   }
 
+  const tripMatchesTrackingDay = (trip: any) => {
+    if (!trackingDate) return true
+    return [trip?.plannedStartAt, trip?.actualStartAt, trip?.actualEndAt, trip?.createdAt].some((value) =>
+      isDateMatch(value, trackingDate)
+    )
+  }
+
   const fetchTrackingTrips = async () => {
     setIsLoading(true)
     try {
@@ -5546,7 +6002,12 @@ function TrackingView() {
 
   const recentLocations = activeTrips
     .flatMap((trip: any) => toArray<any>(trip.locationLogs || []))
-    .filter((log) => typeof log?.latitude === 'number' && typeof log?.longitude === 'number')
+    .filter((log) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
+    .map((log) => ({
+      ...log,
+      latitude: Number(log.latitude),
+      longitude: Number(log.longitude),
+    }))
     .sort((a, b) => new Date(b.recordedAt || 0).getTime() - new Date(a.recordedAt || 0).getTime())
     .slice(0, 5)
 
@@ -5560,15 +6021,27 @@ function TrackingView() {
       status: string
       markerColor?: string
       markerLabel?: string
+      markerType?: 'pin' | 'dot' | 'truck' | 'default'
+      markerDirection?: 'left' | 'right'
+      markerHeading?: number
+      markerNumber?: number | string
     }> = []
     const routeLines: Array<{
       id: string
       points: [number, number][]
       color: string
       label?: string
+      opacity?: number
+      weight?: number
+      dashArray?: string
+      snapToRoad?: boolean
     }> = []
 
-    const tripsForMap = trips.filter((trip: any) => ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip?.status)))
+    const tripsForMap = trips.filter(
+      (trip: any) =>
+        ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip?.status)) &&
+        tripMatchesTrackingDay(trip)
+    )
     const dayOrders = ordersForMap.filter((order: any) => orderMatchesTrackingDay(order))
     const dayOrderIds = new Set(
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
@@ -5576,18 +6049,47 @@ function TrackingView() {
     const tripOrderIds = new Set<string>()
 
     tripsForMap.forEach((trip: any) => {
+      const tripMatchesDay = tripMatchesTrackingDay(trip)
+      const toCoordinate = (value: unknown) => {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+      }
       const dropPoints = toArray<any>(trip.dropPoints)
         .filter((point) => {
-          const orderId = String(point?.orderId || '').trim()
           if (!trackingDate) return true
+          if (tripMatchesDay) return true
+          const orderId = String(point?.orderId || '').trim()
           if (!orderId) return false
           return dayOrderIds.has(orderId)
         })
         .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
         .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+      
+      const nextPendingIndex = dropPoints.findIndex((point: any) => {
+        const status = String(point?.status || point?.orderStatus || '').toUpperCase()
+        return !['COMPLETED', 'DELIVERED'].includes(status)
+      })
+      const nextDropPoint = nextPendingIndex !== -1 ? dropPoints[nextPendingIndex] : null
+      const warehouseStartLat =
+        toCoordinate(trip?.warehouseLatitude) ??
+        toCoordinate(trip?.warehouse?.latitude) ??
+        toCoordinate(trip?.startLatitude)
+      const warehouseStartLng =
+        toCoordinate(trip?.warehouseLongitude) ??
+        toCoordinate(trip?.warehouse?.longitude) ??
+        toCoordinate(trip?.startLongitude)
+      const warehouseStart =
+        warehouseStartLat !== null && warehouseStartLng !== null
+          ? ([warehouseStartLat, warehouseStartLng] as [number, number])
+          : null
 
       const logs = toArray<any>(trip.locationLogs)
-        .filter((log) => typeof log?.latitude === 'number' && typeof log?.longitude === 'number')
+        .filter((log) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
+        .map((log) => ({
+          ...log,
+          latitude: Number(log.latitude),
+          longitude: Number(log.longitude),
+        }))
         .sort((a, b) => new Date(a.recordedAt || 0).getTime() - new Date(b.recordedAt || 0).getTime())
 
       const latestLog = logs[logs.length - 1]
@@ -5597,6 +6099,26 @@ function TrackingView() {
       const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
       const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
       const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
+      const markerHeading =
+        nextDropPoint &&
+        Number.isFinite(Number(nextDropPoint?.latitude)) &&
+        Number.isFinite(Number(nextDropPoint?.longitude)) &&
+        hasDriverPosition
+          ? (() => {
+              const fromLat = driverLat
+              const fromLng = driverLng
+              const toLat = Number(nextDropPoint.latitude)
+              const toLng = Number(nextDropPoint.longitude)
+              const toRad = (value: number) => (value * Math.PI) / 180
+              const toDeg = (value: number) => (value * 180) / Math.PI
+              const phi1 = toRad(fromLat)
+              const phi2 = toRad(toLat)
+              const deltaLng = toRad(toLng - fromLng)
+              const y = Math.sin(deltaLng) * Math.cos(phi2)
+              const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLng)
+              return ((toDeg(Math.atan2(y, x)) % 360) + 360) % 360
+            })()
+          : null
 
       if (hasDriverPosition) {
         locations.push({
@@ -5606,17 +6128,42 @@ function TrackingView() {
           lat: driverLat,
           lng: driverLng,
           status: String(trip?.status || 'IN_PROGRESS'),
-          markerColor: '#0f172a',
-          markerLabel: `Driver (${vehiclePlate})`,
+          markerColor: '#1d4ed8',
+          markerLabel: 'Current location',
+          markerType: 'truck',
+          markerHeading: markerHeading ?? undefined,
         })
+      } else if (['PLANNED', 'IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))) {
+        const fallbackDriverPoint =
+          warehouseStart ||
+          (nextDropPoint &&
+          Number.isFinite(Number(nextDropPoint?.latitude)) &&
+          Number.isFinite(Number(nextDropPoint?.longitude))
+            ? ([Number(nextDropPoint.latitude), Number(nextDropPoint.longitude)] as [number, number])
+            : null)
+        if (fallbackDriverPoint) {
+          locations.push({
+            id: `driver-${trip.id}`,
+            driverName,
+            vehiclePlate,
+            lat: fallbackDriverPoint[0],
+            lng: fallbackDriverPoint[1],
+            status: String(trip?.status || 'PLANNED'),
+            markerColor: '#1d4ed8',
+            markerLabel: 'Driver location unavailable',
+            markerType: 'truck',
+          })
+        }
       }
 
-      dropPoints.forEach((dropPoint: any) => {
+      dropPoints.forEach((dropPoint: any, index: number) => {
         const dropPointOrderId = String(dropPoint?.orderId || '').trim()
-        if (dropPointOrderId) {
-          tripOrderIds.add(dropPointOrderId)
-        }
+        if (dropPointOrderId) tripOrderIds.add(dropPointOrderId)
+
         const completed = isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
+        const isNext = index === nextPendingIndex
+        const stopSequence = Number.isFinite(Number(dropPoint?.sequence)) ? Number(dropPoint.sequence) : undefined
+        
         locations.push({
           id: `order-${trip.id}-${dropPoint.id || dropPoint.sequence}`,
           driverName: String(dropPoint.orderNumber || dropPoint.locationName || dropPoint.address || 'Order Stop'),
@@ -5624,9 +6171,10 @@ function TrackingView() {
           lat: Number(dropPoint.latitude),
           lng: Number(dropPoint.longitude),
           status: String(dropPoint.orderStatus || dropPoint.status || 'PENDING'),
-          markerColor: completed ? '#2563eb' : '#16a34a',
+          markerColor: completed ? '#2563eb' : (isNext ? '#ef4444' : '#16a34a'),
           markerType: 'pin',
-          markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+          markerLabel: completed ? 'Completed' : (isNext ? 'Next Stop' : 'Upcoming'),
+          markerNumber: stopSequence,
         })
       })
 
@@ -5634,8 +6182,11 @@ function TrackingView() {
         routeLines.push({
           id: `completed-${trip.id}`,
           points: logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
-          color: '#2563eb',
+          color: '#93c5fd',
           label: `${trip.tripNumber || 'Trip'} - Completed route`,
+          opacity: 0.85,
+          weight: 6,
+          dashArray: '7 9',
         })
       }
 
@@ -5649,20 +6200,32 @@ function TrackingView() {
             [driverLat, driverLng],
             ...pendingPoints.map((point: any) => [Number(point.latitude), Number(point.longitude)] as [number, number]),
           ],
-          color: '#16a34a',
+          color: '#2563eb',
           label: `${trip.tripNumber || 'Trip'} - Remaining route`,
+          opacity: 1,
+          weight: 8,
+          snapToRoad: true,
         })
-      } else if (logs.length <= 1 && dropPoints.length > 1) {
-        for (let index = 0; index < dropPoints.length - 1; index += 1) {
-          const nextPoint = dropPoints[index + 1]
+      } else if (logs.length <= 1 && dropPoints.length > 0) {
+        const plannedWaypoints: [number, number][] = [
+          ...(warehouseStart ? [warehouseStart] : []),
+          ...dropPoints.map((point: any) => [Number(point.latitude), Number(point.longitude)] as [number, number]),
+        ]
+        for (let index = 0; index < plannedWaypoints.length - 1; index += 1) {
+          const nextPoint = dropPoints[Math.max(0, index - (warehouseStart ? 1 : 0))]
+          const completed = isDropPointCompleted(nextPoint?.status) || isDropPointCompleted(nextPoint?.orderStatus)
           routeLines.push({
             id: `planned-${trip.id}-${index}`,
             points: [
-              [Number(dropPoints[index].latitude), Number(dropPoints[index].longitude)],
-              [Number(nextPoint.latitude), Number(nextPoint.longitude)],
+              plannedWaypoints[index],
+              plannedWaypoints[index + 1],
             ],
-            color: isDropPointCompleted(nextPoint?.status) || isDropPointCompleted(nextPoint?.orderStatus) ? '#2563eb' : '#16a34a',
+            color: completed ? '#93c5fd' : '#2563eb',
             label: `${trip.tripNumber || 'Trip'} route segment`,
+            opacity: completed ? 0.85 : 1,
+            weight: completed ? 6 : 8,
+            dashArray: completed ? '7 9' : undefined,
+            snapToRoad: true,
           })
         }
       }
@@ -5683,7 +6246,7 @@ function TrackingView() {
         vehiclePlate: String(order?.shippingAddress || 'Customer location'),
         lat,
         lng,
-        status: String(order?.status || 'PROCESSING'),
+        status: String(order?.status || 'PREPARING'),
         markerColor: completed ? '#2563eb' : '#16a34a',
         markerType: 'pin',
         markerLabel: completed ? 'Completed order location' : 'Not completed order location',
@@ -5722,8 +6285,8 @@ function TrackingView() {
       </div>
 
       <div className="text-sm text-slate-600">
-        Route colors: <span className="font-medium text-blue-600">Blue = Completed</span> •{' '}
-        <span className="font-medium text-green-600">Green = Not Completed</span>
+        Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> •{' '}
+        <span className="font-medium text-blue-700">Bright blue = Upcoming</span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -5735,6 +6298,7 @@ function TrackingView() {
                 routeLines={routeLines}
                 center={mapCenter}
                 zoom={mapLocations.length > 0 ? 12 : 10}
+                className="w-full h-full rounded-xl overflow-hidden"
                 restrictToNegrosOccidental
               />
             </CardContent>
@@ -6182,68 +6746,1160 @@ function FeedbackView() {
 }
 
 function ReportsView() {
+  const { user } = useAuth()
+  const [activeReportTab, setActiveReportTab] = useState('orders')
+  const [rangeDays, setRangeDays] = useState<'7' | '30' | '90'>('30')
+  const [selectedWarehouse, setSelectedWarehouse] = useState('all')
+  const [selectedDriver, setSelectedDriver] = useState('all')
+  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [presetName, setPresetName] = useState('')
+  const [savedPresets, setSavedPresets] = useState<Array<{ name: string; filters: { rangeDays: '7' | '30' | '90'; selectedWarehouse: string; selectedDriver: string; selectedStatus: string; activeReportTab: string } }>>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [orders, setOrders] = useState<any[]>([])
+  const [trips, setTrips] = useState<any[]>([])
+  const [drivers, setDrivers] = useState<any[]>([])
+  const [warehouses, setWarehouses] = useState<any[]>([])
+  const [inventory, setInventory] = useState<any[]>([])
+  const [inventoryTransactions, setInventoryTransactions] = useState<any[]>([])
+  const [returnsData, setReturnsData] = useState<any[]>([])
+  const [feedback, setFeedback] = useState<any[]>([])
+  const reportBranding = {
+    companyName: "Ann Ann's Beverages Trading",
+    subtitle: 'Logistics Management System - Report Pack',
+    preparedBy: String(user?.name || user?.email || 'System Administrator'),
+  }
+  const presetStorageKey = 'admin-reports-filter-presets-v1'
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(presetStorageKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return
+      setSavedPresets(parsed)
+    } catch {
+      setSavedPresets([])
+    }
+  }, [])
+
+  const persistPresets = (next: Array<{ name: string; filters: { rangeDays: '7' | '30' | '90'; selectedWarehouse: string; selectedDriver: string; selectedStatus: string; activeReportTab: string } }>) => {
+    setSavedPresets(next)
+    window.localStorage.setItem(presetStorageKey, JSON.stringify(next))
+  }
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function fetchReportsPack() {
+      setIsLoading(true)
+      try {
+        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, feedbackRes] = await Promise.all([
+          safeFetchJson('/api/orders?limit=1000&includeItems=none&includeReturns=true', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/trips?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/drivers?limit=500', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/inventory?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+        ])
+
+        if (!isMounted) return
+
+        setOrders(ordersRes.ok ? getCollection<any>(ordersRes.data, ['orders']) : [])
+        setTrips(tripsRes.ok ? getCollection<any>(tripsRes.data, ['trips']) : [])
+        setDrivers(driversRes.ok ? getCollection<any>(driversRes.data, ['drivers']) : [])
+        setWarehouses(warehousesRes.ok ? getCollection<any>(warehousesRes.data, ['warehouses']) : [])
+        setInventory(inventoryRes.ok ? getCollection<any>(inventoryRes.data, ['inventory']) : [])
+        setInventoryTransactions(transactionsRes.ok ? getCollection<any>(transactionsRes.data, ['transactions']) : [])
+        setReturnsData(ordersRes.ok ? getCollection<any>(ordersRes.data, ['returns']) : [])
+        setFeedback(feedbackRes.ok ? getCollection<any>(feedbackRes.data, ['feedback']) : [])
+      } catch (error) {
+        console.error('Failed to load reports pack:', error)
+        if (isMounted) {
+          setOrders([])
+          setTrips([])
+          setDrivers([])
+          setWarehouses([])
+          setInventory([])
+          setInventoryTransactions([])
+          setReturnsData([])
+          setFeedback([])
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    fetchReportsPack()
+
+    const unsubscribe = subscribeDataSync((message) => {
+      if (
+        message.scopes.includes('orders') ||
+        message.scopes.includes('trips') ||
+        message.scopes.includes('inventory') ||
+        message.scopes.includes('stocks') ||
+        message.scopes.includes('feedback') ||
+        message.scopes.includes('returns')
+      ) {
+        void fetchReportsPack()
+      }
+    })
+
+    return () => {
+      isMounted = false
+      unsubscribe()
+    }
+  }, [])
+
+  const rangeStart = useMemo(() => {
+    const days = Number(rangeDays)
+    const start = new Date()
+    start.setDate(start.getDate() - days)
+    return start
+  }, [rangeDays])
+
+  const orderRows = useMemo(() => {
+    return orders
+      .filter((order) => withinRange(order.createdAt, rangeStart))
+      .filter((order) => selectedWarehouse === 'all' || String(order.warehouseId || '') === selectedWarehouse)
+      .filter((order) => selectedStatus === 'all' || String(order.status || '').toUpperCase() === selectedStatus)
+      .map((order) => {
+        const checklistComplete = Boolean(
+          order.checklistItemsVerified &&
+          order.checklistQuantityVerified &&
+          order.checklistPackagingVerified &&
+          order.checklistVehicleAssigned &&
+          order.checklistDriverAssigned
+        )
+        const shortLoadQty = Number(order.exceptionShortLoadQty || 0)
+        const damagedOnLoadingQty = Number(order.exceptionDamagedOnLoadingQty || 0)
+        const holdReason = String(order.exceptionHoldReason || '').trim()
+        return {
+          orderNumber: order.orderNumber,
+          customer: order.customer?.name || 'N/A',
+          status: String(order.status || ''),
+          warehouseStage: String(order.warehouseStage || 'READY_TO_LOAD'),
+          checklistComplete,
+          dispatchSignedOffBy: order.dispatchSignedOffBy || 'N/A',
+          dispatchSignedOffAt: order.dispatchSignedOffAt || null,
+          shortLoadQty,
+          damagedOnLoadingQty,
+          holdReason: holdReason || 'N/A',
+          hasExceptions: shortLoadQty > 0 || damagedOnLoadingQty > 0 || holdReason.length > 0,
+          amount: Number(order.totalAmount || 0),
+          createdAt: order.createdAt,
+          deliveredAt: order.timeline?.deliveredAt || order.deliveredAt,
+        }
+      })
+  }, [orders, rangeStart, selectedWarehouse, selectedStatus])
+
+  const warehouseDispatchRows = useMemo(() => {
+    return orderRows
+      .map((row) => {
+        const rawStatus = String(row.status || '').toUpperCase()
+        const normalizedOrderStatus =
+          ['PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(rawStatus)
+            ? 'PREPARING'
+            : ['DISPATCHED', 'IN_TRANSIT'].includes(rawStatus)
+              ? 'OUT_FOR_DELIVERY'
+              : rawStatus === 'FAILED_DELIVERY'
+                ? 'CANCELLED'
+                : rawStatus
+        return {
+          ...row,
+          normalizedOrderStatus,
+        }
+      })
+      .filter(
+        (row) =>
+          ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(String(row.normalizedOrderStatus || '')) ||
+          ['LOADED', 'DISPATCHED'].includes(String(row.warehouseStage || '').toUpperCase())
+      )
+      .map((row) => ({
+        orderNumber: row.orderNumber,
+        customer: row.customer,
+        createdAt: row.createdAt,
+        warehouseStage: row.warehouseStage,
+        orderStatus: row.normalizedOrderStatus,
+        checklistComplete: row.checklistComplete ? 'YES' : 'NO',
+        dispatchSignedOffBy: row.dispatchSignedOffBy,
+        dispatchSignedOffAt: row.dispatchSignedOffAt ? formatDateTime(row.dispatchSignedOffAt) : 'N/A',
+        shortLoadQty: row.shortLoadQty,
+        damagedOnLoadingQty: row.damagedOnLoadingQty,
+        holdReason: row.holdReason,
+        hasExceptions: row.hasExceptions ? 'YES' : 'NO',
+      }))
+  }, [orderRows])
+
+  const transportRows = useMemo(() => {
+    return trips
+      .filter((trip) => withinRange(trip.createdAt || trip.plannedStartAt, rangeStart))
+      .filter((trip) => selectedWarehouse === 'all' || String(trip.warehouseId || '') === selectedWarehouse)
+      .filter((trip) => selectedDriver === 'all' || String(trip.driver?.id || '') === selectedDriver)
+      .filter((trip) => selectedStatus === 'all' || normalizeTripStatus(trip.status) === selectedStatus)
+      .map((trip) => {
+        const dropPointsTotal = Number(trip.totalDropPoints || toArray<any>(trip.dropPoints).length)
+        const dropPointsCompleted = Number(trip.completedDropPoints || 0)
+        const completionRate = dropPointsTotal > 0 ? Math.round((dropPointsCompleted / dropPointsTotal) * 100) : 0
+
+        return {
+          tripNumber: trip.tripNumber,
+          status: normalizeTripStatus(trip.status),
+          driver: trip.driver?.user?.name || 'Unassigned',
+          vehicle: trip.vehicle?.licensePlate || 'Unassigned',
+          dropPointsTotal,
+          dropPointsCompleted,
+          completionRate,
+          plannedStartAt: trip.plannedStartAt,
+          actualEndAt: trip.actualEndAt,
+        }
+      })
+  }, [trips, rangeStart, selectedWarehouse, selectedDriver, selectedStatus])
+
+  const inventoryMovementRows = useMemo(() => {
+    return inventoryTransactions
+      .filter((transaction) => withinRange(transaction.createdAt, rangeStart))
+      .filter((transaction) => selectedWarehouse === 'all' || String(transaction.warehouse?.id || '') === selectedWarehouse)
+      .filter((transaction) => selectedStatus === 'all' || String(transaction.type || '').toUpperCase() === selectedStatus)
+      .map((transaction) => ({
+        createdAt: transaction.createdAt,
+        warehouse: transaction.warehouse?.name || 'N/A',
+        product: transaction.product?.name || 'N/A',
+        type: String(transaction.type || '').toUpperCase(),
+        quantity: Number(transaction.quantity || 0),
+        referenceType: transaction.referenceType || 'N/A',
+        referenceId: transaction.referenceId || 'N/A',
+      }))
+  }, [inventoryTransactions, rangeStart, selectedWarehouse, selectedStatus])
+
+  const replacementRows = useMemo(() => {
+    return returnsData
+      .filter((item) => withinRange(item.createdAt, rangeStart))
+      .map((item) => {
+        const relatedOrder = orders.find((order) => order.id === item.order)
+        const rawStatus = String(item.status || '').toUpperCase()
+        const normalizedStatus =
+          rawStatus === 'REQUESTED'
+            ? 'REPORTED'
+            : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+              ? 'IN_PROGRESS'
+              : rawStatus === 'REJECTED'
+                ? 'NEEDS_FOLLOW_UP'
+                : rawStatus === 'PROCESSED'
+                  ? 'COMPLETED'
+                  : rawStatus
+        return {
+          returnNumber: item.returnNumber,
+          orderNumber: relatedOrder?.orderNumber || 'N/A',
+          customer: relatedOrder?.customer?.name || 'N/A',
+          status: normalizedStatus,
+          replacementMode: item.replacementMode || 'N/A',
+          reason: item.reason || 'N/A',
+          createdAt: item.createdAt,
+        }
+      })
+      .filter((item) => selectedStatus === 'all' || String(item.status || '').toUpperCase() === selectedStatus)
+  }, [orders, returnsData, rangeStart, selectedStatus])
+
+  const feedbackRows = useMemo(() => {
+    return feedback
+      .filter((item) => withinRange(item.createdAt, rangeStart))
+      .filter((item) => selectedStatus === 'all' || String(item.status || '').toUpperCase() === selectedStatus)
+      .map((item) => ({
+        createdAt: item.createdAt,
+        customer: item.customer?.name || 'N/A',
+        orderId: item.order || 'N/A',
+        type: item.type || 'N/A',
+        rating: item.rating === null || item.rating === undefined ? 'N/A' : Number(item.rating),
+        status: item.status || 'N/A',
+        subject: item.subject || 'N/A',
+      }))
+  }, [feedback, rangeStart, selectedStatus])
+
+  const statusOptions = useMemo(() => {
+    const values = new Set<string>()
+    orders.forEach((row) => values.add(String(row.status || '').toUpperCase()))
+    trips.forEach((row) => values.add(String(normalizeTripStatus(row.status) || '').toUpperCase()))
+    inventoryTransactions.forEach((row) => values.add(String(row.type || '').toUpperCase()))
+    returnsData.forEach((row) => values.add(String(row.status || '').toUpperCase()))
+    feedback.forEach((row) => values.add(String(row.status || '').toUpperCase()))
+    return Array.from(values).filter(Boolean).sort()
+  }, [feedback, inventoryTransactions, orders, returnsData, trips])
+
+  const activeStatusOptions = useMemo(() => {
+    if (activeReportTab === 'orders') {
+      return Array.from(new Set(orderRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
+    }
+    if (activeReportTab === 'transport') {
+      return Array.from(new Set(transportRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
+    }
+    if (activeReportTab === 'warehouse') {
+      return Array.from(new Set(inventoryMovementRows.map((row) => String(row.type || '').toUpperCase()))).filter(Boolean).sort()
+    }
+    if (activeReportTab === 'replacement') {
+      return Array.from(new Set(replacementRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
+    }
+    return Array.from(new Set(feedbackRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
+  }, [activeReportTab, feedbackRows, inventoryMovementRows, orderRows, replacementRows, transportRows])
+
+  const orderStatusChart = useMemo(() => {
+    const counts = new Map<string, number>()
+    orderRows.forEach((row) => {
+      const key = String(row.status || 'UNKNOWN')
+      counts.set(key, (counts.get(key) || 0) + 1)
+    })
+    return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
+  }, [orderRows])
+
+  const orderStatusTotal = useMemo(() => {
+    return orderStatusChart.reduce((sum, row) => sum + Number(row.count || 0), 0)
+  }, [orderStatusChart])
+
+  const transportStatusChart = useMemo(() => {
+    const counts = new Map<string, number>()
+    transportRows.forEach((row) => {
+      const key = String(row.status || 'UNKNOWN')
+      counts.set(key, (counts.get(key) || 0) + 1)
+    })
+    return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
+  }, [transportRows])
+
+  const inventoryMovementChart = useMemo(() => {
+    const grouped = new Map<string, { day: string; inQty: number; outQty: number }>()
+    inventoryMovementRows.forEach((row) => {
+      const day = formatDayLabel(row.createdAt)
+      const current = grouped.get(day) || { day, inQty: 0, outQty: 0 }
+      if (String(row.type || '').toUpperCase() === 'IN') current.inQty += Number(row.quantity || 0)
+      if (String(row.type || '').toUpperCase() === 'OUT') current.outQty += Number(row.quantity || 0)
+      grouped.set(day, current)
+    })
+    return Array.from(grouped.values()).slice(-12)
+  }, [inventoryMovementRows])
+
+  const replacementStatusChart = useMemo(() => {
+    const counts = new Map<string, number>()
+    replacementRows.forEach((row) => {
+      const key = String(row.status || 'UNKNOWN')
+      counts.set(key, (counts.get(key) || 0) + 1)
+    })
+    return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
+  }, [replacementRows])
+
+  const feedbackRatingChart = useMemo(() => {
+    const counts = new Map<string, number>()
+    feedbackRows.forEach((row) => {
+      const rating = Number(row.rating)
+      if (!Number.isFinite(rating)) return
+      const key = `${Math.max(1, Math.min(5, Math.round(rating)))}`
+      counts.set(key, (counts.get(key) || 0) + 1)
+    })
+    return ['1', '2', '3', '4', '5'].map((rating) => ({ rating, count: counts.get(rating) || 0 }))
+  }, [feedbackRows])
+
+  const orderKpi = useMemo(() => {
+    const delivered = orderRows.filter((row) => row.status === 'DELIVERED').length
+    const total = orderRows.length
+    const deliveredRevenue = orderRows
+      .filter((row) => row.status === 'DELIVERED')
+      .reduce((acc, row) => acc + Number(row.amount || 0), 0)
+
+    return {
+      total,
+      delivered,
+      pending: total - delivered,
+      fulfillmentRate: total > 0 ? Math.round((delivered / total) * 100) : 0,
+      deliveredRevenue,
+    }
+  }, [orderRows])
+
+  const transportKpi = useMemo(() => {
+    const total = transportRows.length
+    const completed = transportRows.filter((row) => row.status === 'COMPLETED').length
+    const inProgress = transportRows.filter((row) => row.status === 'IN_PROGRESS').length
+    const averageCompletion =
+      total > 0 ? Math.round(transportRows.reduce((acc, row) => acc + Number(row.completionRate || 0), 0) / total) : 0
+
+    return { total, completed, inProgress, averageCompletion }
+  }, [transportRows])
+
+  const inventoryKpi = useMemo(() => {
+    const totalSkus = inventory.length
+    const lowStock = inventory.filter((item) => Number(item.quantity || 0) <= Number(item.minStock || 0)).length
+    const totalQuantity = inventory.reduce((acc, item) => acc + Number(item.quantity || 0), 0)
+    const stockIn = inventoryMovementRows
+      .filter((row) => row.type === 'IN')
+      .reduce((acc, row) => acc + Number(row.quantity || 0), 0)
+    const stockOut = inventoryMovementRows
+      .filter((row) => row.type === 'OUT')
+      .reduce((acc, row) => acc + Number(row.quantity || 0), 0)
+
+    return { totalSkus, lowStock, totalQuantity, stockIn, stockOut }
+  }, [inventory, inventoryMovementRows])
+
+  const warehouseComplianceKpi = useMemo(() => {
+    const total = warehouseDispatchRows.length
+    const checklistComplete = warehouseDispatchRows.filter((row) => row.checklistComplete === 'YES').length
+    const withSignoff = warehouseDispatchRows.filter((row) => row.dispatchSignedOffAt !== 'N/A' && row.dispatchSignedOffBy !== 'N/A').length
+    const exceptions = warehouseDispatchRows.filter((row) => row.hasExceptions === 'YES').length
+    const compliant = warehouseDispatchRows.filter(
+      (row) => row.checklistComplete === 'YES' && row.dispatchSignedOffAt !== 'N/A' && row.dispatchSignedOffBy !== 'N/A' && row.hasExceptions === 'NO'
+    ).length
+    const complianceRate = total > 0 ? Math.round((compliant / total) * 100) : 0
+    return { total, checklistComplete, withSignoff, exceptions, complianceRate }
+  }, [warehouseDispatchRows])
+
+  const warehouseComplianceTrend = useMemo(() => {
+    const grouped = new Map<string, { day: string; compliant: number; nonCompliant: number }>()
+    warehouseDispatchRows.forEach((row) => {
+      const key = formatDayLabel(row.createdAt)
+      const current = grouped.get(key) || { day: key, compliant: 0, nonCompliant: 0 }
+      const isCompliant =
+        row.checklistComplete === 'YES' &&
+        row.dispatchSignedOffAt !== 'N/A' &&
+        row.dispatchSignedOffBy !== 'N/A' &&
+        row.hasExceptions === 'NO'
+      if (isCompliant) {
+        current.compliant += 1
+      } else {
+        current.nonCompliant += 1
+      }
+      grouped.set(key, current)
+    })
+    return Array.from(grouped.values()).slice(-14)
+  }, [warehouseDispatchRows])
+
+  const replacementKpi = useMemo(() => {
+    const total = replacementRows.length
+    const completed = replacementRows.filter((row) => row.status === 'COMPLETED' || row.status === 'RESOLVED_ON_DELIVERY').length
+    const open = replacementRows.filter((row) => row.status === 'REPORTED' || row.status === 'IN_PROGRESS' || row.status === 'NEEDS_FOLLOW_UP').length
+    return { total, completed, open }
+  }, [replacementRows])
+
+  const feedbackKpi = useMemo(() => {
+    const total = feedbackRows.length
+    const ratings = feedbackRows
+      .map((row) => Number(row.rating))
+      .filter((rating) => Number.isFinite(rating))
+    const avgRating = ratings.length > 0 ? ratings.reduce((acc, rating) => acc + rating, 0) / ratings.length : 0
+    const open = feedbackRows.filter((row) => String(row.status).toUpperCase() === 'OPEN').length
+    return { total, avgRating, open }
+  }, [feedbackRows])
+
+  const exportAll = () => {
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadCsv(`orders-report-${stamp}.csv`, orderRows)
+    downloadCsv(`transport-report-${stamp}.csv`, transportRows)
+    downloadCsv(`warehouse-inventory-report-${stamp}.csv`, inventoryMovementRows)
+    downloadCsv(`warehouse-dispatch-compliance-report-${stamp}.csv`, warehouseDispatchRows)
+    downloadCsv(`replacement-report-${stamp}.csv`, replacementRows)
+    downloadCsv(`feedback-report-${stamp}.csv`, feedbackRows)
+    toast.success('Reports exported')
+  }
+
+  const exportAllPdf = async () => {
+    const stamp = new Date().toISOString().slice(0, 10)
+    await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, reportBranding)
+    await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, reportBranding)
+    await downloadPdf(`warehouse-inventory-report-${stamp}.pdf`, 'Warehouse & Inventory Movement Report', inventoryMovementRows, reportBranding)
+    await downloadPdf(`warehouse-dispatch-compliance-report-${stamp}.pdf`, 'Warehouse Dispatch Compliance Report', warehouseDispatchRows, reportBranding)
+    await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, reportBranding)
+    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, reportBranding)
+    toast.success('All PDF reports exported')
+  }
+
+  const resetFilters = () => {
+    setRangeDays('30')
+    setSelectedWarehouse('all')
+    setSelectedDriver('all')
+    setSelectedStatus('all')
+  }
+
+  const saveCurrentPreset = () => {
+    const name = presetName.trim()
+    if (!name) {
+      toast.error('Enter a preset name')
+      return
+    }
+    const next = savedPresets.filter((preset) => preset.name !== name)
+    next.unshift({
+      name,
+      filters: {
+        rangeDays,
+        selectedWarehouse,
+        selectedDriver,
+        selectedStatus,
+        activeReportTab,
+      },
+    })
+    persistPresets(next.slice(0, 10))
+    setPresetName('')
+    toast.success('Filter preset saved')
+  }
+
+  const applyPreset = (name: string) => {
+    const preset = savedPresets.find((item) => item.name === name)
+    if (!preset) return
+    setRangeDays(preset.filters.rangeDays)
+    setSelectedWarehouse(preset.filters.selectedWarehouse)
+    setSelectedDriver(preset.filters.selectedDriver)
+    setSelectedStatus(preset.filters.selectedStatus)
+    setActiveReportTab(preset.filters.activeReportTab)
+    toast.success(`Preset applied: ${name}`)
+  }
+
+  const deletePreset = (name: string) => {
+    const next = savedPresets.filter((preset) => preset.name !== name)
+    persistPresets(next)
+    toast.success('Preset deleted')
+  }
+
+  const exportCurrentPdf = async () => {
+    const stamp = new Date().toISOString().slice(0, 10)
+    if (activeReportTab === 'orders') {
+      await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, reportBranding)
+      return
+    }
+    if (activeReportTab === 'transport') {
+      await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, reportBranding)
+      return
+    }
+    if (activeReportTab === 'warehouse') {
+      await downloadPdf(
+        `warehouse-inventory-report-${stamp}.pdf`,
+        'Warehouse & Inventory Movement Report',
+        inventoryMovementRows,
+        reportBranding
+      )
+      return
+    }
+    if (activeReportTab === 'replacement') {
+      await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, reportBranding)
+      return
+    }
+    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, reportBranding)
+  }
+
+  const printCurrentReport = () => {
+    const reportMap: Record<string, { title: string; rows: Array<Record<string, unknown>> }> = {
+      orders: { title: 'Order Fulfillment Report', rows: orderRows },
+      transport: { title: 'Transportation & Delivery Status Report', rows: transportRows },
+      warehouse: { title: 'Warehouse & Inventory Movement Report', rows: inventoryMovementRows },
+      replacement: { title: 'Replacement Handling Report', rows: replacementRows },
+      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows },
+    }
+
+    const report = reportMap[activeReportTab]
+    if (!report || report.rows.length === 0) {
+      toast.error('No report data to print')
+      return
+    }
+
+    const columns = Object.keys(report.rows[0])
+    const bodyRows = report.rows
+      .slice(0, 300)
+      .map((row) => `<tr>${columns.map((column) => `<td>${String(row[column] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`)
+      .join('')
+
+    const html = `
+      <html>
+        <head>
+          <title>${report.title}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
+            h1 { margin: 0 0 2px 0; font-size: 20px; }
+            h2 { margin: 0 0 12px 0; font-size: 12px; color: #4b5563; font-weight: 500; }
+            p { margin: 0 0 12px 0; color: #444; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
+            th { background: #f5f5f5; }
+            .signatures { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+            .signature-line { margin-top: 32px; border-top: 1px solid #111; padding-top: 6px; font-size: 11px; }
+          </style>
+        </head>
+        <body>
+          <h1>${reportBranding.companyName}</h1>
+          <h2>${reportBranding.subtitle}</h2>
+          <p><strong>${report.title}</strong></p>
+          <p>Generated at ${new Date().toLocaleString()} | Date range: last ${rangeDays} days | Prepared by: ${reportBranding.preparedBy}</p>
+          <table>
+            <thead>
+              <tr>${columns.map((column) => `<th>${column}</th>`).join('')}</tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+          <div class="signatures">
+            <div>
+              <div class="signature-line">Prepared by</div>
+            </div>
+            <div>
+              <div class="signature-line">Reviewed by</div>
+            </div>
+            <div>
+              <div class="signature-line">Approved by</div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      toast.error('Unable to open print window')
+      return
+    }
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+  }
+
+  const previewRows = <T extends Record<string, unknown>>(rows: T[]) => rows.slice(0, 8)
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-gray-500">Comprehensive insights and statistics</p>
+          <p className="text-gray-500">Order, transport, warehouse, replacement, and feedback reports</p>
         </div>
-        <Button className="gap-2">
-          {/* <BarChart3 className="h-4 w-4" /> */}
-          Export Report
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={rangeDays}
+            onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
+            title="Select report date range"
+          >
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={selectedWarehouse}
+            onChange={(event) => setSelectedWarehouse(event.target.value)}
+            title="Filter by warehouse"
+          >
+            <option value="all">All Warehouses</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name || warehouse.code || warehouse.id}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={selectedDriver}
+            onChange={(event) => setSelectedDriver(event.target.value)}
+            title="Filter by driver"
+          >
+            <option value="all">All Drivers</option>
+            {drivers.map((driver) => (
+              <option key={driver.id} value={driver.id}>
+                {driver?.user?.name || driver.name || driver.id}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={selectedStatus}
+            onChange={(event) => setSelectedStatus(event.target.value)}
+            title="Filter by status"
+          >
+            <option value="all">All Statuses</option>
+            {(activeStatusOptions.length ? activeStatusOptions : statusOptions).map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+          <Input
+            value={presetName}
+            onChange={(event) => setPresetName(event.target.value)}
+            placeholder="Preset name"
+            className="h-10 w-36"
+          />
+          <Button variant="outline" className="gap-2" onClick={saveCurrentPreset}>
+            Save Preset
+          </Button>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            onChange={(event) => {
+              if (!event.target.value) return
+              applyPreset(event.target.value)
+              event.target.value = ''
+            }}
+            title="Apply saved preset"
+            defaultValue=""
+          >
+            <option value="">Apply Preset</option>
+            {savedPresets.map((preset) => (
+              <option key={preset.name} value={preset.name}>{preset.name}</option>
+            ))}
+          </select>
+          <Button variant="outline" className="gap-2" onClick={resetFilters}>
+            Reset Filters
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => {
+              const latest = savedPresets[0]
+              if (!latest) {
+                toast.error('No saved presets to delete')
+                return
+              }
+              deletePreset(latest.name)
+            }}
+          >
+            Delete Latest Preset
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={printCurrentReport} disabled={isLoading}>
+            <FileText className="h-4 w-4" />
+            Print Current
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+            <Download className="h-4 w-4" />
+            Export Current PDF
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={() => void exportAllPdf()} disabled={isLoading}>
+            <Download className="h-4 w-4" />
+            Export All PDF
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={exportAll} disabled={isLoading}>
+            <Download className="h-4 w-4" />
+            Export All CSV
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {isLoading ? (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Order Trends</CardTitle>
-            <CardDescription>Monthly order volume</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-48 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg flex items-center justify-center">
-              {/* <BarChart3 className="h-12 w-12 text-blue-300" /> */}
-            </div>
+          <CardContent className="h-52 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
           </CardContent>
         </Card>
+      ) : (
+        <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 p-1 md:grid-cols-5">
+            <TabsTrigger value="orders">Orders</TabsTrigger>
+            <TabsTrigger value="transport">Transport</TabsTrigger>
+            <TabsTrigger value="warehouse">Warehouse/Inventory</TabsTrigger>
+            <TabsTrigger value="replacement">Replacement</TabsTrigger>
+            <TabsTrigger value="feedback">Feedback</TabsTrigger>
+          </TabsList>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Delivery Performance</CardTitle>
-            <CardDescription>On-time delivery rate</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-48 bg-gradient-to-br from-green-50 to-green-100 rounded-lg flex items-center justify-center">
-              <TrendingUp className="h-12 w-12 text-green-300" />
+          <TabsContent value="orders" className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <Card><CardHeader><CardDescription>Total Orders</CardDescription><CardTitle>{orderKpi.total}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Delivered</CardDescription><CardTitle>{orderKpi.delivered}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Fulfillment Rate</CardDescription><CardTitle>{orderKpi.fulfillmentRate}%</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Delivered Revenue</CardDescription><CardTitle>{formatPeso(orderKpi.deliveredRevenue)}</CardTitle></CardHeader></Card>
             </div>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Orders by Status</CardTitle>
+                <CardDescription>Status distribution for selected period</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {orderStatusChart.length === 0 ? (
+                    <p className="py-8 text-center text-gray-500">No order status data for this range</p>
+                  ) : (
+                    orderStatusChart
+                      .slice()
+                      .sort((a, b) => Number(b.count) - Number(a.count))
+                      .map((item) => {
+                        const count = Number(item.count || 0)
+                        const percent = orderStatusTotal > 0 ? Math.round((count / orderStatusTotal) * 100) : 0
+                        return (
+                          <div key={item.status} className="space-y-1">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium text-gray-800">{item.status}</span>
+                              <span className="text-gray-600">{count} ({percent}%)</span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                              <div className={`h-full rounded-full bg-blue-600 ${getWidthClass(percent)}`} />
+                            </div>
+                          </div>
+                        )
+                      })
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Order Fulfillment Report</CardTitle>
+                  <CardDescription>Latest orders within selected date range</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadCsv('orders-report.csv', orderRows)}>Export CSV</Button>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Order</th>
+                        <th className="p-3 text-left">Customer</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-left">Amount</th>
+                        <th className="p-3 text-left">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(orderRows).map((row, index) => (
+                        <tr key={`${row.orderNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.orderNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.customer || 'N/A')}</td>
+                          <td className="p-3">{String(row.status || 'N/A')}</td>
+                          <td className="p-3">{formatPeso(Number(row.amount || 0))}</td>
+                          <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {orderRows.length === 0 ? <p className="py-8 text-center text-gray-500">No orders found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Driver Performance</CardTitle>
-            <CardDescription>Top performing drivers</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-48 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg flex items-center justify-center">
-              <UserCheck className="h-12 w-12 text-purple-300" />
+          <TabsContent value="transport" className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <Card><CardHeader><CardDescription>Total Trips</CardDescription><CardTitle>{transportKpi.total}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Completed Trips</CardDescription><CardTitle>{transportKpi.completed}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>In Progress</CardDescription><CardTitle>{transportKpi.inProgress}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Average Completion</CardDescription><CardTitle>{transportKpi.averageCompletion}%</CardTitle></CardHeader></Card>
             </div>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Transport Status Distribution</CardTitle>
+                <CardDescription>Trips by current status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={transportStatusChart}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="status" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#059669" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Transportation & Delivery Status Report</CardTitle>
+                  <CardDescription>Trip assignment and completion details</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadCsv('transport-report.csv', transportRows)}>Export CSV</Button>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Trip</th>
+                        <th className="p-3 text-left">Driver</th>
+                        <th className="p-3 text-left">Vehicle</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-left">Completion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(transportRows).map((row, index) => (
+                        <tr key={`${row.tripNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.tripNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.driver || 'N/A')}</td>
+                          <td className="p-3">{String(row.vehicle || 'N/A')}</td>
+                          <td className="p-3">{String(row.status || 'N/A')}</td>
+                          <td className="p-3">{String(row.dropPointsCompleted || 0)}/{String(row.dropPointsTotal || 0)} ({String(row.completionRate || 0)}%)</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {transportRows.length === 0 ? <p className="py-8 text-center text-gray-500">No trips found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Inventory Movement</CardTitle>
-            <CardDescription>Stock in/out trends</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-48 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg flex items-center justify-center">
-              {/* <PackageOpen className="h-12 w-12 text-orange-300" /> */}
+          <TabsContent value="warehouse" className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+              <Card><CardHeader><CardDescription>Total SKUs</CardDescription><CardTitle>{inventoryKpi.totalSkus}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Low Stock SKUs</CardDescription><CardTitle>{inventoryKpi.lowStock}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Total On Hand</CardDescription><CardTitle>{inventoryKpi.totalQuantity}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Stock In</CardDescription><CardTitle>{inventoryKpi.stockIn}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Stock Out</CardDescription><CardTitle>{inventoryKpi.stockOut}</CardTitle></CardHeader></Card>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+              <Card><CardHeader><CardDescription>Dispatch Candidates</CardDescription><CardTitle>{warehouseComplianceKpi.total}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Checklist Complete</CardDescription><CardTitle>{warehouseComplianceKpi.checklistComplete}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>With Signoff</CardDescription><CardTitle>{warehouseComplianceKpi.withSignoff}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Exceptions</CardDescription><CardTitle>{warehouseComplianceKpi.exceptions}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Compliance Rate</CardDescription><CardTitle>{warehouseComplianceKpi.complianceRate}%</CardTitle></CardHeader></Card>
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Stock In vs Stock Out Trend</CardTitle>
+                <CardDescription>Movement by day</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={inventoryMovementChart}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="day" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Area type="monotone" dataKey="inQty" stroke="#0284c7" fill="#bae6fd" />
+                      <Area type="monotone" dataKey="outQty" stroke="#b91c1c" fill="#fecaca" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Warehouse & Inventory Movement Report</CardTitle>
+                  <CardDescription>Stock transactions and movement history</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadCsv('warehouse-inventory-report.csv', inventoryMovementRows)}>Export CSV</Button>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Warehouse</th>
+                        <th className="p-3 text-left">Product</th>
+                        <th className="p-3 text-left">Type</th>
+                        <th className="p-3 text-left">Quantity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(inventoryMovementRows).map((row, index) => (
+                        <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
+                          <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                          <td className="p-3">{String(row.product || 'N/A')}</td>
+                          <td className="p-3">{String(row.type || 'N/A')}</td>
+                          <td className="p-3">{String(row.quantity || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {inventoryMovementRows.length === 0 ? <p className="py-8 text-center text-gray-500">No inventory movement found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Warehouse Dispatch Compliance Report</CardTitle>
+                  <CardDescription>Checklist, signoff, and exception visibility for load/dispatch</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => downloadCsv('warehouse-dispatch-compliance-report.csv', warehouseDispatchRows)}>Export CSV</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void downloadPdf('warehouse-dispatch-compliance-report.pdf', 'Warehouse Dispatch Compliance Report', warehouseDispatchRows, reportBranding)}
+                  >
+                    Export PDF
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Order</th>
+                        <th className="p-3 text-left">Stage</th>
+                        <th className="p-3 text-left">Checklist</th>
+                        <th className="p-3 text-left">Signoff</th>
+                        <th className="p-3 text-left">Exceptions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(warehouseDispatchRows).map((row, index) => (
+                        <tr key={`${row.orderNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.orderNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.warehouseStage || 'N/A')}</td>
+                          <td className="p-3">{String(row.checklistComplete || 'NO')}</td>
+                          <td className="p-3">{String(row.dispatchSignedOffBy || 'N/A')}</td>
+                          <td className="p-3">{String(row.hasExceptions || 'NO')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {warehouseDispatchRows.length === 0 ? <p className="py-8 text-center text-gray-500">No warehouse dispatch compliance records for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Dispatch Compliance Trend</CardTitle>
+                <CardDescription>Daily compliant vs non-compliant dispatch records</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={warehouseComplianceTrend}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="day" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="compliant" fill="#059669" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="nonCompliant" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="replacement" className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Card><CardHeader><CardDescription>Total Cases</CardDescription><CardTitle>{replacementKpi.total}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Processed</CardDescription><CardTitle>{replacementKpi.completed}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Open Cases</CardDescription><CardTitle>{replacementKpi.open}</CardTitle></CardHeader></Card>
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Replacement Case Status</CardTitle>
+                <CardDescription>Status distribution of replacement cases</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={replacementStatusChart}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="status" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Returned or Damaged Products Report</CardTitle>
+                  <CardDescription>Replacement handling and case tracking</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadCsv('replacement-report.csv', replacementRows)}>Export CSV</Button>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Replacement #</th>
+                        <th className="p-3 text-left">Order #</th>
+                        <th className="p-3 text-left">Customer</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-left">Mode</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(replacementRows).map((row, index) => (
+                        <tr key={`${row.returnNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.returnNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.orderNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.customer || 'N/A')}</td>
+                          <td className="p-3">{String(row.status || 'N/A')}</td>
+                          <td className="p-3">{String(row.replacementMode || 'N/A')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {replacementRows.length === 0 ? <p className="py-8 text-center text-gray-500">No replacement records found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="feedback" className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Card><CardHeader><CardDescription>Total Feedback</CardDescription><CardTitle>{feedbackKpi.total}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Average Rating</CardDescription><CardTitle>{feedbackKpi.avgRating.toFixed(2)}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Open Items</CardDescription><CardTitle>{feedbackKpi.open}</CardTitle></CardHeader></Card>
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Ratings Distribution</CardTitle>
+                <CardDescription>Client rating spread from 1 to 5</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={feedbackRatingChart}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="rating" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#7c3aed" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Client Feedback & Service Evaluation Report</CardTitle>
+                  <CardDescription>Customer ratings and evaluation records</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadCsv('feedback-report.csv', feedbackRows)}>Export CSV</Button>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Customer</th>
+                        <th className="p-3 text-left">Type</th>
+                        <th className="p-3 text-left">Rating</th>
+                        <th className="p-3 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(feedbackRows).map((row, index) => (
+                        <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
+                          <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                          <td className="p-3">{String(row.customer || 'N/A')}</td>
+                          <td className="p-3">{String(row.type || 'N/A')}</td>
+                          <td className="p-3">{String(row.rating || 'N/A')}</td>
+                          <td className="p-3">{String(row.status || 'N/A')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {feedbackRows.length === 0 ? <p className="py-8 text-center text-gray-500">No feedback records found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   )
 }
@@ -7163,11 +8819,11 @@ function SettingsView() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm">Email Notifications</span>
-                  <Button variant="outline" size="sm">Enable</Button>
+                  <span className="text-xs text-gray-500">Configured by system admin</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm">Two-Factor Auth</span>
-                  <Button variant="outline" size="sm">Setup</Button>
+                  <span className="text-xs text-gray-500">Not enabled</span>
                 </div>
               </div>
             </CardContent>

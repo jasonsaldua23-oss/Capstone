@@ -20,12 +20,21 @@ class RoleType(models.TextChoices):
 class OrderStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
     CONFIRMED = "CONFIRMED", "Confirmed"
-    PROCESSING = "PROCESSING", "Processing"
-    PACKED = "PACKED", "Packed"
-    DISPATCHED = "DISPATCHED", "Dispatched"
+    PREPARING = "PREPARING", "Preparing"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY", "Out For Delivery"
     DELIVERED = "DELIVERED", "Delivered"
     CANCELLED = "CANCELLED", "Cancelled"
+
+    # Backward-compat aliases for legacy code paths/data.
+    PROCESSING = PREPARING
+    PACKED = PREPARING
+    DISPATCHED = OUT_FOR_DELIVERY
+
+
+class WarehouseStage(models.TextChoices):
+    READY_TO_LOAD = "READY_TO_LOAD", "Ready To Load"
+    LOADED = "LOADED", "Loaded"
+    DISPATCHED = "DISPATCHED", "Dispatched"
 
 
 class VehicleType(models.TextChoices):
@@ -65,13 +74,20 @@ class DropPointType(models.TextChoices):
 
 
 class ReturnStatus(models.TextChoices):
-    REQUESTED = "REQUESTED", "Requested"
-    APPROVED = "APPROVED", "Approved"
-    PICKED_UP = "PICKED_UP", "Picked Up"
-    IN_TRANSIT = "IN_TRANSIT", "In Transit"
-    RECEIVED = "RECEIVED", "Received"
-    PROCESSED = "PROCESSED", "Processed"
-    REJECTED = "REJECTED", "Rejected"
+    REPORTED = "REPORTED", "Reported"
+    IN_PROGRESS = "IN_PROGRESS", "In Progress"
+    RESOLVED_ON_DELIVERY = "RESOLVED_ON_DELIVERY", "Resolved On Delivery"
+    NEEDS_FOLLOW_UP = "NEEDS_FOLLOW_UP", "Needs Follow Up"
+    COMPLETED = "COMPLETED", "Completed"
+
+    # Backward-compat aliases for legacy code paths/data.
+    REQUESTED = REPORTED
+    APPROVED = IN_PROGRESS
+    PICKED_UP = IN_PROGRESS
+    IN_TRANSIT = IN_PROGRESS
+    RECEIVED = IN_PROGRESS
+    PROCESSED = COMPLETED
+    REJECTED = NEEDS_FOLLOW_UP
 
 
 class FeedbackType(models.TextChoices):
@@ -249,7 +265,7 @@ class Order(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order_number = models.CharField(max_length=120, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="orders")
-    status = models.CharField(max_length=50, choices=OrderStatus.choices, default=OrderStatus.PROCESSING)
+    status = models.CharField(max_length=50, choices=OrderStatus.choices, default=OrderStatus.PREPARING)
     priority = models.CharField(max_length=30, default="normal")
     subtotal = models.FloatField()
     tax = models.FloatField(default=0)
@@ -259,6 +275,28 @@ class Order(models.Model):
     payment_status = models.CharField(max_length=50, default="pending")
     payment_method = models.CharField(max_length=100, blank=True, null=True)
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
+
+    # Warehouse load and dispatch controls
+    warehouse_stage = models.CharField(max_length=50, choices=WarehouseStage.choices, default=WarehouseStage.READY_TO_LOAD)
+    ready_to_load_at = models.DateTimeField(blank=True, null=True)
+    loaded_at = models.DateTimeField(blank=True, null=True)
+    warehouse_dispatched_at = models.DateTimeField(blank=True, null=True)
+
+    checklist_items_verified = models.BooleanField(default=False)
+    checklist_quantity_verified = models.BooleanField(default=False)
+    checklist_packaging_verified = models.BooleanField(default=False)
+    checklist_vehicle_assigned = models.BooleanField(default=False)
+    checklist_driver_assigned = models.BooleanField(default=False)
+
+    dispatch_signed_off_by = models.CharField(max_length=255, blank=True, null=True)
+    dispatch_signed_off_user_id = models.CharField(max_length=100, blank=True, null=True)
+    dispatch_signed_off_at = models.DateTimeField(blank=True, null=True)
+
+    exception_short_load_qty = models.IntegerField(default=0)
+    exception_damaged_on_loading_qty = models.IntegerField(default=0)
+    exception_hold_reason = models.TextField(blank=True, null=True)
+    exception_notes = models.TextField(blank=True, null=True)
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -512,7 +550,7 @@ class Return(models.Model):
     customer_id = models.CharField(max_length=25)
     reason = models.TextField()
     description = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=50, choices=ReturnStatus.choices, default=ReturnStatus.REQUESTED)
+    status = models.CharField(max_length=50, choices=ReturnStatus.choices, default=ReturnStatus.REPORTED)
     requested_by = models.CharField(max_length=50, default="CUSTOMER")
     replacement_mode = models.CharField(max_length=100, blank=True, null=True)
     original_order_item_id = models.CharField(max_length=25, blank=True, null=True)

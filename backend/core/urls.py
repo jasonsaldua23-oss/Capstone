@@ -39,6 +39,7 @@ urlpatterns = [
     path("orders", v.orders_collection),
     path("orders/<str:order_id>", v.order_detail),
     path("orders/<str:order_id>/status", v.order_status_update),
+    path("orders/<str:order_id>/warehouse-stage", v.order_warehouse_stage_update),
     path("trips", v.trips_collection),
     path("driver/trips", v.driver_trips),
     path("uploads/product-image", v.upload_product_image),

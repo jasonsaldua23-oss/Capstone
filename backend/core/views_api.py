@@ -38,9 +38,11 @@ from .models import (
     OrderStatus,
     PasswordResetOTP,
     OrderTimeline,
+    WarehouseStage,
     Product,
     ProductCategory,
     Return,
+    ReturnStatus,
     Role,
     SavedRouteDraft,
     SpareStockTransaction,
@@ -178,6 +180,59 @@ def _pagination(request: HttpRequest) -> tuple[int, int, int]:
     return page, size, (page - 1) * size
 
 
+_ORDER_STATUS_ALIASES: dict[str, str] = {
+    "PROCESSING": OrderStatus.PREPARING,
+    "PACKED": OrderStatus.PREPARING,
+    "DISPATCHED": OrderStatus.OUT_FOR_DELIVERY,
+    "READY_FOR_PICKUP": OrderStatus.PREPARING,
+    "IN_TRANSIT": OrderStatus.OUT_FOR_DELIVERY,
+    "UNAPPROVED": OrderStatus.PREPARING,
+    "FAILED_DELIVERY": OrderStatus.CANCELLED,
+}
+
+
+def _normalize_order_status(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return raw
+    if raw in {
+        OrderStatus.PENDING,
+        OrderStatus.CONFIRMED,
+        OrderStatus.PREPARING,
+        OrderStatus.OUT_FOR_DELIVERY,
+        OrderStatus.DELIVERED,
+        OrderStatus.CANCELLED,
+    }:
+        return raw
+    return _ORDER_STATUS_ALIASES.get(raw, raw)
+
+
+def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> str:
+    raw = str(value or "").strip().upper()
+    mode = str(replacement_mode or "").strip().upper()
+    if not raw:
+        return raw
+    if raw in {
+        ReturnStatus.REPORTED,
+        ReturnStatus.IN_PROGRESS,
+        ReturnStatus.RESOLVED_ON_DELIVERY,
+        ReturnStatus.NEEDS_FOLLOW_UP,
+        ReturnStatus.COMPLETED,
+    }:
+        return raw
+    if raw == "REQUESTED":
+        return ReturnStatus.REPORTED
+    if raw in {"APPROVED", "PICKED_UP", "IN_TRANSIT", "RECEIVED"}:
+        return ReturnStatus.IN_PROGRESS
+    if raw == "REJECTED":
+        return ReturnStatus.NEEDS_FOLLOW_UP
+    if raw == "PROCESSED":
+        if mode == "SPARE_STOCK_IMMEDIATE":
+            return ReturnStatus.RESOLVED_ON_DELIVERY
+        return ReturnStatus.COMPLETED
+    return raw
+
+
 def _serialize_value(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -255,6 +310,7 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
 
 def _serialize_order(order: Order, include_items: bool = True) -> dict[str, Any]:
     data = _serialize_model(order)
+    data["status"] = _normalize_order_status(data.get("status"))
     data["customer"] = _serialize_model(order.customer, exclude={"password"})
     logistics = getattr(order, "logistics", None)
     timeline = getattr(order, "timeline", None)
@@ -302,16 +358,32 @@ def _serialize_order(order: Order, include_items: bool = True) -> dict[str, Any]
     return data
 
 
+def _serialize_return(entry: Return) -> dict[str, Any]:
+    data = _serialize_model(entry)
+    data["status"] = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
+    return data
+
+
 def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
     data = _serialize_model(trip)
     data["driver"] = _serialize_model(trip.driver, include={"user": lambda d: _serialize_model(d.user, exclude={"password"})})
     data["vehicle"] = _serialize_model(trip.vehicle)
+    warehouse_lat = None
+    warehouse_lng = None
+    if trip.warehouse_id:
+        warehouse = Warehouse.objects.filter(id=trip.warehouse_id).first()
+        if warehouse:
+            data["warehouse"] = _serialize_model(warehouse)
+            warehouse_lat = _to_float_or_none(getattr(warehouse, "latitude", None))
+            warehouse_lng = _to_float_or_none(getattr(warehouse, "longitude", None))
+    data["warehouseLatitude"] = warehouse_lat
+    data["warehouseLongitude"] = warehouse_lng
     if include_points:
         drop_points: list[dict[str, Any]] = []
         for dp in trip.drop_points.select_related("order").order_by("sequence"):
             row = _serialize_model(dp)
             if dp.order_id and dp.order:
-                row["orderStatus"] = dp.order.status
+                row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
 
                 # Backfill coordinates for old trips where TripDropPoint lat/lng were saved as null.
@@ -345,6 +417,340 @@ def _serialize_saved_route(route: SavedRouteDraft) -> dict[str, Any]:
         "createdAt": route.created_at.isoformat() if route.created_at else None,
         "updatedAt": route.updated_at.isoformat() if route.updated_at else None,
     }
+
+
+def _warehouse_checklist_complete(order: Order) -> bool:
+    return bool(
+        order.checklist_items_verified
+        and order.checklist_quantity_verified
+        and order.checklist_packaging_verified
+        and order.checklist_vehicle_assigned
+        and order.checklist_driver_assigned
+    )
+
+
+def _normalize_allocation_policy(raw: Any) -> str:
+    value = str(raw or "").strip().upper()
+    if value == "FIFO":
+        return "FIFO"
+    return "FEFO"
+
+
+def _resolve_allocation_policy(body: dict[str, Any]) -> str:
+    # Per-order override is supported, but FEFO remains the default for beverage inventory.
+    requested = body.get("allocationPolicy")
+    if requested:
+        return _normalize_allocation_policy(requested)
+    configured = getattr(settings, "INVENTORY_ALLOCATION_POLICY", "FEFO")
+    return _normalize_allocation_policy(configured)
+
+
+def _sorted_batches_for_policy(batches: list[StockBatch], policy: str) -> list[StockBatch]:
+    if policy == "FIFO":
+        return sorted(
+            batches,
+            key=lambda b: (
+                b.receipt_date or timezone.now(),
+                b.created_at or timezone.now(),
+                b.id,
+            ),
+        )
+
+    # FEFO: nearest expiry first; if expiry is missing, fall back after dated batches.
+    return sorted(
+        batches,
+        key=lambda b: (
+            b.expiry_date is None,
+            b.expiry_date or b.receipt_date or timezone.now(),
+            b.receipt_date or timezone.now(),
+            b.created_at or timezone.now(),
+            b.id,
+        ),
+    )
+
+
+def _extract_allocation_policy_from_notes(notes: Any) -> str:
+    text = str(notes or "")
+    marker = "AllocationPolicy="
+    idx = text.rfind(marker)
+    if idx < 0:
+        return "FEFO"
+    raw = text[idx + len(marker) :].splitlines()[0].strip()
+    return _normalize_allocation_policy(raw)
+
+
+def _reserve_inventory_for_order_item(
+    *,
+    product: Product,
+    requested_qty: int,
+    order: Order,
+    order_item: OrderItem,
+    warehouse_id: str | None,
+    allocation_policy: str,
+    performed_by: str | None,
+) -> list[dict[str, Any]]:
+    if requested_qty <= 0:
+        raise ValueError(f"Quantity for product {product.sku} must be greater than zero")
+
+    inventory_qs = Inventory.objects.select_related("warehouse").filter(product=product)
+    if warehouse_id:
+        inventory_qs = inventory_qs.filter(warehouse_id=warehouse_id)
+
+    inventories = list(inventory_qs)
+    if not inventories:
+        raise ValueError(f"No inventory found for product {product.sku}")
+
+    inventory_by_id = {inv.id: inv for inv in inventories}
+    batches = list(
+        StockBatch.objects.select_related("inventory")
+        .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
+    )
+    if not batches:
+        raise ValueError(f"No available stock batches for product {product.sku}")
+
+    ordered_batches = _sorted_batches_for_policy(batches, allocation_policy)
+    remaining = requested_qty
+    allocation_by_inventory: dict[str, int] = {}
+    allocation_rows: list[dict[str, Any]] = []
+
+    for batch in ordered_batches:
+        if remaining <= 0:
+            break
+        if batch.quantity <= 0:
+            continue
+
+        take_qty = min(batch.quantity, remaining)
+        if take_qty <= 0:
+            continue
+
+        inventory = inventory_by_id.get(batch.inventory_id)
+        if not inventory:
+            continue
+
+        allocation_by_inventory[inventory.id] = allocation_by_inventory.get(inventory.id, 0) + take_qty
+        allocation_rows.append(
+            {
+                "batchNumber": batch.batch_number,
+                "quantity": take_qty,
+                "warehouseId": inventory.warehouse_id,
+            }
+        )
+        remaining -= take_qty
+
+    if remaining > 0:
+        raise ValueError(f"Insufficient stock for product {product.sku}. Missing quantity: {remaining}")
+
+    for inventory_id, qty in allocation_by_inventory.items():
+        inventory = inventory_by_id.get(inventory_id)
+        if not inventory:
+            continue
+        inventory.reserved_quantity = max(0, int(inventory.reserved_quantity or 0) + qty)
+        inventory.save(update_fields=["reserved_quantity", "updated_at"])
+        InventoryTransaction.objects.create(
+            warehouse=inventory.warehouse,
+            product=product,
+            type="RESERVE",
+            quantity=qty,
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+            notes=f"{allocation_policy} reserve for order {order.order_number}",
+            performed_by=performed_by,
+        )
+
+    return allocation_rows
+
+
+def _adjust_reserved_for_order_item(
+    *,
+    order_item: OrderItem,
+    operation: str,
+    performed_by: str | None,
+    consume_qty: int | None = None,
+) -> None:
+    reserve_rows = list(
+        InventoryTransaction.objects.filter(
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+        ).values("warehouse_id", "product_id", "type", "quantity")
+    )
+
+    if not reserve_rows:
+        return
+
+    balances: dict[tuple[str, str], int] = {}
+    for row in reserve_rows:
+        key = (str(row.get("warehouse_id") or ""), str(row.get("product_id") or ""))
+        if not key[0] or not key[1]:
+            continue
+        qty = _int(row.get("quantity"), 0)
+        row_type = str(row.get("type") or "").upper()
+        if row_type == "RESERVE":
+            balances[key] = balances.get(key, 0) + qty
+        elif row_type in {"UNRESERVE", "RESERVE_CONSUMED"}:
+            balances[key] = balances.get(key, 0) - qty
+
+    if operation == "consume":
+        remaining = max(0, int(consume_qty or 0))
+        for (warehouse_id, product_id), balance in balances.items():
+            if remaining <= 0:
+                break
+            if balance <= 0:
+                continue
+            qty = min(balance, remaining)
+            inv = Inventory.objects.filter(warehouse_id=warehouse_id, product_id=product_id).first()
+            if not inv:
+                continue
+            inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - qty)
+            inv.save(update_fields=["reserved_quantity", "updated_at"])
+            InventoryTransaction.objects.create(
+                warehouse=inv.warehouse,
+                product=order_item.product,
+                type="RESERVE_CONSUMED",
+                quantity=qty,
+                reference_type="order_item_reserve",
+                reference_id=order_item.id,
+                notes="Reserved quantity consumed on delivery",
+                performed_by=performed_by,
+            )
+            remaining -= qty
+        return
+
+    # operation == "release"
+    for (warehouse_id, product_id), balance in balances.items():
+        if balance <= 0:
+            continue
+        inv = Inventory.objects.filter(warehouse_id=warehouse_id, product_id=product_id).first()
+        if not inv:
+            continue
+        inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - balance)
+        inv.save(update_fields=["reserved_quantity", "updated_at"])
+        InventoryTransaction.objects.create(
+            warehouse=inv.warehouse,
+            product=order_item.product,
+            type="UNRESERVE",
+            quantity=balance,
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+            notes="Reserved quantity released on cancellation",
+            performed_by=performed_by,
+        )
+
+
+def _finalize_order_inventory_on_delivery(order: Order, performed_by: str | None) -> None:
+    items = list(order.items.select_related("product").all())
+    for order_item in items:
+        policy = _extract_allocation_policy_from_notes(order_item.notes)
+        allocations = _allocate_inventory_for_order_item(
+            product=order_item.product,
+            requested_qty=max(0, int(order_item.quantity or 0)),
+            order=order,
+            order_item=order_item,
+            warehouse_id=str(order.warehouse_id or "").strip() or None,
+            allocation_policy=policy,
+            performed_by=performed_by,
+        )
+        _adjust_reserved_for_order_item(
+            order_item=order_item,
+            operation="consume",
+            performed_by=performed_by,
+            consume_qty=max(0, int(order_item.quantity or 0)),
+        )
+        allocation_note = f"Delivered allocation ({policy}): " + ", ".join(
+            [f"{row['batchNumber']} x{row['quantity']}" for row in allocations]
+        )
+        order_item.notes = f"{order_item.notes or ''}\n{allocation_note}".strip()
+        order_item.save(update_fields=["notes"])
+
+
+def _release_order_reservations(order: Order, performed_by: str | None) -> None:
+    items = list(order.items.select_related("product").all())
+    for order_item in items:
+        _adjust_reserved_for_order_item(
+            order_item=order_item,
+            operation="release",
+            performed_by=performed_by,
+        )
+
+
+def _allocate_inventory_for_order_item(
+    *,
+    product: Product,
+    requested_qty: int,
+    order: Order,
+    order_item: OrderItem,
+    warehouse_id: str | None,
+    allocation_policy: str,
+    performed_by: str | None,
+) -> list[dict[str, Any]]:
+    if requested_qty <= 0:
+        raise ValueError(f"Quantity for product {product.sku} must be greater than zero")
+
+    inventory_qs = Inventory.objects.select_related("warehouse").filter(product=product)
+    if warehouse_id:
+        inventory_qs = inventory_qs.filter(warehouse_id=warehouse_id)
+
+    inventories = list(inventory_qs)
+    if not inventories:
+        raise ValueError(f"No inventory found for product {product.sku}")
+
+    inventory_by_id = {inv.id: inv for inv in inventories}
+    batches = list(
+        StockBatch.objects.select_related("inventory")
+        .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
+    )
+    if not batches:
+        raise ValueError(f"No available stock batches for product {product.sku}")
+
+    ordered_batches = _sorted_batches_for_policy(batches, allocation_policy)
+    remaining = requested_qty
+    allocation_rows: list[dict[str, Any]] = []
+
+    for batch in ordered_batches:
+        if remaining <= 0:
+            break
+        if batch.quantity <= 0:
+            continue
+
+        take_qty = min(batch.quantity, remaining)
+        if take_qty <= 0:
+            continue
+
+        inventory = inventory_by_id.get(batch.inventory_id)
+        if not inventory:
+            continue
+
+        batch.quantity -= take_qty
+        if batch.quantity <= 0:
+            batch.status = "DEPLETED"
+        batch.save(update_fields=["quantity", "status", "updated_at"])
+
+        inventory.quantity = max(0, int(inventory.quantity) - take_qty)
+        inventory.save(update_fields=["quantity", "updated_at"])
+
+        InventoryTransaction.objects.create(
+            warehouse=inventory.warehouse,
+            product=product,
+            type="OUT",
+            quantity=take_qty,
+            reference_type="order_item",
+            reference_id=order_item.id,
+            notes=f"{allocation_policy} allocation for order {order.order_number}; batch {batch.batch_number}",
+            performed_by=performed_by,
+        )
+
+        allocation_rows.append(
+            {
+                "batchNumber": batch.batch_number,
+                "quantity": take_qty,
+                "warehouseId": inventory.warehouse_id,
+            }
+        )
+        remaining -= take_qty
+
+    if remaining > 0:
+        raise ValueError(f"Insufficient stock for product {product.sku}. Missing quantity: {remaining}")
+
+    return allocation_rows
 
 
 OTP_EXPIRY_MINUTES = 10
@@ -1563,7 +1969,7 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     stats = {
         "ordersTotal": Order.objects.count(),
         "ordersToday": Order.objects.filter(created_at__date=today).count(),
-        "pendingOrders": Order.objects.filter(status__in=[OrderStatus.PENDING, OrderStatus.PROCESSING]).count(),
+        "pendingOrders": Order.objects.filter(status__in=[OrderStatus.PENDING, OrderStatus.PREPARING]).count(),
         "deliveredOrders": Order.objects.filter(status=OrderStatus.DELIVERED).count(),
         "activeTrips": Trip.objects.filter(status=TripStatus.IN_PROGRESS).count(),
         "lowStockCount": Inventory.objects.filter(quantity__lte=10).count(),
@@ -1638,26 +2044,33 @@ def notifications_collection(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p:
         return _err("Unauthorized", 401)
+    scoped_qs = Notification.objects.all()
+    if p.get("type") == "staff":
+        scoped_qs = scoped_qs.filter(user_id=p.get("userId"))
+    else:
+        scoped_qs = scoped_qs.filter(customer_id=p.get("userId"))
+
     if request.method == "GET":
-        qs = Notification.objects.all().order_by("-created_at")
-        if p.get("type") == "staff":
-            qs = qs.filter(user_id=p.get("userId"))
-        else:
-            qs = qs.filter(customer_id=p.get("userId"))
+        qs = scoped_qs.order_by("-created_at")
         limit = max(1, min(_int(request.GET.get("limit", "100"), 100), 500))
         rows = list(qs[:limit])
-        return _ok({"success": True, "notifications": [_serialize_model(x) for x in rows]})
+        unread_count = scoped_qs.filter(is_read=False).count()
+        return _ok({"success": True, "notifications": [_serialize_model(x) for x in rows], "unreadCount": unread_count})
     body = _json_body(request)
+
+    if body.get("markAll") is True:
+        qs = scoped_qs.filter(is_read=False)
+        updated_count = qs.count()
+        qs.update(is_read=True, read_at=timezone.now())
+        return _ok({"success": True, "updated": updated_count, "unreadCount": 0})
+
     ids = body.get("ids") or []
     if not isinstance(ids, list) or not ids:
         return _err("ids is required")
-    qs = Notification.objects.filter(id__in=ids)
-    if p.get("type") == "staff":
-        qs = qs.filter(user_id=p.get("userId"))
-    else:
-        qs = qs.filter(customer_id=p.get("userId"))
+    qs = scoped_qs.filter(id__in=ids)
     qs.update(is_read=True, read_at=timezone.now())
-    return _ok({"success": True})
+    unread_count = scoped_qs.filter(is_read=False).count()
+    return _ok({"success": True, "updated": qs.count(), "unreadCount": unread_count})
 
 
 @csrf_exempt
@@ -1675,7 +2088,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         if p.get("type") == "customer":
             where &= Q(customer_id=p.get("userId"))
         if request.GET.get("status"):
-            where &= Q(status=request.GET.get("status"))
+            where &= Q(status=_normalize_order_status(request.GET.get("status")))
         s = str(request.GET.get("search", "")).strip()
         if s:
             where &= Q(order_number__icontains=s) | Q(customer__name__icontains=s)
@@ -1693,7 +2106,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             out.append(row)
         returns_out = []
         if include_returns:
-            returns_out = [_serialize_model(r) for r in Return.objects.filter(order__in=oqs)[:size]]
+            returns_out = [_serialize_return(r) for r in Return.objects.filter(order__in=oqs)[:size]]
         return _ok({"success": True, "orders": out, "returns": returns_out, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size if include_orders else 0})
     if request.method == "POST":
         body = _json_body(request)
@@ -1707,56 +2120,89 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         items = body.get("items") or []
         if not isinstance(items, list) or not items:
             return _err("items are required")
-        with transaction.atomic():
-            count = Order.objects.count() + 1
-            order = Order.objects.create(
-                order_number=f"ORD-{timezone.now().year}-{str(count).zfill(4)}",
-                customer=customer,
-                status=body.get("status") or OrderStatus.PROCESSING,
-                priority=body.get("priority") or "normal",
-                subtotal=0,
-                tax=0,
-                shipping_cost=float(body.get("shippingCost") or 0),
-                discount=float(body.get("discount") or 0),
-                total_amount=0,
-                payment_status=body.get("paymentStatus") or "pending",
-                payment_method=body.get("paymentMethod"),
-                warehouse_id=body.get("warehouseId"),
-            )
-            subtotal = 0.0
-            for item in items:
-                pid = str(item.get("productId") or "")
-                if not pid:
-                    continue
-                try:
-                    prod = Product.objects.get(id=pid)
-                except Product.DoesNotExist:
-                    return _err(f"Product not found: {pid}", 404)
-                qty = _int(item.get("quantity"), 0)
-                unit = float(item.get("unitPrice") or prod.price)
-                subtotal += unit * qty
-                OrderItem.objects.create(order=order, product=prod, quantity=qty, unit_price=unit, total_price=float(item.get("totalPrice") or unit * qty), notes=item.get("notes"))
-            tax = float(body.get("tax") if body.get("tax") is not None else subtotal * 0.08)
-            total = float(body.get("totalAmount") if body.get("totalAmount") is not None else subtotal + tax + order.shipping_cost - order.discount)
-            order.subtotal = subtotal
-            order.tax = tax
-            order.total_amount = total
-            order.save(update_fields=["subtotal", "tax", "total_amount", "updated_at"])
-            OrderLogistics.objects.create(
-                order=order,
-                shipping_name=body.get("shippingName") or customer.name,
-                shipping_phone=body.get("shippingPhone") or customer.phone or "",
-                shipping_address=body.get("shippingAddress") or customer.address or "",
-                shipping_city=body.get("shippingCity") or customer.city or "",
-                shipping_province=body.get("shippingProvince") or customer.province or "",
-                shipping_zip_code=body.get("shippingZipCode") or customer.zip_code or "",
-                shipping_country=body.get("shippingCountry") or customer.country,
-                shipping_latitude=body.get("shippingLatitude") if body.get("shippingLatitude") is not None else customer.latitude,
-                shipping_longitude=body.get("shippingLongitude") if body.get("shippingLongitude") is not None else customer.longitude,
-                notes=body.get("notes"),
-                special_instructions=body.get("specialInstructions"),
-            )
-            OrderTimeline.objects.create(order=order, delivery_date=datetime.fromisoformat(body["deliveryDate"]) if body.get("deliveryDate") else None)
+        try:
+            with transaction.atomic():
+                count = Order.objects.count() + 1
+                order = Order.objects.create(
+                    order_number=f"ORD-{timezone.now().year}-{str(count).zfill(4)}",
+                    customer=customer,
+                    status=_normalize_order_status(body.get("status") or OrderStatus.PREPARING),
+                    priority=body.get("priority") or "normal",
+                    subtotal=0,
+                    tax=0,
+                    shipping_cost=float(body.get("shippingCost") or 0),
+                    discount=float(body.get("discount") or 0),
+                    total_amount=0,
+                    payment_status=body.get("paymentStatus") or "pending",
+                    payment_method=body.get("paymentMethod"),
+                    warehouse_id=body.get("warehouseId"),
+                )
+                subtotal = 0.0
+                allocation_policy = _resolve_allocation_policy(body)
+                performed_by = (p or {}).get("userId")
+
+                for item in items:
+                    pid = str(item.get("productId") or "").strip()
+                    if not pid:
+                        continue
+                    prod = Product.objects.filter(id=pid).first()
+                    if not prod:
+                        raise ValueError(f"Product not found: {pid}")
+
+                    qty = _int(item.get("quantity"), 0)
+                    if qty <= 0:
+                        raise ValueError(f"Quantity must be greater than zero for product {prod.sku}")
+
+                    unit = float(item.get("unitPrice") or prod.price)
+                    subtotal += unit * qty
+                    order_item = OrderItem.objects.create(
+                        order=order,
+                        product=prod,
+                        quantity=qty,
+                        unit_price=unit,
+                        total_price=float(item.get("totalPrice") or unit * qty),
+                        notes=item.get("notes"),
+                    )
+
+                    allocations = _reserve_inventory_for_order_item(
+                        product=prod,
+                        requested_qty=qty,
+                        order=order,
+                        order_item=order_item,
+                        warehouse_id=str(order.warehouse_id or "").strip() or None,
+                        allocation_policy=allocation_policy,
+                        performed_by=performed_by,
+                    )
+                    allocation_note = f"Reserved using {allocation_policy}: " + ", ".join(
+                        [f"{row['batchNumber']} x{row['quantity']}" for row in allocations]
+                    )
+                    policy_note = f"AllocationPolicy={allocation_policy}"
+                    order_item.notes = f"{order_item.notes or ''}\n{policy_note}\n{allocation_note}".strip()
+                    order_item.save(update_fields=["notes"])
+
+                tax = float(body.get("tax") if body.get("tax") is not None else subtotal * 0.08)
+                total = float(body.get("totalAmount") if body.get("totalAmount") is not None else subtotal + tax + order.shipping_cost - order.discount)
+                order.subtotal = subtotal
+                order.tax = tax
+                order.total_amount = total
+                order.save(update_fields=["subtotal", "tax", "total_amount", "updated_at"])
+                OrderLogistics.objects.create(
+                    order=order,
+                    shipping_name=body.get("shippingName") or customer.name,
+                    shipping_phone=body.get("shippingPhone") or customer.phone or "",
+                    shipping_address=body.get("shippingAddress") or customer.address or "",
+                    shipping_city=body.get("shippingCity") or customer.city or "",
+                    shipping_province=body.get("shippingProvince") or customer.province or "",
+                    shipping_zip_code=body.get("shippingZipCode") or customer.zip_code or "",
+                    shipping_country=body.get("shippingCountry") or customer.country,
+                    shipping_latitude=body.get("shippingLatitude") if body.get("shippingLatitude") is not None else customer.latitude,
+                    shipping_longitude=body.get("shippingLongitude") if body.get("shippingLongitude") is not None else customer.longitude,
+                    notes=body.get("notes"),
+                    special_instructions=body.get("specialInstructions"),
+                )
+                OrderTimeline.objects.create(order=order, delivery_date=datetime.fromisoformat(body["deliveryDate"]) if body.get("deliveryDate") else None)
+        except ValueError as e:
+            return _err(str(e), 400)
         order = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order.id)
         return _ok({"success": True, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
@@ -1773,15 +2219,26 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         r = Return.objects.select_related("order").get(id=return_id)
     except Return.DoesNotExist:
         return _err("Replacement record not found", 404)
-    r.status = status
-    if status == "PICKED_UP":
+    normalized_status = _normalize_replacement_status(status, r.replacement_mode)
+    allowed_statuses = {
+        ReturnStatus.REPORTED,
+        ReturnStatus.IN_PROGRESS,
+        ReturnStatus.RESOLVED_ON_DELIVERY,
+        ReturnStatus.NEEDS_FOLLOW_UP,
+        ReturnStatus.COMPLETED,
+    }
+    if normalized_status not in allowed_statuses:
+        return _err("Invalid replacement status", 400)
+
+    r.status = normalized_status
+    if normalized_status == ReturnStatus.IN_PROGRESS:
         r.pickup_completed = timezone.now()
-    if status == "PROCESSED":
+    if normalized_status in {ReturnStatus.RESOLVED_ON_DELIVERY, ReturnStatus.COMPLETED}:
         r.processed_at = timezone.now()
         r.processed_by = staff.get("userId")
-    r.notes = f"{r.notes or ''}\n{status}".strip()
+    r.notes = f"{r.notes or ''}\n{normalized_status}".strip()
     r.save()
-    return _ok({"success": True, "replacement": _serialize_model(r), "message": "Replacement status updated"})
+    return _ok({"success": True, "replacement": _serialize_return(r), "message": "Replacement status updated"})
 
 
 @require_GET
@@ -1801,27 +2258,165 @@ def order_detail(request: HttpRequest, order_id: str) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["PATCH"])
 def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     body = _json_body(request)
     status = body.get("status")
     if not status:
         return _err("status is required")
+    next_status = _normalize_order_status(status)
+    allowed_statuses = {
+        OrderStatus.PENDING,
+        OrderStatus.CONFIRMED,
+        OrderStatus.PREPARING,
+        OrderStatus.OUT_FOR_DELIVERY,
+        OrderStatus.DELIVERED,
+        OrderStatus.CANCELLED,
+    }
+    if next_status not in allowed_statuses:
+        return _err("Invalid status", 400)
     try:
         o = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return _err("Order not found", 404)
-    o.status = str(status)
-    o.save(update_fields=["status", "updated_at"])
-    timeline, _ = OrderTimeline.objects.get_or_create(order=o)
+
+    if o.status == next_status:
+        current = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=o.id)
+        return _ok({"success": True, "order": _serialize_order(current, include_items=False)})
+
+    if o.status == OrderStatus.DELIVERED and next_status != OrderStatus.DELIVERED:
+        return _err("Delivered orders cannot be moved to another status", 400)
+
+    if next_status == OrderStatus.OUT_FOR_DELIVERY:
+        if o.warehouse_stage != WarehouseStage.DISPATCHED:
+            return _err("Order must be moved to warehouse stage DISPATCHED first", 400)
+        if not _warehouse_checklist_complete(o):
+            return _err("Dispatch checklist must be completed before OUT_FOR_DELIVERY status", 400)
+        if not o.dispatch_signed_off_by or not o.dispatch_signed_off_at:
+            return _err("Dispatch signoff is required before OUT_FOR_DELIVERY status", 400)
+        if str(o.exception_hold_reason or "").strip():
+            return _err("Order has a hold reason and cannot be dispatched", 400)
+
+    try:
+        with transaction.atomic():
+            if next_status == OrderStatus.DELIVERED:
+                _finalize_order_inventory_on_delivery(o, staff.get("userId"))
+            elif next_status == OrderStatus.CANCELLED:
+                _release_order_reservations(o, staff.get("userId"))
+
+            o.status = next_status
+            o.save(update_fields=["status", "updated_at"])
+
+            timeline, _ = OrderTimeline.objects.get_or_create(order=o)
+            now = timezone.now()
+            status_map = {
+                "CONFIRMED": "confirmed_at",
+                "PREPARING": "processed_at",
+                "OUT_FOR_DELIVERY": "shipped_at",
+                "DELIVERED": "delivered_at",
+                "CANCELLED": "cancelled_at",
+            }
+            field = status_map.get(o.status)
+            if field:
+                setattr(timeline, field, now)
+                timeline.save()
+    except ValueError as e:
+        return _err(str(e), 400)
+
+    updated = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=o.id)
+    return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonResponse:
+    staff, err = _require_staff(request)
+    if err:
+        return err
+    body = _json_body(request)
+
+    stage = str(body.get("warehouseStage") or "").strip().upper()
+    valid_stages = {WarehouseStage.READY_TO_LOAD, WarehouseStage.LOADED, WarehouseStage.DISPATCHED}
+    if stage not in valid_stages:
+        return _err("warehouseStage is required and must be READY_TO_LOAD, LOADED, or DISPATCHED")
+
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return _err("Order not found", 404)
+
+    current_stage = str(order.warehouse_stage or WarehouseStage.READY_TO_LOAD)
+    stage_rank = {
+        WarehouseStage.READY_TO_LOAD: 1,
+        WarehouseStage.LOADED: 2,
+        WarehouseStage.DISPATCHED: 3,
+    }
+    if stage_rank.get(stage, 0) < stage_rank.get(current_stage, 0):
+        return _err("Warehouse stage cannot move backward", 400)
+
+    checklist = body.get("checklist") if isinstance(body.get("checklist"), dict) else {}
+    if "itemsVerified" in checklist:
+        order.checklist_items_verified = bool(checklist.get("itemsVerified"))
+    if "quantityVerified" in checklist:
+        order.checklist_quantity_verified = bool(checklist.get("quantityVerified"))
+    if "packagingVerified" in checklist:
+        order.checklist_packaging_verified = bool(checklist.get("packagingVerified"))
+    if "vehicleAssigned" in checklist:
+        order.checklist_vehicle_assigned = bool(checklist.get("vehicleAssigned"))
+    if "driverAssigned" in checklist:
+        order.checklist_driver_assigned = bool(checklist.get("driverAssigned"))
+
+    if "shortLoadQty" in body:
+        order.exception_short_load_qty = max(0, _int(body.get("shortLoadQty"), 0))
+    if "damagedOnLoadingQty" in body:
+        order.exception_damaged_on_loading_qty = max(0, _int(body.get("damagedOnLoadingQty"), 0))
+    if "holdReason" in body:
+        order.exception_hold_reason = str(body.get("holdReason") or "").strip() or None
+    if "exceptionNotes" in body:
+        order.exception_notes = str(body.get("exceptionNotes") or "").strip() or None
+
+    signoff_name = str(body.get("signoffName") or "").strip()
+
+    if stage == WarehouseStage.DISPATCHED:
+        if not _warehouse_checklist_complete(order):
+            return _err("All dispatch checklist items are required before DISPATCHED", 400)
+        if str(order.exception_hold_reason or "").strip():
+            return _err("Order has hold reason and cannot be dispatched", 400)
+        if not signoff_name and not str(order.dispatch_signed_off_by or "").strip():
+            return _err("signoffName is required before DISPATCHED", 400)
+        if signoff_name:
+            order.dispatch_signed_off_by = signoff_name
+        order.dispatch_signed_off_user_id = staff.get("userId")
+        order.dispatch_signed_off_at = timezone.now()
+
     now = timezone.now()
-    status_map = {"CONFIRMED": "confirmed_at", "PROCESSING": "processed_at", "DISPATCHED": "shipped_at", "DELIVERED": "delivered_at", "CANCELLED": "cancelled_at"}
-    field = status_map.get(o.status)
-    if field:
-        setattr(timeline, field, now)
-        timeline.save()
-    return _ok({"success": True})
+    order.warehouse_stage = stage
+    if stage == WarehouseStage.READY_TO_LOAD and not order.ready_to_load_at:
+        order.ready_to_load_at = now
+    if stage == WarehouseStage.LOADED and not order.loaded_at:
+        order.loaded_at = now
+    if stage == WarehouseStage.DISPATCHED and not order.warehouse_dispatched_at:
+        order.warehouse_dispatched_at = now
+
+    if stage == WarehouseStage.LOADED and _normalize_order_status(order.status) in {OrderStatus.PREPARING, OrderStatus.CONFIRMED}:
+        order.status = OrderStatus.PREPARING
+    if stage == WarehouseStage.DISPATCHED:
+        order.status = OrderStatus.OUT_FOR_DELIVERY
+
+    order.save()
+
+    if stage == WarehouseStage.DISPATCHED:
+        timeline, _ = OrderTimeline.objects.get_or_create(order=order)
+        if not timeline.shipped_at:
+            timeline.shipped_at = now
+            timeline.save(update_fields=["shipped_at", "updated_at"])
+
+    serialized_order = _serialize_order(
+        Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order.id),
+        include_items=False,
+    )
+    return _ok({"success": True, "order": serialized_order, "message": f"Warehouse stage moved to {stage}"})
 
 
 @csrf_exempt
@@ -1997,11 +2592,15 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err("Order not found", 404)
     if o.status in {OrderStatus.DELIVERED, OrderStatus.CANCELLED}:
         return _err("Order cannot be cancelled", 400)
-    o.status = OrderStatus.CANCELLED
-    o.save(update_fields=["status", "updated_at"])
-    timeline, _ = OrderTimeline.objects.get_or_create(order=o)
-    timeline.cancelled_at = timezone.now()
-    timeline.save()
+
+    with transaction.atomic():
+        _release_order_reservations(o, p.get("userId"))
+        o.status = OrderStatus.CANCELLED
+        o.save(update_fields=["status", "updated_at"])
+        timeline, _ = OrderTimeline.objects.get_or_create(order=o)
+        timeline.cancelled_at = timezone.now()
+        timeline.save()
+
     return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
 
 
@@ -2011,7 +2610,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
     rows = Return.objects.filter(customer_id=p.get("userId")).order_by("-created_at")[:200]
-    return _ok({"success": True, "replacements": [_serialize_model(x) for x in rows]})
+    return _ok({"success": True, "replacements": [_serialize_return(x) for x in rows]})
 
 
 @require_GET
@@ -2027,7 +2626,8 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
             {
                 "orderId": o.id,
                 "orderNumber": o.order_number,
-                "status": o.status,
+                "status": _normalize_order_status(o.status),
+                "orderStatus": _normalize_order_status(o.status),
                 "updatedAt": o.updated_at.isoformat() if o.updated_at else None,
                 "trip": _serialize_trip(trip, include_points=False) if trip else None,
             }
@@ -2149,8 +2749,8 @@ def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
         stock.save(update_fields=["quantity", "updated_at"])
         SpareStockTransaction.objects.create(driver=d, product=product, type="OUT", quantity=qty, reference_type="replacement", reference_id=order.id, notes="Driver replacement from spare stock")
         count = Return.objects.count() + 1
-        r = Return.objects.create(return_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}", order=order, customer_id=order.customer_id, reason=str(body.get("reason") or "Damaged item"), description=body.get("description") or "Replacement fulfilled by driver spare stock", status="PROCESSED", requested_by="DRIVER", replacement_mode="SPARE_STOCK_IMMEDIATE", original_order_item_id=body.get("orderItemId"), replacement_product_id=product.id, replacement_quantity=qty, pickup_address=body.get("pickupAddress") or "", pickup_city=body.get("pickupCity") or "", pickup_province=body.get("pickupProvince") or "", pickup_zip_code=body.get("pickupZipCode") or "", processed_at=timezone.now(), processed_by=p.get("userId"), notes="Immediate replacement completed by driver")
-    return _ok({"success": True, "replacement": _serialize_model(r)})
+        r = Return.objects.create(return_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}", order=order, customer_id=order.customer_id, reason=str(body.get("reason") or "Damaged item"), description=body.get("description") or "Replacement fulfilled by driver spare stock", status=ReturnStatus.RESOLVED_ON_DELIVERY, requested_by="DRIVER", replacement_mode="SPARE_STOCK_IMMEDIATE", original_order_item_id=body.get("orderItemId"), replacement_product_id=product.id, replacement_quantity=qty, pickup_address=body.get("pickupAddress") or "", pickup_city=body.get("pickupCity") or "", pickup_province=body.get("pickupProvince") or "", pickup_zip_code=body.get("pickupZipCode") or "", processed_at=timezone.now(), processed_by=p.get("userId"), notes="Immediate replacement completed by driver")
+    return _ok({"success": True, "replacement": _serialize_return(r)})
 
 
 @csrf_exempt
@@ -2172,7 +2772,7 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         oqs = (
             Order.objects.select_related("customer", "logistics", "timeline")
             .prefetch_related("items__product")
-            .filter(status__in=[OrderStatus.PROCESSING, OrderStatus.CONFIRMED])
+            .filter(status__in=[OrderStatus.PREPARING, OrderStatus.CONFIRMED])
             .order_by("created_at")
         )
 
@@ -2362,12 +2962,14 @@ def trips_saved_routes(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    p, err = _require_staff(request)
     if err:
         return err
     t = Trip.objects.filter(id=trip_id).first()
     if not t:
         return _err("Trip not found", 404)
+    if p.get("role") == "DRIVER" and p.get("userId") != t.driver.user_id:
+        return _err("Forbidden", 403)
     t.status = TripStatus.IN_PROGRESS
     t.actual_start_at = timezone.now()
     t.save(update_fields=["status", "actual_start_at", "updated_at"])
@@ -2377,13 +2979,13 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["PATCH"])
 def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: str) -> JsonResponse:
-    p = _require_auth(request)
-    if not p:
-        return _err("Unauthorized", 401)
+    p, err = _require_staff(request)
+    if err:
+        return err
     dp = TripDropPoint.objects.select_related("trip").filter(id=drop_point_id, trip_id=trip_id).first()
     if not dp:
         return _err("Drop point not found", 404)
-    if p.get("type") == "staff" and p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver.user_id:
+    if p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver.user_id:
         return _err("Forbidden", 403)
     body = _json_body(request)
     mapping = [("status", "status"), ("recipientName", "recipient_name"), ("recipientSignature", "recipient_signature"), ("deliveryPhoto", "delivery_photo"), ("failureReason", "failure_reason"), ("failureNotes", "failure_notes"), ("notes", "notes")]

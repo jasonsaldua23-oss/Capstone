@@ -18,7 +18,8 @@ export interface CustomerOrder {
 export interface CustomerTrackingItem {
   orderId: string;
   orderNumber: string;
-  orderStatus: string;
+  orderStatus?: string;
+  status?: string;
   updatedAt: string;
   trip?: {
     tripNumber: string;

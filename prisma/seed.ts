@@ -339,7 +339,7 @@ async function main() {
     data: {
       orderNumber: 'ORD-2024-0002',
       customerId: customer.id,
-      status: 'DISPATCHED',
+      status: 'OUT_FOR_DELIVERY',
       subtotal: 84.98,
       tax: 6.80,
       totalAmount: 91.78,
@@ -376,7 +376,7 @@ async function main() {
     data: {
       orderNumber: 'ORD-2024-0003',
       customerId: customer2.id,
-      status: 'PROCESSING',
+      status: 'PREPARING',
       subtotal: 59.99,
       tax: 4.80,
       totalAmount: 64.79,

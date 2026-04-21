@@ -1,3 +1,2529 @@
-from django.test import TestCase
+from datetime import timedelta
 
-# Create your tests here.
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import Client, TestCase
+from django.utils import timezone
+
+from .auth import create_token
+from .models import (
+    Customer,
+    Driver,
+    DropPointType,
+    Inventory,
+    InventoryTransaction,
+    LocationLog,
+    Notification,
+    Order,
+    OrderItem,
+    OrderLogistics,
+    OrderTimeline,
+    OrderStatus,
+    Product,
+    Role,
+    SavedRouteDraft,
+    StockBatch,
+    Trip,
+    TripDropPoint,
+    TripStatus,
+    User,
+    Vehicle,
+    VehicleType,
+    Warehouse,
+    WarehouseStage,
+)
+
+
+class NotificationsApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.primary_user = User.objects.create(
+            email="primary.admin@example.com",
+            password="hashed",
+            name="Primary Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.other_user = User.objects.create(
+            email="other.admin@example.com",
+            password="hashed",
+            name="Other Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.primary_token = create_token(
+            {
+                "userId": self.primary_user.id,
+                "email": self.primary_user.email,
+                "name": self.primary_user.name,
+                "role": self.admin_role.name,
+                "type": "staff",
+            }
+        )
+
+    def test_get_notifications_includes_unread_count_and_scopes_to_authenticated_user(self) -> None:
+        Notification.objects.create(
+            user=self.primary_user,
+            title="Unread 1",
+            message="Primary unread 1",
+            type="order_update",
+            is_read=False,
+        )
+        Notification.objects.create(
+            user=self.primary_user,
+            title="Unread 2",
+            message="Primary unread 2",
+            type="order_update",
+            is_read=False,
+        )
+        Notification.objects.create(
+            user=self.primary_user,
+            title="Read 1",
+            message="Primary read 1",
+            type="order_update",
+            is_read=True,
+            read_at=timezone.now(),
+        )
+        Notification.objects.create(
+            user=self.other_user,
+            title="Other unread",
+            message="Other unread",
+            type="order_update",
+            is_read=False,
+        )
+
+        response = self.client.get(
+            "/api/notifications",
+            HTTP_AUTHORIZATION=f"Bearer {self.primary_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["unreadCount"], 2)
+        self.assertEqual(len(payload["notifications"]), 3)
+        for item in payload["notifications"]:
+            self.assertEqual(item["user"], self.primary_user.id)
+
+    def test_patch_notifications_mark_all_marks_only_current_user_and_returns_unread_count(self) -> None:
+        primary_unread_1 = Notification.objects.create(
+            user=self.primary_user,
+            title="Unread 1",
+            message="Primary unread 1",
+            type="order_update",
+            is_read=False,
+        )
+        primary_unread_2 = Notification.objects.create(
+            user=self.primary_user,
+            title="Unread 2",
+            message="Primary unread 2",
+            type="order_update",
+            is_read=False,
+        )
+        other_unread = Notification.objects.create(
+            user=self.other_user,
+            title="Other unread",
+            message="Other unread",
+            type="order_update",
+            is_read=False,
+        )
+
+        response = self.client.patch(
+            "/api/notifications",
+            data='{"markAll": true}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.primary_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["updated"], 2)
+        self.assertEqual(payload["unreadCount"], 0)
+
+        primary_unread_1.refresh_from_db()
+        primary_unread_2.refresh_from_db()
+        other_unread.refresh_from_db()
+
+        self.assertTrue(primary_unread_1.is_read)
+        self.assertTrue(primary_unread_2.is_read)
+        self.assertIsNotNone(primary_unread_1.read_at)
+        self.assertIsNotNone(primary_unread_2.read_at)
+        self.assertFalse(other_unread.is_read)
+
+    def test_patch_notifications_by_ids_marks_selected_owned_records_only(self) -> None:
+        target_1 = Notification.objects.create(
+            user=self.primary_user,
+            title="Target 1",
+            message="Target 1",
+            type="order_update",
+            is_read=False,
+        )
+        target_2 = Notification.objects.create(
+            user=self.primary_user,
+            title="Target 2",
+            message="Target 2",
+            type="order_update",
+            is_read=False,
+        )
+        untouched_same_user = Notification.objects.create(
+            user=self.primary_user,
+            title="Untouched",
+            message="Untouched",
+            type="order_update",
+            is_read=False,
+        )
+        other_user_notification = Notification.objects.create(
+            user=self.other_user,
+            title="Other user",
+            message="Other user",
+            type="order_update",
+            is_read=False,
+        )
+
+        response = self.client.patch(
+            "/api/notifications",
+            data=f'{{"ids": ["{target_1.id}", "{other_user_notification.id}", "{target_2.id}"]}}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.primary_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["updated"], 2)
+        self.assertEqual(payload["unreadCount"], 1)
+
+        target_1.refresh_from_db()
+        target_2.refresh_from_db()
+        untouched_same_user.refresh_from_db()
+        other_user_notification.refresh_from_db()
+
+        self.assertTrue(target_1.is_read)
+        self.assertTrue(target_2.is_read)
+        self.assertFalse(untouched_same_user.is_read)
+        self.assertFalse(other_user_notification.is_read)
+
+    def test_notifications_requires_authentication(self) -> None:
+        response = self.client.get("/api/notifications")
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Unauthorized")
+
+    def test_patch_notifications_requires_ids_when_mark_all_is_not_used(self) -> None:
+        response = self.client.patch(
+            "/api/notifications",
+            data="{}",
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.primary_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "ids is required")
+
+    def test_patch_notifications_mark_all_takes_precedence_over_ids(self) -> None:
+        n1 = Notification.objects.create(
+            user=self.primary_user,
+            title="N1",
+            message="N1",
+            type="order_update",
+            is_read=False,
+        )
+        n2 = Notification.objects.create(
+            user=self.primary_user,
+            title="N2",
+            message="N2",
+            type="order_update",
+            is_read=False,
+        )
+
+        response = self.client.patch(
+            "/api/notifications",
+            data=f'{{"markAll": true, "ids": ["{n1.id}"]}}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.primary_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["updated"], 2)
+        self.assertEqual(payload["unreadCount"], 0)
+
+        n1.refresh_from_db()
+        n2.refresh_from_db()
+        self.assertTrue(n1.is_read)
+        self.assertTrue(n2.is_read)
+
+
+class CustomerTrackingApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.driver_user = User.objects.create(
+            email="driver.contract@example.com",
+            password="hashed",
+            name="Driver Contract",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-CONTRACT-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            phone="+1-555-0101",
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="TEST-TRACK-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+
+        self.customer = Customer.objects.create(
+            email="customer.contract@example.com",
+            password="hashed",
+            name="Customer Contract",
+            is_active=True,
+        )
+        self.other_customer = Customer.objects.create(
+            email="other.customer.contract@example.com",
+            password="hashed",
+            name="Other Customer Contract",
+            is_active=True,
+        )
+
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+    def test_customer_tracking_returns_status_and_order_status_for_compatibility(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-CONTRACT-001",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=100,
+            total_amount=110,
+        )
+        Order.objects.create(
+            order_number="ORD-CONTRACT-OTHER-001",
+            customer=self.other_customer,
+            status=OrderStatus.PROCESSING,
+            subtotal=80,
+            total_amount=85,
+        )
+
+        trip = Trip.objects.create(
+            trip_number="TRIP-CONTRACT-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+        )
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=order,
+            drop_point_type=DropPointType.DELIVERY,
+            sequence=1,
+            location_name="Customer Address",
+            address="123 Main St",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
+
+        response = self.client.get(
+            "/api/customer/tracking",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(len(payload["tracking"]), 1)
+
+        item = payload["tracking"][0]
+        self.assertEqual(item["orderId"], order.id)
+        self.assertEqual(item["status"], OrderStatus.OUT_FOR_DELIVERY)
+        self.assertEqual(item["orderStatus"], OrderStatus.OUT_FOR_DELIVERY)
+        self.assertIn("trip", item)
+        self.assertIsNotNone(item["trip"])
+
+
+class CustomerOrdersApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.customer = Customer.objects.create(
+            email="orders.customer@example.com",
+            password="hashed",
+            name="Orders Customer",
+            is_active=True,
+        )
+        self.other_customer = Customer.objects.create(
+            email="orders.other@example.com",
+            password="hashed",
+            name="Orders Other Customer",
+            is_active=True,
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+        self.staff_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.staff_user = User.objects.create(
+            email="orders.staff@example.com",
+            password="hashed",
+            name="Orders Staff",
+            role=self.staff_role,
+            is_active=True,
+        )
+        self.staff_token = create_token(
+            {
+                "userId": self.staff_user.id,
+                "email": self.staff_user.email,
+                "name": self.staff_user.name,
+                "role": self.staff_role.name,
+                "type": "staff",
+            }
+        )
+
+    def test_customer_orders_returns_only_authenticated_customer_orders_and_shape(self) -> None:
+        own_order = Order.objects.create(
+            order_number="ORD-CUST-001",
+            customer=self.customer,
+            status=OrderStatus.PROCESSING,
+            subtotal=500,
+            total_amount=550,
+        )
+        Order.objects.create(
+            order_number="ORD-CUST-OTHER-001",
+            customer=self.other_customer,
+            status=OrderStatus.CONFIRMED,
+            subtotal=300,
+            total_amount=330,
+        )
+
+        response = self.client.get(
+            "/api/customer/orders",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(len(payload["orders"]), 1)
+        order_row = payload["orders"][0]
+        self.assertEqual(order_row["id"], own_order.id)
+        self.assertEqual(order_row["orderNumber"], own_order.order_number)
+        self.assertEqual(order_row["customer"]["id"], self.customer.id)
+        self.assertIn("items", order_row)
+        self.assertIn("logistics", order_row)
+        self.assertIn("timeline", order_row)
+
+    def test_customer_orders_rejects_non_customer_tokens(self) -> None:
+        response = self.client.get(
+            "/api/customer/orders",
+            HTTP_AUTHORIZATION=f"Bearer {self.staff_token}",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Unauthorized")
+
+
+class DriverTripsApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+
+        self.driver_user = User.objects.create(
+            email="driver.trips@example.com",
+            password="hashed",
+            name="Driver Trips",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.other_driver_user = User.objects.create(
+            email="driver.trips.other@example.com",
+            password="hashed",
+            name="Driver Trips Other",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.admin_user = User.objects.create(
+            email="driver.trips.admin@example.com",
+            password="hashed",
+            name="Driver Trips Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-TRIPS-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.other_driver = Driver.objects.create(
+            user=self.other_driver_user,
+            license_number="LIC-TRIPS-002",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+
+        self.vehicle = Vehicle.objects.create(
+            license_plate="TRIPS-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.other_vehicle = Vehicle.objects.create(
+            license_plate="TRIPS-002",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_driver_trips_returns_only_authenticated_driver_trips_with_latest_location(self) -> None:
+        own_trip = Trip.objects.create(
+            trip_number="TRP-DRIVER-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+        )
+        Trip.objects.create(
+            trip_number="TRP-DRIVER-OTHER-001",
+            driver=self.other_driver,
+            vehicle=self.other_vehicle,
+            status=TripStatus.PLANNED,
+        )
+
+        LocationLog.objects.create(
+            driver=self.driver,
+            trip=own_trip,
+            latitude=10.1001,
+            longitude=123.9001,
+            recorded_at=timezone.now() - timedelta(minutes=3),
+        )
+        latest_log = LocationLog.objects.create(
+            driver=self.driver,
+            trip=own_trip,
+            latitude=10.2002,
+            longitude=123.8002,
+            recorded_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(len(payload["trips"]), 1)
+
+        row = payload["trips"][0]
+        self.assertEqual(row["id"], own_trip.id)
+        self.assertEqual(row["tripNumber"], own_trip.trip_number)
+        self.assertIn("dropPoints", row)
+        self.assertIn("driver", row)
+        self.assertIn("vehicle", row)
+        self.assertIsNotNone(row["latestLocation"])
+        self.assertEqual(row["latestLocation"]["latitude"], float(latest_log.latitude))
+        self.assertEqual(row["latestLocation"]["longitude"], float(latest_log.longitude))
+
+    def test_driver_trips_forbidden_for_non_driver_staff(self) -> None:
+        response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+
+class CustomerOrdersPostApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.customer = Customer.objects.create(
+            email="post.customer@example.com",
+            password="hashed",
+            name="Post Customer",
+            phone="+1-555-1000",
+            address="123 Test Ave",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        self.other_customer = Customer.objects.create(
+            email="post.other.customer@example.com",
+            password="hashed",
+            name="Post Other Customer",
+            is_active=True,
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+        self.warehouse = Warehouse.objects.create(
+            name="Main Warehouse",
+            code="WH-POST-001",
+            address="Warehouse Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        self.product = Product.objects.create(
+            sku="SKU-POST-001",
+            name="Mineral Water",
+            unit="case",
+            price=120,
+            is_active=True,
+        )
+        self.inventory = Inventory.objects.create(
+            warehouse=self.warehouse,
+            product=self.product,
+            quantity=20,
+            reserved_quantity=0,
+            min_stock=2,
+            max_stock=100,
+            reorder_point=5,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-POST-001",
+            inventory=self.inventory,
+            quantity=20,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+
+    def test_customer_orders_post_creates_order_for_authenticated_customer_and_reserves_inventory(self) -> None:
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "customerId": self.other_customer.id,
+                "warehouseId": self.warehouse.id,
+                "paymentMethod": "COD",
+                "shippingAddress": "Overridden Shipping Address",
+                "items": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 2,
+                        "unitPrice": 120,
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("order", payload)
+
+        order_row = payload["order"]
+        self.assertEqual(order_row["customer"]["id"], self.customer.id)
+        self.assertEqual(order_row["warehouseId"], self.warehouse.id)
+        self.assertEqual(len(order_row["items"]), 1)
+        self.assertEqual(order_row["items"][0]["product"]["id"], self.product.id)
+        self.assertEqual(order_row["items"][0]["quantity"], 2)
+
+        created_order = Order.objects.get(id=order_row["id"])
+        self.assertEqual(created_order.customer_id, self.customer.id)
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 20)
+        self.assertEqual(self.inventory.reserved_quantity, 2)
+
+        reserve_count = InventoryTransaction.objects.filter(
+            reference_type="order_item_reserve",
+            type="RESERVE",
+        ).count()
+        self.assertEqual(reserve_count, 1)
+
+    def test_customer_orders_post_requires_items(self) -> None:
+        response = self.client.post(
+            "/api/customer/orders",
+            data={},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "items are required")
+
+
+class DriverProfileApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+
+        self.driver_user = User.objects.create(
+            email="profile.driver@example.com",
+            password="hashed",
+            name="Profile Driver",
+            phone="+1-555-2222",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.admin_user = User.objects.create(
+            email="profile.admin@example.com",
+            password="hashed",
+            name="Profile Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-PROFILE-001",
+            license_type="C",
+            license_expiry=timezone.now() + timedelta(days=365),
+            phone="+1-555-3333",
+            emergency_contact="Old Contact",
+            is_active=True,
+        )
+
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_driver_profile_get_returns_driver_and_user_shape(self) -> None:
+        response = self.client.get(
+            "/api/driver/profile",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("driver", payload)
+        self.assertEqual(payload["driver"]["id"], self.driver.id)
+        self.assertEqual(payload["driver"]["user"]["id"], self.driver_user.id)
+        self.assertEqual(payload["driver"]["user"]["email"], self.driver_user.email)
+
+    def test_driver_profile_put_updates_driver_and_user_fields(self) -> None:
+        response = self.client.put(
+            "/api/driver/profile",
+            data={
+                "name": "Updated Driver Name",
+                "phone": "+1-555-4444",
+                "avatar": "/uploads/avatars/new.png",
+                "emergencyContact": "Updated Emergency Contact",
+                "licenseNumber": "LIC-PROFILE-UPDATED",
+                "licenseType": "B",
+                "licensePhoto": "/uploads/license/new.jpg",
+                "licenseExpiry": "2030-01-15T10:00:00Z",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["driver"]["user"]["name"], "Updated Driver Name")
+        self.assertEqual(payload["driver"]["user"]["phone"], "+1-555-4444")
+        self.assertEqual(payload["driver"]["licenseNumber"], "LIC-PROFILE-UPDATED")
+        self.assertEqual(payload["driver"]["licenseType"], "B")
+        self.assertEqual(payload["driver"]["licensePhoto"], "/uploads/license/new.jpg")
+
+        self.driver.refresh_from_db()
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver.emergency_contact, "Updated Emergency Contact")
+        self.assertEqual(self.driver.license_number, "LIC-PROFILE-UPDATED")
+        self.assertEqual(self.driver.license_type, "B")
+        self.assertEqual(self.driver_user.name, "Updated Driver Name")
+        self.assertEqual(self.driver_user.phone, "+1-555-4444")
+        self.assertEqual(self.driver_user.avatar, "/uploads/avatars/new.png")
+        self.assertEqual(self.driver.license_expiry.year, 2030)
+
+    def test_driver_profile_forbidden_for_non_driver_staff(self) -> None:
+        response = self.client.get(
+            "/api/driver/profile",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+
+class OrderStatusTransitionApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.admin_user = User.objects.create(
+            email="status.admin@example.com",
+            password="hashed",
+            name="Status Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": self.admin_role.name,
+                "type": "staff",
+            }
+        )
+        self.customer = Customer.objects.create(
+            email="status.customer@example.com",
+            password="hashed",
+            name="Status Customer",
+            is_active=True,
+        )
+
+    def _create_order(self, **overrides):
+        base = {
+            "order_number": f"ORD-STATUS-{Order.objects.count() + 1:03d}",
+            "customer": self.customer,
+            "status": OrderStatus.PROCESSING,
+            "subtotal": 100,
+            "total_amount": 110,
+        }
+        base.update(overrides)
+        return Order.objects.create(**base)
+
+    def _patch_status(self, order_id: str, payload: dict):
+        return self.client.patch(
+            f"/api/orders/{order_id}/status",
+            data=payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+    def test_order_status_update_requires_status(self) -> None:
+        order = self._create_order()
+
+        response = self._patch_status(order.id, {})
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "status is required")
+
+    def test_dispatched_requires_warehouse_stage_dispatched(self) -> None:
+        order = self._create_order(
+            warehouse_stage=WarehouseStage.READY_TO_LOAD,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+            dispatch_signed_off_by="Warehouse Lead",
+            dispatch_signed_off_at=timezone.now(),
+        )
+
+        response = self._patch_status(order.id, {"status": "DISPATCHED"})
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Order must be moved to warehouse stage DISPATCHED first")
+
+    def test_dispatched_requires_checklist_and_signoff(self) -> None:
+        order_missing_checklist = self._create_order(
+            warehouse_stage=WarehouseStage.DISPATCHED,
+            checklist_items_verified=False,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+        )
+        response_checklist = self._patch_status(order_missing_checklist.id, {"status": "DISPATCHED"})
+        self.assertEqual(response_checklist.status_code, 400)
+        payload_checklist = response_checklist.json()
+        self.assertFalse(payload_checklist["success"])
+        self.assertEqual(payload_checklist["error"], "Dispatch checklist must be completed before DISPATCHED status")
+
+        order_missing_signoff = self._create_order(
+            warehouse_stage=WarehouseStage.DISPATCHED,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+            dispatch_signed_off_by="",
+            dispatch_signed_off_at=None,
+        )
+        response_signoff = self._patch_status(order_missing_signoff.id, {"status": "DISPATCHED"})
+        self.assertEqual(response_signoff.status_code, 400)
+        payload_signoff = response_signoff.json()
+        self.assertFalse(payload_signoff["success"])
+        self.assertEqual(payload_signoff["error"], "Dispatch signoff is required before DISPATCHED status")
+
+    def test_out_for_delivery_requires_dispatched_status(self) -> None:
+        order = self._create_order(status=OrderStatus.PROCESSING)
+
+        response = self._patch_status(order.id, {"status": "OUT_FOR_DELIVERY"})
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Order must be DISPATCHED before OUT_FOR_DELIVERY")
+
+    def test_dispatched_success_updates_status_and_timeline(self) -> None:
+        order = self._create_order(
+            warehouse_stage=WarehouseStage.DISPATCHED,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+            dispatch_signed_off_by="Warehouse Lead",
+            dispatch_signed_off_at=timezone.now(),
+        )
+
+        response = self._patch_status(order.id, {"status": "DISPATCHED"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["status"], OrderStatus.DISPATCHED)
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.DISPATCHED)
+        timeline = OrderTimeline.objects.get(order=order)
+        self.assertIsNotNone(timeline.shipped_at)
+
+
+class OrderWarehouseStageTransitionApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.admin_user = User.objects.create(
+            email="stage.admin@example.com",
+            password="hashed",
+            name="Stage Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": self.admin_role.name,
+                "type": "staff",
+            }
+        )
+        self.customer = Customer.objects.create(
+            email="stage.customer@example.com",
+            password="hashed",
+            name="Stage Customer",
+            is_active=True,
+        )
+
+    def _create_order(self, **overrides):
+        base = {
+            "order_number": f"ORD-STAGE-{Order.objects.count() + 1:03d}",
+            "customer": self.customer,
+            "status": OrderStatus.PROCESSING,
+            "warehouse_stage": WarehouseStage.READY_TO_LOAD,
+            "subtotal": 100,
+            "total_amount": 110,
+        }
+        base.update(overrides)
+        return Order.objects.create(**base)
+
+    def _patch_stage(self, order_id: str, payload: dict):
+        return self.client.patch(
+            f"/api/orders/{order_id}/warehouse-stage",
+            data=payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+    def test_warehouse_stage_requires_valid_value(self) -> None:
+        order = self._create_order()
+        response = self._patch_stage(order.id, {"warehouseStage": "INVALID"})
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "warehouseStage is required and must be READY_TO_LOAD, LOADED, or DISPATCHED")
+
+    def test_warehouse_stage_cannot_move_backward(self) -> None:
+        order = self._create_order(warehouse_stage=WarehouseStage.LOADED)
+        response = self._patch_stage(order.id, {"warehouseStage": "READY_TO_LOAD"})
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Warehouse stage cannot move backward")
+
+    def test_loaded_stage_moves_order_status_to_packed_when_processing(self) -> None:
+        order = self._create_order(status=OrderStatus.PROCESSING)
+        response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.LOADED)
+        self.assertEqual(payload["order"]["status"], OrderStatus.PACKED)
+
+        order.refresh_from_db()
+        self.assertEqual(order.warehouse_stage, WarehouseStage.LOADED)
+        self.assertEqual(order.status, OrderStatus.PACKED)
+        self.assertIsNotNone(order.loaded_at)
+
+    def test_dispatched_requires_checklist_signoff_and_no_hold_reason(self) -> None:
+        order_missing_checklist = self._create_order(warehouse_stage=WarehouseStage.LOADED)
+        response_missing_checklist = self._patch_stage(order_missing_checklist.id, {"warehouseStage": "DISPATCHED"})
+        self.assertEqual(response_missing_checklist.status_code, 400)
+        payload_missing_checklist = response_missing_checklist.json()
+        self.assertFalse(payload_missing_checklist["success"])
+        self.assertEqual(payload_missing_checklist["error"], "All dispatch checklist items are required before DISPATCHED")
+
+        order_with_checklist_no_signoff = self._create_order(
+            warehouse_stage=WarehouseStage.LOADED,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+        )
+        response_no_signoff = self._patch_stage(order_with_checklist_no_signoff.id, {"warehouseStage": "DISPATCHED"})
+        self.assertEqual(response_no_signoff.status_code, 400)
+        payload_no_signoff = response_no_signoff.json()
+        self.assertFalse(payload_no_signoff["success"])
+        self.assertEqual(payload_no_signoff["error"], "signoffName is required before DISPATCHED")
+
+        order_with_hold = self._create_order(
+            warehouse_stage=WarehouseStage.LOADED,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+            exception_hold_reason="Awaiting QC review",
+        )
+        response_hold = self._patch_stage(order_with_hold.id, {"warehouseStage": "DISPATCHED", "signoffName": "Loader A"})
+        self.assertEqual(response_hold.status_code, 400)
+        payload_hold = response_hold.json()
+        self.assertFalse(payload_hold["success"])
+        self.assertEqual(payload_hold["error"], "Order has hold reason and cannot be dispatched")
+
+    def test_dispatched_success_updates_stage_status_and_timeline(self) -> None:
+        order = self._create_order(
+            warehouse_stage=WarehouseStage.LOADED,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+            status=OrderStatus.PACKED,
+        )
+        response = self._patch_stage(order.id, {"warehouseStage": "DISPATCHED", "signoffName": "Loader B"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.DISPATCHED)
+        self.assertEqual(payload["order"]["status"], OrderStatus.DISPATCHED)
+        self.assertEqual(payload["message"], "Warehouse stage moved to DISPATCHED")
+
+        order.refresh_from_db()
+        self.assertEqual(order.warehouse_stage, WarehouseStage.DISPATCHED)
+        self.assertEqual(order.status, OrderStatus.DISPATCHED)
+        self.assertEqual(order.dispatch_signed_off_by, "Loader B")
+        self.assertEqual(order.dispatch_signed_off_user_id, self.admin_user.id)
+        self.assertIsNotNone(order.dispatch_signed_off_at)
+        self.assertIsNotNone(order.warehouse_dispatched_at)
+
+        timeline = OrderTimeline.objects.get(order=order)
+        self.assertIsNotNone(timeline.shipped_at)
+
+
+class TripExecutionApiContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+
+        self.driver_user = User.objects.create(
+            email="trip.exec.driver@example.com",
+            password="hashed",
+            name="Trip Exec Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.other_driver_user = User.objects.create(
+            email="trip.exec.driver.other@example.com",
+            password="hashed",
+            name="Trip Exec Driver Other",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.admin_user = User.objects.create(
+            email="trip.exec.admin@example.com",
+            password="hashed",
+            name="Trip Exec Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-EXEC-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.other_driver = Driver.objects.create(
+            user=self.other_driver_user,
+            license_number="LIC-EXEC-002",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+
+        self.customer = Customer.objects.create(
+            email="trip.exec.customer@example.com",
+            password="hashed",
+            name="Trip Exec Customer",
+            is_active=True,
+        )
+
+        self.vehicle = Vehicle.objects.create(
+            license_plate="EXEC-TRIP-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.other_vehicle = Vehicle.objects.create(
+            license_plate="EXEC-TRIP-002",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.other_driver_token = create_token(
+            {
+                "userId": self.other_driver_user.id,
+                "email": self.other_driver_user.email,
+                "name": self.other_driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+        self.trip = Trip.objects.create(
+            trip_number="TRP-EXEC-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+            total_drop_points=2,
+        )
+        self.other_trip = Trip.objects.create(
+            trip_number="TRP-EXEC-002",
+            driver=self.other_driver,
+            vehicle=self.other_vehicle,
+            status=TripStatus.PLANNED,
+            total_drop_points=1,
+        )
+
+        self.dp_1 = TripDropPoint.objects.create(
+            trip=self.trip,
+            sequence=1,
+            location_name="Stop 1",
+            address="Address 1",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+        self.dp_2 = TripDropPoint.objects.create(
+            trip=self.trip,
+            sequence=2,
+            location_name="Stop 2",
+            address="Address 2",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+        self.other_dp = TripDropPoint.objects.create(
+            trip=self.other_trip,
+            sequence=1,
+            location_name="Other Stop",
+            address="Other Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+
+    def test_trip_start_requires_staff_authentication(self) -> None:
+        response = self.client.post(f"/api/trips/{self.trip.id}/start")
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Unauthorized")
+
+    def test_trip_start_rejects_missing_trip(self) -> None:
+        response = self.client.post(
+            "/api/trips/missing-trip-id/start",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 404)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Trip not found")
+
+    def test_trip_start_forbidden_for_customer_token(self) -> None:
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+    def test_trip_start_forbidden_for_other_driver(self) -> None:
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            HTTP_AUTHORIZATION=f"Bearer {self.other_driver_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+    def test_trip_start_sets_in_progress_and_actual_start_at(self) -> None:
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["trip"]["status"], TripStatus.IN_PROGRESS)
+        self.assertIsNotNone(payload["trip"]["actualStartAt"])
+
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+        self.assertIsNotNone(self.trip.actual_start_at)
+
+    def test_drop_point_update_requires_staff_auth(self) -> None:
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Unauthorized")
+
+    def test_drop_point_update_forbidden_for_customer_token(self) -> None:
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+    def test_drop_point_update_forbidden_for_other_driver(self) -> None:
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.other_driver_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+    def test_drop_point_arrived_sets_actual_arrival(self) -> None:
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["dropPoint"]["status"], "ARRIVED")
+        self.assertIsNotNone(payload["dropPoint"]["actualArrival"])
+
+        self.dp_1.refresh_from_db()
+        self.assertEqual(self.dp_1.status, "ARRIVED")
+        self.assertIsNotNone(self.dp_1.actual_arrival)
+
+    def test_drop_point_completion_updates_trip_completion_fields(self) -> None:
+        response_first = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "COMPLETED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response_first.status_code, 200)
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.completed_drop_points, 1)
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+
+        response_second = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_2.id}",
+            data={"status": "COMPLETED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response_second.status_code, 200)
+        payload_second = response_second.json()
+        self.assertTrue(payload_second["success"])
+        self.assertEqual(payload_second["dropPoint"]["status"], "COMPLETED")
+        self.assertIsNotNone(payload_second["dropPoint"]["actualDeparture"])
+
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.completed_drop_points, 2)
+        self.assertEqual(self.trip.status, TripStatus.COMPLETED)
+        self.assertIsNotNone(self.trip.actual_end_at)
+
+
+class TripStopAliasContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.driver_user = User.objects.create(
+            email="trip.stop.alias.driver@example.com",
+            password="hashed",
+            name="Trip Stop Alias Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-STOP-ALIAS-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="trip.stop.alias.customer@example.com",
+            password="hashed",
+            name="Trip Stop Alias Customer",
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="STOP-ALIAS-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.trip = Trip.objects.create(
+            trip_number="TRP-STOP-ALIAS-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+            total_drop_points=1,
+        )
+        self.stop = TripDropPoint.objects.create(
+            trip=self.trip,
+            sequence=1,
+            location_name="Alias Stop",
+            address="Alias Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+    def test_trip_stop_alias_behaves_like_drop_point_update(self) -> None:
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/stops/{self.stop.id}",
+            data={"status": "ARRIVED", "notes": "Reached stop"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["dropPoint"]["status"], "ARRIVED")
+        self.assertEqual(payload["dropPoint"]["notes"], "Reached stop")
+        self.assertIsNotNone(payload["dropPoint"]["actualArrival"])
+
+    def test_trip_stop_alias_enforces_same_auth_rules(self) -> None:
+        unauthorized = self.client.patch(
+            f"/api/trips/{self.trip.id}/stops/{self.stop.id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+        )
+        self.assertEqual(unauthorized.status_code, 401)
+
+        forbidden = self.client.patch(
+            f"/api/trips/{self.trip.id}/stops/{self.stop.id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(forbidden.status_code, 403)
+
+
+class UploadEndpointsAuthContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+
+        self.driver_user = User.objects.create(
+            email="upload.driver@example.com",
+            password="hashed",
+            name="Upload Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.admin_user = User.objects.create(
+            email="upload.admin@example.com",
+            password="hashed",
+            name="Upload Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="upload.customer@example.com",
+            password="hashed",
+            name="Upload Customer",
+            is_active=True,
+        )
+
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+    def test_upload_product_image_requires_staff_auth(self) -> None:
+        response = self.client.post("/api/uploads/product-image")
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Unauthorized")
+
+    def test_upload_pod_and_driver_license_require_driver_role(self) -> None:
+        pod_as_admin = self.client.post(
+            "/api/uploads/pod-image",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(pod_as_admin.status_code, 403)
+        self.assertEqual(pod_as_admin.json()["error"], "Forbidden")
+
+        license_as_admin = self.client.post(
+            "/api/uploads/driver-license",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(license_as_admin.status_code, 403)
+        self.assertEqual(license_as_admin.json()["error"], "Forbidden")
+
+    def test_upload_customer_avatar_requires_authenticated_user(self) -> None:
+        response = self.client.post("/api/uploads/customer-avatar")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"], "Unauthorized")
+
+    def test_upload_endpoints_validate_missing_and_non_image_files(self) -> None:
+        missing_file = self.client.post(
+            "/api/uploads/pod-image",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(missing_file.status_code, 400)
+        self.assertEqual(missing_file.json()["error"], "Image file is required")
+
+        text_file = SimpleUploadedFile("notes.txt", b"not-an-image", content_type="text/plain")
+        non_image = self.client.post(
+            "/api/uploads/pod-image",
+            data={"file": text_file},
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(non_image.status_code, 400)
+        self.assertEqual(non_image.json()["error"], "Only image files are allowed")
+
+    def test_upload_customer_avatar_accepts_authenticated_customer_with_image(self) -> None:
+        image_file = SimpleUploadedFile("avatar.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
+        response = self.client.post(
+            "/api/uploads/customer-avatar",
+            data={"file": image_file},
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("/uploads/customers/customer-", payload["imageUrl"])
+
+
+class TripsCollectionTrackingContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.admin_user = User.objects.create(
+            email="trips.collection.admin@example.com",
+            password="hashed",
+            name="Trips Collection Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.driver_user = User.objects.create(
+            email="trips.collection.driver@example.com",
+            password="hashed",
+            name="Trips Collection Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-TRIPS-COLLECTION-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="TRIPS-COLLECTION-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+
+    def test_trips_collection_include_tracking_and_date_filter(self) -> None:
+        target_date = timezone.now().date()
+        other_date = target_date - timedelta(days=1)
+
+        trip_on_target = Trip.objects.create(
+            trip_number="TRP-COLLECTION-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+            planned_start_at=timezone.make_aware(
+                timezone.datetime(target_date.year, target_date.month, target_date.day, 9, 0, 0)
+            ),
+        )
+        Trip.objects.create(
+            trip_number="TRP-COLLECTION-002",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+            created_at=timezone.make_aware(
+                timezone.datetime(other_date.year, other_date.month, other_date.day, 7, 0, 0)
+            ),
+            planned_start_at=timezone.make_aware(
+                timezone.datetime(other_date.year, other_date.month, other_date.day, 9, 0, 0)
+            ),
+        )
+
+        LocationLog.objects.create(
+            driver=self.driver,
+            trip=trip_on_target,
+            latitude=10.01,
+            longitude=123.01,
+            recorded_at=timezone.make_aware(
+                timezone.datetime(target_date.year, target_date.month, target_date.day, 10, 0, 0)
+            ),
+        )
+        latest_target_log = LocationLog.objects.create(
+            driver=self.driver,
+            trip=trip_on_target,
+            latitude=10.02,
+            longitude=123.02,
+            recorded_at=timezone.make_aware(
+                timezone.datetime(target_date.year, target_date.month, target_date.day, 11, 0, 0)
+            ),
+        )
+        LocationLog.objects.create(
+            driver=self.driver,
+            trip=trip_on_target,
+            latitude=9.99,
+            longitude=122.99,
+            recorded_at=timezone.make_aware(
+                timezone.datetime(other_date.year, other_date.month, other_date.day, 8, 0, 0)
+            ),
+        )
+
+        response = self.client.get(
+            "/api/trips",
+            data={"includeTracking": "true", "trackingDate": target_date.isoformat()},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(len(payload["trips"]), 1)
+
+        trip_row = payload["trips"][0]
+        self.assertEqual(trip_row["id"], trip_on_target.id)
+        self.assertIn("locationLogs", trip_row)
+        self.assertIn("latestLocation", trip_row)
+        self.assertEqual(len(trip_row["locationLogs"]), 2)
+        self.assertIsNotNone(trip_row["latestLocation"])
+        self.assertEqual(trip_row["latestLocation"]["id"], latest_target_log.id)
+
+    def test_trips_collection_rejects_invalid_tracking_date(self) -> None:
+        response = self.client.get(
+            "/api/trips",
+            data={"trackingDate": "2026-99-99"},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Invalid trackingDate. Expected YYYY-MM-DD")
+
+
+class SavedRoutesContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
+
+        self.admin_user = User.objects.create(
+            email="saved.routes.admin@example.com",
+            password="hashed",
+            name="Saved Routes Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.warehouse_user = User.objects.create(
+            email="saved.routes.warehouse@example.com",
+            password="hashed",
+            name="Saved Routes Warehouse",
+            role=self.warehouse_role,
+            is_active=True,
+        )
+        self.other_warehouse_user = User.objects.create(
+            email="saved.routes.warehouse.other@example.com",
+            password="hashed",
+            name="Saved Routes Warehouse Other",
+            role=self.warehouse_role,
+            is_active=True,
+        )
+
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+        self.warehouse_token = create_token(
+            {
+                "userId": self.warehouse_user.id,
+                "email": self.warehouse_user.email,
+                "name": self.warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+        self.other_warehouse_token = create_token(
+            {
+                "userId": self.other_warehouse_user.id,
+                "email": self.other_warehouse_user.email,
+                "name": self.other_warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+
+    def test_saved_routes_post_sets_created_by_user_and_returns_saved_route(self) -> None:
+        response = self.client.post(
+            "/api/trips/saved-routes",
+            data={
+                "date": "2026-05-10",
+                "warehouseId": "wh-001",
+                "warehouseName": "Main Warehouse",
+                "city": "Bacolod",
+                "totalDistanceKm": 15.5,
+                "orderIds": ["ord-1"],
+                "orders": [{"id": "ord-1", "sequence": 1}],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("savedRoute", payload)
+        self.assertEqual(payload["savedRoute"]["createdByUserId"], self.warehouse_user.id)
+
+        saved = SavedRouteDraft.objects.get(id=payload["savedRoute"]["id"])
+        self.assertEqual(saved.created_by_user_id, self.warehouse_user.id)
+
+    def test_saved_routes_get_for_warehouse_staff_returns_only_own_routes(self) -> None:
+        own_route = SavedRouteDraft.objects.create(
+            date=timezone.now().date(),
+            warehouse_id="wh-001",
+            warehouse_name="Main Warehouse",
+            city="Bacolod",
+            total_distance_km=12,
+            order_ids=["ord-own"],
+            orders_json=[],
+            created_by_user=self.warehouse_user,
+        )
+        SavedRouteDraft.objects.create(
+            date=timezone.now().date(),
+            warehouse_id="wh-001",
+            warehouse_name="Main Warehouse",
+            city="Bacolod",
+            total_distance_km=10,
+            order_ids=["ord-other"],
+            orders_json=[],
+            created_by_user=self.other_warehouse_user,
+        )
+
+        response = self.client.get(
+            "/api/trips/saved-routes",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(len(payload["savedRoutes"]), 1)
+        self.assertEqual(payload["savedRoutes"][0]["id"], own_route.id)
+
+    def test_saved_routes_delete_forbidden_for_other_warehouse_staff_owner(self) -> None:
+        route = SavedRouteDraft.objects.create(
+            date=timezone.now().date(),
+            warehouse_id="wh-001",
+            warehouse_name="Main Warehouse",
+            city="Bacolod",
+            total_distance_km=10,
+            order_ids=["ord-other"],
+            orders_json=[],
+            created_by_user=self.other_warehouse_user,
+        )
+
+        response = self.client.delete(
+            f"/api/trips/saved-routes?id={route.id}",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+    def test_saved_routes_delete_allowed_for_admin(self) -> None:
+        route = SavedRouteDraft.objects.create(
+            date=timezone.now().date(),
+            warehouse_id="wh-001",
+            warehouse_name="Main Warehouse",
+            city="Bacolod",
+            total_distance_km=10,
+            order_ids=["ord-admin-delete"],
+            orders_json=[],
+            created_by_user=self.warehouse_user,
+        )
+
+        response = self.client.delete(
+            f"/api/trips/saved-routes?id={route.id}",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertFalse(SavedRouteDraft.objects.filter(id=route.id).exists())
+
+    def test_saved_routes_post_validates_required_fields(self) -> None:
+        response = self.client.post(
+            "/api/trips/saved-routes",
+            data={"city": "Bacolod"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "date, warehouseId, and city are required")
+
+    def test_saved_routes_post_validates_date_order_ids_and_orders_shape(self) -> None:
+        invalid_date = self.client.post(
+            "/api/trips/saved-routes",
+            data={
+                "date": "2026-99-10",
+                "warehouseId": "wh-001",
+                "city": "Bacolod",
+                "orderIds": ["ord-1"],
+                "orders": [],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(invalid_date.status_code, 400)
+        self.assertEqual(invalid_date.json()["error"], "Invalid date. Expected YYYY-MM-DD")
+
+        empty_order_ids = self.client.post(
+            "/api/trips/saved-routes",
+            data={
+                "date": "2026-05-10",
+                "warehouseId": "wh-001",
+                "city": "Bacolod",
+                "orderIds": [],
+                "orders": [],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(empty_order_ids.status_code, 400)
+        self.assertEqual(empty_order_ids.json()["error"], "At least one orderId is required")
+
+        invalid_orders_shape = self.client.post(
+            "/api/trips/saved-routes",
+            data={
+                "date": "2026-05-10",
+                "warehouseId": "wh-001",
+                "city": "Bacolod",
+                "orderIds": ["ord-1"],
+                "orders": {"id": "ord-1"},
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(invalid_orders_shape.status_code, 400)
+        self.assertEqual(invalid_orders_shape.json()["error"], "orders must be an array")
+
+    def test_saved_routes_delete_requires_route_id(self) -> None:
+        response = self.client.delete(
+            "/api/trips/saved-routes",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Route id is required")
+
+
+class RoutePlanContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.admin_user = User.objects.create(
+            email="route.plan.admin@example.com",
+            password="hashed",
+            name="Route Plan Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_route_plan_requires_staff_auth(self) -> None:
+        response = self.client.get("/api/trips/route-plan")
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Unauthorized")
+
+    def test_route_plan_get_rejects_invalid_date(self) -> None:
+        response = self.client.get(
+            "/api/trips/route-plan",
+            data={"date": "2026-13-01"},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Invalid date. Expected YYYY-MM-DD")
+
+    def test_route_plan_post_accepts_payload_echo(self) -> None:
+        response = self.client.post(
+            "/api/trips/route-plan",
+            data={"city": "Bacolod", "orders": [{"id": "ord-1"}]},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["message"], "Route plan accepted")
+        self.assertEqual(payload["routePlan"]["city"], "Bacolod")
+
+
+class RoutePlanStructureContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_user = User.objects.create(
+            email="route.plan.structure.admin@example.com",
+            password="hashed",
+            name="Route Plan Structure Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.driver_user = User.objects.create(
+            email="route.plan.structure.driver@example.com",
+            password="hashed",
+            name="Route Plan Structure Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-ROUTE-STRUCTURE-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="ROUTE-STRUCTURE-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="route.plan.structure.customer@example.com",
+            password="hashed",
+            name="Route Plan Structure Customer",
+            latitude=10.31,
+            longitude=123.89,
+            is_active=True,
+        )
+        self.warehouse = Warehouse.objects.create(
+            name="Route Plan WH",
+            code="WH-ROUTE-STRUCT-001",
+            address="Route Plan Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            latitude=10.30,
+            longitude=123.90,
+            is_active=True,
+        )
+        self.product = Product.objects.create(
+            sku="SKU-ROUTE-STRUCT-001",
+            name="Sparkling Water",
+            unit="case",
+            price=100,
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-ROUTE-STRUCT-001",
+            customer=self.customer,
+            status=OrderStatus.PROCESSING,
+            subtotal=200,
+            total_amount=220,
+            warehouse_id=self.warehouse.id,
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            quantity=2,
+            unit_price=100,
+            total_price=200,
+        )
+        OrderLogistics.objects.create(
+            order=order,
+            shipping_name="Customer A",
+            shipping_phone="+1-555-0100",
+            shipping_address="123 Structure Street",
+            shipping_city="Bacolod",
+            shipping_province="Negros Occidental",
+            shipping_zip_code="6100",
+            shipping_country="Philippines",
+            shipping_latitude=10.32,
+            shipping_longitude=123.88,
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
+
+        response = self.client.get(
+            "/api/trips/route-plan",
+            data={"warehouseId": self.warehouse.id},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("drivers", payload)
+        self.assertIn("vehicles", payload)
+        self.assertIn("orders", payload)
+        self.assertIn("routePlans", payload)
+        self.assertGreaterEqual(len(payload["drivers"]), 1)
+        self.assertGreaterEqual(len(payload["vehicles"]), 1)
+        self.assertGreaterEqual(len(payload["orders"]), 1)
+        self.assertGreaterEqual(len(payload["routePlans"]), 1)
+
+        plan = payload["routePlans"][0]
+        self.assertIn("city", plan)
+        self.assertIn("orderCount", plan)
+        self.assertIn("totalDistanceKm", plan)
+        self.assertIn("orders", plan)
+
+
+class TripsPostCreationContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_user = User.objects.create(
+            email="trips.post.admin@example.com",
+            password="hashed",
+            name="Trips Post Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.driver_user = User.objects.create(
+            email="trips.post.driver@example.com",
+            password="hashed",
+            name="Trips Post Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-TRIPS-POST-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="TRIPS-POST-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="trips.post.customer@example.com",
+            password="hashed",
+            name="Trips Post Customer",
+            latitude=10.40,
+            longitude=123.80,
+            is_active=True,
+        )
+        self.order_1 = Order.objects.create(
+            order_number="ORD-TRIPS-POST-001",
+            customer=self.customer,
+            status=OrderStatus.DISPATCHED,
+            subtotal=120,
+            total_amount=132,
+        )
+        self.order_2 = Order.objects.create(
+            order_number="ORD-TRIPS-POST-002",
+            customer=self.customer,
+            status=OrderStatus.DISPATCHED,
+            subtotal=140,
+            total_amount=154,
+        )
+        OrderLogistics.objects.create(
+            order=self.order_1,
+            shipping_name="Customer 1",
+            shipping_phone="+1-555-0001",
+            shipping_address="Address 1",
+            shipping_city="Bacolod",
+            shipping_province="Negros Occidental",
+            shipping_zip_code="6100",
+            shipping_country="Philippines",
+            shipping_latitude=10.41,
+            shipping_longitude=123.81,
+        )
+        OrderLogistics.objects.create(
+            order=self.order_2,
+            shipping_name="Customer 2",
+            shipping_phone="+1-555-0002",
+            shipping_address="Address 2",
+            shipping_city="Bacolod",
+            shipping_province="Negros Occidental",
+            shipping_zip_code="6100",
+            shipping_country="Philippines",
+            shipping_latitude=10.42,
+            shipping_longitude=123.82,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_trips_post_creates_trip_with_drop_points_and_total_count(self) -> None:
+        response = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "orderIds": [self.order_1.id, self.order_2.id],
+                "status": "PLANNED",
+                "notes": "Test trip creation",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("trip", payload)
+        trip = payload["trip"]
+        self.assertEqual(trip["driver"]["id"], self.driver.id)
+        self.assertEqual(trip["vehicle"]["id"], self.vehicle.id)
+        self.assertEqual(trip["status"], TripStatus.PLANNED)
+        self.assertEqual(len(trip["dropPoints"]), 2)
+        self.assertEqual(trip["totalDropPoints"], 2)
+
+        trip_db = Trip.objects.get(id=trip["id"])
+        self.assertEqual(trip_db.total_drop_points, 2)
+        self.assertEqual(trip_db.drop_points.count(), 2)
+
+    def test_trips_post_returns_404_when_driver_or_vehicle_missing(self) -> None:
+        response = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": "missing-driver",
+                "vehicleId": self.vehicle.id,
+                "orderIds": [self.order_1.id],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 404)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Driver or vehicle not found")
+
+
+class PaginationGuardsContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_user = User.objects.create(
+            email="pagination.admin@example.com",
+            password="hashed",
+            name="Pagination Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.driver_user = User.objects.create(
+            email="pagination.driver@example.com",
+            password="hashed",
+            name="Pagination Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-PAGINATION-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="PAGINATION-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="pagination.customer@example.com",
+            password="hashed",
+            name="Pagination Customer",
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+        for idx in range(3):
+            Order.objects.create(
+                order_number=f"ORD-PAGINATION-{idx + 1:03d}",
+                customer=self.customer,
+                status=OrderStatus.PROCESSING,
+                subtotal=100 + idx,
+                total_amount=110 + idx,
+            )
+            Trip.objects.create(
+                trip_number=f"TRP-PAGINATION-{idx + 1:03d}",
+                driver=self.driver,
+                vehicle=self.vehicle,
+                status=TripStatus.PLANNED,
+            )
+
+    def test_orders_endpoint_uses_expected_default_pagination(self) -> None:
+        response = self.client.get("/api/orders", HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["page"], 1)
+        self.assertEqual(payload["pageSize"], 20)
+        self.assertEqual(payload["total"], 3)
+        self.assertEqual(payload["totalPages"], 1)
+        self.assertEqual(len(payload["orders"]), 3)
+
+    def test_orders_endpoint_clamps_invalid_and_extreme_pagination_values(self) -> None:
+        low_bound = self.client.get(
+            "/api/orders",
+            data={"page": -7, "pageSize": 0},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(low_bound.status_code, 200)
+        low_payload = low_bound.json()
+        self.assertEqual(low_payload["page"], 1)
+        self.assertEqual(low_payload["pageSize"], 1)
+        self.assertEqual(len(low_payload["orders"]), 1)
+
+        high_bound = self.client.get(
+            "/api/orders",
+            data={"pageSize": 50000},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(high_bound.status_code, 200)
+        high_payload = high_bound.json()
+        self.assertEqual(high_payload["pageSize"], 1000)
+        self.assertEqual(len(high_payload["orders"]), 3)
+
+    def test_trips_endpoint_uses_expected_pagination_defaults_and_bounds(self) -> None:
+        default_response = self.client.get("/api/trips", HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
+        self.assertEqual(default_response.status_code, 200)
+        default_payload = default_response.json()
+        self.assertEqual(default_payload["page"], 1)
+        self.assertEqual(default_payload["pageSize"], 20)
+        self.assertEqual(default_payload["total"], 3)
+        self.assertEqual(len(default_payload["trips"]), 3)
+
+        bounded_response = self.client.get(
+            "/api/trips",
+            data={"page": 0, "pageSize": 0},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(bounded_response.status_code, 200)
+        bounded_payload = bounded_response.json()
+        self.assertEqual(bounded_payload["page"], 1)
+        self.assertEqual(bounded_payload["pageSize"], 1)
+        self.assertEqual(len(bounded_payload["trips"]), 1)
+
+
+class DeliveryLifecycleFlowContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+
+        self.admin_user = User.objects.create(
+            email="lifecycle.admin@example.com",
+            password="hashed",
+            name="Lifecycle Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.driver_user = User.objects.create(
+            email="lifecycle.driver@example.com",
+            password="hashed",
+            name="Lifecycle Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-LIFECYCLE-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="LIFECYCLE-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="lifecycle.customer@example.com",
+            password="hashed",
+            name="Lifecycle Customer",
+            is_active=True,
+        )
+        self.order = Order.objects.create(
+            order_number="ORD-LIFECYCLE-001",
+            customer=self.customer,
+            status=OrderStatus.PROCESSING,
+            warehouse_stage=WarehouseStage.READY_TO_LOAD,
+            subtotal=200,
+            total_amount=220,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+
+    def test_delivery_lifecycle_end_to_end(self) -> None:
+        loaded = self.client.patch(
+            f"/api/orders/{self.order.id}/warehouse-stage",
+            data={"warehouseStage": "LOADED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json()["order"]["status"], OrderStatus.PACKED)
+
+        dispatched = self.client.patch(
+            f"/api/orders/{self.order.id}/warehouse-stage",
+            data={
+                "warehouseStage": "DISPATCHED",
+                "checklist": {
+                    "itemsVerified": True,
+                    "quantityVerified": True,
+                    "packagingVerified": True,
+                    "vehicleAssigned": True,
+                    "driverAssigned": True,
+                },
+                "signoffName": "Warehouse Lead",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(dispatched.status_code, 200)
+        self.assertEqual(dispatched.json()["order"]["status"], OrderStatus.DISPATCHED)
+
+        out_for_delivery = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data={"status": "OUT_FOR_DELIVERY"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(out_for_delivery.status_code, 200)
+        self.assertEqual(out_for_delivery.json()["order"]["status"], OrderStatus.OUT_FOR_DELIVERY)
+
+        create_trip = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "orderIds": [self.order.id],
+                "status": "PLANNED",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(create_trip.status_code, 201)
+        trip_payload = create_trip.json()["trip"]
+        trip_id = trip_payload["id"]
+        drop_point_id = trip_payload["dropPoints"][0]["id"]
+
+        start_trip = self.client.post(
+            f"/api/trips/{trip_id}/start",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(start_trip.status_code, 200)
+        self.assertEqual(start_trip.json()["trip"]["status"], TripStatus.IN_PROGRESS)
+
+        arrived = self.client.patch(
+            f"/api/trips/{trip_id}/drop-points/{drop_point_id}",
+            data={"status": "ARRIVED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(arrived.status_code, 200)
+        self.assertEqual(arrived.json()["dropPoint"]["status"], "ARRIVED")
+
+        completed = self.client.patch(
+            f"/api/trips/{trip_id}/drop-points/{drop_point_id}",
+            data={"status": "COMPLETED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(completed.status_code, 200)
+        self.assertEqual(completed.json()["dropPoint"]["status"], "COMPLETED")
+
+        trip_db = Trip.objects.get(id=trip_id)
+        self.assertEqual(trip_db.status, TripStatus.COMPLETED)
+        self.assertEqual(trip_db.completed_drop_points, 1)
+        self.assertIsNotNone(trip_db.actual_end_at)
+
+        delivered = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data={"status": "DELIVERED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(delivered.status_code, 200)
+        self.assertEqual(delivered.json()["order"]["status"], OrderStatus.DELIVERED)
+
+        order_timeline = OrderTimeline.objects.get(order=self.order)
+        self.assertIsNotNone(order_timeline.delivered_at)

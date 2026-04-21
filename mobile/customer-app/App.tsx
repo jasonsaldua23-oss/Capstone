@@ -119,7 +119,7 @@ export default function App() {
             renderItem={({ item }) => (
               <View style={styles.itemRow}>
                 <Text style={styles.itemTitle}>{item.orderNumber}</Text>
-                <Text>Status: {item.orderStatus}</Text>
+                <Text>Status: {item.orderStatus || item.status || "UNKNOWN"}</Text>
                 <Text style={styles.subtle}>
                   {item.trip ? `Trip ${item.trip.tripNumber} (${item.trip.status})` : "No trip assigned yet"}
                 </Text>

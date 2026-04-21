@@ -225,8 +225,9 @@ function parseReplacementMeta(notes: string | null | undefined): Record<string, 
 }
 
 function getReplacementRank(label: string): number {
-  if (label === 'Follow-up Required') return 2
-  if (label === 'Resolved') return 1
+  if (label === 'Needs Follow-up') return 3
+  if (label === 'In Progress') return 2
+  if (label === 'Resolved on Delivery' || label === 'Completed') return 1
   return 0
 }
 
@@ -813,7 +814,26 @@ export function CustomerPortal() {
       const meta = parseReplacementMeta(item?.notes)
       const rawStatus = String(item?.status || '').toUpperCase()
       const hasEvidence = Boolean(String(item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
-      const label = rawStatus === 'PROCESSED' ? 'Resolved' : 'Follow-up Required'
+      const normalizedStatus =
+        rawStatus === 'REQUESTED'
+          ? 'REPORTED'
+          : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+            ? 'IN_PROGRESS'
+            : rawStatus === 'REJECTED'
+              ? 'NEEDS_FOLLOW_UP'
+              : rawStatus === 'PROCESSED'
+                ? 'COMPLETED'
+                : rawStatus
+      const label =
+        normalizedStatus === 'RESOLVED_ON_DELIVERY'
+          ? 'Resolved on Delivery'
+          : normalizedStatus === 'NEEDS_FOLLOW_UP'
+            ? 'Needs Follow-up'
+            : normalizedStatus === 'COMPLETED'
+              ? 'Completed'
+              : normalizedStatus === 'IN_PROGRESS'
+                ? 'In Progress'
+                : 'Reported'
 
       const reason = String(item?.description || item?.reason || 'Replacement case reported').trim()
       const nextSummary: DeliveryIssueSummary = { orderId, label, reason, hasEvidence, rawStatus }
@@ -857,10 +877,10 @@ export function CustomerPortal() {
         return ['PENDING', 'CONFIRMED'].includes(raw) || isCodToPay || paymentStatus === 'pending_approval'
       }
       if (ordersTab === 'TO_SHIP') {
-        return ['PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
+        return ['PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
       }
       if (ordersTab === 'TO_RECEIVE') {
-        return ['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(raw)
+        return ['OUT_FOR_DELIVERY', 'DISPATCHED', 'IN_TRANSIT'].includes(raw)
       }
       if (ordersTab === 'TO_REVIEW') {
         return raw === 'DELIVERED' && !reviewedOrderIds.has(order.id)
@@ -968,14 +988,14 @@ export function CustomerPortal() {
     }
   }
 
-  const orderStages = ['Pending', 'Processing', 'Loaded', 'Out for Delivery', 'Delivered']
+  const orderStages = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered']
 
   const normalizeDeliveryStatus = (status: string, paymentStatus?: string | null) => {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') return 'PENDING'
     const raw = String(status || '').toUpperCase()
     if (raw === 'PENDING') return 'PENDING'
-    if (raw === 'CONFIRMED') return 'PROCESSING'
-    if (raw === 'READY_FOR_PICKUP') return 'PACKED'
+    if (raw === 'CONFIRMED') return 'CONFIRMED'
+    if (raw === 'PROCESSING' || raw === 'PACKED' || raw === 'READY_FOR_PICKUP') return 'PREPARING'
     if (raw === 'IN_TRANSIT' || raw === 'DISPATCHED') return 'OUT_FOR_DELIVERY'
     return raw
   }
@@ -983,16 +1003,14 @@ export function CustomerPortal() {
   const getOrderStageIndex = (status: string, paymentStatus?: string | null) => {
     const normalized = normalizeDeliveryStatus(status, paymentStatus)
     if (normalized === 'PENDING') return 0
-    if (normalized === 'PROCESSING') return 1
-    if (normalized === 'PACKED') return 2
-    if (normalized === 'OUT_FOR_DELIVERY') return 3
-    if (normalized === 'DELIVERED') return 4
+    if (normalized === 'CONFIRMED' || normalized === 'PREPARING') return 1
+    if (normalized === 'OUT_FOR_DELIVERY') return 2
+    if (normalized === 'DELIVERED') return 3
     return 0
   }
 
   const formatOrderStatus = (status: string, paymentStatus?: string | null) => {
     const normalized = normalizeDeliveryStatus(status, paymentStatus)
-    if (normalized === 'PACKED') return 'LOADED'
     return normalized.replace(/_/g, ' ')
   }
 
@@ -1249,7 +1267,7 @@ export function CustomerPortal() {
 
   const isOrderCancellable = (status: string, paymentStatus?: string | null) => {
     const raw = String(status || '').toUpperCase()
-    if (raw === 'PROCESSING') {
+    if (raw === 'PREPARING' || raw === 'PROCESSING') {
       return String(paymentStatus || '').toLowerCase() === 'pending_approval'
     }
     return ['PENDING', 'CONFIRMED'].includes(raw)
@@ -1257,7 +1275,7 @@ export function CustomerPortal() {
 
   const isOrderTrackable = (status: string) => {
     const raw = String(status || '').toUpperCase()
-    return ['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(raw)
+    return ['OUT_FOR_DELIVERY', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERED'].includes(raw)
   }
 
   const openRatingDialog = (order: Order, initialRating = 5) => {
@@ -2429,7 +2447,7 @@ export function CustomerPortal() {
                           {deliveryIssue ? (
                             <Badge
                               className={
-                                deliveryIssue.label === 'Follow-up Required'
+                                deliveryIssue.label === 'Needs Follow-up'
                                   ? 'bg-red-100 text-red-700 hover:bg-red-100'
                                   : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
                               }

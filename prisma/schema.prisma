@@ -187,9 +187,7 @@ model StockBatch {
 enum OrderStatus {
   PENDING
   CONFIRMED
-  PROCESSING
-  PACKED
-  DISPATCHED
+  PREPARING
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
@@ -202,7 +200,7 @@ model Order {
   customer         Customer     @relation(fields: [customerId], references: [id])
   
   // Order Details
-  status           OrderStatus  @default(PROCESSING)
+  status           OrderStatus  @default(PREPARING)
   priority         String       @default("normal") // low, normal, high, urgent
   subtotal         Float
   tax              Float        @default(0)
@@ -515,13 +513,11 @@ model LocationLog {
 // ==================== RETURNS & FEEDBACK ====================
 
 enum ReturnStatus {
-  REQUESTED
-  APPROVED
-  PICKED_UP
-  IN_TRANSIT
-  RECEIVED
-  PROCESSED
-  REJECTED
+  REPORTED
+  IN_PROGRESS
+  RESOLVED_ON_DELIVERY
+  NEEDS_FOLLOW_UP
+  COMPLETED
 }
 
 model Return {
@@ -533,7 +529,7 @@ model Return {
   
   reason          String
   description     String?
-  status          ReturnStatus @default(REQUESTED)
+  status          ReturnStatus @default(REPORTED)
   requestedBy     String       @default("CUSTOMER") // CUSTOMER, DRIVER
   replacementMode String?      // SPARE_STOCK_IMMEDIATE
   originalOrderItemId String?

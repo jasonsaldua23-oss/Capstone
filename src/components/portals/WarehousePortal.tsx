@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -587,6 +587,14 @@ export function WarehousePortal() {
     return isDateMatch(order?.createdAt, trackingDate)
   }
 
+  const tripMatchesTrackingDay = (trip: WarehouseTripItem) => {
+    if (!trackingDate) return true
+    const tripAny = trip as any
+    return [tripAny?.plannedStartAt, tripAny?.actualStartAt, tripAny?.actualEndAt, tripAny?.createdAt].some((value) =>
+      isDateMatch(value, trackingDate)
+    )
+  }
+
   const liveMapData = useMemo(() => {
     const locations: Array<{
       id: string
@@ -597,40 +605,151 @@ export function WarehousePortal() {
       status: string
       markerColor?: string
       markerLabel?: string
-      markerType?: 'pin' | 'dot' | 'default'
+      markerType?: 'pin' | 'dot' | 'truck' | 'default'
+      markerDirection?: 'left' | 'right'
+      markerHeading?: number
+      markerNumber?: number | string
     }> = []
     const routeLines: Array<{
       id: string
       points: [number, number][]
       color: string
       label?: string
+      opacity?: number
+      weight?: number
+      dashArray?: string
+      snapToRoad?: boolean
     }> = []
 
-    const dayOrders = scopedOrders.filter((order) => orderMatchesTrackingDay(order))
+    const dayOrders = scopedOrders.filter((order: any) => orderMatchesTrackingDay(order))
     const dayOrderIds = new Set(
-      dayOrders.map((order) => String(order?.id || '').trim()).filter(Boolean)
+      dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
     const tripOrderIds = new Set<string>()
 
     scopedTrips
-      .filter((trip) => ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip.status)))
-      .forEach((trip) => {
+      .filter(
+        (trip: any) =>
+          ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip.status)) &&
+          tripMatchesTrackingDay(trip)
+      )
+      .forEach((trip: any) => {
+        const tripMatchesDay = tripMatchesTrackingDay(trip)
+        const toCoordinate = (value: unknown) => {
+          const parsed = Number(value)
+          return Number.isFinite(parsed) ? parsed : null
+        }
         const dropPoints = (trip.dropPoints || [])
-          .filter((point) => {
-            const orderId = String(point?.orderId || '').trim()
+          .filter((point: any) => {
             if (!trackingDate) return true
+            if (tripMatchesDay) return true
+            const orderId = String(point?.orderId || '').trim()
             if (!orderId) return false
             return dayOrderIds.has(orderId)
           })
-          .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
-          .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+          .filter((point: any) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
+          .sort((a: any, b: any) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
 
-        dropPoints.forEach((dropPoint) => {
+        const logs = (trip.locationLogs || [])
+          .filter((log: any) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
+          .map((log: any) => ({
+            ...log,
+            latitude: Number(log.latitude),
+            longitude: Number(log.longitude),
+          }))
+          .sort((a: any, b: any) => new Date(a.recordedAt || 0).getTime() - new Date(b.recordedAt || 0).getTime())
+
+        const nextPendingIndex = dropPoints.findIndex((point: any) => {
+          const status = String(point?.status || point?.orderStatus || '').toUpperCase()
+          return !['COMPLETED', 'DELIVERED'].includes(status)
+        })
+        const nextDropPoint = nextPendingIndex !== -1 ? dropPoints[nextPendingIndex] : null
+        const warehouseStartLat =
+          toCoordinate(trip?.warehouseLatitude) ??
+          toCoordinate(trip?.warehouse?.latitude) ??
+          toCoordinate(trip?.startLatitude)
+        const warehouseStartLng =
+          toCoordinate(trip?.warehouseLongitude) ??
+          toCoordinate(trip?.warehouse?.longitude) ??
+          toCoordinate(trip?.startLongitude)
+        const warehouseStart =
+          warehouseStartLat !== null && warehouseStartLng !== null
+            ? ([warehouseStartLat, warehouseStartLng] as [number, number])
+            : null
+
+        const latestLog = logs[logs.length - 1]
+        const latestLocation = trip.latestLocation
+        const driverLat = Number(latestLog?.latitude ?? latestLocation?.latitude)
+        const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude)
+        const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
+        const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
+        const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
+        
+        const markerHeading =
+          nextDropPoint &&
+          Number.isFinite(Number(nextDropPoint?.latitude)) &&
+          Number.isFinite(Number(nextDropPoint?.longitude)) &&
+          hasDriverPosition
+            ? (() => {
+                const fromLat = driverLat
+                const fromLng = driverLng
+                const toLat = Number(nextDropPoint.latitude)
+                const toLng = Number(nextDropPoint.longitude)
+                const toRad = (value: number) => (value * Math.PI) / 180
+                const toDeg = (value: number) => (value * 180) / Math.PI
+                const phi1 = toRad(fromLat)
+                const phi2 = toRad(toLat)
+                const deltaLng = toRad(toLng - fromLng)
+                const y = Math.sin(deltaLng) * Math.cos(phi2)
+                const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLng)
+                return ((toDeg(Math.atan2(y, x)) % 360) + 360) % 360
+              })()
+            : null
+
+        if (hasDriverPosition) {
+          locations.push({
+            id: `driver-${trip.id}`,
+            driverName,
+            vehiclePlate,
+            lat: driverLat,
+            lng: driverLng,
+            status: String(trip?.status || 'IN_PROGRESS'),
+            markerColor: '#1d4ed8',
+            markerLabel: 'Current location',
+            markerType: 'truck',
+            markerHeading: markerHeading ?? undefined,
+          })
+        } else if (['PLANNED', 'IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))) {
+          const fallbackDriverPoint =
+            warehouseStart ||
+            (nextDropPoint &&
+            Number.isFinite(Number(nextDropPoint?.latitude)) &&
+            Number.isFinite(Number(nextDropPoint?.longitude))
+              ? ([Number(nextDropPoint.latitude), Number(nextDropPoint.longitude)] as [number, number])
+              : null)
+          if (fallbackDriverPoint) {
+            locations.push({
+              id: `driver-${trip.id}`,
+              driverName,
+              vehiclePlate,
+              lat: fallbackDriverPoint[0],
+              lng: fallbackDriverPoint[1],
+              status: String(trip?.status || 'PLANNED'),
+              markerColor: '#1d4ed8',
+              markerLabel: 'Driver location unavailable',
+              markerType: 'truck',
+            })
+          }
+        }
+
+        dropPoints.forEach((dropPoint: any, index: number) => {
           const dropPointOrderId = String(dropPoint?.orderId || '').trim()
           if (dropPointOrderId) tripOrderIds.add(dropPointOrderId)
 
-          const completed =
-            isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
+          const completed = isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
+          const isNext = index === nextPendingIndex
+          const markerColor = completed ? '#2563eb' : (isNext ? '#ef4444' : '#16a34a')
+          const markerLabel = completed ? 'Completed' : (isNext ? 'Next Stop' : 'Upcoming')
 
           locations.push({
             id: `trip-order-${trip.id}-${dropPoint.id}`,
@@ -639,32 +758,67 @@ export function WarehousePortal() {
             lat: Number(dropPoint.latitude),
             lng: Number(dropPoint.longitude),
             status: String(dropPoint.orderStatus || dropPoint.status || 'PENDING'),
-            markerColor: completed ? '#2563eb' : '#16a34a',
+            markerColor,
             markerType: 'pin',
-            markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+            markerLabel,
+            markerNumber: Number.isFinite(Number(dropPoint?.sequence)) ? Number(dropPoint.sequence) : undefined,
           })
         })
 
-        if (dropPoints.length > 1) {
-          for (let index = 0; index < dropPoints.length - 1; index += 1) {
-            const current = dropPoints[index]
-            const next = dropPoints[index + 1]
-            const nextCompleted =
-              isDropPointCompleted(next?.status) || isDropPointCompleted(next?.orderStatus)
+        if (logs.length > 1) {
+          routeLines.push({
+            id: `completed-${trip.id}`,
+            points: logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
+            color: '#93c5fd',
+            label: `${trip.tripNumber || 'Trip'} - Completed route`,
+            opacity: 0.85,
+            weight: 6,
+            dashArray: '7 9',
+          })
+        }
+
+        const pendingPoints = dropPoints.filter(
+          (point: any) => !isDropPointCompleted(point?.status) && !isDropPointCompleted(point?.orderStatus)
+        )
+        if (hasDriverPosition && pendingPoints.length > 0) {
+          routeLines.push({
+            id: `remaining-${trip.id}`,
+            points: [
+              [driverLat, driverLng],
+              ...pendingPoints.map((point: any) => [Number(point.latitude), Number(point.longitude)] as [number, number]),
+            ],
+            color: '#2563eb',
+            label: `${trip.tripNumber || 'Trip'} - Remaining route`,
+            opacity: 1,
+            weight: 8,
+            snapToRoad: true,
+          })
+        } else if (logs.length <= 1 && dropPoints.length > 0) {
+          const plannedWaypoints: [number, number][] = [
+            ...(warehouseStart ? [warehouseStart] : []),
+            ...dropPoints.map((point: any) => [Number(point.latitude), Number(point.longitude)] as [number, number]),
+          ]
+          for (let index = 0; index < plannedWaypoints.length - 1; index += 1) {
+            const nextPoint = dropPoints[Math.max(0, index - (warehouseStart ? 1 : 0))]
+            const completed = isDropPointCompleted(nextPoint?.status) || isDropPointCompleted(nextPoint?.orderStatus)
             routeLines.push({
-              id: `warehouse-route-${trip.id}-${index}`,
+              id: `planned-${trip.id}-${index}`,
               points: [
-                [Number(current.latitude), Number(current.longitude)],
-                [Number(next.latitude), Number(next.longitude)],
+                plannedWaypoints[index],
+                plannedWaypoints[index + 1],
               ],
-              color: nextCompleted ? '#2563eb' : '#16a34a',
+              color: completed ? '#93c5fd' : '#2563eb',
               label: `${trip.tripNumber || 'Trip'} route segment`,
+              opacity: completed ? 0.85 : 1,
+              weight: completed ? 6 : 8,
+              dashArray: completed ? '7 9' : undefined,
+              snapToRoad: true,
             })
           }
         }
       })
 
-    dayOrders.forEach((order) => {
+    dayOrders.forEach((order: any) => {
       if (order?.id && tripOrderIds.has(order.id)) return
       const lat = Number(order?.shippingLatitude)
       const lng = Number(order?.shippingLongitude)
@@ -677,7 +831,7 @@ export function WarehousePortal() {
         vehiclePlate: String(order?.shippingAddress || 'Customer location'),
         lat,
         lng,
-        status: String(order?.status || 'PROCESSING'),
+        status: String(order?.status || 'PREPARING'),
         markerColor: completed ? '#2563eb' : '#16a34a',
         markerType: 'pin',
         markerLabel: completed ? 'Completed order location' : 'Not completed order location',
@@ -693,9 +847,29 @@ export function WarehousePortal() {
     ? [liveTrackingLocations[0].lat, liveTrackingLocations[0].lng]
     : [10.55, 122.95]) as [number, number]
 
+  const liveTrackingActiveTrips = useMemo(
+    () =>
+      scopedTrips.filter(
+        (trip) =>
+          ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip.status)) &&
+          tripMatchesTrackingDay(trip)
+      ),
+    [scopedTrips, trackingDate]
+  )
+
   const liveTrackingRecentLocations = useMemo(
-    () => liveTrackingLocations.slice(0, 5),
-    [liveTrackingLocations]
+    () =>
+      liveTrackingActiveTrips
+        .flatMap((trip: any) => (Array.isArray(trip?.locationLogs) ? trip.locationLogs : []))
+        .filter((log: any) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
+        .map((log: any) => ({
+          ...log,
+          latitude: Number(log.latitude),
+          longitude: Number(log.longitude),
+        }))
+        .sort((a: any, b: any) => new Date(b.recordedAt || 0).getTime() - new Date(a.recordedAt || 0).getTime())
+        .slice(0, 5),
+    [liveTrackingActiveTrips]
   )
 
   const scopedInventory = useMemo(() => {
@@ -737,16 +911,26 @@ export function WarehousePortal() {
 
     for (const entry of scopedReturns) {
       const meta = parseMeta(entry?.notes)
-      const status = String(entry?.status || '').toUpperCase()
+      const rawStatus = String(entry?.status || '').toUpperCase()
       const mode = String((entry as any)?.replacementMode || meta?.replacementMode || '').toUpperCase()
+      const status =
+        rawStatus === 'REQUESTED'
+          ? 'REPORTED'
+          : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+            ? 'IN_PROGRESS'
+            : rawStatus === 'REJECTED'
+              ? 'NEEDS_FOLLOW_UP'
+              : rawStatus === 'PROCESSED'
+                ? (mode === 'SPARE_STOCK_IMMEDIATE' ? 'RESOLVED_ON_DELIVERY' : 'COMPLETED')
+                : rawStatus
       const qty = Number(entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
       if (qty > 0) {
         replacedQty += qty
       }
-      if (status === 'PROCESSED' && mode === 'SPARE_STOCK_IMMEDIATE') {
+      if (status === 'RESOLVED_ON_DELIVERY' || (status === 'COMPLETED' && mode === 'SPARE_STOCK_IMMEDIATE')) {
         resolvedOnDelivery += 1
       }
-      if (status === 'REJECTED') {
+      if (status === 'NEEDS_FOLLOW_UP') {
         needsFollowUp += 1
       }
     }
@@ -842,10 +1026,14 @@ export function WarehousePortal() {
     const availableCapacity = Math.max(totalCapacity - usedCapacity, 0)
     const lowStockItems = scopedInventory.filter((item) => (item.quantity ?? 0) <= (item.minStock ?? 0)).length
     const pendingOrders = scopedOrders.filter((order) =>
-      ['PENDING', 'CONFIRMED', 'UNAPPROVED', 'PROCESSING'].includes(String(order.status || '').toUpperCase())
+      ['PENDING', 'CONFIRMED', 'PREPARING'].includes(String(order.status || '').toUpperCase())
     ).length
     const inTransitTrips = scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length
-    const openReplacements = scopedReturns.filter((entry) => !['PROCESSED', 'REJECTED'].includes(entry.status)).length
+    const openReplacements = scopedReturns.filter((entry) => {
+      const raw = String(entry.status || '').toUpperCase()
+      const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw === 'REJECTED' ? 'NEEDS_FOLLOW_UP' : raw
+      return !['RESOLVED_ON_DELIVERY', 'COMPLETED'].includes(normalized)
+    }).length
     const utilizationStatus = usagePercent >= 90 ? 'Critical' : usagePercent >= 75 ? 'High' : usagePercent >= 55 ? 'Moderate' : 'Healthy'
     const skuVelocityData = scopedInventory
       .map((item) => {
@@ -1178,7 +1366,7 @@ export function WarehousePortal() {
       }
 
       const requestOrders = () =>
-        safeFetchJson('/api/orders?limit=100&includeItems=none', { cache: 'no-store', credentials: 'include' }, { retries: 1 })
+        safeFetchJson('/api/orders?limit=300&includeItems=none', { cache: 'no-store', credentials: 'include' }, { retries: 1 })
 
       let result = await requestOrders()
 
@@ -1206,7 +1394,14 @@ export function WarehousePortal() {
   const fetchTripsData = async () => {
     setLoadingTrips(true)
     try {
-      const result = await safeFetchJson('/api/trips?limit=100', { cache: 'no-store' }, { retries: 1 })
+      const query = new URLSearchParams({
+        limit: '200',
+        includeTracking: '1',
+      })
+      if (trackingDate) {
+        query.set('trackingDate', trackingDate)
+      }
+      const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 1 })
       if (!result.ok) {
         setTrips([])
         toast.error('Failed to load trips')
@@ -1572,6 +1767,14 @@ export function WarehousePortal() {
     }
   }, [activeView])
 
+  useEffect(() => {
+    if (activeView !== 'liveTracking') return
+    void Promise.all([
+      fetchTripsData(),
+      fetchOrdersData({ showLoading: false, silent: true }),
+    ])
+  }, [activeView, trackingDate])
+
   const handleLogout = async () => {
     await logout()
     toast.success('Logged out')
@@ -1871,8 +2074,9 @@ export function WarehousePortal() {
       return 'PENDING'
     }
     const raw = String(status || '').toUpperCase()
-    if (raw === 'PACKED') return 'LOADED'
-    if (raw === 'DISPATCHED') return 'OUT FOR DELIVERY'
+    if (['PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(raw)) return 'PREPARING'
+    if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
+    if (raw === 'FAILED_DELIVERY') return 'CANCELLED'
     return raw.replace(/_/g, ' ')
   }
 
@@ -1909,7 +2113,7 @@ export function WarehousePortal() {
 
   const updateWarehouseOrderStatus = async (
     orderId: string,
-    status: 'PROCESSING' | 'PACKED' | 'DISPATCHED' | 'OUT_FOR_DELIVERY' | 'DELIVERED',
+    status: 'PREPARING' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -1970,12 +2174,26 @@ export function WarehousePortal() {
 
   const formatIssueStatus = (entry: WarehouseReturnItem) => {
     const rawStatus = String(entry?.status || '').toUpperCase()
-    return rawStatus === 'PROCESSED' ? 'Resolved' : 'Follow-up Required'
+    const normalizedStatus =
+      rawStatus === 'REQUESTED'
+        ? 'REPORTED'
+        : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+          ? 'IN_PROGRESS'
+          : rawStatus === 'REJECTED'
+            ? 'NEEDS_FOLLOW_UP'
+            : rawStatus === 'PROCESSED'
+              ? 'COMPLETED'
+              : rawStatus
+    if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
+    if (normalizedStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
+    if (normalizedStatus === 'COMPLETED') return 'Completed'
+    if (normalizedStatus === 'IN_PROGRESS') return 'In Progress'
+    return 'Reported'
   }
 
   const updateIssueStatus = async (
     replacementId: string,
-    status: 'PROCESSED' | 'REJECTED',
+    status: 'COMPLETED' | 'NEEDS_FOLLOW_UP',
     notes?: string
   ) => {
     setUpdatingReplacementId(replacementId)
@@ -1995,7 +2213,7 @@ export function WarehousePortal() {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
 
-      toast.success(status === 'PROCESSED' ? 'Replacement marked as resolved' : 'Replacement marked for follow-up')
+      toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
       await fetchReturnsData()
       await fetchOrdersData()
       emitDataSync(['returns', 'orders'])
@@ -2308,8 +2526,8 @@ export function WarehousePortal() {
                                   size="icon"
                                   variant="ghost"
                                   className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                  onClick={() => updateWarehouseOrderStatus(order.id, 'PROCESSING')}
-                                  disabled={(!['PENDING', 'CONFIRMED', 'UNAPPROVED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
+                                  onClick={() => updateWarehouseOrderStatus(order.id, 'PREPARING')}
+                                  disabled={(!['PENDING', 'CONFIRMED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
                                   title="Approve Order"
                                 >
                                   {updatingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleCheck className="h-4 w-4" />}
@@ -2456,7 +2674,7 @@ export function WarehousePortal() {
                                 <td className="p-4">
                                   <Badge
                                     className={
-                                      statusLabel === 'Follow-up Required'
+                                      statusLabel === 'Needs Follow-up'
                                         ? 'bg-red-100 text-red-700 hover:bg-red-100'
                                         : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
                                     }
@@ -2469,21 +2687,21 @@ export function WarehousePortal() {
                                 </td>
                                 <td className="p-4">
                                   <div className="flex flex-wrap gap-2">
-                                    {String(ret?.status || '').toUpperCase() !== 'PROCESSED' ? (
+                                    {String(ret?.status || '').toUpperCase() !== 'COMPLETED' && String(ret?.status || '').toUpperCase() !== 'RESOLVED_ON_DELIVERY' ? (
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() => updateIssueStatus(ret.id, 'PROCESSED', 'Marked resolved by warehouse staff')}
+                                        onClick={() => updateIssueStatus(ret.id, 'COMPLETED', 'Marked completed by warehouse staff')}
                                         disabled={updatingReplacementId === ret.id}
                                       >
-                                        Mark Resolved
+                                        Mark Completed
                                       </Button>
                                     ) : null}
-                                    {String(ret?.status || '').toUpperCase() !== 'REJECTED' ? (
+                                    {String(ret?.status || '').toUpperCase() !== 'NEEDS_FOLLOW_UP' ? (
                                       <Button
                                         size="sm"
                                         variant="destructive"
-                                        onClick={() => updateIssueStatus(ret.id, 'REJECTED', 'Marked for follow-up by warehouse staff')}
+                                        onClick={() => updateIssueStatus(ret.id, 'NEEDS_FOLLOW_UP', 'Marked for follow-up by warehouse staff')}
                                         disabled={updatingReplacementId === ret.id}
                                       >
                                         Needs Follow-up
@@ -2535,8 +2753,8 @@ export function WarehousePortal() {
               </div>
 
               <div className="text-sm text-slate-600">
-                Route colors: <span className="font-medium text-blue-600">Blue = Completed</span> •{' '}
-                <span className="font-medium text-green-600">Green = Not Completed</span>
+                Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> •{' '}
+                <span className="font-medium text-blue-700">Bright blue = Upcoming</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -2549,6 +2767,7 @@ export function WarehousePortal() {
                         center={liveTrackingCenter}
                         zoom={liveTrackingLocations.length > 0 ? 12 : 10}
                         restrictToNegrosOccidental
+                        className="w-full h-full rounded-xl overflow-hidden"
                       />
                     </CardContent>
                   </Card>
@@ -2564,14 +2783,11 @@ export function WarehousePortal() {
                         <div className="flex h-24 items-center justify-center">
                           <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                         </div>
-                      ) : scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length === 0 ? (
+                      ) : liveTrackingActiveTrips.length === 0 ? (
                         <p className="text-sm text-gray-500">No active trips right now</p>
                       ) : (
                         <div className="space-y-3">
-                          {scopedTrips
-                            .filter((trip) => isActiveTripStatus(trip.status))
-                            .slice(0, 5)
-                            .map((trip) => (
+                          {liveTrackingActiveTrips.slice(0, 5).map((trip) => (
                               <div key={trip.id} className="flex items-center gap-3 rounded-lg bg-gray-50 p-2">
                                 <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
                                 <div className="flex-1">
@@ -2599,13 +2815,15 @@ export function WarehousePortal() {
                         <p className="text-sm text-gray-500">No coordinate logs available</p>
                       ) : (
                         <div className="space-y-2 text-sm">
-                          {liveTrackingRecentLocations.map((point) => {
-                            const latitude = Number(point.lat ?? 0)
-                            const longitude = Number(point.lng ?? 0)
+                          {liveTrackingRecentLocations.map((log: any) => {
+                            const latitude = Number(log.latitude)
+                            const longitude = Number(log.longitude)
 
                             return (
-                              <div key={point.id} className="flex justify-between gap-2">
-                                <span className="truncate text-gray-500">{point.driverName || 'Order location'}</span>
+                              <div key={log.id} className="flex justify-between gap-2">
+                                <span className="truncate text-gray-500">
+                                  {new Date(log.recordedAt || log.createdAt || Date.now()).toLocaleTimeString()}
+                                </span>
                                 <span>{latitude.toFixed(4)}, {longitude.toFixed(4)}</span>
                               </div>
                             )
@@ -3323,18 +3541,18 @@ export function WarehousePortal() {
                   const isPendingApproval = String((selectedOrder as any).paymentStatus || '').toLowerCase() === 'pending_approval'
                   return (
                     <div className="grid grid-cols-2 gap-2">
-                      {!isPendingApproval && selectedOrderStatus === 'PROCESSING' ? (
+                      {!isPendingApproval && selectedOrderStatus === 'PREPARING' ? (
                         <Button
                           className="bg-red-600 text-white hover:bg-red-700"
-                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PACKED')}
+                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
                           Mark as Loaded
                         </Button>
-                      ) : isPendingApproval || ['PENDING', 'CONFIRMED', 'UNAPPROVED'].includes(selectedOrderStatus) ? (
+                      ) : isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
                         <Button
                           className="bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PROCESSING')}
+                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
                           Mark as Loaded
@@ -3378,11 +3596,11 @@ export function WarehousePortal() {
                   <Button
                     className="flex-1 bg-red-600 hover:bg-red-700"
                     onClick={async () => {
-                      if (!['PROCESSING'].includes(rejectOrder.status)) {
+                      if (!['PREPARING'].includes(rejectOrder.status)) {
                         toast.error('Order is not eligible for packing')
                         return
                       }
-                      await updateWarehouseOrderStatus(rejectOrder.id, 'PACKED', rejectReason.trim() || undefined)
+                      await updateWarehouseOrderStatus(rejectOrder.id, 'PREPARING', rejectReason.trim() || undefined)
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}

@@ -60,6 +60,17 @@ interface Trip {
   id: string
   tripNumber: string
   status: string
+  warehouseId?: string | null
+  warehouseLatitude?: number | null
+  warehouseLongitude?: number | null
+  startLatitude?: number | null
+  startLongitude?: number | null
+  warehouse?: {
+    id?: string
+    name?: string
+    latitude?: number | null
+    longitude?: number | null
+  } | null
   plannedStartAt: string | null
   actualStartAt?: string | null
   actualEndAt?: string | null
@@ -196,10 +207,24 @@ export function DriverPortal() {
     isFetchingTripsRef.current = true
     try {
       const response = await fetch('/api/driver/trips', { cache: 'no-store', credentials: 'include' })
-      const data = await response.json().catch(() => ({}))
+      const raw = await response.text()
+      let data: any = {}
+      if (raw) {
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          data = {}
+        }
+      }
 
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to fetch trips')
+        const rawMessage = typeof data?.error === 'string' ? data.error : ''
+        const fallbackMessage =
+          response.status >= 500
+            ? `Server error (${response.status}).`
+            : `Request failed (${response.status}).`
+        const detail = !rawMessage && raw ? ` ${raw.slice(0, 180)}` : ''
+        throw new Error((rawMessage || fallbackMessage) + detail)
       }
 
       setTrips(data.trips || [])
@@ -207,7 +232,7 @@ export function DriverPortal() {
       if (!silent) {
         toast.error(error?.message || 'Failed to load assigned trips')
       }
-      console.error('Failed to fetch trips:', error)
+      console.warn('Failed to fetch trips:', error)
     } finally {
       isFetchingTripsRef.current = false
       setIsLoading(false)
@@ -869,6 +894,20 @@ function TripDetailView({
       currency: 'PHP',
       maximumFractionDigits: 2,
     }).format(amount)
+  const ETA_SPEED_KMH = 28
+  const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+    const radiusKm = 6371
+    const toRad = (value: number) => (value * Math.PI) / 180
+    const dLat = toRad(to.lat - from.lat)
+    const dLng = toRad(to.lng - from.lng)
+    const lat1 = toRad(from.lat)
+    const lat2 = toRad(to.lat)
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return radiusKm * c
+  }
 
   const handleStartTrip = async () => {
     const currentStatus = String(trip.status || '').toUpperCase()
@@ -1406,6 +1445,28 @@ function TripDetailView({
       }
     })
     .filter((point) => point.latitude !== null && point.longitude !== null)
+  const isDropPointDone = (status: unknown) => {
+    const normalized = String(status || '').toUpperCase()
+    return normalized === 'COMPLETED' || normalized === 'DELIVERED'
+  }
+  const nextPendingIndex = mappableDropPoints.findIndex((point) => !isDropPointDone(point.status))
+  const completedDropPoints =
+    nextPendingIndex === -1 ? mappableDropPoints : mappableDropPoints.slice(0, Math.max(nextPendingIndex, 0))
+  const pendingDropPoints =
+    nextPendingIndex === -1 ? [] : mappableDropPoints.slice(Math.max(nextPendingIndex, 0))
+  const warehouseRouteStart = (() => {
+    const warehouseLat =
+      toCoordinate(trip.warehouseLatitude) ??
+      toCoordinate(trip.warehouse?.latitude) ??
+      toCoordinate(trip.startLatitude)
+    const warehouseLng =
+      toCoordinate(trip.warehouseLongitude) ??
+      toCoordinate(trip.warehouse?.longitude) ??
+      toCoordinate(trip.startLongitude)
+    if (warehouseLat === null || warehouseLng === null) return null
+    return { lat: warehouseLat, lng: warehouseLng }
+  })()
+  const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
   const effectiveDriverLocation =
     (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
       ? { lat: Number(currentLocation.lat), lng: Number(currentLocation.lng) }
@@ -1416,6 +1477,27 @@ function TripDetailView({
     (trip.latestLocation && Number.isFinite(Number(trip.latestLocation.latitude)) && Number.isFinite(Number(trip.latestLocation.longitude))
       ? { lat: Number(trip.latestLocation.latitude), lng: Number(trip.latestLocation.longitude) }
       : null)
+  const driverMarkerHeading =
+    nextDropPoint &&
+    Number.isFinite(Number(nextDropPoint?.latitude)) &&
+    Number.isFinite(Number(nextDropPoint?.longitude)) &&
+    Number.isFinite(Number(effectiveDriverLocation?.lat)) &&
+    Number.isFinite(Number(effectiveDriverLocation?.lng))
+      ? (() => {
+          const fromLat = Number(effectiveDriverLocation?.lat)
+          const fromLng = Number(effectiveDriverLocation?.lng)
+          const toLat = Number(nextDropPoint.latitude)
+          const toLng = Number(nextDropPoint.longitude)
+          const toRad = (value: number) => (value * Math.PI) / 180
+          const toDeg = (value: number) => (value * 180) / Math.PI
+          const phi1 = toRad(fromLat)
+          const phi2 = toRad(toLat)
+          const deltaLng = toRad(toLng - fromLng)
+          const y = Math.sin(deltaLng) * Math.cos(phi2)
+          const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLng)
+          return ((toDeg(Math.atan2(y, x)) % 360) + 360) % 360
+        })()
+      : null
 
   const driverLocationMarker = (() => {
     const lat = toCoordinate(effectiveDriverLocation?.lat)
@@ -1430,26 +1512,97 @@ function TripDetailView({
       status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
       markerLabel: 'Current location',
       markerType: 'truck' as const,
+      markerHeading: driverMarkerHeading ?? undefined,
       markerColor: '#1d4ed8',
     }
   })()
 
-  const dropPointMapLocations = mappableDropPoints.map((point) => ({
-    id: point.id,
-    driverName: point.locationName || `Stop ${point.sequence}`,
-    vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
-    lat: point.latitude as number,
-    lng: point.longitude as number,
-    status: point.status || 'PENDING',
-    markerLabel: `${point.sequence}. ${point.address || point.city || 'Drop Point'}`,
-    markerType: 'pin' as const,
-  }))
+  const etaStartPoint =
+    driverLocationMarker
+      ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
+      : warehouseRouteStart
+  let etaAnchor = etaStartPoint
+  let cumulativeEtaKm = 0
+  let pendingPhaseIndex = 0
+  const dropPointMapLocations = mappableDropPoints.map((point) => {
+    const isCompleted = isDropPointDone(point.status)
+    let markerEta: string | undefined
+    let markerEtaPhase: 'completed' | 'next' | 'upcoming' | undefined
+
+    if (isCompleted) {
+      markerEta = 'Arrived'
+      markerEtaPhase = 'completed'
+    } else if (etaAnchor) {
+      const target = { lat: point.latitude as number, lng: point.longitude as number }
+      cumulativeEtaKm += haversineKm(etaAnchor, target)
+      etaAnchor = target
+      const estimatedMinutes = Math.max(1, Math.round((cumulativeEtaKm / ETA_SPEED_KMH) * 60))
+      markerEta = `${estimatedMinutes} min`
+      markerEtaPhase = pendingPhaseIndex === 0 ? 'next' : 'upcoming'
+      pendingPhaseIndex += 1
+    }
+
+    return {
+      id: point.id,
+      driverName: point.locationName || `Stop ${point.sequence}`,
+      vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
+      lat: point.latitude as number,
+      lng: point.longitude as number,
+      status: point.status || 'PENDING',
+      markerLabel: `${point.sequence}. ${point.address || point.city || 'Drop Point'}`,
+      markerType: 'pin' as const,
+      markerColor: '#2563eb',
+      markerNumber: point.sequence,
+      markerEta,
+      markerEtaPhase,
+    }
+  })
 
   const mapLocations = driverLocationMarker ? [driverLocationMarker, ...dropPointMapLocations] : dropPointMapLocations
-  const routeWaypoints = mapLocations.map((point) => ({ lat: point.lat, lng: point.lng }))
+  const fullRouteWaypoints = (() => {
+    const start = warehouseRouteStart ? [warehouseRouteStart] : []
+    const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
+    const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
+    if (driverLocationMarker) {
+      return [...start, ...completedCoords, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }, ...pendingCoords]
+    }
+    return [...start, ...completedCoords, ...pendingCoords]
+  })()
+  const upcomingRouteWaypoints = (() => {
+    const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
+    if (driverLocationMarker) return [{ lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }, ...pendingCoords]
+    return pendingCoords
+  })()
+  const completedRouteWaypoints = (() => {
+    const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
+    if (driverLocationMarker && completedCoords.length > 0) {
+      return [...completedCoords, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }]
+    }
+    return completedCoords
+  })()
+  const routeWaypoints = fullRouteWaypoints
   const routeWaypointsKey = routeWaypoints
     .map((point) => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`)
     .join('|')
+  const findNearestPolylineIndex = (
+    target: { lat: number; lng: number },
+    points: [number, number][]
+  ) => {
+    if (!Array.isArray(points) || points.length === 0) return 0
+    let bestIndex = 0
+    let bestDistance = Number.POSITIVE_INFINITY
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index]
+      const latDiff = point[0] - target.lat
+      const lngDiff = point[1] - target.lng
+      const distance2 = latDiff * latDiff + lngDiff * lngDiff
+      if (distance2 < bestDistance) {
+        bestDistance = distance2
+        bestIndex = index
+      }
+    }
+    return bestIndex
+  }
 
   useEffect(() => {
     const uniqueWaypoints = routeWaypoints.filter((point, index, list) => {
@@ -1500,17 +1653,63 @@ function TripDetailView({
   }, [trip.id, routeWaypointsKey])
 
   const fallbackRoutePoints = routeWaypoints.map((point) => [point.lat, point.lng] as [number, number])
-  const routeLinePoints = roadRoutePoints.length > 1 ? roadRoutePoints : fallbackRoutePoints
-  const mapRouteLines = routeLinePoints.length > 1
-    ? [
-        {
-          id: `trip-${trip.id}-route`,
-          points: routeLinePoints,
-          color: '#2563eb',
-          label: `${trip.tripNumber} route`,
-        },
-      ]
-    : []
+  const upcomingFallbackPoints = upcomingRouteWaypoints.map((point) => [point.lat, point.lng] as [number, number])
+  const completedFallbackPoints = completedRouteWaypoints.map((point) => [point.lat, point.lng] as [number, number])
+  const roadSplitIndex = (() => {
+    if (roadRoutePoints.length < 2) return null
+    if (driverLocationMarker) {
+      return findNearestPolylineIndex(
+        { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng },
+        roadRoutePoints
+      )
+    }
+    const lastCompleted = completedDropPoints[completedDropPoints.length - 1]
+    if (lastCompleted) {
+      return findNearestPolylineIndex(
+        { lat: Number(lastCompleted.latitude), lng: Number(lastCompleted.longitude) },
+        roadRoutePoints
+      )
+    }
+    return 0
+  })()
+  const completedRoutePoints =
+    roadRoutePoints.length > 1 && roadSplitIndex !== null
+      ? roadSplitIndex > 0
+        ? roadRoutePoints.slice(0, roadSplitIndex + 1)
+        : []
+      : completedFallbackPoints
+  const upcomingRoutePoints =
+    roadRoutePoints.length > 1 && roadSplitIndex !== null
+      ? roadRoutePoints.slice(Math.max(0, roadSplitIndex))
+      : upcomingFallbackPoints.length > 1
+        ? upcomingFallbackPoints
+        : fallbackRoutePoints
+  const mapRouteLines = [
+    ...(completedRoutePoints.length > 1
+      ? [
+          {
+            id: `trip-${trip.id}-route-completed`,
+            points: completedRoutePoints,
+            color: '#6b7280',
+            label: `${trip.tripNumber} completed path`,
+            opacity: 0.95,
+            weight: 9,
+          },
+        ]
+      : []),
+    ...(upcomingRoutePoints.length > 1
+      ? [
+          {
+            id: `trip-${trip.id}-route-upcoming`,
+            points: upcomingRoutePoints,
+            color: '#2563eb',
+            label: `${trip.tripNumber} upcoming path`,
+            opacity: 1,
+            weight: 8,
+          },
+        ]
+      : []),
+  ]
   const mapCenter = (driverLocationMarker
     ? [driverLocationMarker.lat, driverLocationMarker.lng]
     : mapLocations[0]
@@ -1571,7 +1770,7 @@ function TripDetailView({
       {/* Route Map */}
       <div className="p-4 pt-0">
         <h3 className="font-semibold text-slate-900">Route Map</h3>
-        <p className="mb-3 text-xs text-slate-500">Showing only your assigned trip route.</p>
+        <p className="mb-3 text-xs text-slate-500">Bold gray = completed path, bright blue = upcoming route.</p>
         {mapLocations.length === 0 ? (
           <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
             No map data for this trip yet. Add delivery coordinates to order shipping addresses.
@@ -1582,6 +1781,7 @@ function TripDetailView({
             routeLines={mapRouteLines}
             center={mapCenter}
             zoom={13}
+            navigationPerspective
           />
         )}
       </div>
