@@ -25,11 +25,6 @@ class OrderStatus(models.TextChoices):
     DELIVERED = "DELIVERED", "Delivered"
     CANCELLED = "CANCELLED", "Cancelled"
 
-    # Backward-compat aliases for legacy code paths/data.
-    PROCESSING = PREPARING
-    PACKED = PREPARING
-    DISPATCHED = OUT_FOR_DELIVERY
-
 
 class WarehouseStage(models.TextChoices):
     READY_TO_LOAD = "READY_TO_LOAD", "Ready To Load"
@@ -79,15 +74,6 @@ class ReturnStatus(models.TextChoices):
     RESOLVED_ON_DELIVERY = "RESOLVED_ON_DELIVERY", "Resolved On Delivery"
     NEEDS_FOLLOW_UP = "NEEDS_FOLLOW_UP", "Needs Follow Up"
     COMPLETED = "COMPLETED", "Completed"
-
-    # Backward-compat aliases for legacy code paths/data.
-    REQUESTED = REPORTED
-    APPROVED = IN_PROGRESS
-    PICKED_UP = IN_PROGRESS
-    IN_TRANSIT = IN_PROGRESS
-    RECEIVED = IN_PROGRESS
-    PROCESSED = COMPLETED
-    REJECTED = NEEDS_FOLLOW_UP
 
 
 class FeedbackType(models.TextChoices):
