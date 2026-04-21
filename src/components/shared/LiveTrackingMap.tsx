@@ -156,7 +156,7 @@ export default function LiveTrackingMap({
             <Polyline
               key={line.id}
               positions={line.points}
-              pathOptions={{ color: line.color, weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }}
+              pathOptions={{ color: line.color, weight: 8, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
             >
               {line.label ? <Popup>{line.label}</Popup> : null}
             </Polyline>

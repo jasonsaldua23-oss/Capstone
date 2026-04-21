@@ -67,6 +67,11 @@ interface Trip {
   updatedAt?: string | null
   totalDropPoints: number
   completedDropPoints: number
+  latestLocation?: {
+    latitude?: number | null
+    longitude?: number | null
+    recordedAt?: string | null
+  } | null
   driver?: {
     name?: string
     user?: {
@@ -1401,20 +1406,29 @@ function TripDetailView({
       }
     })
     .filter((point) => point.latitude !== null && point.longitude !== null)
-  const firstStopLocation = mappableDropPoints[0]
-  const effectiveDriverLocation = currentLocation || previewDriverLocation
+  const effectiveDriverLocation =
+    (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
+      ? { lat: Number(currentLocation.lat), lng: Number(currentLocation.lng) }
+      : null) ||
+    (previewDriverLocation && Number.isFinite(Number(previewDriverLocation.lat)) && Number.isFinite(Number(previewDriverLocation.lng))
+      ? { lat: Number(previewDriverLocation.lat), lng: Number(previewDriverLocation.lng) }
+      : null) ||
+    (trip.latestLocation && Number.isFinite(Number(trip.latestLocation.latitude)) && Number.isFinite(Number(trip.latestLocation.longitude))
+      ? { lat: Number(trip.latestLocation.latitude), lng: Number(trip.latestLocation.longitude) }
+      : null)
+
   const driverLocationMarker = (() => {
-    const lat = toCoordinate(effectiveDriverLocation?.lat ?? firstStopLocation?.latitude)
-    const lng = toCoordinate(effectiveDriverLocation?.lng ?? firstStopLocation?.longitude)
+    const lat = toCoordinate(effectiveDriverLocation?.lat)
+    const lng = toCoordinate(effectiveDriverLocation?.lng)
     if (lat === null || lng === null) return null
     return {
       id: `driver-${trip.id}`,
-      driverName: effectiveDriverLocation ? 'You (Driver)' : 'Driver (Waiting for GPS)',
+      driverName: 'You (Driver)',
       vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
       lat,
       lng,
       status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
-      markerLabel: effectiveDriverLocation ? 'Current location' : 'Using first stop until GPS updates',
+      markerLabel: 'Current location',
       markerType: 'truck' as const,
       markerColor: '#1d4ed8',
     }

@@ -1938,7 +1938,33 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
     if not d:
         return _err("Driver profile not found", 404)
     rows = Trip.objects.select_related("driver__user", "vehicle").prefetch_related("drop_points__order").filter(driver=d).order_by("-updated_at")[:100]
-    return _ok({"success": True, "trips": [_serialize_trip(t) for t in rows]})
+
+    trip_ids = [trip.id for trip in rows]
+    latest_log_by_trip: dict[str, LocationLog] = {}
+    if trip_ids:
+        logs = LocationLog.objects.filter(trip_id__in=trip_ids).order_by("trip_id", "-recorded_at")
+        for log in logs:
+            if not log.trip_id:
+                continue
+            if log.trip_id not in latest_log_by_trip:
+                latest_log_by_trip[log.trip_id] = log
+
+    payload_rows: list[dict[str, Any]] = []
+    for trip in rows:
+        row = _serialize_trip(trip)
+        latest_log = latest_log_by_trip.get(trip.id)
+        row["latestLocation"] = (
+            {
+                "latitude": float(latest_log.latitude),
+                "longitude": float(latest_log.longitude),
+                "recordedAt": latest_log.recorded_at.isoformat() if latest_log.recorded_at else None,
+            }
+            if latest_log
+            else None
+        )
+        payload_rows.append(row)
+
+    return _ok({"success": True, "trips": payload_rows})
 
 
 @csrf_exempt
