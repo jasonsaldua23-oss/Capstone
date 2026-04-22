@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Drawer as DrawerPrimitive } from "vaul"
+import { Drawer as DrawerPrimitive, Handle as DrawerHandlePrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
 
@@ -47,12 +47,17 @@ function DrawerOverlay({
 
 function DrawerContent({
   className,
+  overlayClassName,
+  hideOverlay = false,
   children,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+}: React.ComponentProps<typeof DrawerPrimitive.Content> & {
+  hideOverlay?: boolean
+  overlayClassName?: string
+}) {
   return (
     <DrawerPortal data-slot="drawer-portal">
-      <DrawerOverlay />
+      {!hideOverlay ? <DrawerOverlay className={overlayClassName} /> : null}
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(
@@ -70,6 +75,10 @@ function DrawerContent({
       </DrawerPrimitive.Content>
     </DrawerPortal>
   )
+}
+
+function DrawerHandle({ className, ...props }: React.ComponentProps<typeof DrawerHandlePrimitive>) {
+  return <DrawerHandlePrimitive data-slot="drawer-handle" className={className} {...props} />
 }
 
 function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -128,6 +137,7 @@ export {
   DrawerTrigger,
   DrawerClose,
   DrawerContent,
+  DrawerHandle,
   DrawerHeader,
   DrawerFooter,
   DrawerTitle,

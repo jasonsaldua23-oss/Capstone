@@ -445,6 +445,82 @@ class CustomerOrdersApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Unauthorized")
 
+    def test_customer_cannot_cancel_preparing_order(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-CANCEL-PREPARING-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+        )
+
+        response = self.client.patch(
+            f"/api/customer/orders/{order.id}/cancel",
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Order cannot be cancelled")
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+
+    def test_customer_order_create_defaults_to_pending(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Pending Warehouse",
+            code="WH-PENDING-001",
+            address="Warehouse Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        product = Product.objects.create(
+            sku="SKU-PENDING-001",
+            name="Pending Product",
+            unit="piece",
+            price=25,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=0,
+            min_stock=1,
+            max_stock=20,
+            reorder_point=2,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-PENDING-001",
+            inventory=inventory,
+            quantity=10,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "warehouseId": warehouse.id,
+                "items": [
+                    {
+                        "productId": product.id,
+                        "quantity": 2,
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["status"], OrderStatus.PENDING)
+
 
 class DriverTripsApiContractTests(TestCase):
     def setUp(self) -> None:
@@ -847,7 +923,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
         base = {
             "order_number": f"ORD-STATUS-{Order.objects.count() + 1:03d}",
             "customer": self.customer,
-            "status": OrderStatus.PROCESSING,
+            "status": OrderStatus.PREPARING,
             "subtotal": 100,
             "total_amount": 110,
         }
@@ -871,7 +947,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "status is required")
 
-    def test_dispatched_requires_warehouse_stage_dispatched(self) -> None:
+    def test_dispatched_status_is_automatic_when_trip_starts(self) -> None:
         order = self._create_order(
             warehouse_stage=WarehouseStage.READY_TO_LOAD,
             checklist_items_verified=True,
@@ -887,81 +963,48 @@ class OrderStatusTransitionApiContractTests(TestCase):
         self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Order must be moved to warehouse stage DISPATCHED first")
+        self.assertEqual(payload["error"], "OUT_FOR_DELIVERY is set automatically when the trip starts")
 
-    def test_dispatched_requires_checklist_and_signoff(self) -> None:
-        order_missing_checklist = self._create_order(
-            warehouse_stage=WarehouseStage.DISPATCHED,
-            checklist_items_verified=False,
-            checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
-        )
-        response_checklist = self._patch_status(order_missing_checklist.id, {"status": "DISPATCHED"})
-        self.assertEqual(response_checklist.status_code, 400)
-        payload_checklist = response_checklist.json()
-        self.assertFalse(payload_checklist["success"])
-        self.assertEqual(payload_checklist["error"], "Dispatch checklist must be completed before DISPATCHED status")
-
-        order_missing_signoff = self._create_order(
-            warehouse_stage=WarehouseStage.DISPATCHED,
-            checklist_items_verified=True,
-            checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
-            dispatch_signed_off_by="",
-            dispatch_signed_off_at=None,
-        )
-        response_signoff = self._patch_status(order_missing_signoff.id, {"status": "DISPATCHED"})
-        self.assertEqual(response_signoff.status_code, 400)
-        payload_signoff = response_signoff.json()
-        self.assertFalse(payload_signoff["success"])
-        self.assertEqual(payload_signoff["error"], "Dispatch signoff is required before DISPATCHED status")
-
-    def test_out_for_delivery_requires_dispatched_status(self) -> None:
-        order = self._create_order(status=OrderStatus.PROCESSING)
+    def test_out_for_delivery_status_is_automatic_when_trip_starts(self) -> None:
+        order = self._create_order(status=OrderStatus.PREPARING)
 
         response = self._patch_status(order.id, {"status": "OUT_FOR_DELIVERY"})
         self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Order must be DISPATCHED before OUT_FOR_DELIVERY")
-
-    def test_dispatched_success_updates_status_and_timeline(self) -> None:
-        order = self._create_order(
-            warehouse_stage=WarehouseStage.DISPATCHED,
-            checklist_items_verified=True,
-            checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
-            dispatch_signed_off_by="Warehouse Lead",
-            dispatch_signed_off_at=timezone.now(),
-        )
-
-        response = self._patch_status(order.id, {"status": "DISPATCHED"})
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["order"]["status"], OrderStatus.DISPATCHED)
-
-        order.refresh_from_db()
-        self.assertEqual(order.status, OrderStatus.DISPATCHED)
-        timeline = OrderTimeline.objects.get(order=order)
-        self.assertIsNotNone(timeline.shipped_at)
+        self.assertEqual(payload["error"], "OUT_FOR_DELIVERY is set automatically when the trip starts")
 
 
 class OrderWarehouseStageTransitionApiContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
         self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
         self.admin_user = User.objects.create(
             email="stage.admin@example.com",
             password="hashed",
             name="Stage Admin",
             role=self.admin_role,
+            is_active=True,
+        )
+        self.driver_user = User.objects.create(
+            email="stage.driver@example.com",
+            password="hashed",
+            name="Stage Driver",
+            role=self.driver_role,
+            is_active=True,
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user,
+            license_number="LIC-STAGE-001",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="STAGE-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
             is_active=True,
         )
         self.admin_token = create_token(
@@ -984,13 +1027,34 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         base = {
             "order_number": f"ORD-STAGE-{Order.objects.count() + 1:03d}",
             "customer": self.customer,
-            "status": OrderStatus.PROCESSING,
+            "status": OrderStatus.PREPARING,
             "warehouse_stage": WarehouseStage.READY_TO_LOAD,
             "subtotal": 100,
             "total_amount": 110,
         }
         base.update(overrides)
         return Order.objects.create(**base)
+
+    def _assign_order_to_driver(self, order: Order) -> Trip:
+        trip = Trip.objects.create(
+            trip_number=f"TRP-STAGE-{Trip.objects.count() + 1:03d}",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+            total_drop_points=1,
+        )
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=order,
+            sequence=1,
+            location_name=order.order_number,
+            address="Stage Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+        return trip
 
     def _patch_stage(self, order_id: str, payload: dict):
         return self.client.patch(
@@ -1018,87 +1082,82 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Warehouse stage cannot move backward")
 
-    def test_loaded_stage_moves_order_status_to_packed_when_processing(self) -> None:
-        order = self._create_order(status=OrderStatus.PROCESSING)
+    def test_loaded_requires_completed_checklist(self) -> None:
+        order = self._create_order()
         response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Order must be assigned to a driver before LOADED")
+
+    def test_loaded_requires_driver_assignment(self) -> None:
+        order = self._create_order()
+        response = self._patch_stage(
+            order.id,
+            {
+                "warehouseStage": "LOADED",
+                "checklist": {
+                    "itemsVerified": True,
+                    "quantityVerified": True,
+                    "packagingVerified": True,
+                    "vehicleAssigned": True,
+                    "driverAssigned": True,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Order must be assigned to a driver before LOADED")
+
+    def test_loaded_requires_completed_checklist_when_driver_is_assigned(self) -> None:
+        order = self._create_order()
+        self._assign_order_to_driver(order)
+        response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Checklist must be completed before LOADED")
+
+    def test_loaded_stage_keeps_order_status_preparing(self) -> None:
+        order = self._create_order(status=OrderStatus.PREPARING)
+        self._assign_order_to_driver(order)
+        response = self._patch_stage(
+            order.id,
+            {
+                "warehouseStage": "LOADED",
+                "checklist": {
+                    "itemsVerified": True,
+                    "quantityVerified": True,
+                    "packagingVerified": True,
+                    "vehicleAssigned": True,
+                    "driverAssigned": True,
+                },
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.LOADED)
-        self.assertEqual(payload["order"]["status"], OrderStatus.PACKED)
+        self.assertEqual(payload["order"]["status"], OrderStatus.PREPARING)
 
         order.refresh_from_db()
         self.assertEqual(order.warehouse_stage, WarehouseStage.LOADED)
-        self.assertEqual(order.status, OrderStatus.PACKED)
+        self.assertEqual(order.status, OrderStatus.PREPARING)
         self.assertIsNotNone(order.loaded_at)
 
-    def test_dispatched_requires_checklist_signoff_and_no_hold_reason(self) -> None:
-        order_missing_checklist = self._create_order(warehouse_stage=WarehouseStage.LOADED)
-        response_missing_checklist = self._patch_stage(order_missing_checklist.id, {"warehouseStage": "DISPATCHED"})
-        self.assertEqual(response_missing_checklist.status_code, 400)
-        payload_missing_checklist = response_missing_checklist.json()
-        self.assertFalse(payload_missing_checklist["success"])
-        self.assertEqual(payload_missing_checklist["error"], "All dispatch checklist items are required before DISPATCHED")
+    def test_dispatched_stage_is_automatic_when_trip_starts(self) -> None:
+        order = self._create_order(warehouse_stage=WarehouseStage.LOADED)
+        response = self._patch_stage(order.id, {"warehouseStage": "DISPATCHED"})
 
-        order_with_checklist_no_signoff = self._create_order(
-            warehouse_stage=WarehouseStage.LOADED,
-            checklist_items_verified=True,
-            checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
-        )
-        response_no_signoff = self._patch_stage(order_with_checklist_no_signoff.id, {"warehouseStage": "DISPATCHED"})
-        self.assertEqual(response_no_signoff.status_code, 400)
-        payload_no_signoff = response_no_signoff.json()
-        self.assertFalse(payload_no_signoff["success"])
-        self.assertEqual(payload_no_signoff["error"], "signoffName is required before DISPATCHED")
-
-        order_with_hold = self._create_order(
-            warehouse_stage=WarehouseStage.LOADED,
-            checklist_items_verified=True,
-            checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
-            exception_hold_reason="Awaiting QC review",
-        )
-        response_hold = self._patch_stage(order_with_hold.id, {"warehouseStage": "DISPATCHED", "signoffName": "Loader A"})
-        self.assertEqual(response_hold.status_code, 400)
-        payload_hold = response_hold.json()
-        self.assertFalse(payload_hold["success"])
-        self.assertEqual(payload_hold["error"], "Order has hold reason and cannot be dispatched")
-
-    def test_dispatched_success_updates_stage_status_and_timeline(self) -> None:
-        order = self._create_order(
-            warehouse_stage=WarehouseStage.LOADED,
-            checklist_items_verified=True,
-            checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
-            status=OrderStatus.PACKED,
-        )
-        response = self._patch_stage(order.id, {"warehouseStage": "DISPATCHED", "signoffName": "Loader B"})
-
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.DISPATCHED)
-        self.assertEqual(payload["order"]["status"], OrderStatus.DISPATCHED)
-        self.assertEqual(payload["message"], "Warehouse stage moved to DISPATCHED")
-
-        order.refresh_from_db()
-        self.assertEqual(order.warehouse_stage, WarehouseStage.DISPATCHED)
-        self.assertEqual(order.status, OrderStatus.DISPATCHED)
-        self.assertEqual(order.dispatch_signed_off_by, "Loader B")
-        self.assertEqual(order.dispatch_signed_off_user_id, self.admin_user.id)
-        self.assertIsNotNone(order.dispatch_signed_off_at)
-        self.assertIsNotNone(order.warehouse_dispatched_at)
-
-        timeline = OrderTimeline.objects.get(order=order)
-        self.assertIsNotNone(timeline.shipped_at)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "DISPATCHED is set automatically when the trip starts")
 
 
 class TripExecutionApiContractTests(TestCase):
@@ -1284,7 +1343,46 @@ class TripExecutionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
 
+    def test_trip_start_rejects_orders_that_are_not_loaded(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-TRIP-NOT-LOADED-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            warehouse_stage=WarehouseStage.READY_TO_LOAD,
+            subtotal=100,
+            total_amount=110,
+        )
+        self.dp_1.order = order
+        self.dp_1.save(update_fields=["order", "updated_at"])
+
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("Orders not loaded yet", payload["error"])
+        self.assertIn(order.order_number, payload["error"])
+
     def test_trip_start_sets_in_progress_and_actual_start_at(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-TRIP-LOADED-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            warehouse_stage=WarehouseStage.LOADED,
+            subtotal=100,
+            total_amount=110,
+            checklist_items_verified=True,
+            checklist_quantity_verified=True,
+            checklist_packaging_verified=True,
+            checklist_vehicle_assigned=True,
+            checklist_driver_assigned=True,
+        )
+        self.dp_1.order = order
+        self.dp_1.save(update_fields=["order", "updated_at"])
+
         response = self.client.post(
             f"/api/trips/{self.trip.id}/start",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
@@ -1298,6 +1396,10 @@ class TripExecutionApiContractTests(TestCase):
         self.trip.refresh_from_db()
         self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
         self.assertIsNotNone(self.trip.actual_start_at)
+        order.refresh_from_db()
+        self.assertEqual(order.warehouse_stage, WarehouseStage.DISPATCHED)
+        self.assertEqual(order.status, OrderStatus.OUT_FOR_DELIVERY)
+        self.assertIsNotNone(order.warehouse_dispatched_at)
 
     def test_drop_point_update_requires_staff_auth(self) -> None:
         response = self.client.patch(
@@ -1379,6 +1481,298 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.trip.completed_drop_points, 2)
         self.assertEqual(self.trip.status, TripStatus.COMPLETED)
         self.assertIsNotNone(self.trip.actual_end_at)
+
+    def test_trip_completes_when_remaining_drop_point_is_skipped(self) -> None:
+        response_first = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "COMPLETED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response_first.status_code, 200)
+
+        response_second = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_2.id}",
+            data={"status": "SKIPPED", "notes": "Customer unavailable"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response_second.status_code, 200)
+
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.completed_drop_points, 2)
+        self.assertEqual(self.trip.status, TripStatus.COMPLETED)
+        self.assertIsNotNone(self.trip.actual_end_at)
+
+    def test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Lifecycle Warehouse",
+            code="WH-LIFECYCLE-001",
+            address="Warehouse Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            country="Philippines",
+        )
+        product = Product.objects.create(
+            sku="SKU-LIFECYCLE-001",
+            name="Lifecycle Product",
+            unit="piece",
+            price=25,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=2,
+            min_stock=0,
+            max_stock=100,
+            reorder_point=0,
+        )
+        batch = StockBatch.objects.create(
+            batch_number="BATCH-LIFECYCLE-001",
+            inventory=inventory,
+            quantity=2,
+            receipt_date=timezone.now(),
+        )
+        order = Order.objects.create(
+            order_number="ORD-LIFECYCLE-001",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=50,
+            total_amount=50,
+            warehouse_id=warehouse.id,
+            warehouse_stage=WarehouseStage.DISPATCHED,
+            ready_to_load_at=timezone.now() - timedelta(days=1),
+            loaded_at=timezone.now() - timedelta(hours=8),
+            warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
+        )
+        OrderLogistics.objects.create(
+            order=order,
+            shipping_name="Trip Exec Customer",
+            shipping_phone="+63-900-000-0000",
+            shipping_address="123 Reschedule Street",
+            shipping_city="Bacolod",
+            shipping_province="Negros Occidental",
+            shipping_zip_code="6100",
+            shipping_country="Philippines",
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=2,
+            unit_price=25,
+            total_price=50,
+        )
+        InventoryTransaction.objects.create(
+            warehouse=warehouse,
+            product=product,
+            type="RESERVE",
+            quantity=2,
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+            notes="Initial reservation for lifecycle test",
+            performed_by=self.admin_user.id,
+        )
+        self.dp_1.order = order
+        self.dp_1.save(update_fields=["order", "updated_at"])
+        self.dp_2.order = order
+        self.dp_2.save(update_fields=["order", "updated_at"])
+
+        reschedule_response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={
+                "status": "FAILED",
+                "notes": "Reschedule later",
+                "releaseInventory": False,
+                "rescheduleRequested": True,
+                "rescheduleWindow": "tomorrow",
+                "rescheduleDate": (timezone.now() + timedelta(days=1)).date().isoformat(),
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(reschedule_response.status_code, 200)
+        self.assertTrue(reschedule_response.json().get("requeuedToRoutePool"))
+        self.dp_1.refresh_from_db()
+        inventory.refresh_from_db()
+        order.refresh_from_db()
+        self.trip.refresh_from_db()
+        self.assertEqual(self.dp_1.status, "FAILED")
+        self.assertEqual(inventory.reserved_quantity, 2)
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+        self.assertEqual(order.warehouse_stage, WarehouseStage.READY_TO_LOAD)
+        self.assertIsNone(order.loaded_at)
+        self.assertIsNone(order.warehouse_dispatched_at)
+        self.assertEqual(self.trip.completed_drop_points, 1)
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+        self.assertIsNone(self.trip.actual_end_at)
+        route_plan_response = self.client.get(
+            "/api/trips/route-plan",
+            data={"warehouseId": warehouse.id},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(route_plan_response.status_code, 200)
+        route_plan_payload = route_plan_response.json()
+        self.assertTrue(route_plan_payload["success"])
+        route_plan_order_ids = {str(row.get("id")) for row in route_plan_payload.get("orders", [])}
+        self.assertIn(str(order.id), route_plan_order_ids)
+        self.assertEqual(
+            InventoryTransaction.objects.filter(
+                reference_type="order_item_reserve",
+                reference_id=order_item.id,
+                type="UNRESERVE",
+            ).count(),
+            0,
+        )
+
+        cancel_response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_2.id}",
+            data={"status": "SKIPPED", "notes": "Cancel delivery"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertFalse(cancel_response.json().get("requeuedToRoutePool"))
+        self.dp_2.refresh_from_db()
+        inventory.refresh_from_db()
+        self.assertEqual(self.dp_2.status, "SKIPPED")
+        self.assertEqual(inventory.reserved_quantity, 0)
+        self.assertEqual(
+            InventoryTransaction.objects.filter(
+                reference_type="order_item_reserve",
+                reference_id=order_item.id,
+                type="UNRESERVE",
+            ).count(),
+            1,
+        )
+
+    def test_drop_point_failed_without_reschedule_cancels_order_for_customer_tracking(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Failed Delivery Warehouse",
+            code="WH-FAILED-001",
+            address="Warehouse Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            country="Philippines",
+        )
+        product = Product.objects.create(
+            sku="SKU-FAILED-001",
+            name="Failed Delivery Product",
+            unit="piece",
+            price=25,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=2,
+            min_stock=0,
+            max_stock=100,
+            reorder_point=0,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-FAILED-001",
+            inventory=inventory,
+            quantity=2,
+            receipt_date=timezone.now(),
+        )
+        order = Order.objects.create(
+            order_number="ORD-FAILED-001",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=50,
+            total_amount=50,
+            warehouse_id=warehouse.id,
+            warehouse_stage=WarehouseStage.DISPATCHED,
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=2,
+            unit_price=25,
+            total_price=50,
+        )
+        InventoryTransaction.objects.create(
+            warehouse=warehouse,
+            product=product,
+            type="RESERVE",
+            quantity=2,
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+            notes="Initial reservation for failed delivery test",
+            performed_by=self.admin_user.id,
+        )
+        self.dp_1.order = order
+        self.dp_1.save(update_fields=["order", "updated_at"])
+
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={
+                "status": "FAILED",
+                "notes": "Customer unavailable",
+                "failureReason": "Customer unavailable",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json().get("requeuedToRoutePool"))
+
+        order.refresh_from_db()
+        inventory.refresh_from_db()
+        self.trip.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+        self.assertEqual(inventory.reserved_quantity, 0)
+        self.assertIsNotNone(order.timeline.cancelled_at)
+        self.assertEqual(self.trip.completed_drop_points, 1)
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+        self.assertIsNone(self.trip.actual_end_at)
+
+    def test_single_failed_drop_point_completes_trip(self) -> None:
+        single_trip = Trip.objects.create(
+            trip_number="TRP-EXEC-FAILED-ONLY-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+            total_drop_points=1,
+            actual_start_at=timezone.now() - timedelta(hours=1),
+        )
+        single_drop_point = TripDropPoint.objects.create(
+            trip=single_trip,
+            sequence=1,
+            location_name="Only Stop",
+            address="Only Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+
+        response = self.client.patch(
+            f"/api/trips/{single_trip.id}/drop-points/{single_drop_point.id}",
+            data={
+                "status": "FAILED",
+                "notes": "Customer unavailable",
+                "failureReason": "Customer unavailable",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        single_trip.refresh_from_db()
+        single_drop_point.refresh_from_db()
+        self.assertEqual(single_drop_point.status, "FAILED")
+        self.assertEqual(single_trip.completed_drop_points, 1)
+        self.assertEqual(single_trip.total_drop_points, 1)
+        self.assertEqual(single_trip.status, TripStatus.COMPLETED)
+        self.assertIsNotNone(single_trip.actual_end_at)
 
 
 class TripStopAliasContractTests(TestCase):
@@ -2408,10 +2802,28 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         self.order = Order.objects.create(
             order_number="ORD-LIFECYCLE-001",
             customer=self.customer,
-            status=OrderStatus.PROCESSING,
+            status=OrderStatus.PREPARING,
             warehouse_stage=WarehouseStage.READY_TO_LOAD,
             subtotal=200,
             total_amount=220,
+        )
+        self.trip = Trip.objects.create(
+            trip_number="TRP-LIFECYCLE-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+            total_drop_points=1,
+        )
+        TripDropPoint.objects.create(
+            trip=self.trip,
+            order=self.order,
+            sequence=1,
+            location_name=self.order.order_number,
+            address="Lifecycle Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
         )
         self.admin_token = create_token(
             {
@@ -2435,17 +2847,8 @@ class DeliveryLifecycleFlowContractTests(TestCase):
     def test_delivery_lifecycle_end_to_end(self) -> None:
         loaded = self.client.patch(
             f"/api/orders/{self.order.id}/warehouse-stage",
-            data={"warehouseStage": "LOADED"},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(loaded.status_code, 200)
-        self.assertEqual(loaded.json()["order"]["status"], OrderStatus.PACKED)
-
-        dispatched = self.client.patch(
-            f"/api/orders/{self.order.id}/warehouse-stage",
             data={
-                "warehouseStage": "DISPATCHED",
+                "warehouseStage": "LOADED",
                 "checklist": {
                     "itemsVerified": True,
                     "quantityVerified": True,
@@ -2453,22 +2856,12 @@ class DeliveryLifecycleFlowContractTests(TestCase):
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },
-                "signoffName": "Warehouse Lead",
             },
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
         )
-        self.assertEqual(dispatched.status_code, 200)
-        self.assertEqual(dispatched.json()["order"]["status"], OrderStatus.DISPATCHED)
-
-        out_for_delivery = self.client.patch(
-            f"/api/orders/{self.order.id}/status",
-            data={"status": "OUT_FOR_DELIVERY"},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(out_for_delivery.status_code, 200)
-        self.assertEqual(out_for_delivery.json()["order"]["status"], OrderStatus.OUT_FOR_DELIVERY)
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json()["order"]["status"], OrderStatus.PREPARING)
 
         create_trip = self.client.post(
             "/api/trips",
@@ -2492,6 +2885,9 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         )
         self.assertEqual(start_trip.status_code, 200)
         self.assertEqual(start_trip.json()["trip"]["status"], TripStatus.IN_PROGRESS)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.warehouse_stage, WarehouseStage.DISPATCHED)
+        self.assertEqual(self.order.status, OrderStatus.OUT_FOR_DELIVERY)
 
         arrived = self.client.patch(
             f"/api/trips/{trip_id}/drop-points/{drop_point_id}",

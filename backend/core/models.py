@@ -251,7 +251,7 @@ class Order(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order_number = models.CharField(max_length=120, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="orders")
-    status = models.CharField(max_length=50, choices=OrderStatus.choices, default=OrderStatus.PREPARING)
+    status = models.CharField(max_length=50, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     priority = models.CharField(max_length=30, default="normal")
     subtotal = models.FloatField()
     tax = models.FloatField(default=0)

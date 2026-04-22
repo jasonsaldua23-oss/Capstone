@@ -1062,19 +1062,8 @@ function OrdersView() {
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
-  const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false)
-  const [dispatchForm, setDispatchForm] = useState({
-    itemsVerified: false,
-    quantityVerified: false,
-    packagingVerified: false,
-    vehicleAssigned: false,
-    driverAssigned: false,
-    signoffName: '',
-    shortLoadQty: 0,
-    damagedOnLoadingQty: 0,
-    holdReason: '',
-    exceptionNotes: '',
-  })
+  const [loadChecklistOpen, setLoadChecklistOpen] = useState(false)
+  const [loadChecklist, setLoadChecklist] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     let isMounted = true
@@ -1174,7 +1163,8 @@ function OrdersView() {
       return 'PENDING'
     }
     const raw = String(status || '').toUpperCase()
-    if (['PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(raw)) return 'PREPARING'
+    if (['CONFIRMED', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PREPARING'
+    if (raw === 'UNAPPROVED') return 'PENDING'
     if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
     if (raw === 'FAILED_DELIVERY') return 'CANCELLED'
     return raw.replace(/_/g, ' ')
@@ -1184,6 +1174,15 @@ function OrdersView() {
     const value = String(stage || 'READY_TO_LOAD').toUpperCase()
     return value.replace(/_/g, ' ')
   }
+
+  const isWarehouseChecklistComplete = (order: any) =>
+    Boolean(
+      order?.checklistItemsVerified &&
+      order?.checklistQuantityVerified &&
+      order?.checklistPackagingVerified &&
+      order?.checklistVehicleAssigned &&
+      order?.checklistDriverAssigned
+    )
 
   const mergeOrderState = (orderId: string, updatedOrder: any, fallbackStatus?: string) => {
     setOrders((prev) =>
@@ -1288,7 +1287,13 @@ function OrdersView() {
   const updateWarehouseStage = async (
     orderId: string,
     stage: 'READY_TO_LOAD' | 'LOADED' | 'DISPATCHED',
-    payload: Partial<typeof dispatchForm> = {}
+    payload: {
+      itemsVerified?: boolean
+      quantityVerified?: boolean
+      packagingVerified?: boolean
+      vehicleAssigned?: boolean
+      driverAssigned?: boolean
+    } = {}
   ) => {
     setUpdatingOrderId(orderId)
     try {
@@ -1304,11 +1309,6 @@ function OrdersView() {
             vehicleAssigned: payload.vehicleAssigned,
             driverAssigned: payload.driverAssigned,
           },
-          signoffName: payload.signoffName,
-          shortLoadQty: payload.shortLoadQty,
-          damagedOnLoadingQty: payload.damagedOnLoadingQty,
-          holdReason: payload.holdReason,
-          exceptionNotes: payload.exceptionNotes,
         }),
       })
 
@@ -1395,33 +1395,17 @@ function OrdersView() {
                       </td>
                       <td className="p-4 font-semibold text-gray-900">{formatPeso(order.totalAmount || 0)}</td>
                       <td className="p-4">
-                        {(() => {
-                          const orderStatus = String(order.status || '').toUpperCase()
-                          const isPendingApproval = String(order.paymentStatus || '').toLowerCase() === 'pending_approval'
-                          return (
                         <div className="flex items-center gap-3">
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             onClick={() => void openOrderDetail(order)}
-                            title="View details"
+                            title="View order progress"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                            onClick={() => updateOrderStatus(order.id, 'PREPARING')}
-                            disabled={(!['PENDING', 'CONFIRMED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
-                            title="Approve order"
-                          >
-                            <CircleCheck className="h-5 w-5" />
-                          </Button>
                         </div>
-                          )
-                        })()}
                       </td>
                     </tr>
                   ))}
@@ -1433,30 +1417,22 @@ function OrdersView() {
       </Card>
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-        <DialogContent>
+        <DialogContent className="flex max-h-[90vh] w-[92vw] max-w-3xl flex-col overflow-hidden">
           {selectedOrder && (
             <>
-              <DialogHeader>
-                <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
-                <DialogDescription>Complete order and client information</DialogDescription>
+              <DialogHeader className="shrink-0">
+                <DialogTitle>Order Progress - {selectedOrder.orderNumber}</DialogTitle>
               </DialogHeader>
-              {loadingOrderDetail ? (
-                <div className="h-20 flex items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-                </div>
-              ) : null}
-              <div className="space-y-3">
+              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Order Status</p>
                   <p className="font-semibold">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</p>
                 </div>
-                <div className="rounded-md border p-3 space-y-1">
+                <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Warehouse Stage</p>
                   <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
                   <p className="text-xs text-gray-600">
-                    Checklist: {selectedOrder.checklistItemsVerified ? 'Items' : '-'} {selectedOrder.checklistQuantityVerified ? '| Qty' : ''}{' '}
-                    {selectedOrder.checklistPackagingVerified ? '| Packaging' : ''} {selectedOrder.checklistVehicleAssigned ? '| Vehicle' : ''}{' '}
-                    {selectedOrder.checklistDriverAssigned ? '| Driver' : ''}
+                    Driver: {selectedOrder.isDriverAssigned ? selectedOrder.assignedDriverName || 'Assigned' : 'Not assigned'}
                   </p>
                   {(selectedOrder.exceptionHoldReason || selectedOrder.exceptionShortLoadQty || selectedOrder.exceptionDamagedOnLoadingQty) ? (
                     <p className="text-xs text-red-600">
@@ -1486,169 +1462,113 @@ function OrdersView() {
                     <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
                   </div>
                 </div>
-                {(() => {
-                  const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
-                  const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()
-                  const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
-                  return (
-                    <div className="grid grid-cols-2 gap-2">
-                      {!isPendingApproval && selectedOrderStatus === 'PREPARING' ? (
-                        <Button
-                          className="bg-amber-600 text-white hover:bg-amber-700"
-                          onClick={() => void updateWarehouseStage(selectedOrder.id, 'LOADED')}
-                          disabled={updatingOrderId === selectedOrder.id}
-                        >
-                          Mark as Loaded
-                        </Button>
-                      ) : isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
-                        <Button
-                          className="bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={() => void updateOrderStatus(selectedOrder.id, 'PREPARING')}
-                          disabled={updatingOrderId === selectedOrder.id}
-                        >
-                          Approve Order
-                        </Button>
-                      ) : (
-                        <Button variant="outline" disabled>
-                          No Action
-                        </Button>
-                      )}
-                      {!isPendingApproval && selectedWarehouseStage !== 'READY_TO_LOAD' ? (
-                        <Button
-                          variant="outline"
-                          onClick={() => void updateWarehouseStage(selectedOrder.id, 'READY_TO_LOAD')}
-                          disabled={updatingOrderId === selectedOrder.id}
-                        >
-                          Set Ready To Load
-                        </Button>
-                      ) : null}
-                      {!isPendingApproval && selectedWarehouseStage === 'LOADED' ? (
-                        <Button
-                          className="bg-blue-600 text-white hover:bg-blue-700"
-                          onClick={() => {
-                            setDispatchForm({
-                              itemsVerified: !!selectedOrder.checklistItemsVerified,
-                              quantityVerified: !!selectedOrder.checklistQuantityVerified,
-                              packagingVerified: !!selectedOrder.checklistPackagingVerified,
-                              vehicleAssigned: !!selectedOrder.checklistVehicleAssigned,
-                              driverAssigned: !!selectedOrder.checklistDriverAssigned,
-                              signoffName: String(selectedOrder.dispatchSignedOffBy || ''),
-                              shortLoadQty: Number(selectedOrder.exceptionShortLoadQty || 0),
-                              damagedOnLoadingQty: Number(selectedOrder.exceptionDamagedOnLoadingQty || 0),
-                              holdReason: String(selectedOrder.exceptionHoldReason || ''),
-                              exceptionNotes: String(selectedOrder.exceptionNotes || ''),
-                            })
-                            setDispatchDialogOpen(true)
-                          }}
-                          disabled={updatingOrderId === selectedOrder.id}
-                        >
-                          Dispatch With Checklist
-                        </Button>
-                      ) : null}
-                      {!isPendingApproval && selectedOrderStatus === 'OUT_FOR_DELIVERY' ? (
-                        <Button
-                          className="bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={() => void updateOrderStatus(selectedOrder.id, 'DELIVERED')}
-                          disabled={updatingOrderId === selectedOrder.id}
-                        >
-                          Mark Delivered
-                        </Button>
-                      ) : null}
-                      <Button variant="outline" onClick={() => setSelectedOrder(null)}>
-                        Close
-                      </Button>
-                    </div>
-                  )
-                })()}
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="font-medium">Progress</p>
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                      {selectedOrder.progress?.dropPoint?.status
+                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                        : 'No trip progress yet'}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-sm text-gray-700">
+                    <p>Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
+                    <p>Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
+                    <p>Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
+                    <p>
+                      Drop Point Status: {selectedOrder.progress?.dropPoint?.status
+                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                        : 'Pending'}
+                    </p>
+                    <p>
+                      Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}
+                    </p>
+                    <p>
+                      Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="mb-2 font-medium">Proof Of Delivery</p>
+                  {selectedOrder.progress?.pod?.deliveryPhoto ? (
+                    <img
+                      src={selectedOrder.progress.pod.deliveryPhoto}
+                      alt="Proof of delivery"
+                      className="mt-3 h-56 w-full rounded-md border border-slate-200 object-cover"
+                    />
+                  ) : (
+                    <p className="mt-3 text-sm text-gray-500">No POD uploaded yet.</p>
+                  )}
+                </div>
+                <div className="sticky bottom-0 bg-white pb-1 pt-1">
+                  <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setSelectedOrder(null)} className="flex-1">
+                    Close
+                  </Button>
+                  </div>
+                </div>
               </div>
             </>
           )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dispatchDialogOpen} onOpenChange={setDispatchDialogOpen}>
+      <Dialog open={loadChecklistOpen} onOpenChange={setLoadChecklistOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Dispatch Checklist & Signoff</DialogTitle>
-            <DialogDescription>Complete required checks before dispatching this order.</DialogDescription>
+            <DialogTitle>Checklist</DialogTitle>
+            <DialogDescription>Complete every product before marking this order as loaded.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              {[
-                ['itemsVerified', 'Items verified'],
-                ['quantityVerified', 'Quantity verified'],
-                ['packagingVerified', 'Packaging verified'],
-                ['vehicleAssigned', 'Vehicle assigned'],
-                ['driverAssigned', 'Driver assigned'],
-              ].map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 rounded border p-2">
+            <div className="space-y-2 text-sm">
+              {(selectedOrder?.items || []).map((item: any) => (
+                <label key={item.id} className="flex items-center gap-3 rounded border p-3">
                   <input
                     type="checkbox"
-                    checked={Boolean((dispatchForm as any)[key])}
+                    checked={Boolean(loadChecklist[String(item.id)])}
                     onChange={(event) =>
-                      setDispatchForm((prev) => ({
+                      setLoadChecklist((prev) => ({
                         ...prev,
-                        [key]: event.target.checked,
+                        [String(item.id)]: event.target.checked,
                       }))
                     }
                   />
-                  <span>{label}</span>
+                  <span>{item.product?.name || 'Product'} x{item.quantity}</span>
                 </label>
               ))}
             </div>
 
-            <Input
-              placeholder="Signoff name (required)"
-              value={dispatchForm.signoffName}
-              onChange={(event) => setDispatchForm((prev) => ({ ...prev, signoffName: event.target.value }))}
-            />
-
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                type="number"
-                min={0}
-                placeholder="Short load qty"
-                value={dispatchForm.shortLoadQty}
-                onChange={(event) => setDispatchForm((prev) => ({ ...prev, shortLoadQty: Number(event.target.value || 0) }))}
-              />
-              <Input
-                type="number"
-                min={0}
-                placeholder="Damaged on loading qty"
-                value={dispatchForm.damagedOnLoadingQty}
-                onChange={(event) => setDispatchForm((prev) => ({ ...prev, damagedOnLoadingQty: Number(event.target.value || 0) }))}
-              />
-            </div>
-
-            <Input
-              placeholder="Hold reason (leave blank if no hold)"
-              value={dispatchForm.holdReason}
-              onChange={(event) => setDispatchForm((prev) => ({ ...prev, holdReason: event.target.value }))}
-            />
-
-            <textarea
-              className="w-full min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Exception notes"
-              value={dispatchForm.exceptionNotes}
-              onChange={(event) => setDispatchForm((prev) => ({ ...prev, exceptionNotes: event.target.value }))}
-            />
-
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setDispatchDialogOpen(false)}>
+              <Button variant="outline" className="flex-1" onClick={() => setLoadChecklistOpen(false)}>
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                className="flex-1 bg-amber-600 hover:bg-amber-700"
                 onClick={async () => {
                   if (!selectedOrder?.id) return
-                  const done = await updateWarehouseStage(selectedOrder.id, 'DISPATCHED', dispatchForm)
+                  if (!selectedOrder.isDriverAssigned) {
+                    toast.error('Assign this order to a driver first.')
+                    return
+                  }
+                  const checklistEntries = Object.values(loadChecklist)
+                  if (checklistEntries.length === 0 || checklistEntries.some((value) => !value)) {
+                    toast.error('Complete the checklist first.')
+                    return
+                  }
+                  const done = await updateWarehouseStage(selectedOrder.id, 'LOADED', {
+                    itemsVerified: true,
+                    quantityVerified: true,
+                    packagingVerified: true,
+                    vehicleAssigned: true,
+                    driverAssigned: true,
+                  })
                   if (done) {
-                    setDispatchDialogOpen(false)
+                    setLoadChecklistOpen(false)
                   }
                 }}
                 disabled={updatingOrderId === selectedOrder?.id}
               >
-                Confirm Dispatch
+                Confirm Loaded
               </Button>
             </div>
           </div>
@@ -5925,7 +5845,7 @@ function TrackingView() {
 
   const isDropPointCompleted = (status: unknown) => {
     const value = String(status || '').toUpperCase()
-    return ['COMPLETED', 'DELIVERED', 'FULFILLED'].includes(value)
+    return ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(value)
   }
 
   const isCompletedOrderStatus = (status: unknown) => {
@@ -6065,9 +5985,10 @@ function TrackingView() {
         .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
         .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
       
+      const terminalStatuses = ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED']
       const nextPendingIndex = dropPoints.findIndex((point: any) => {
         const status = String(point?.status || point?.orderStatus || '').toUpperCase()
-        return !['COMPLETED', 'DELIVERED'].includes(status)
+        return !terminalStatuses.includes(status)
       })
       const nextDropPoint = nextPendingIndex !== -1 ? dropPoints[nextPendingIndex] : null
       const warehouseStartLat =
@@ -6159,6 +6080,8 @@ function TrackingView() {
       dropPoints.forEach((dropPoint: any, index: number) => {
         const dropPointOrderId = String(dropPoint?.orderId || '').trim()
         if (dropPointOrderId) tripOrderIds.add(dropPointOrderId)
+        const dpStatus = String(dropPoint?.status || '').toUpperCase()
+        const isCancelledOrFailed = ['FAILED', 'CANCELLED', 'SKIPPED'].includes(dpStatus)
 
         const completed = isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
         const isNext = index === nextPendingIndex
@@ -6173,7 +6096,7 @@ function TrackingView() {
           status: String(dropPoint.orderStatus || dropPoint.status || 'PENDING'),
           markerColor: completed ? '#2563eb' : (isNext ? '#ef4444' : '#16a34a'),
           markerType: 'pin',
-          markerLabel: completed ? 'Completed' : (isNext ? 'Next Stop' : 'Upcoming'),
+          markerLabel: isCancelledOrFailed ? 'Cancelled' : (completed ? 'Completed' : (isNext ? 'Next Stop' : 'Upcoming')),
           markerNumber: stopSequence,
         })
       })

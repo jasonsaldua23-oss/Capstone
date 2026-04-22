@@ -1,16 +1,24 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Poppins } from 'next/font/google'
 import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/page'
+import { emitDataSync } from '@/lib/data-sync'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -20,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
 import { toast } from 'sonner'
 import { 
@@ -35,6 +44,7 @@ import {
   Clock,
   AlertCircle,
   Camera,
+  ChevronLeft,
   ChevronRight,
   Play,
   Pause,
@@ -43,6 +53,7 @@ import {
   Loader2,
   Route,
   CalendarClock,
+  LocateFixed,
   Trophy,
   RotateCcw
 } from 'lucide-react'
@@ -55,6 +66,14 @@ const poppins = Poppins({
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
 })
+
+const NEGROS_OCCIDENTAL_CENTER: [number, number] = [10.6765, 122.9511]
+const NEGROS_OCCIDENTAL_BOUNDS = {
+  south: 9.18,
+  west: 122.22,
+  north: 11.05,
+  east: 123.35,
+}
 
 interface Trip {
   id: string
@@ -109,6 +128,7 @@ interface DropPoint {
   contactPhone: string | null
   deliveryPhoto?: string | null
   order: {
+    id?: string
     orderNumber: string
     totalAmount?: number | null
     items?: Array<{
@@ -119,6 +139,19 @@ interface DropPoint {
         sku?: string | null
         name?: string | null
       } | null
+    }>
+    returns?: Array<{
+      id: string
+      status: string
+      replacementQuantity?: number | null
+      remainingQuantity?: number | null
+      originalOrderItemId?: string | null
+      dropPointId?: string | null
+      replacementMode?: string | null
+      damagePhotoUrl?: string | null
+      notes?: string | null
+      processedAt?: string | null
+      isClosed?: boolean
     }>
   } | null
 }
@@ -191,7 +224,7 @@ export function DriverPortal() {
   const { user, logout } = useAuth()
   const [activeView, setActiveView] = useState('home')
   const [trips, setTrips] = useState<Trip[]>([])
-  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt')
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -267,13 +300,6 @@ export function DriverPortal() {
     }
   }, [fetchTrips])
 
-  useEffect(() => {
-    if (!selectedTrip) return
-    const latestTrip = trips.find((trip) => trip.id === selectedTrip.id)
-    if (latestTrip) {
-      setSelectedTrip(latestTrip)
-    }
-  }, [trips, selectedTrip])
 
   const enforceNativeCameraPermission = useCallback(async () => {
     if (!isNativeAndroidApp()) {
@@ -338,7 +364,10 @@ export function DriverPortal() {
   }
 
   const getActiveTripId = () => {
-    if (selectedTrip?.status === 'IN_PROGRESS') return selectedTrip.id
+    if (selectedTripId) {
+      const t = trips.find((trip) => trip.id === selectedTripId)
+      if (t?.status === 'IN_PROGRESS') return t.id
+    }
     const inProgress = trips.find((trip) => trip.status === 'IN_PROGRESS')
     return inProgress?.id || null
   }
@@ -445,7 +474,7 @@ export function DriverPortal() {
 
   return (
     <div className={`${poppins.className} min-h-[100dvh] bg-[#dff0ea] md:bg-[#dceff0]`}>
-      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:min-h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
+      <div className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-transparent">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/45 blur-3xl" />
         <div className="absolute -bottom-16 -right-16 h-56 w-56 rounded-full bg-emerald-200/45 blur-3xl" />
@@ -474,7 +503,7 @@ export function DriverPortal() {
                   <Home className="mr-2 h-4 w-4" />
                   Home
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setActiveView('trips'); setSelectedTrip(null) }}>
+                <DropdownMenuItem onClick={() => { setActiveView('trips'); setSelectedTripId(null) }}>
                   <Truck className="mr-2 h-4 w-4" />
                   Trips
                 </DropdownMenuItem>
@@ -501,15 +530,19 @@ export function DriverPortal() {
         </div>
       </header>
 
+      {/* Scrollable Content Area */}
+      <div
+        className={`flex min-h-0 flex-1 flex-col overflow-x-hidden ${activeView === 'trips' && selectedTripId ? 'overflow-y-hidden' : 'overflow-y-auto'}`}
+      >
       {/* Main Content */}
       <AnimatePresence mode="wait" initial={false}>
       <motion.main
-        key={`${activeView}-${selectedTrip?.id || 'none'}`}
+        key={`${activeView}-${selectedTripId || 'none'}`}
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex-1 min-h-0 w-full px-4 pb-24 pt-4 md:px-6 md:pb-8 md:pt-6"
+        className={`min-h-0 w-full px-4 md:px-6 ${(activeView === 'home' || activeView === 'profile') ? 'pb-[calc(env(safe-area-inset-bottom)+8.5rem)] md:pb-8' : 'pb-24 md:pb-8'} ${activeView === 'trips' ? 'pt-0 md:pt-0' : 'pt-4 md:pt-6'} ${activeView === 'trips' && selectedTripId ? 'flex flex-1 flex-col overflow-hidden' : 'flex-1'}`}
       >
         {activeView === 'home' && (
           <HomeView
@@ -519,31 +552,35 @@ export function DriverPortal() {
             isTracking={isTracking}
             locationPermission={locationPermission}
             currentLocation={currentLocation}
-            onOpenTrips={() => { setActiveView('trips'); setSelectedTrip(null) }}
-            onOpenActiveTrip={(trip) => { setActiveView('trips'); setSelectedTrip(trip) }}
+            onOpenTrips={() => { setActiveView('trips'); setSelectedTripId(null) }}
+            onOpenActiveTrip={(trip) => { setActiveView('trips'); setSelectedTripId(trip.id) }}
             onStartTracking={startLocationTracking}
           />
         )}
 
-        {activeView === 'trips' && !selectedTrip && (
+        {activeView === 'trips' && !selectedTripId && (
           <TripsListView
             trips={trips}
             isLoading={isLoading}
-            onSelectTrip={setSelectedTrip}
+            onSelectTrip={(trip) => setSelectedTripId(trip.id)}
           />
         )}
 
-        {activeView === 'trips' && selectedTrip && (
-          <TripDetailView
-            trip={selectedTrip}
-            onBack={() => setSelectedTrip(null)}
-            locationPermission={locationPermission}
-            onStartTracking={startLocationTracking}
-            onRefreshTrips={() => fetchTrips(true)}
-            isTracking={isTracking}
-            currentLocation={currentLocation}
-          />
-        )}
+        {activeView === 'trips' && selectedTripId && (() => {
+          const selectedTrip = trips.find((t) => t.id === selectedTripId) ?? null
+          if (!selectedTrip) return null
+          return (
+            <TripDetailView
+              trip={selectedTrip}
+              onBack={() => setSelectedTripId(null)}
+              locationPermission={locationPermission}
+              onStartTracking={startLocationTracking}
+              onRefreshTrips={() => fetchTrips(true)}
+              isTracking={isTracking}
+              currentLocation={currentLocation}
+            />
+          )
+        })()}
 
         {activeView === 'history' && (
           <HistoryView
@@ -551,7 +588,7 @@ export function DriverPortal() {
             isLoading={isLoading}
             onOpenTrip={(trip) => {
               setActiveView('trips')
-              setSelectedTrip(trip)
+              setSelectedTripId(trip.id)
             }}
           />
         )}
@@ -559,6 +596,7 @@ export function DriverPortal() {
         {activeView === 'profile' && <ProfileView user={user} />}
       </motion.main>
       </AnimatePresence>
+      </div>
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-2 left-2 right-2 rounded-3xl border border-white/80 bg-[#eff7fb]/85 backdrop-blur-xl shadow-[0_14px_30px_rgba(15,23,42,0.14)] md:relative md:bottom-auto md:left-auto md:right-auto md:w-full md:rounded-none md:border md:border-t md:border-sky-200/60 md:shadow-[0_-2px_8px_rgba(15,23,42,0.06)]">
@@ -566,7 +604,7 @@ export function DriverPortal() {
           <Button
             variant="ghost"
             className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'home' ? 'bg-emerald-100/90 text-emerald-700 shadow-sm shadow-emerald-900/20' : 'text-[#0e4f92] hover:bg-white/70'}`}
-            onClick={() => { setActiveView('home'); setSelectedTrip(null) }}
+            onClick={() => { setActiveView('home'); setSelectedTripId(null) }}
           >
             <Home className="h-5 w-5" />
             <span className="text-xs font-medium">Home</span>
@@ -574,7 +612,7 @@ export function DriverPortal() {
           <Button
             variant="ghost"
             className={`flex-col gap-1 h-auto py-2 rounded-xl transition-all ${activeView === 'trips' ? 'bg-sky-100/90 text-sky-700 shadow-sm shadow-blue-900/20' : 'text-[#0e4f92] hover:bg-white/70'}`}
-            onClick={() => { setActiveView('trips'); setSelectedTrip(null); }}
+            onClick={() => { setActiveView('trips'); setSelectedTripId(null); }}
           >
             <Truck className="h-5 w-5" />
             <span className="text-xs font-medium">Trips</span>
@@ -599,18 +637,21 @@ export function DriverPortal() {
       </nav>
 
       <Dialog open={isNativeCameraGateOpen} onOpenChange={() => {}}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Camera Access Required</DialogTitle>
-            <DialogDescription>
-              This Android app is configured to force camera permission before driver operations.
-            </DialogDescription>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Camera Access Required</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                This Android app is configured to force camera permission before driver operations.
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
             <p className="text-sm text-red-600">{nativeCameraGateMessage}</p>
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
+                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
                 onClick={async () => {
                   const opened = await openNativeAndroidAppSettings()
                   if (!opened) {
@@ -621,6 +662,7 @@ export function DriverPortal() {
                 Open App Settings
               </Button>
               <Button
+                className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]"
                 onClick={() => {
                   void enforceNativeCameraPermission()
                 }}
@@ -658,11 +700,16 @@ function HomeView({
   onOpenActiveTrip: (trip: Trip) => void
   onStartTracking: () => Promise<boolean>
 }) {
-  const activeTrip = trips.find((trip) => trip.status === 'IN_PROGRESS') || null
-  const plannedTrips = trips.filter((trip) => trip.status === 'PLANNED').length
-  const completedTrips = trips.filter((trip) => trip.status === 'COMPLETED').length
+  const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
+  const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
+  const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
+
+  const activeTrip = trips.find((trip) => isInProgressTrip(trip.status)) || null
+  const plannedTrips = trips.filter((trip) => isPlannedTrip(trip.status)).length
+  const completedTrips = trips.filter((trip) => isCompletedTrip(trip.status)).length
+  const terminalStopStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
   const pendingStops = activeTrip
-    ? (activeTrip.dropPoints || []).filter((point) => point.status !== 'COMPLETED').length
+    ? (activeTrip.dropPoints || []).filter((point) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
     : 0
 
   if (isLoading) {
@@ -674,7 +721,7 @@ function HomeView({
   }
 
   return (
-    <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5">
+    <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
         <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, Demo Driver</h2>
@@ -761,20 +808,20 @@ function HomeView({
 }
 
 // Trips List View
-function TripsListView({ 
-  trips, 
-  isLoading, 
-  onSelectTrip 
-}: { 
-  trips: Trip[]; 
-  isLoading: boolean; 
-  onSelectTrip: (trip: Trip) => void 
+function TripsListView({
+  trips,
+  isLoading,
+  onSelectTrip,
+}: {
+  trips: Trip[]
+  isLoading: boolean
+  onSelectTrip: (trip: Trip) => void
 }) {
   const statusColors: Record<string, string> = {
-          PLANNED: 'bg-sky-100 text-sky-800 border border-sky-200',
-          IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-          COMPLETED: 'bg-teal-100 text-teal-800 border border-teal-200',
-          CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
+    PLANNED: 'bg-sky-100 text-sky-800 border border-sky-200',
+    IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+    COMPLETED: 'bg-teal-100 text-teal-800 border border-teal-200',
+    CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
   }
 
   if (isLoading) {
@@ -788,7 +835,7 @@ function TripsListView({
   return (
     <div className="p-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned Routes</p>
-      <h2 className="mb-4 mt-1 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
+      <h2 className="mb-4 mt-0 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
 
       {trips.length === 0 ? (
         <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
@@ -867,18 +914,128 @@ function TripDetailView({
   const [spareTargetDropPointId, setSpareTargetDropPointId] = useState<string | null>(null)
   const [spareOrderItemId, setSpareOrderItemId] = useState('')
   const [spareQuantity, setSpareQuantity] = useState(1)
+  const [spareOutcome, setSpareOutcome] = useState<'RESOLVED' | 'PARTIALLY_REPLACED'>('RESOLVED')
+  const [sparePartiallyReplacedQuantity, setSparePartiallyReplacedQuantity] = useState(0)
+  const [spareFollowUpReturnId, setSpareFollowUpReturnId] = useState<string | null>(null)
   const [spareReason, setSpareReason] = useState('')
   const [spareDamagePhotoFiles, setSpareDamagePhotoFiles] = useState<File[]>([])
   const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
   const [isSpareReplacing, setIsSpareReplacing] = useState(false)
+  const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
+  const [failedDeliveryDropPointId, setFailedDeliveryDropPointId] = useState<string | null>(null)
+  const [isFailedDeliveryRescheduleOpen, setIsFailedDeliveryRescheduleOpen] = useState(false)
+  const [failedDeliveryRescheduleDropPointId, setFailedDeliveryRescheduleDropPointId] = useState<string | null>(null)
+  const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'today' | 'tomorrow' | 'next_trip'>('today')
+  const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
+  const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false)
+  const [showMobileSheetPeek, setShowMobileSheetPeek] = useState(true)
+  const [mobileMapRecenterSignal, setMobileMapRecenterSignal] = useState(0)
+  const [mobileMapRecenterCenter, setMobileMapRecenterCenter] = useState<[number, number] | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
   const [roadRoutePoints, setRoadRoutePoints] = useState<[number, number][]>([])
   const [previewDriverLocation, setPreviewDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
-  const spareGalleryInputRef = useRef<HTMLInputElement | null>(null)
+  const mobileSheetTouchStartYRef = useRef<number | null>(null)
+  const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [cameraCaptureTarget, setCameraCaptureTarget] = useState<'pod' | 'spare'>('pod')
   const MAX_SPARE_DAMAGE_PHOTOS = 2
+  const sortedDropPoints = [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)
+  const terminalDropPointStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
+  const effectiveCompletedDropPoints = Math.max(
+    Number(trip.completedDropPoints || 0),
+    sortedDropPoints.filter((point) => terminalDropPointStatuses.has(String(point.status || '').toUpperCase())).length
+  )
+  const highlightedDropPoint = activeDropPoint || sortedDropPoints[0] || null
+  const mobileSheetSnapPoints: Array<number | string> = [0.52, 0.88, 0.98]
+
+  useEffect(() => {
+    if (mobileSheetPeekTimeoutRef.current) {
+      clearTimeout(mobileSheetPeekTimeoutRef.current)
+      mobileSheetPeekTimeoutRef.current = null
+    }
+    setIsMobileSheetOpen(false)
+    setShowMobileSheetPeek(true)
+    setMobileSheetSnapPoint(0.52)
+    setMobileMapRecenterCenter(null)
+    setMobileMapRecenterSignal(0)
+  }, [trip.id])
+
+  useEffect(() => {
+    return () => {
+      if (mobileSheetPeekTimeoutRef.current) {
+        clearTimeout(mobileSheetPeekTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const openMobileSheet = () => {
+    if (mobileSheetPeekTimeoutRef.current) {
+      clearTimeout(mobileSheetPeekTimeoutRef.current)
+      mobileSheetPeekTimeoutRef.current = null
+    }
+    setShowMobileSheetPeek(false)
+    setIsMobileSheetOpen(true)
+  }
+
+  const handleMobileSheetSnapPointChange = (next: number | string | null) => {
+    if (next === null || next === undefined) {
+      setMobileSheetSnapPoint(0.52)
+      return
+    }
+
+    if (mobileSheetSnapPoints.includes(next)) {
+      setMobileSheetSnapPoint(next)
+      setShowMobileSheetPeek(false)
+      setIsMobileSheetOpen(true)
+      return
+    }
+
+    setMobileSheetSnapPoint(0.52)
+  }
+
+  const handleMobileSheetOpenChange = (open: boolean) => {
+    if (!open) {
+      setIsMobileSheetOpen(false)
+      setMobileSheetSnapPoint(0.52)
+      if (mobileSheetPeekTimeoutRef.current) {
+        clearTimeout(mobileSheetPeekTimeoutRef.current)
+      }
+      mobileSheetPeekTimeoutRef.current = setTimeout(() => {
+        setShowMobileSheetPeek(true)
+        mobileSheetPeekTimeoutRef.current = null
+      }, 160)
+      return
+    }
+
+    if (mobileSheetPeekTimeoutRef.current) {
+      clearTimeout(mobileSheetPeekTimeoutRef.current)
+      mobileSheetPeekTimeoutRef.current = null
+    }
+    setShowMobileSheetPeek(false)
+    setIsMobileSheetOpen(open)
+    if (open && typeof mobileSheetSnapPoint === 'number' && mobileSheetSnapPoint < 0.52) {
+      setMobileSheetSnapPoint(0.52)
+    }
+  }
+
+  const handleMobileSheetPeekTouchStart = (event: React.TouchEvent<HTMLButtonElement>) => {
+    mobileSheetTouchStartYRef.current = event.touches[0]?.clientY ?? null
+  }
+
+  const handleMobileSheetPeekTouchMove = (event: React.TouchEvent<HTMLButtonElement>) => {
+    if (mobileSheetTouchStartYRef.current === null) return
+    const currentY = event.touches[0]?.clientY
+    if (typeof currentY !== 'number') return
+    if (mobileSheetTouchStartYRef.current - currentY > 24) {
+      openMobileSheet()
+      mobileSheetTouchStartYRef.current = null
+    }
+  }
+
+  const handleMobileSheetPeekTouchEnd = () => {
+    mobileSheetTouchStartYRef.current = null
+  }
 
   const dropPointStatusColors: Record<string, string> = {
     PENDING: 'bg-amber-100 text-amber-800 border border-amber-200',
@@ -886,6 +1043,36 @@ function TripDetailView({
     ARRIVED: 'bg-sky-100 text-sky-800 border border-sky-200',
     COMPLETED: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
     FAILED: 'bg-rose-100 text-rose-800 border border-rose-200',
+  }
+
+  const getDropPointReplacementItems = (dropPoint: DropPoint | null) => {
+    if (!dropPoint?.order) return []
+    return dropPoint.order.items || []
+  }
+
+  const getDropPointOpenReplacement = (dropPoint: DropPoint | null) => {
+    const returns = dropPoint?.order?.returns || []
+    return returns.find((entry) => !entry.isClosed) || null
+  }
+
+  const getReplacementProgress = (dropPoint: DropPoint | null) => {
+    const openReplacement = getDropPointOpenReplacement(dropPoint)
+    if (!openReplacement) {
+      return {
+        openReplacement: null,
+        replacedQuantity: 0,
+        remainingQuantity: 0,
+      }
+    }
+
+    const selectedItem = getDropPointReplacementItems(dropPoint).find((item) => item.id === openReplacement.originalOrderItemId) || null
+    const orderedQuantity = Number(selectedItem?.quantity || 0)
+    const replacedQuantity = Number(openReplacement.replacementQuantity || 0)
+    return {
+      openReplacement,
+      replacedQuantity,
+      remainingQuantity: Math.max(orderedQuantity - replacedQuantity, 0),
+    }
   }
 
   const formatCurrency = (amount: number) =>
@@ -913,6 +1100,17 @@ function TripDetailView({
     const currentStatus = String(trip.status || '').toUpperCase()
     if (currentStatus !== 'PLANNED') {
       toast.error(`Trip cannot be started because status is ${currentStatus.replace(/_/g, ' ')}`)
+      await onRefreshTrips()
+      return
+    }
+
+    const notLoadedOrders = (trip.dropPoints || [])
+      .filter((point) => point.order)
+      .filter((point) => !['LOADED', 'DISPATCHED'].includes(String((point.order as any)?.warehouseStage || '').toUpperCase()))
+      .map((point) => String(point.order?.orderNumber || point.order?.id || 'Unknown order'))
+
+    if (notLoadedOrders.length > 0) {
+      toast.error(`Trip cannot start. Orders not loaded: ${notLoadedOrders.slice(0, 3).join(', ')}`)
       await onRefreshTrips()
       return
     }
@@ -951,7 +1149,13 @@ function TripDetailView({
     dropPointId: string,
     status: string,
     notes?: string,
-    pod?: { recipientName?: string; deliveryPhoto?: string }
+    pod?: { recipientName?: string; deliveryPhoto?: string },
+    options?: {
+      releaseInventory?: boolean
+      rescheduleRequested?: boolean
+      rescheduleWindow?: 'today' | 'tomorrow' | 'next_trip'
+      rescheduleDate?: string
+    }
   ) => {
     setIsUpdating(true)
     try {
@@ -963,10 +1167,15 @@ function TripDetailView({
           notes,
           recipientName: pod?.recipientName,
           deliveryPhoto: pod?.deliveryPhoto,
+          releaseInventory: options?.releaseInventory,
+          rescheduleRequested: options?.rescheduleRequested,
+          rescheduleWindow: options?.rescheduleWindow,
+          rescheduleDate: options?.rescheduleDate,
         }),
       })
       if (response.ok) {
         toast.success(`Drop point marked as ${status.toLowerCase()}`)
+        emitDataSync(['orders', 'trips'])
         await onRefreshTrips()
       } else {
         const payload = await response.json().catch(() => ({}))
@@ -993,6 +1202,11 @@ function TripDetailView({
     }
     return dataUrl
   }
+
+  const notLoadedTripOrders = (trip.dropPoints || [])
+    .filter((point) => point.order)
+    .filter((point) => !['LOADED', 'DISPATCHED'].includes(String((point.order as any)?.warehouseStage || '').toUpperCase()))
+    .map((point) => String(point.order?.orderNumber || point.order?.id || 'Unknown order'))
 
   const uploadPodImage = async (file: File) => {
     const preparedFile = await prepareImageForUpload(file)
@@ -1042,14 +1256,20 @@ function TripDetailView({
   }
 
   const openSpareReplacement = (dropPoint: DropPoint) => {
-    const items = dropPoint.order?.items || []
-    if (!items.length) {
-      toast.error('No order items available for damage reporting')
-      return
-    }
+    const items = getDropPointReplacementItems(dropPoint)
+    const openReplacement = getDropPointOpenReplacement(dropPoint)
+    const selectedItemId = openReplacement?.originalOrderItemId || items[0]?.id || ''
+    const selectedItem = items.find((item) => item.id === selectedItemId) || null
+    const remainingQuantity = openReplacement
+      ? Math.max(Number(selectedItem?.quantity || 0) - Number(openReplacement.replacementQuantity || 0), 0)
+      : items.length
+        ? 1
+        : 0
     setSpareTargetDropPointId(dropPoint.id)
-    setSpareOrderItemId(items[0].id)
-    setSpareQuantity(1)
+    setSpareOrderItemId(selectedItemId)
+    setSpareQuantity(openReplacement ? remainingQuantity : items.length ? 1 : 0)
+    setSpareOutcome('RESOLVED')
+    setSpareFollowUpReturnId(openReplacement?.id || null)
     setSpareReason('')
     setSpareDamagePhotoFiles([])
     setSpareDamagePhotoPreviews((previous) => {
@@ -1057,6 +1277,28 @@ function TripDetailView({
       return []
     })
     setIsSpareReplaceOpen(true)
+  }
+
+  const openFailedDeliveryChoice = (dropPointId: string) => {
+    setFailedDeliveryDropPointId(dropPointId)
+    setIsFailedDeliveryChoiceOpen(true)
+  }
+
+  const closeFailedDeliveryChoice = () => {
+    setIsFailedDeliveryChoiceOpen(false)
+    setFailedDeliveryDropPointId(null)
+  }
+
+  const openFailedDeliveryReschedule = (dropPointId: string) => {
+    setFailedDeliveryRescheduleDropPointId(dropPointId)
+    setFailedDeliveryReceiveAgain('today')
+    setIsFailedDeliveryRescheduleOpen(true)
+  }
+
+  const closeFailedDeliveryReschedule = () => {
+    setIsFailedDeliveryRescheduleOpen(false)
+    setFailedDeliveryRescheduleDropPointId(null)
+    setFailedDeliveryReceiveAgain('today')
   }
 
   const setSpareDamagePhotos = (files: File[]) => {
@@ -1091,7 +1333,6 @@ function TripDetailView({
     } else {
       setSpareDamagePhotos([])
     }
-    if (spareGalleryInputRef.current) spareGalleryInputRef.current.value = ''
   }
 
   const closeSpareReplacement = () => {
@@ -1099,24 +1340,20 @@ function TripDetailView({
     setSpareTargetDropPointId(null)
     setSpareOrderItemId('')
     setSpareQuantity(1)
+    setSpareOutcome('RESOLVED')
+    setSparePartiallyReplacedQuantity(0)
+    setSpareFollowUpReturnId(null)
     setSpareReason('')
     setSpareDamagePhotoFiles([])
     setSpareDamagePhotoPreviews((previous) => {
       previous.forEach((url) => URL.revokeObjectURL(url))
       return []
     })
-    if (spareGalleryInputRef.current) spareGalleryInputRef.current.value = ''
     setIsSpareReplacing(false)
   }
 
   const openSpareCameraCapture = () => {
     openCameraCapture('spare')
-  }
-
-  const openSpareGalleryPicker = () => {
-    if (!spareGalleryInputRef.current) return
-    spareGalleryInputRef.current.value = ''
-    spareGalleryInputRef.current.click()
   }
 
   const submitSpareReplacement = async () => {
@@ -1125,16 +1362,49 @@ function TripDetailView({
       toast.error('Invalid drop point for on-delivery replacement')
       return
     }
+    const openReplacement = getDropPointOpenReplacement(targetDropPoint)
+    const orderId = String(targetDropPoint.order?.id || '').trim()
+    if (!orderId) {
+      toast.error('Order reference is missing for this drop point')
+      return
+    }
     const selectedItem = (targetDropPoint.order?.items || []).find((item) => item.id === spareOrderItemId) || null
-    if (!selectedItem) {
+    if (spareOutcome === 'RESOLVED' && !selectedItem) {
       toast.error('Select an item to replace')
       return
     }
-    if (!Number.isFinite(spareQuantity) || spareQuantity <= 0 || !Number.isInteger(spareQuantity)) {
-      toast.error('Quantity must be a whole number')
+    if (!Number.isFinite(spareQuantity) || spareQuantity < 0 || !Number.isInteger(spareQuantity)) {
+      toast.error('Quantity must be a whole number (0 or higher)')
       return
     }
-    if (spareQuantity > Number(selectedItem.quantity || 0)) {
+    if (spareOutcome === 'RESOLVED' && spareQuantity <= 0) {
+      toast.error('Resolved outcome requires replacement quantity greater than zero')
+      return
+    }
+    if (spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity <= 0) {
+      toast.error('Partially Replaced requires specifying how many items were replaced')
+      return
+    }
+    if (spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity > spareQuantity) {
+      toast.error('Partially replaced quantity cannot exceed damaged quantity')
+      return
+    }
+    if (spareFollowUpReturnId && spareOutcome !== 'RESOLVED') {
+      toast.error('Follow-up replacement must be submitted as resolved')
+      return
+    }
+    if (spareFollowUpReturnId && (!openReplacement || openReplacement.id !== spareFollowUpReturnId)) {
+      toast.error('The selected follow-up replacement is no longer available')
+      return
+    }
+    if (spareFollowUpReturnId && selectedItem) {
+      const remainingQty = Number(openReplacement?.remainingQuantity ?? Math.max(Number(selectedItem.quantity || 0) - Number(openReplacement?.replacementQuantity || 0), 0))
+      if (spareQuantity !== remainingQty) {
+        toast.error(`Follow-up replacement must use the remaining quantity of ${remainingQty}`)
+        return
+      }
+    }
+    if (selectedItem && spareQuantity > Number(selectedItem.quantity || 0)) {
       toast.error('Replacement quantity exceeds ordered quantity')
       return
     }
@@ -1158,10 +1428,15 @@ function TripDetailView({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          orderId,
+          productId: selectedItem?.productId,
           tripId: trip.id,
           dropPointId: targetDropPoint.id,
-          orderItemId: selectedItem.id,
+          orderItemId: selectedItem?.id || '',
+          followUpReturnId: spareFollowUpReturnId || undefined,
           quantity: spareQuantity,
+          outcome: spareOutcome,
+          partiallyReplacedQuantity: spareOutcome === 'PARTIALLY_REPLACED' ? sparePartiallyReplacedQuantity : undefined,
           reason: spareReason.trim(),
           damagePhoto: damagePhotos[0],
           damagePhotos,
@@ -1172,8 +1447,11 @@ function TripDetailView({
         throw new Error(payload?.error || 'Failed to process on-delivery replacement')
       }
       toast.success(
-        `Damage recorded and replaced. Remaining spare stock: ${Number(payload?.remainingSpareStock ?? 0)}`
+        spareOutcome === 'RESOLVED'
+          ? `Damage reported and resolved on delivery. Remaining spare stock: ${Number(payload?.remainingSpareStock ?? 0)}`
+          : `Damage reported as partially replaced. Follow-up required. Remaining spare stock: ${Number(payload?.remainingSpareStock ?? 0)}`
       )
+      setSparePartiallyReplacedQuantity(0)
       closeSpareReplacement()
       await onRefreshTrips()
     } catch (error: any) {
@@ -1433,7 +1711,6 @@ function TripDetailView({
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
   }
-  const sortedDropPoints = [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)
   const mappableDropPoints = sortedDropPoints
     .map((point) => {
       const latitude = toCoordinate(point.latitude)
@@ -1467,8 +1744,7 @@ function TripDetailView({
     return { lat: warehouseLat, lng: warehouseLng }
   })()
   const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
-  const effectiveDriverLocation =
-    (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
+  const effectiveDriverLocation = (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
       ? { lat: Number(currentLocation.lat), lng: Number(currentLocation.lng) }
       : null) ||
     (previewDriverLocation && Number.isFinite(Number(previewDriverLocation.lat)) && Number.isFinite(Number(previewDriverLocation.lng))
@@ -1710,304 +1986,673 @@ function TripDetailView({
         ]
       : []),
   ]
-  const mapCenter = (driverLocationMarker
+  const mapCenterCandidate = (driverLocationMarker
     ? [driverLocationMarker.lat, driverLocationMarker.lng]
     : mapLocations[0]
     ? [mapLocations[0].lat, mapLocations[0].lng]
-    : [10.6765, 122.9511]) as [number, number]
+    : NEGROS_OCCIDENTAL_CENTER) as [number, number]
+  const mapCenter =
+    mapCenterCandidate[0] >= NEGROS_OCCIDENTAL_BOUNDS.south &&
+    mapCenterCandidate[0] <= NEGROS_OCCIDENTAL_BOUNDS.north &&
+    mapCenterCandidate[1] >= NEGROS_OCCIDENTAL_BOUNDS.west &&
+    mapCenterCandidate[1] <= NEGROS_OCCIDENTAL_BOUNDS.east
+      ? mapCenterCandidate
+      : NEGROS_OCCIDENTAL_CENTER
+  const mobileMapCenter = mobileMapRecenterCenter || mapCenter
+
+  const getFreshDriverLocation = () =>
+    new Promise<{ lat: number; lng: number } | null>((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(null)
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = Number(position.coords.latitude)
+          const lng = Number(position.coords.longitude)
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            resolve({ lat, lng })
+            return
+          }
+          resolve(null)
+        },
+        () => resolve(null),
+        { enableHighAccuracy: true, maximumAge: 4000, timeout: 7000 }
+      )
+    })
+
+  const handleMobileMapRecenter = async () => {
+    const liveLat = toCoordinate(currentLocation?.lat)
+    const liveLng = toCoordinate(currentLocation?.lng)
+    const previewLat = toCoordinate(previewDriverLocation?.lat)
+    const previewLng = toCoordinate(previewDriverLocation?.lng)
+
+    let targetLat = liveLat ?? previewLat ?? driverLocationMarker?.lat ?? null
+    let targetLng = liveLng ?? previewLng ?? driverLocationMarker?.lng ?? null
+
+    if (!Number.isFinite(Number(targetLat)) || !Number.isFinite(Number(targetLng))) {
+      const freshLocation = await getFreshDriverLocation()
+      if (freshLocation) {
+        setPreviewDriverLocation(freshLocation)
+        targetLat = freshLocation.lat
+        targetLng = freshLocation.lng
+      }
+    }
+
+    if (!Number.isFinite(Number(targetLat)) || !Number.isFinite(Number(targetLng))) {
+      toast.error('Current location unavailable. Enable location to recenter map.')
+      return
+    }
+
+    const nextCenter: [number, number] = [Number(targetLat), Number(targetLng)]
+    setMobileMapRecenterCenter(nextCenter)
+    setMobileMapRecenterSignal((prev) => prev + 1)
+  }
 
   return (
-    <div>
-      {/* Header */}
-      <div className="rounded-2xl border border-emerald-300/40 bg-blue-700 p-4 text-white shadow-[0_12px_26px_rgba(2,132,199,0.22)]">
-        <Button variant="ghost" size="sm" className="mb-2 p-0 text-white hover:bg-white/10" onClick={onBack}>
-          &lt; Back to Trips
-        </Button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold">{trip.tripNumber}</h2>
-            <p className="text-slate-300 text-sm">{trip.vehicle?.licensePlate}</p>
-          </div>
-          <Badge className="border border-slate-300/20 bg-white text-slate-900">
-            {trip.completedDropPoints}/{trip.totalDropPoints} Completed
-          </Badge>
-        </div>
-      </div>
-
-      {/* Location Permission Warning */}
-      {locationPermission === 'denied' && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 mx-4 mt-4 rounded">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-            <div>
-              <p className="font-medium text-red-800">Location Access Required</p>
-              <p className="text-sm text-red-600 mt-1">
-                Please enable location access in your browser settings to enable live tracking.
-              </p>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-gradient-to-b from-[#dff0ea] to-transparent" />
+        <div className="space-y-4 p-4">
+          {/* Header */}
+          <div className="hidden rounded-2xl border border-emerald-300/40 bg-blue-700 px-3 pb-3 pt-2.5 text-white shadow-[0_12px_26px_rgba(2,132,199,0.22)] md:mt-0 md:block md:px-4 md:pb-4 md:pt-3">
+            <Button variant="ghost" size="sm" className="mb-1 h-6 p-0 text-[11px] text-white hover:bg-white/10 md:mb-2 md:h-7 md:text-xs" onClick={onBack}>
+              &lt; Back to Trips
+            </Button>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold leading-tight md:text-xl">{trip.tripNumber}</h2>
+                <p className="text-slate-300 text-xs md:text-sm">{trip.vehicle?.licensePlate}</p>
+              </div>
+              <Badge className="border border-slate-300/20 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-900 md:px-2.5 md:py-1 md:text-xs">
+                {effectiveCompletedDropPoints}/{trip.totalDropPoints} Completed
+              </Badge>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Start Trip Button */}
-      {trip.status === 'PLANNED' && (
-        <div className="p-4">
-          <Button 
-            className="h-12 w-full gap-2 bg-slate-900 text-lg text-white hover:bg-slate-800" 
-            onClick={handleStartTrip}
-            disabled={isUpdating}
-          >
-            {isUpdating ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+          {/* Location Permission Warning */}
+          {locationPermission === 'denied' && (
+            <div className="rounded border-l-4 border-red-500 bg-red-50 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-500" />
+                <div>
+                  <p className="font-medium text-red-800">Location Access Required</p>
+                  <p className="mt-1 text-sm text-red-600">
+                    Please enable location access in your browser settings to enable live tracking.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Start Trip Button */}
+          {trip.status === 'PLANNED' && (
+            <div>
+              {notLoadedTripOrders.length > 0 ? (
+                <p className="mb-2 text-sm text-red-600">
+                  All products in this trip must be marked as loaded first: {notLoadedTripOrders.slice(0, 3).join(', ')}
+                </p>
+              ) : null}
+              <Button
+                className="h-12 w-full gap-2 bg-slate-900 text-lg text-white hover:bg-slate-800"
+                onClick={handleStartTrip}
+                disabled={isUpdating || notLoadedTripOrders.length > 0}
+              >
+                {isUpdating ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Play className="h-5 w-5" />
+                )}
+                Start Trip
+              </Button>
+            </div>
+          )}
+
+          {/* Route Map */}
+          <div className="hidden rounded-2xl border border-sky-200/60 bg-white/90 p-4 pt-0 shadow-[0_14px_30px_rgba(15,23,42,0.12)] backdrop-blur md:block md:rounded-2xl md:border md:border-sky-200/60 md:bg-white/90 md:shadow-[0_14px_30px_rgba(15,23,42,0.12)] md:backdrop-blur">
+            <h3 className="font-semibold text-slate-900">Route Map</h3>
+            {mapLocations.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
+                No map data for this trip yet. Add delivery coordinates to order shipping addresses.
+              </div>
             ) : (
-              <Play className="h-5 w-5" />
+              <LiveTrackingMap
+                locations={mapLocations}
+                routeLines={mapRouteLines}
+                center={mapCenter}
+                zoom={13}
+                navigationPerspective
+                restrictToNegrosOccidental
+                showZoomControls={false}
+                className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[350px]"
+              />
             )}
-            Start Trip
-          </Button>
-        </div>
-      )}
-
-      {/* Route Map */}
-      <div className="p-4 pt-0">
-        <h3 className="font-semibold text-slate-900">Route Map</h3>
-        <p className="mb-3 text-xs text-slate-500">Bold gray = completed path, bright blue = upcoming route.</p>
-        {mapLocations.length === 0 ? (
-          <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
-            No map data for this trip yet. Add delivery coordinates to order shipping addresses.
           </div>
-        ) : (
-          <LiveTrackingMap
-            locations={mapLocations}
-            routeLines={mapRouteLines}
-            center={mapCenter}
-            zoom={13}
-            navigationPerspective
-          />
-        )}
-      </div>
 
-      {/* Drop Points List */}
-      <div className="p-4">
-        <h3 className="mb-3 font-semibold text-slate-900">Drop Points</h3>
-        <p className="mb-2 text-xs text-slate-500">Tap a stop card to show its action buttons.</p>
-        <div className="space-y-3">
-          {trip.dropPoints?.sort((a, b) => a.sequence - b.sequence).map((dropPoint) => (
-            <Card 
-              key={dropPoint.id} 
-              className={`cursor-pointer rounded-lg border transition-all duration-200 ${activeDropPoint?.id === dropPoint.id ? 'border-slate-900/30 bg-slate-900/5 shadow-[0_4px_12px_rgba(0,0,0,0.1)]' : 'border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]'}`}
-              onClick={() => setActiveDropPoint(activeDropPoint?.id === dropPoint.id ? null : dropPoint)}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                    dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
-                    dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
-                    'bg-gray-200 text-gray-600'
-                  }`}>
-                    {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between">
+          <div className="relative -mx-4 overflow-hidden md:hidden">
+            <div className="relative h-[calc(100dvh-12rem)] min-h-[540px] w-full overflow-hidden bg-[#dff0ea]">
+              {mapLocations.length === 0 ? (
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-600">
+                  No map data for this trip yet. Add delivery coordinates to order shipping addresses.
+                </div>
+              ) : (
+                <LiveTrackingMap
+                  locations={mapLocations}
+                  routeLines={mapRouteLines}
+                  center={mobileMapCenter}
+                  zoom={13}
+                  navigationPerspective
+                  restrictToNegrosOccidental
+                  recenterSignal={mobileMapRecenterSignal}
+                  showZoomControls={false}
+                  className="h-full w-full overflow-hidden rounded-none border-0 shadow-none"
+                />
+              )}
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-[#f8fbfe]/95 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-28 bg-gradient-to-t from-[#dff0ea] to-transparent" />
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to trips"
+                className="absolute left-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/92 text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <div className="absolute left-[3.6rem] top-4 z-20 rounded-full border border-white/80 bg-white/90 px-3 py-1.5 text-[12px] font-semibold text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur">
+                Route Map
+              </div>
+              <button
+                type="button"
+                onClick={handleMobileMapRecenter}
+                aria-label="Recenter map to driver location"
+                className="absolute bottom-[calc(env(safe-area-inset-bottom)+10.8rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-teal-200 bg-[#d8f4f7]/95 text-teal-900 shadow-[0_8px_18px_rgba(13,76,95,0.22)] backdrop-blur"
+              >
+                <LocateFixed className="h-5 w-5" />
+              </button>
+
+              <Drawer
+                open={isMobileSheetOpen}
+                onOpenChange={handleMobileSheetOpenChange}
+                direction="bottom"
+                dismissible
+                handleOnly={false}
+                modal={false}
+                fixed
+                snapPoints={mobileSheetSnapPoints}
+                activeSnapPoint={mobileSheetSnapPoint}
+                setActiveSnapPoint={handleMobileSheetSnapPointChange}
+              >
+                <DrawerContent
+                  hideOverlay
+                  className="!bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-5.2rem)] rounded-t-[1.9rem] border border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                >
+                  <div className="max-h-[calc(100dvh-12.5rem)] overflow-y-auto overscroll-contain px-4 pb-4 pt-2">
+                    <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
+                    <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium">{dropPoint.locationName}</p>
-                        <p className="text-sm text-slate-500">{dropPoint.address}</p>
-                        {dropPoint.order && (
-                          <>
-                            <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
-                            <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
-                              <p className="text-[11px] font-semibold text-amber-800">
-                                Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
-                              </p>
-                            </div>
-                            {(dropPoint.order.items || []).length > 0 ? (
-                              <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
-                                <p className="text-[11px] font-semibold text-slate-600">Order Details</p>
-                                <div className="mt-1 space-y-0.5">
-                                  {(dropPoint.order.items || []).map((item, index) => (
-                                    <p key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600">
-                                      {item.product?.name || 'Item'} x{Number(item.quantity || 0)}
-                                    </p>
-                                  ))}
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
+                        <h3 className="text-xl font-black tracking-[-0.02em] text-slate-900">{highlightedDropPoint?.locationName || 'Trip overview'}</h3>
+                        <p className="text-sm text-slate-500">
+                          {highlightedDropPoint ? `${highlightedDropPoint.sequence}/${trip.totalDropPoints} • ${highlightedDropPoint.status}` : `${effectiveCompletedDropPoints}/${trip.totalDropPoints} Completed`}
+                        </p>
+                      </div>
+                      {highlightedDropPoint ? (
+                        <Badge className={dropPointStatusColors[highlightedDropPoint.status] || 'bg-gray-100'}>
+                          {highlightedDropPoint.status}
+                        </Badge>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 space-y-3 pb-1">
+                      {sortedDropPoints.map((dropPoint) => (
+                        <Card
+                          key={dropPoint.id}
+                          className={`cursor-pointer rounded-2xl border transition-all duration-200 ${activeDropPoint?.id === dropPoint.id ? 'border-slate-900/30 bg-slate-900/5 shadow-[0_6px_16px_rgba(15,23,42,0.08)]' : 'border-slate-200/70 bg-white/90 shadow-[0_4px_12px_rgba(15,23,42,0.04)]'}`}
+                          onClick={() => setActiveDropPoint(activeDropPoint?.id === dropPoint.id ? null : dropPoint)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+                                dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
+                                dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
+                                'bg-gray-200 text-gray-600'
+                              }`}>
+                                {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className="font-medium text-slate-900">{dropPoint.locationName}</p>
+                                    <p className="text-sm text-slate-500">{dropPoint.address}</p>
+                                    {dropPoint.order ? (
+                                      <>
+                                        <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
+                                        <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                          <p className="text-[11px] font-semibold text-amber-800">
+                                            Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
+                                          </p>
+                                        </div>
+                                        {(() => {
+                                          const replacementProgress = getReplacementProgress(dropPoint)
+                                          if (!replacementProgress.openReplacement) return null
+                                          return (
+                                            <div className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
+                                              <p className="text-[11px] font-semibold text-emerald-800">
+                                                Replacement in progress: {replacementProgress.replacedQuantity} replaced, {replacementProgress.remainingQuantity} still need to be replaced.
+                                              </p>
+                                            </div>
+                                          )
+                                        })()}
+                                      </>
+                                    ) : null}
+                                  </div>
+                                  <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
+                                    {dropPoint.status}
+                                  </Badge>
                                 </div>
+                                {dropPoint.contactPhone ? (
+                                  <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
+                                    <Phone className="h-4 w-4" />
+                                    Call Contact
+                                  </a>
+                                ) : null}
                               </div>
-                            ) : null}
-                            {(dropPoint.deliveryPhoto || (activeDropPoint?.id === dropPoint.id && podImagePreview)) ? (
-                              <div className="mt-2 rounded-md bg-slate-50 px-2 py-2">
-                                <p className="text-[11px] font-semibold text-slate-600">POD Photo</p>
-                                <img
-                                  src={dropPoint.deliveryPhoto || podImagePreview || ''}
-                                  alt="POD"
-                                  className="mt-1 h-24 w-full rounded border border-slate-200 object-cover"
-                                />
+                            </div>
+
+                            {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
+                              <div className="mt-4 space-y-3 border-t pt-4">
+                                {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
+                                  <Button
+                                    className="w-full"
+                                    onClick={(e) => { e.stopPropagation(); handleUpdateDropPoint(dropPoint.id, 'ARRIVED'); }}
+                                    disabled={isUpdating}
+                                  >
+                                    <Navigation className="mr-2 h-4 w-4" />
+                                    Mark Arrived
+                                  </Button>
+                                )}
+                                {dropPoint.status === 'ARRIVED' && (
+                                  <div className="space-y-3">
+                                    <Textarea
+                                      placeholder="Add delivery notes..."
+                                      value={deliveryNote}
+                                      onChange={(e) => setDeliveryNote(e.target.value)}
+                                    />
+                                    <div className="space-y-2">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          openCameraCapture('pod')
+                                        }}
+                                      >
+                                        <Camera className="mr-2 h-4 w-4" />
+                                        {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
+                                      </Button>
+                                      {dropPoint.order ? (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openSpareReplacement(dropPoint)
+                                          }}
+                                          disabled={isUpdating || isSpareReplacing}
+                                        >
+                                          {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Damage'}
+                                        </Button>
+                                      ) : null}
+                                      <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
+                                      {getDropPointOpenReplacement(dropPoint) ? (
+                                        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                                          Delivery is blocked until the open replacement is resolved with photo evidence.
+                                        </div>
+                                      ) : null}
+                                      {podImagePreview ? (
+                                        <img
+                                          src={podImagePreview}
+                                          alt="POD preview"
+                                          className="h-36 w-full rounded-md border border-slate-200 object-cover"
+                                        />
+                                      ) : null}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Button
+                                        className="bg-emerald-600 hover:bg-emerald-700"
+                                        onClick={async (e) => {
+                                          e.stopPropagation()
+                                          if (getDropPointOpenReplacement(dropPoint)) {
+                                            toast.error('Resolve the remaining replacement before marking this drop point as delivered')
+                                            return
+                                          }
+                                          if (!podImageFile) {
+                                            toast.error('Capture POD photo first')
+                                            openCameraCapture('pod')
+                                            return
+                                          }
+                                          try {
+                                            const imageUrl = await uploadPodImage(podImageFile)
+                                            await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
+                                              recipientName: 'Customer',
+                                              deliveryPhoto: imageUrl,
+                                            })
+                                            handlePodFileChange(null)
+                                            setDeliveryNote('')
+                                          } catch (error: any) {
+                                            toast.error(error?.message || 'Failed to upload POD image')
+                                            return
+                                          }
+                                        }}
+                                        disabled={isUpdating || Boolean(getDropPointOpenReplacement(dropPoint))}
+                                      >
+                                        <CheckCircle className="mr-2 h-4 w-4" />
+                                        Delivered
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          openFailedDeliveryChoice(dropPoint.id)
+                                        }}
+                                        disabled={isUpdating}
+                                      >
+                                        <AlertCircle className="mr-2 h-4 w-4" />
+                                        Failed
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            ) : null}
-                          </>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                </DrawerContent>
+              </Drawer>
+            </div>
+
+            <AnimatePresence mode="wait">
+              {!isMobileSheetOpen && showMobileSheetPeek ? (
+                <motion.button
+                  key="mobile-sheet-peek"
+                  type="button"
+                  initial={{ opacity: 0, y: 20, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 16, scale: 0.985 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] z-[1250] rounded-2xl border border-white/85 bg-white/96 px-4 pb-3 pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)]"
+                  onClick={openMobileSheet}
+                  onTouchStart={handleMobileSheetPeekTouchStart}
+                  onTouchMove={handleMobileSheetPeekTouchMove}
+                  onTouchEnd={handleMobileSheetPeekTouchEnd}
+                >
+                  <span className="mx-auto mb-2 block h-1.5 w-14 rounded-full bg-slate-300" />
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                      {effectiveCompletedDropPoints}/{trip.totalDropPoints} Completed
+                    </span>
+                  </div>
+                </motion.button>
+              ) : null}
+            </AnimatePresence>
+          </div>
+
+          {/* Drop Points List */}
+          <div className="hidden md:block">
+            <h3 className="mb-3 font-semibold text-slate-900">Drop Points</h3>
+            <div className="space-y-3">
+              {sortedDropPoints.map((dropPoint) => (
+                <Card
+                  key={dropPoint.id}
+                  className={`cursor-pointer rounded-lg border transition-all duration-200 ${activeDropPoint?.id === dropPoint.id ? 'border-slate-900/30 bg-slate-900/5 shadow-[0_4px_12px_rgba(0,0,0,0.1)]' : 'border-slate-200/50 bg-white/90 shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]'}`}
+                  onClick={() => setActiveDropPoint(activeDropPoint?.id === dropPoint.id ? null : dropPoint)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                        dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
+                        dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
+                        'bg-gray-200 text-gray-600'
+                      }`}>
+                        {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium">{dropPoint.locationName}</p>
+                            <p className="text-sm text-slate-500">{dropPoint.address}</p>
+                            {dropPoint.order && (
+                              <>
+                                <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
+                                <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                  <p className="text-[11px] font-semibold text-amber-800">
+                                    Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
+                                  </p>
+                                </div>
+                                {(() => {
+                                  const replacementProgress = getReplacementProgress(dropPoint)
+                                  if (!replacementProgress.openReplacement) return null
+                                  return (
+                                    <div className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
+                                      <p className="text-[11px] font-semibold text-emerald-800">
+                                        Replacement in progress: {replacementProgress.replacedQuantity} replaced, {replacementProgress.remainingQuantity} still need to be replaced.
+                                      </p>
+                                    </div>
+                                  )
+                                })()}
+                                {(dropPoint.order.items || []).length > 0 ? (
+                                  <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
+                                    <p className="text-[11px] font-semibold text-slate-600">Order Details</p>
+                                    <div className="mt-1 space-y-0.5">
+                                      {(dropPoint.order.items || []).map((item, index) => (
+                                        <p key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600">
+                                          {item.product?.name || 'Item'} x{Number(item.quantity || 0)}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {(dropPoint.deliveryPhoto || (activeDropPoint?.id === dropPoint.id && podImagePreview)) ? (
+                                  <div className="mt-2 rounded-md bg-slate-50 px-2 py-2">
+                                    <p className="text-[11px] font-semibold text-slate-600">POD Photo</p>
+                                    <img
+                                      src={dropPoint.deliveryPhoto || podImagePreview || ''}
+                                      alt="POD"
+                                      className="mt-1 h-24 w-full rounded border border-slate-200 object-cover"
+                                    />
+                                  </div>
+                                ) : null}
+                              </>
+                            )}
+                          </div>
+                          <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
+                            {dropPoint.status}
+                          </Badge>
+                        </div>
+                        {dropPoint.contactPhone && (
+                          <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
+                            <Phone className="h-4 w-4" />
+                            Call Contact
+                          </a>
                         )}
                       </div>
-                      <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
-                        {dropPoint.status}
-                      </Badge>
                     </div>
-                    {dropPoint.contactPhone && (
-                      <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
-                        <Phone className="h-4 w-4" />
-                        Call Contact
-                      </a>
-                    )}
-                  </div>
-                </div>
 
-                {/* Drop Point Actions */}
-                {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
-                  <div className="mt-4 pt-4 border-t space-y-3">
-                    {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
-                      <Button 
-                        className="w-full" 
-                        onClick={(e) => { e.stopPropagation(); handleUpdateDropPoint(dropPoint.id, 'ARRIVED'); }}
-                        disabled={isUpdating}
-                      >
-                        <Navigation className="h-4 w-4 mr-2" />
-                        Mark Arrived
-                      </Button>
-                    )}
-                    {dropPoint.status === 'ARRIVED' && (
-                      <div className="space-y-3">
-                        <Textarea
-                          placeholder="Add delivery notes..."
-                          value={deliveryNote}
-                          onChange={(e) => setDeliveryNote(e.target.value)}
-                        />
-                        <div className="space-y-2">
+                    {/* Drop Point Actions */}
+                    {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
+                      <div className="mt-4 space-y-3 border-t pt-4">
+                        {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                           <Button
-                            type="button"
-                            variant="outline"
                             className="w-full"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openCameraCapture('pod')
-                            }}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateDropPoint(dropPoint.id, 'ARRIVED'); }}
+                            disabled={isUpdating}
                           >
-                            <Camera className="h-4 w-4 mr-2" />
-                            {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
+                            <Navigation className="h-4 w-4 mr-2" />
+                            Mark Arrived
                           </Button>
-                          {(dropPoint.order?.items || []).length > 0 ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full border-amber-300 text-amber-800 hover:bg-amber-50"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openSpareReplacement(dropPoint)
-                              }}
-                              disabled={isUpdating || isSpareReplacing}
-                            >
-                              Report Damage & Replace Now
-                            </Button>
-                          ) : null}
-                          <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
-                          {podImagePreview ? (
-                            <img
-                              src={podImagePreview}
-                              alt="POD preview"
-                              className="h-36 w-full rounded-md border border-slate-200 object-cover"
+                        )}
+                        {dropPoint.status === 'ARRIVED' && (
+                          <div className="space-y-3">
+                            <Textarea
+                              placeholder="Add delivery notes..."
+                              value={deliveryNote}
+                              onChange={(e) => setDeliveryNote(e.target.value)}
                             />
-                          ) : null}
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Button 
-                            className="bg-emerald-600 hover:bg-emerald-700"
-                            onClick={async (e) => { 
-                              e.stopPropagation(); 
-                              if (!podImageFile) {
-                                toast.error('Capture POD photo first')
-                                openCameraCapture('pod')
-                                return
-                              }
-                              try {
-                                const imageUrl = await uploadPodImage(podImageFile)
-                                await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
-                                  recipientName: 'Customer',
-                                  deliveryPhoto: imageUrl,
-                                })
-                                handlePodFileChange(null)
-                                setDeliveryNote('')
-                              } catch (error: any) {
-                                toast.error(error?.message || 'Failed to upload POD image')
-                                return
-                              }
-                            }}
-                            disabled={isUpdating}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Delivered
-                          </Button>
-                          <Button 
-                            variant="destructive"
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              handleUpdateDropPoint(dropPoint.id, 'FAILED', deliveryNote); 
-                            }}
-                            disabled={isUpdating}
-                          >
-                            <AlertCircle className="h-4 w-4 mr-2" />
-                            Failed
-                          </Button>
-                        </div>
+                            <div className="space-y-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openCameraCapture('pod')
+                                }}
+                              >
+                                <Camera className="h-4 w-4 mr-2" />
+                                {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
+                              </Button>
+                              {dropPoint.order ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openSpareReplacement(dropPoint)
+                                  }}
+                                  disabled={isUpdating || isSpareReplacing}
+                                >
+                                  {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Damage'}
+                                </Button>
+                              ) : null}
+                              <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
+                              {getDropPointOpenReplacement(dropPoint) ? (
+                                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                                  Delivery is blocked until the open replacement is resolved with photo evidence.
+                                </div>
+                              ) : null}
+                              {podImagePreview ? (
+                                <img
+                                  src={podImagePreview}
+                                  alt="POD preview"
+                                  className="h-36 w-full rounded-md border border-slate-200 object-cover"
+                                />
+                              ) : null}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Button
+                                className="bg-emerald-600 hover:bg-emerald-700"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (getDropPointOpenReplacement(dropPoint)) {
+                                    toast.error('Resolve the remaining replacement before marking this drop point as delivered')
+                                    return
+                                  }
+                                  if (!podImageFile) {
+                                    toast.error('Capture POD photo first')
+                                    openCameraCapture('pod')
+                                    return
+                                  }
+                                  try {
+                                    const imageUrl = await uploadPodImage(podImageFile)
+                                    await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
+                                      recipientName: 'Customer',
+                                      deliveryPhoto: imageUrl,
+                                    })
+                                    handlePodFileChange(null)
+                                    setDeliveryNote('')
+                                  } catch (error: any) {
+                                    toast.error(error?.message || 'Failed to upload POD image')
+                                    return
+                                  }
+                                }}
+                                disabled={isUpdating || Boolean(getDropPointOpenReplacement(dropPoint))}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Delivered
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openFailedDeliveryChoice(dropPoint.id)
+                                }}
+                                disabled={isUpdating}
+                              >
+                                <AlertCircle className="h-4 w-4 mr-2" />
+                                Failed
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* Complete Trip Button */}
+          {trip.status === 'IN_PROGRESS' && effectiveCompletedDropPoints >= trip.totalDropPoints && (
+            <div>
+              <Button className="h-12 w-full bg-green-600 hover:bg-green-700">
+                <Flag className="h-5 w-5 mr-2" />
+                Complete Trip
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Complete Trip Button */}
-      {trip.status === 'IN_PROGRESS' && trip.completedDropPoints === trip.totalDropPoints && (
-        <div className="p-4">
-          <Button className="w-full h-12 bg-green-600 hover:bg-green-700">
-            <Flag className="h-5 w-5 mr-2" />
-            Complete Trip
-          </Button>
-        </div>
-      )}
-
       <Dialog open={isCameraOpen} onOpenChange={(open) => { if (!open) closeCameraCapture() }}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{cameraCaptureTarget === 'spare' ? 'Capture Damage Photo' : 'Capture POD Photo'}</DialogTitle>
-            <DialogDescription>
-              {cameraCaptureTarget === 'spare'
-                ? 'Take a clear photo of the damaged item evidence.'
-                : 'Take a clear photo of the delivered package/recipient.'}
-            </DialogDescription>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
+                {cameraCaptureTarget === 'spare' ? 'Capture Damage Photo' : 'Capture POD Photo'}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                {cameraCaptureTarget === 'spare'
+                  ? 'Take a clear photo of the damaged item evidence.'
+                  : 'Take a clear photo of the delivered package/recipient.'}
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
             {capturedCameraPhoto ? (
               <>
                 <img
                   src={capturedCameraPhoto}
                   alt="Captured POD"
-                  className="h-64 w-full rounded-md border border-slate-200 object-cover"
+                  className="h-64 w-full rounded-xl border border-sky-100 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
                 />
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" onClick={() => setCapturedCameraPhoto(null)}>
+                  <Button variant="outline" className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={() => setCapturedCameraPhoto(null)}>
                     Try Again
                   </Button>
-                  <Button onClick={() => void continueCapturedPhoto()}>
+                  <Button className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={() => void continueCapturedPhoto()}>
                     Continue
                   </Button>
                 </div>
               </>
             ) : (
               <>
-                <div className="overflow-hidden rounded-md border border-slate-200 bg-black">
+                <div className="overflow-hidden rounded-xl border border-sky-100 bg-black shadow-[0_10px_24px_rgba(15,23,42,0.10)]">
                   <video ref={videoRef} autoPlay playsInline muted className="h-64 w-full object-cover" />
                 </div>
-                {isCameraLoading ? <p className="text-sm text-slate-500">Opening camera...</p> : null}
+                {isCameraLoading ? <p className="text-sm text-[#4d6785]">Opening camera...</p> : null}
                 {cameraError ? <p className="text-sm text-red-600">{cameraError}</p> : null}
-                <Button onClick={captureFromCamera} disabled={isCameraLoading || Boolean(cameraError)}>
+                <Button className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={captureFromCamera} disabled={isCameraLoading || Boolean(cameraError)}>
                   Capture Photo
                 </Button>
               </>
@@ -2017,19 +2662,22 @@ function TripDetailView({
       </Dialog>
 
       <Dialog open={isCameraPermissionDialogOpen} onOpenChange={setIsCameraPermissionDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Camera Permission Required</DialogTitle>
-            <DialogDescription>
-              Driver delivery proof requires live camera access. Enable camera permission in browser/app settings, then retry.
-            </DialogDescription>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Camera Permission Required</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                Driver delivery proof requires live camera access. Enable camera permission in browser/app settings, then retry.
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
             <p className="text-sm text-red-600">{cameraError || 'Camera permission is currently blocked.'}</p>
-            {cameraPermissionHint ? <p className="text-xs text-slate-600">{cameraPermissionHint}</p> : null}
+            {cameraPermissionHint ? <p className="text-xs text-[#4d6785]">{cameraPermissionHint}</p> : null}
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
+                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
                 onClick={() => {
                   openCameraSettings()
                 }}
@@ -2037,6 +2685,7 @@ function TripDetailView({
                 Try Open Settings
               </Button>
               <Button
+                className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]"
                 onClick={() => {
                   setIsCameraPermissionDialogOpen(false)
                   openCameraCapture(cameraCaptureTarget)
@@ -2045,9 +2694,9 @@ function TripDetailView({
                 Retry Camera
               </Button>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="mb-2 text-xs font-semibold text-slate-700">Manual steps</p>
-              <ol className="list-decimal space-y-1 pl-4 text-xs text-slate-600">
+            <div className="rounded-xl border border-sky-100 bg-white/70 p-3">
+              <p className="mb-2 text-xs font-semibold text-[#17365d]">Manual steps</p>
+              <ol className="list-decimal space-y-1 pl-4 text-xs text-[#4d6785]">
                 {cameraPermissionSteps.map((step, index) => (
                   <li key={`camera-step-${index}`}>{step}</li>
                 ))}
@@ -2058,40 +2707,129 @@ function TripDetailView({
       </Dialog>
 
       <Dialog open={isSpareReplaceOpen} onOpenChange={(open) => { if (!open) closeSpareReplacement() }}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>On-Delivery Damage Replacement</DialogTitle>
-            <DialogDescription>
-              Record damage evidence and replace immediately from driver spare stock.
-            </DialogDescription>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
+                {spareFollowUpReturnId ? 'Resolve Replacement' : 'Damage Report'}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                {spareFollowUpReturnId
+                  ? 'Capture follow-up photo evidence and submit the remaining replacement quantity to close the case.'
+                  : 'Capture damage evidence using camera, then mark as resolved or partially replaced.'}
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
+          {(() => {
+            const targetDropPoint = (trip.dropPoints || []).find((point) => point.id === spareTargetDropPointId) || null
+            const targetItems = getDropPointReplacementItems(targetDropPoint)
+            const targetOpenReplacement = getDropPointOpenReplacement(targetDropPoint)
+            const targetReplacementProgress = getReplacementProgress(targetDropPoint)
+            const followUpMode = Boolean(targetOpenReplacement)
+
+            return (
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+            {targetOpenReplacement ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                Follow-up replacement in progress: {targetReplacementProgress.replacedQuantity} replaced, {targetReplacementProgress.remainingQuantity} still need to be replaced.
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="spare-order-item">Damaged Item</Label>
-              <select
-                id="spare-order-item"
-                title="Damaged item"
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                value={spareOrderItemId}
-                onChange={(e) => setSpareOrderItemId(e.target.value)}
-              >
-                {((trip.dropPoints || []).find((point) => point.id === spareTargetDropPointId)?.order?.items || []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {Number(item.quantity || 0)}
-                  </option>
-                ))}
-              </select>
+              <Select value={spareOrderItemId} onValueChange={setSpareOrderItemId} disabled={targetItems.length === 0 || followUpMode}>
+                <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
+                  <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
+                </SelectTrigger>
+                <SelectContent className="border-sky-200 bg-white text-slate-900">
+                  {targetItems.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
+                      {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {Number(item.quantity || 0)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="spare-qty">Quantity to Replace</Label>
               <Input
                 id="spare-qty"
                 type="number"
-                min={1}
+                min={followUpMode ? targetReplacementProgress.remainingQuantity : 0}
                 value={spareQuantity}
-                onChange={(e) => setSpareQuantity(Number(e.target.value || 1))}
+                onChange={(e) => {
+                  if (followUpMode) return
+                  setSpareQuantity(Number(e.target.value || 0))
+                }}
+                disabled={followUpMode}
               />
+              {followUpMode ? (
+                <p className="text-xs text-emerald-700">Follow-up cases use the remaining quantity only, tied to the original damaged item.</p>
+              ) : null}
             </div>
+            <div className="space-y-2">
+              <Label>Resolution</Label>
+              {followUpMode ? (
+                <>
+                  <Button type="button" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled>
+                    Resolved
+                  </Button>
+                  <p className="text-xs text-emerald-700">
+                    Follow-up cases can only be submitted as resolved with photo evidence.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={spareOutcome === 'RESOLVED' ? 'default' : 'outline'}
+                      onClick={() => setSpareOutcome('RESOLVED')}
+                      disabled={isSpareReplacing}
+                    >
+                      Resolved
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={spareOutcome === 'PARTIALLY_REPLACED' ? 'default' : 'outline'}
+                      onClick={() => setSpareOutcome('PARTIALLY_REPLACED')}
+                      disabled={isSpareReplacing}
+                    >
+                      Partially Replaced
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Resolved = replacement completed. Partially Replaced = needs warehouse follow-up.
+                  </p>
+                </>
+              )}
+            </div>
+            <AnimatePresence mode="wait">
+              {spareOutcome === 'PARTIALLY_REPLACED' && (
+                <motion.div
+                  key="partial-qty-field"
+                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                  animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  className="space-y-2 overflow-hidden"
+                >
+                  <Label htmlFor="spare-partial-qty">How Many Were Replaced?</Label>
+                  <Input
+                    id="spare-partial-qty"
+                    type="number"
+                    min="1"
+                    max={spareQuantity}
+                    value={sparePartiallyReplacedQuantity}
+                    onChange={(e) => setSparePartiallyReplacedQuantity(Number(e.target.value || 0))}
+                    disabled={isSpareReplacing}
+                    placeholder="Enter quantity replaced"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Total damaged: {spareQuantity} | You are replacing: {sparePartiallyReplacedQuantity}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div className="space-y-2">
               <Label htmlFor="spare-reason">Damage Details</Label>
               <Textarea
@@ -2104,38 +2842,20 @@ function TripDetailView({
             <div className="space-y-2">
               <Label htmlFor="spare-photo">Damage Photo</Label>
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2">
                   <Button
                     type="button"
                     variant="outline"
+                    className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
                     onClick={openSpareCameraCapture}
                     disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
                   >
                     <Camera className="mr-2 h-4 w-4" />
                     Take Photo
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={openSpareGalleryPicker}
-                    disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
-                  >
-                    Upload from Gallery
-                  </Button>
                 </div>
-                <input
-                  ref={spareGalleryInputRef}
-                  id="spare-photo"
-                  className="hidden"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  aria-label="Upload damage photo from gallery"
-                  title="Upload damage photo from gallery"
-                  onChange={(e) => appendSpareDamagePhotos(Array.from(e.target.files || []))}
-                />
                 <p className="text-xs text-slate-500">
-                  Use camera or gallery. Up to {MAX_SPARE_DAMAGE_PHOTOS} photos only.
+                  Camera evidence is required. Up to {MAX_SPARE_DAMAGE_PHOTOS} photos only.
                 </p>
                 {spareDamagePhotoFiles.length ? (
                   <div className="space-y-2">
@@ -2166,15 +2886,17 @@ function TripDetailView({
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={openSpareGalleryPicker}
+                        className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
+                        onClick={openSpareCameraCapture}
                         disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
                       >
-                        Add from Gallery
+                        Add Camera Photo
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
+                        className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
                         onClick={() => clearSpareDamagePhoto()}
                         disabled={isSpareReplacing}
                       >
@@ -2189,6 +2911,7 @@ function TripDetailView({
               <Button
                 type="button"
                 variant="outline"
+                className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
                 onClick={closeSpareReplacement}
                 disabled={isSpareReplacing}
               >
@@ -2196,12 +2919,158 @@ function TripDetailView({
               </Button>
               <Button
                 type="button"
-                className="bg-amber-600 hover:bg-amber-700"
+                className="bg-emerald-600 hover:bg-emerald-700"
                 onClick={() => void submitSpareReplacement()}
                 disabled={isSpareReplacing}
               >
                 {isSpareReplacing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Record & Replace
+                {followUpMode ? 'Submit Follow-up' : 'Submit Report'}
+              </Button>
+            </div>
+          </div>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isFailedDeliveryChoiceOpen} onOpenChange={(open) => { if (!open) closeFailedDeliveryChoice() }}>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+          <DialogHeader>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Failed Delivery</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                Choose whether to reschedule this delivery or cancel it.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Reschedule keeps the stop open for a later attempt. Cancel delivery skips the stop and returns inventory.
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
+                onClick={() => {
+                  if (!failedDeliveryDropPointId) return
+                  closeFailedDeliveryChoice()
+                  openFailedDeliveryReschedule(failedDeliveryDropPointId)
+                }}
+                disabled={isUpdating}
+              >
+                Reschedule
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="h-11 rounded-xl font-semibold shadow-[0_12px_24px_rgba(220,38,38,0.22)]"
+                onClick={async () => {
+                  if (!failedDeliveryDropPointId) return
+                  closeFailedDeliveryChoice()
+                  await handleUpdateDropPoint(failedDeliveryDropPointId, 'SKIPPED', deliveryNote || 'Delivery canceled by driver')
+                }}
+                disabled={isUpdating}
+              >
+                Cancel Delivery
+              </Button>
+            </div>
+            <Button type="button" variant="outline" className="h-11 w-full rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={closeFailedDeliveryChoice} disabled={isUpdating}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isFailedDeliveryRescheduleOpen} onOpenChange={(open) => { if (!open) closeFailedDeliveryReschedule() }}>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+          <DialogHeader>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">When should the order be received again?</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                Choose the next attempt window for this rescheduled delivery.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                type="button"
+                variant={failedDeliveryReceiveAgain === 'today' ? 'default' : 'outline'}
+                className={failedDeliveryReceiveAgain === 'today' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
+                onClick={() => setFailedDeliveryReceiveAgain('today')}
+                disabled={isUpdating}
+              >
+                Later today
+              </Button>
+              <Button
+                type="button"
+                variant={failedDeliveryReceiveAgain === 'tomorrow' ? 'default' : 'outline'}
+                className={failedDeliveryReceiveAgain === 'tomorrow' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
+                onClick={() => setFailedDeliveryReceiveAgain('tomorrow')}
+                disabled={isUpdating}
+              >
+                Tomorrow
+              </Button>
+              <Button
+                type="button"
+                variant={failedDeliveryReceiveAgain === 'next_trip' ? 'default' : 'outline'}
+                className={failedDeliveryReceiveAgain === 'next_trip' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
+                onClick={() => setFailedDeliveryReceiveAgain('next_trip')}
+                disabled={isUpdating}
+              >
+                Next available trip
+              </Button>
+            </div>
+            <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+              Inventory will stay reserved for this rescheduled delivery.
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#0f3d72] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50 hover:text-[#0f3d72]"
+                onClick={closeFailedDeliveryReschedule}
+                disabled={isUpdating}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
+                onClick={async () => {
+                  if (!failedDeliveryRescheduleDropPointId) return
+                  const label =
+                    failedDeliveryReceiveAgain === 'tomorrow'
+                      ? 'tomorrow'
+                      : failedDeliveryReceiveAgain === 'next_trip'
+                        ? 'next available trip'
+                        : 'later today'
+                  closeFailedDeliveryReschedule()
+                  await handleUpdateDropPoint(
+                    failedDeliveryRescheduleDropPointId,
+                    'FAILED',
+                    `${deliveryNote || 'Delivery failed'} - reschedule requested (${label})`,
+                    undefined,
+                    {
+                      releaseInventory: false,
+                      rescheduleRequested: true,
+                      rescheduleWindow: failedDeliveryReceiveAgain,
+                      rescheduleDate:
+                        failedDeliveryReceiveAgain === 'next_trip'
+                          ? undefined
+                          : (() => {
+                              const scheduled = new Date()
+                              if (failedDeliveryReceiveAgain === 'tomorrow') {
+                                scheduled.setDate(scheduled.getDate() + 1)
+                              }
+                              return scheduled.toISOString()
+                            })(),
+                    }
+                  )
+                }}
+                disabled={isUpdating}
+              >
+                Confirm Reschedule
               </Button>
             </div>
           </div>
@@ -2221,8 +3090,9 @@ function HistoryView({
   isLoading: boolean
   onOpenTrip: (trip: Trip) => void
 }) {
+  const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const completedTrips = [...(trips || [])]
-    .filter((trip) => trip.status === 'COMPLETED')
+    .filter((trip) => isCompletedTrip(trip.status))
     .sort((a, b) => {
       const aDate = new Date(a.actualEndAt || a.updatedAt || a.createdAt || a.plannedStartAt || 0).getTime()
       const bDate = new Date(b.actualEndAt || b.updatedAt || b.createdAt || b.plannedStartAt || 0).getTime()
@@ -2263,9 +3133,7 @@ function HistoryView({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{trip.tripNumber}</p>
-                    <p className="text-xs text-slate-500">
-                      Completed: {formatDate(trip.actualEndAt || trip.updatedAt)}
-                    </p>
+                    <p className="text-xs text-slate-500">Completed: {formatDate(trip.actualEndAt || trip.updatedAt)}</p>
                   </div>
                   <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">COMPLETED</Badge>
                 </div>
@@ -2664,7 +3532,7 @@ function ProfileView({ user }: { user: any }) {
   }
 
   return (
-    <div className="p-4">
+    <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:pb-4">
       <h2 className="text-xl font-bold text-gray-900 mb-4">My Profile</h2>
       <Card>
         <CardContent className="pt-6">
@@ -2728,61 +3596,80 @@ function ProfileView({ user }: { user: any }) {
       </Card>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your personal details and license info.</DialogDescription>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
+                Edit <span className="text-[#2f9a34]">Profile</span>
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                Update your personal details and license info.
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3.5 overflow-y-auto px-5 pb-5 pt-4">
             <div className="space-y-2">
-              <Label htmlFor="driver-name">Full Name</Label>
-              <Input id="driver-name" value={draft.name} onChange={(e) => onChange('name', e.target.value)} />
+              <Label htmlFor="driver-name" className="text-[0.95rem] font-semibold text-[#17365d]">Full Name</Label>
+              <Input
+                id="driver-name"
+                value={draft.name}
+                onChange={(e) => onChange('name', e.target.value)}
+                className="h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20"
+              />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="driver-phone">Phone</Label>
-              <Input id="driver-phone" value={draft.phone} onChange={(e) => onChange('phone', e.target.value)} />
+              <Label htmlFor="driver-phone" className="text-[0.95rem] font-semibold text-[#17365d]">Phone</Label>
+              <Input
+                id="driver-phone"
+                value={draft.phone}
+                onChange={(e) => onChange('phone', e.target.value)}
+                className="h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20"
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
-                <Label htmlFor="driver-license-number">License #</Label>
+                <Label htmlFor="driver-license-number" className="text-[0.95rem] font-semibold text-[#17365d]">License #</Label>
                 <Input
                   id="driver-license-number"
                   value={draft.licenseNumber}
                   onChange={(e) => onChange('licenseNumber', e.target.value)}
+                  className="h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="driver-license-type">License Type</Label>
+                <Label htmlFor="driver-license-type" className="text-[0.95rem] font-semibold text-[#17365d]">License Type</Label>
                 <Input
                   id="driver-license-type"
                   value={draft.licenseType}
                   onChange={(e) => onChange('licenseType', e.target.value)}
+                  className="h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="driver-license-expiry">License Expiration</Label>
+              <Label htmlFor="driver-license-expiry" className="text-[0.95rem] font-semibold text-[#17365d]">License Expiration</Label>
               <Input
                 id="driver-license-expiry"
                 type="date"
                 value={draft.licenseExpiry}
                 onChange={(e) => onChange('licenseExpiry', e.target.value)}
+                className="h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20"
               />
             </div>
 
             <div className="space-y-2">
-              <Label>License Photo</Label>
+              <Label className="text-[0.95rem] font-semibold text-[#17365d]">License Photo</Label>
               {draft.licensePhoto ? (
                 <img
                   src={draft.licensePhoto}
                   alt="Driver license preview"
-                  className="h-40 w-full rounded-md border border-slate-200 object-cover"
+                  className="h-40 w-full rounded-2xl border border-sky-100 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
                 />
               ) : (
-                <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-slate-300 text-sm text-slate-500">
+                <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-sky-200 bg-white/60 text-sm text-[#597393]">
                   No image selected
                 </div>
               )}
@@ -2790,6 +3677,7 @@ function ProfileView({ user }: { user: any }) {
                 <Button
                   type="button"
                   variant="outline"
+                  className="h-10 rounded-xl border-sky-200 bg-white/85 px-3 text-sm font-semibold text-[#0f4f8f] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50 hover:text-[#0d61ad]"
                   onClick={() => galleryInputRef.current?.click()}
                   disabled={isUploadingLicensePhoto || isSaving}
                 >
@@ -2798,6 +3686,7 @@ function ProfileView({ user }: { user: any }) {
                 <Button
                   type="button"
                   variant="outline"
+                  className="h-10 rounded-xl border-emerald-200 bg-white/85 px-3 text-sm font-semibold text-[#1f7a38] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-emerald-50 hover:text-[#1a6a31]"
                   onClick={() => void takeLicensePhoto()}
                   disabled={isUploadingLicensePhoto || isSaving}
                 >
@@ -2816,18 +3705,27 @@ function ProfileView({ user }: { user: any }) {
                 }}
               />
               {isUploadingLicensePhoto ? (
-                <p className="text-xs text-slate-500">Uploading license image...</p>
+                <p className="text-xs text-[#4d6785]">Uploading license image...</p>
               ) : null}
               {isReadingLicenseOcr ? (
-                <p className="text-xs text-slate-500">Reading ID text and auto-filling fields...</p>
+                <p className="text-xs text-[#4d6785]">Reading ID text and auto-filling fields...</p>
               ) : null}
             </div>
 
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setEditOpen(false)} disabled={isSaving}>
+              <Button
+                variant="outline"
+                className="h-11 flex-1 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
+                onClick={() => setEditOpen(false)}
+                disabled={isSaving}
+              >
                 Cancel
               </Button>
-              <Button className="flex-1" onClick={onSave} disabled={isSaving}>
+              <Button
+                className="h-11 flex-1 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]"
+                onClick={onSave}
+                disabled={isSaving}
+              >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Save
               </Button>
@@ -2842,22 +3740,24 @@ function ProfileView({ user }: { user: any }) {
           if (!open) closeLicenseCamera()
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Take License Photo</DialogTitle>
-            <DialogDescription>Use your camera to capture the license ID.</DialogDescription>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Take License Photo</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">Use your camera to capture the license ID.</DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="overflow-hidden rounded-md border border-slate-200 bg-black">
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+            <div className="overflow-hidden rounded-xl border border-sky-100 bg-black shadow-[0_10px_24px_rgba(15,23,42,0.10)]">
               <video ref={licenseCameraVideoRef} autoPlay playsInline muted className="h-64 w-full object-cover" />
             </div>
-            {isLicenseCameraLoading ? <p className="text-sm text-slate-500">Opening camera...</p> : null}
+            {isLicenseCameraLoading ? <p className="text-sm text-[#4d6785]">Opening camera...</p> : null}
             {licenseCameraError ? <p className="text-sm text-red-600">{licenseCameraError}</p> : null}
             <div className="grid grid-cols-2 gap-2">
-              <Button type="button" variant="outline" onClick={closeLicenseCamera}>
+              <Button type="button" variant="outline" className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={closeLicenseCamera}>
                 Cancel
               </Button>
-              <Button type="button" onClick={() => void captureLicenseFromCamera()} disabled={Boolean(licenseCameraError)}>
+              <Button type="button" className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={() => void captureLicenseFromCamera()} disabled={Boolean(licenseCameraError)}>
                 Capture
               </Button>
             </div>

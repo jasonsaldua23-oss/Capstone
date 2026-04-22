@@ -152,6 +152,14 @@ interface WarehouseOrderItem {
   orderNumber: string
   warehouseId?: string
   status: string
+  warehouseStage?: string | null
+  isDriverAssigned?: boolean
+  assignedDriverName?: string | null
+  checklistItemsVerified?: boolean
+  checklistQuantityVerified?: boolean
+  checklistPackagingVerified?: boolean
+  checklistVehicleAssigned?: boolean
+  checklistDriverAssigned?: boolean
   createdAt: string
   totalAmount: number
   notes?: string | null
@@ -432,6 +440,8 @@ export function WarehousePortal() {
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
+  const [loadChecklistOpen, setLoadChecklistOpen] = useState(false)
+  const [loadChecklist, setLoadChecklist] = useState<Record<string, boolean>>({})
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -553,6 +563,24 @@ export function WarehousePortal() {
       : trips
   }, [assignedWarehouse, trips])
 
+  useEffect(() => {
+    if (!selectedTrip) return
+
+    const refreshedSelectedTrip =
+      scopedTrips.find((trip) => trip.id === selectedTrip.id) ||
+      trips.find((trip) => trip.id === selectedTrip.id) ||
+      null
+
+    if (!refreshedSelectedTrip) {
+      setSelectedTrip(null)
+      return
+    }
+
+    if (refreshedSelectedTrip !== selectedTrip) {
+      setSelectedTrip(refreshedSelectedTrip)
+    }
+  }, [selectedTrip, scopedTrips, trips])
+
   const scopedOrders = useMemo(() => {
     if (!assignedWarehouse) return orders
     const hasOrderWarehouseRefs = orders.some((item) => item?.warehouseId)
@@ -563,7 +591,7 @@ export function WarehousePortal() {
 
   const isDropPointCompleted = (status: unknown) => {
     const value = String(status || '').toUpperCase()
-    return ['COMPLETED', 'DELIVERED', 'FULFILLED'].includes(value)
+    return ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(value)
   }
 
   const isCompletedOrderStatus = (status: unknown) => {
@@ -659,9 +687,10 @@ export function WarehousePortal() {
           }))
           .sort((a: any, b: any) => new Date(a.recordedAt || 0).getTime() - new Date(b.recordedAt || 0).getTime())
 
+        const terminalStatuses = ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED']
         const nextPendingIndex = dropPoints.findIndex((point: any) => {
           const status = String(point?.status || point?.orderStatus || '').toUpperCase()
-          return !['COMPLETED', 'DELIVERED'].includes(status)
+          return !terminalStatuses.includes(status)
         })
         const nextDropPoint = nextPendingIndex !== -1 ? dropPoints[nextPendingIndex] : null
         const warehouseStartLat =
@@ -746,10 +775,12 @@ export function WarehousePortal() {
           const dropPointOrderId = String(dropPoint?.orderId || '').trim()
           if (dropPointOrderId) tripOrderIds.add(dropPointOrderId)
 
+          const dpStatus = String(dropPoint?.status || '').toUpperCase()
+          const isCancelledOrFailed = ['FAILED', 'CANCELLED', 'SKIPPED'].includes(dpStatus)
           const completed = isDropPointCompleted(dropPoint?.status) || isDropPointCompleted(dropPoint?.orderStatus)
           const isNext = index === nextPendingIndex
           const markerColor = completed ? '#2563eb' : (isNext ? '#ef4444' : '#16a34a')
-          const markerLabel = completed ? 'Completed' : (isNext ? 'Next Stop' : 'Upcoming')
+          const markerLabel = isCancelledOrFailed ? 'Cancelled' : (completed ? 'Completed' : (isNext ? 'Next Stop' : 'Upcoming'))
 
           locations.push({
             id: `trip-order-${trip.id}-${dropPoint.id}`,
@@ -1394,22 +1425,26 @@ export function WarehousePortal() {
   const fetchTripsData = async () => {
     setLoadingTrips(true)
     try {
+      const normalizedTrackingDate =
+        /^\d{4}-\d{2}-\d{2}$/.test(String(trackingDate || '').trim())
+          ? String(trackingDate).trim()
+          : ''
       const query = new URLSearchParams({
         limit: '200',
         includeTracking: '1',
       })
-      if (trackingDate) {
-        query.set('trackingDate', trackingDate)
+      if (normalizedTrackingDate) {
+        query.set('trackingDate', normalizedTrackingDate)
       }
       const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 1 })
       if (!result.ok) {
         setTrips([])
-        toast.error('Failed to load trips')
+        toast.error(String((result as any)?.data?.error || 'Failed to load trips'))
         return
       }
       setTrips(getCollection<WarehouseTripItem>(result.data, ['trips']))
-    } catch {
-      toast.error('Failed to load trips')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to load trips')
     } finally {
       setLoadingTrips(false)
     }
@@ -2080,6 +2115,20 @@ export function WarehousePortal() {
     return raw.replace(/_/g, ' ')
   }
 
+  const formatWarehouseStage = (stage: string | null | undefined) => {
+    const value = String(stage || 'READY_TO_LOAD').toUpperCase()
+    return value.replace(/_/g, ' ')
+  }
+
+  const isWarehouseChecklistComplete = (order: WarehouseOrderItem | null | undefined) =>
+    Boolean(
+      order?.checklistItemsVerified &&
+      order?.checklistQuantityVerified &&
+      order?.checklistPackagingVerified &&
+      order?.checklistVehicleAssigned &&
+      order?.checklistDriverAssigned
+    )
+
   const formatWarehouseOrderAddress = (order: WarehouseOrderItem | null) => {
     const address = String(order?.shippingAddress || '').trim()
     const city = String(order?.shippingCity || '').trim()
@@ -2151,6 +2200,53 @@ export function WarehousePortal() {
       emitDataSync(['orders', 'trips'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
+    } finally {
+      setUpdatingOrderId(null)
+    }
+  }
+
+  const updateWarehouseStage = async (
+    orderId: string,
+    stage: 'LOADED',
+    payload: {
+      itemsVerified?: boolean
+      quantityVerified?: boolean
+      packagingVerified?: boolean
+      vehicleAssigned?: boolean
+      driverAssigned?: boolean
+    } = {}
+  ) => {
+    setUpdatingOrderId(orderId)
+    try {
+      const response = await fetch(`/api/orders/${orderId}/warehouse-stage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          warehouseStage: stage,
+          checklist: {
+            itemsVerified: payload.itemsVerified,
+            quantityVerified: payload.quantityVerified,
+            packagingVerified: payload.packagingVerified,
+            vehicleAssigned: payload.vehicleAssigned,
+            driverAssigned: payload.driverAssigned,
+          },
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result?.success === false) {
+        throw new Error(result?.error || 'Failed to update warehouse stage')
+      }
+
+      setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...(result?.order || {}) } : prev))
+      toast.success(result?.message || `Warehouse stage moved to ${stage.replace(/_/g, ' ')}`)
+      await fetchOrdersData()
+      await fetchTripsData()
+      emitDataSync(['orders', 'trips'])
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update warehouse stage')
+      return false
     } finally {
       setUpdatingOrderId(null)
     }
@@ -3506,14 +3602,19 @@ export function WarehousePortal() {
             <>
               <DialogHeader>
                 <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
-                <DialogDescription>
-                  {loadingOrderDetail ? 'Loading latest order details...' : 'Complete order and client information'}
-                </DialogDescription>
+                <DialogDescription>{loadingOrderDetail ? 'Loading latest order details...' : undefined}</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Order Status</p>
                   <p className="font-semibold">{formatWarehouseOrderStatus(selectedOrder.status, (selectedOrder as any).paymentStatus)}</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-gray-500">Warehouse Stage</p>
+                  <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
+                  <p className="text-xs text-gray-600">
+                    Driver: {selectedOrder.isDriverAssigned ? selectedOrder.assignedDriverName || 'Assigned' : 'Not assigned'}
+                  </p>
                 </div>
                 <div className="rounded-md border p-3 space-y-1">
                   <p className="font-medium">Client Information</p>
@@ -3536,16 +3637,41 @@ export function WarehousePortal() {
                     <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
                   </div>
                 </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="font-medium">Checklist</p>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${isWarehouseChecklistComplete(selectedOrder) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {isWarehouseChecklistComplete(selectedOrder) ? 'Completed' : 'Pending'}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {(selectedOrder.items || []).map((item) => (
+                      <div key={item.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                        <span>{item.product?.name || 'Product'} x{item.quantity}</span>
+                        <span className={`font-medium ${isWarehouseChecklistComplete(selectedOrder) ? 'text-emerald-700' : 'text-gray-500'}`}>
+                          {isWarehouseChecklistComplete(selectedOrder) ? 'Completed' : 'Pending'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 {(() => {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
+                  const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()
                   const isPendingApproval = String((selectedOrder as any).paymentStatus || '').toLowerCase() === 'pending_approval'
+                  const isDriverAssigned = Boolean(selectedOrder.isDriverAssigned)
                   return (
                     <div className="grid grid-cols-2 gap-2">
-                      {!isPendingApproval && selectedOrderStatus === 'PREPARING' ? (
+                      {!isPendingApproval && selectedOrderStatus === 'PREPARING' && selectedWarehouseStage === 'READY_TO_LOAD' ? (
                         <Button
-                          className="bg-red-600 text-white hover:bg-red-700"
-                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
-                          disabled={updatingOrderId === selectedOrder.id}
+                          className="bg-amber-600 text-white hover:bg-amber-700"
+                          onClick={() => {
+                            setLoadChecklist(
+                              Object.fromEntries((selectedOrder.items || []).map((item) => [String(item.id), false]))
+                            )
+                            setLoadChecklistOpen(true)
+                          }}
+                          disabled={updatingOrderId === selectedOrder.id || !isDriverAssigned}
                         >
                           Mark as Loaded
                         </Button>
@@ -3555,7 +3681,7 @@ export function WarehousePortal() {
                           onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
-                          Mark as Loaded
+                          Approve Order
                         </Button>
                       ) : (
                         <Button variant="outline" disabled>
@@ -3574,13 +3700,75 @@ export function WarehousePortal() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={loadChecklistOpen} onOpenChange={setLoadChecklistOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Checklist</DialogTitle>
+            <DialogDescription>Complete every product before marking this order as loaded.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2 text-sm">
+              {(selectedOrder?.items || []).map((item) => (
+                <label key={item.id} className="flex items-center gap-3 rounded border p-3">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(loadChecklist[String(item.id)])}
+                    onChange={(event) =>
+                      setLoadChecklist((prev) => ({
+                        ...prev,
+                        [String(item.id)]: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>{item.product?.name || 'Product'} x{item.quantity}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setLoadChecklistOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-amber-600 hover:bg-amber-700"
+                onClick={async () => {
+                  if (!selectedOrder?.id) return
+                  if (!selectedOrder.isDriverAssigned) {
+                    toast.error('Assign this order to a driver first.')
+                    return
+                  }
+                  const checklistEntries = Object.values(loadChecklist)
+                  if (checklistEntries.length === 0 || checklistEntries.some((value) => !value)) {
+                    toast.error('Complete the checklist first.')
+                    return
+                  }
+                  const done = await updateWarehouseStage(selectedOrder.id, 'LOADED', {
+                    itemsVerified: true,
+                    quantityVerified: true,
+                    packagingVerified: true,
+                    vehicleAssigned: true,
+                    driverAssigned: true,
+                  })
+                  if (done) {
+                    setLoadChecklistOpen(false)
+                  }
+                }}
+                disabled={updatingOrderId === selectedOrder?.id}
+              >
+                Confirm Loaded
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!rejectOrder} onOpenChange={(open) => !open && setRejectOrder(null)}>
         <DialogContent>
           {rejectOrder && (
             <>
               <DialogHeader>
-                <DialogTitle>Mark as Loaded</DialogTitle>
-                <DialogDescription>Optionally add notes before marking order {rejectOrder.orderNumber} as loaded.</DialogDescription>
+                <DialogTitle>Reject Order</DialogTitle>
+                <DialogDescription>Please provide a reason for rejecting order {rejectOrder.orderNumber}.</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <textarea

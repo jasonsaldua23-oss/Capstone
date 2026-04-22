@@ -874,10 +874,10 @@ export function CustomerPortal() {
       const isCodToPay = paymentMethod === 'COD' && paymentStatus !== 'paid'
 
       if (ordersTab === 'TO_PAY') {
-        return ['PENDING', 'CONFIRMED'].includes(raw) || isCodToPay || paymentStatus === 'pending_approval'
+        return raw === 'PENDING' || isCodToPay || paymentStatus === 'pending_approval'
       }
       if (ordersTab === 'TO_SHIP') {
-        return ['PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
+        return ['CONFIRMED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
       }
       if (ordersTab === 'TO_RECEIVE') {
         return ['OUT_FOR_DELIVERY', 'DISPATCHED', 'IN_TRANSIT'].includes(raw)
@@ -994,7 +994,7 @@ export function CustomerPortal() {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') return 'PENDING'
     const raw = String(status || '').toUpperCase()
     if (raw === 'PENDING') return 'PENDING'
-    if (raw === 'CONFIRMED') return 'CONFIRMED'
+    if (raw === 'CONFIRMED') return 'PREPARING'
     if (raw === 'PROCESSING' || raw === 'PACKED' || raw === 'READY_FOR_PICKUP') return 'PREPARING'
     if (raw === 'IN_TRANSIT' || raw === 'DISPATCHED') return 'OUT_FOR_DELIVERY'
     return raw
@@ -1003,7 +1003,7 @@ export function CustomerPortal() {
   const getOrderStageIndex = (status: string, paymentStatus?: string | null) => {
     const normalized = normalizeDeliveryStatus(status, paymentStatus)
     if (normalized === 'PENDING') return 0
-    if (normalized === 'CONFIRMED' || normalized === 'PREPARING') return 1
+    if (normalized === 'PREPARING') return 1
     if (normalized === 'OUT_FOR_DELIVERY') return 2
     if (normalized === 'DELIVERED') return 3
     return 0
@@ -1267,15 +1267,15 @@ export function CustomerPortal() {
 
   const isOrderCancellable = (status: string, paymentStatus?: string | null) => {
     const raw = String(status || '').toUpperCase()
-    if (raw === 'PREPARING' || raw === 'PROCESSING') {
+    if (raw === 'PROCESSING') {
       return String(paymentStatus || '').toLowerCase() === 'pending_approval'
     }
-    return ['PENDING', 'CONFIRMED'].includes(raw)
+    return raw === 'PENDING'
   }
 
   const isOrderTrackable = (status: string) => {
     const raw = String(status || '').toUpperCase()
-    return ['OUT_FOR_DELIVERY', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERED'].includes(raw)
+    return ['CONFIRMED', 'PREPARING', 'OUT_FOR_DELIVERY', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERED'].includes(raw)
   }
 
   const openRatingDialog = (order: Order, initialRating = 5) => {

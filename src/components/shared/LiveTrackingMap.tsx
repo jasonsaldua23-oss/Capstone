@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -11,6 +11,20 @@ const MarkerUnsafe = Marker as any;
 const PolylineUnsafe = Polyline as any;
 const CircleMarkerUnsafe = CircleMarker as any;
 const TooltipUnsafe = Tooltip as any;
+const PolygonUnsafe = Polygon as any;
+
+const NEGROS_ISLAND_GEOJSON_URL =
+  'https://nominatim.openstreetmap.org/search?format=geojson&polygon_geojson=1&limit=1&q=Negros%20Island%20Philippines';
+
+type NegrosIslandGeometry = {
+  type: 'Polygon' | 'MultiPolygon';
+  coordinates: number[][][] | number[][][][];
+};
+
+type NegrosIslandBoundary = {
+  geometry: NegrosIslandGeometry;
+  bbox: [number, number, number, number];
+};
 
 // Fix for default marker icons in Next.js + Leaflet
 const DefaultIcon = L.icon({
@@ -58,6 +72,8 @@ interface LiveTrackingMapProps {
   routeLines?: LiveRouteLine[];
   restrictToNegrosOccidental?: boolean;
   navigationPerspective?: boolean;
+  recenterSignal?: number;
+  showZoomControls?: boolean;
   className?: string;
 }
 
@@ -69,10 +85,16 @@ type SnappedPointOnRoute = {
   segmentIndex: number;
 };
 
-const NEGROS_OCCIDENTAL_BOUNDS = L.latLngBounds([9.18, 122.22], [11.05, 123.35]);
+const NEGROS_ISLAND_FALLBACK_BOUNDS = L.latLngBounds([9.0380812, 122.3758966], [11.002995, 123.5688567]);
+const WORLD_MASK_RING: [number, number][] = [
+  [-90, -180],
+  [-90, 180],
+  [90, 180],
+  [90, -180],
+];
 
 const truckIconCache = new Map<string, L.DivIcon>();
-const statusPinIconCache = new Map<'green' | 'blue', L.Icon>();
+const statusPinIconCache = new Map<string, L.DivIcon>();
 type TruckIconDirection = 'left' | 'right';
 const TRUCK_ICON_URL = '/icons/driver-location-cropped.png';
 // This icon's nose points upper-right (~northeast, 45deg) at 0deg image rotation.
@@ -84,27 +106,35 @@ const TRUCK_SMOOTHING_DURATION_MS = 300;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 
-function getStatusPinIcon(color: 'green' | 'blue') {
-  const cached = statusPinIconCache.get(color);
+function getStatusPinIcon(color: 'green' | 'blue', number?: number | string) {
+  const label = number === undefined || number === null || String(number).trim() === '' ? '' : String(number);
+  const cacheKey = `${color}:${label}`;
+  const cached = statusPinIconCache.get(cacheKey);
   if (cached) return cached;
 
-  const icon = L.icon({
-    iconUrl:
-      color === 'green'
-        ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
-        : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-    iconRetinaUrl:
-      color === 'green'
-        ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png'
-        : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
+  const icon = L.divIcon({
+    className: 'status-pin-icon',
+    html: `
+      <div style="position:relative;width:28px;height:44px;display:flex;align-items:flex-start;justify-content:center;">
+        <img
+          src="${
+            color === 'green'
+              ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
+              : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
+          }"
+          alt="pin"
+          style="width:25px;height:41px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));"
+          onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';"
+        />
+        ${label ? `<div style="position:absolute;top:9px;left:50%;transform:translateX(-50%);min-width:14px;height:14px;padding:0 3px;border-radius:9999px;background:rgba(255,255,255,0.96);border:1px solid rgba(15,23,42,0.08);color:${color === 'green' ? '#047857' : '#0369a1'};font-size:10px;line-height:14px;font-weight:800;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.14);">${label}</div>` : ''}
+      </div>
+    `,
+    iconSize: [28, 44],
+    iconAnchor: [14, 44],
     popupAnchor: [1, -34],
-    shadowSize: [41, 41],
   });
 
-  statusPinIconCache.set(color, icon);
+  statusPinIconCache.set(cacheKey, icon);
   return icon;
 }
 
@@ -263,6 +293,120 @@ function pointAtDistanceAlongRoute(
   return polyline[polyline.length - 1] ?? null;
 }
 
+function clampPointToBounds(point: [number, number], bounds: L.LatLngBounds | null): [number, number] {
+  if (!bounds) return point;
+  const southWest = bounds.getSouthWest();
+  const northEast = bounds.getNorthEast();
+  return [
+    Math.min(Math.max(point[0], southWest.lat), northEast.lat),
+    Math.min(Math.max(point[1], southWest.lng), northEast.lng),
+  ];
+}
+
+function geometryToBounds(geometry: NegrosIslandGeometry | null) {
+  if (!geometry) return null;
+
+  let minLat = Number.POSITIVE_INFINITY;
+  let minLng = Number.POSITIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  let maxLng = Number.NEGATIVE_INFINITY;
+
+  const visit = (coordinates: any): void => {
+    if (!Array.isArray(coordinates)) return;
+
+    if (
+      coordinates.length === 2 &&
+      Number.isFinite(Number(coordinates[0])) &&
+      Number.isFinite(Number(coordinates[1]))
+    ) {
+      const lng = Number(coordinates[0]);
+      const lat = Number(coordinates[1]);
+      minLat = Math.min(minLat, lat);
+      minLng = Math.min(minLng, lng);
+      maxLat = Math.max(maxLat, lat);
+      maxLng = Math.max(maxLng, lng);
+      return;
+    }
+
+    for (const item of coordinates) {
+      visit(item);
+    }
+  };
+
+  visit(geometry.coordinates);
+
+  if (!Number.isFinite(minLat) || !Number.isFinite(minLng) || !Number.isFinite(maxLat) || !Number.isFinite(maxLng)) {
+    return null;
+  }
+
+  return L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+}
+
+function geometryToExteriorRings(geometry: NegrosIslandGeometry | null) {
+  if (!geometry) return [] as [number, number][][];
+
+  if (geometry.type === 'Polygon') {
+    const outerRing = geometry.coordinates[0] || [];
+    return [outerRing.map((pair) => [Number(pair[1]), Number(pair[0])] as [number, number])];
+  }
+
+  return (geometry.coordinates as number[][][][])
+    .map((polygon) => polygon[0] || [])
+    .filter((ring) => Array.isArray(ring) && ring.length > 0)
+    .map((ring) => ring.map((pair) => [Number(pair[1]), Number(pair[0])] as [number, number]));
+}
+
+function expandRingForMask(ring: [number, number][], meters = 600): [number, number][] {
+  if (!Array.isArray(ring) || ring.length < 3) return ring;
+
+  const centroidLat = ring.reduce((sum, point) => sum + point[0], 0) / ring.length;
+  const centroidLng = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+  const cosRef = Math.max(Math.cos((centroidLat * Math.PI) / 180), 0.01);
+
+  return ring.map((point) => {
+    const dxMeters = (point[1] - centroidLng) * 111320 * cosRef;
+    const dyMeters = (point[0] - centroidLat) * 110540;
+    const length = Math.sqrt(dxMeters * dxMeters + dyMeters * dyMeters);
+
+    if (!Number.isFinite(length) || length < 1e-6) return point;
+
+    const scale = (length + meters) / length;
+    const expandedLat = centroidLat + (dyMeters * scale) / 110540;
+    const expandedLng = centroidLng + (dxMeters * scale) / (111320 * cosRef);
+    return [expandedLat, expandedLng] as [number, number];
+  });
+}
+
+function getMaskExpansionMetersForZoom(zoomLevel: number) {
+  if (!Number.isFinite(zoomLevel)) return 4200;
+  if (zoomLevel >= 13) return 1800;
+  if (zoomLevel >= 12) return 2600;
+  if (zoomLevel >= 11) return 4200;
+  if (zoomLevel >= 10) return 6200;
+  return 8200;
+}
+
+function pointInRing(point: [number, number], ring: [number, number][]) {
+  let inside = false;
+
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const current = ring[index];
+    const prior = ring[previous];
+    const intersects =
+      current[1] > point[1] !== prior[1] > point[1] &&
+      point[0] < ((prior[0] - current[0]) * (point[1] - current[1])) / (prior[1] - current[1] || Number.EPSILON) + current[0];
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
+}
+
+function isPointInNegrosIsland(point: [number, number], geometry: NegrosIslandGeometry | null) {
+  const exteriorRings = geometryToExteriorRings(geometry);
+  return exteriorRings.some((ring) => ring.length > 2 && pointInRing(point, ring));
+}
+
 function calculateBearingAlongRoute(
   snapped: SnappedPointOnRoute,
   polyline: [number, number][],
@@ -314,14 +458,20 @@ async function fetchRoadSnappedPoints(points: [number, number][], signal: AbortS
   return snappedPoints.length > 1 ? snappedPoints : [];
 }
 
-function MapBoundsGuard({ enabled }: { enabled: boolean }) {
+function MapBoundsGuard({ enabled, bounds }: { enabled: boolean; bounds: L.LatLngBounds | null }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!enabled) return;
-    map.setMaxBounds(NEGROS_OCCIDENTAL_BOUNDS);
-    map.fitBounds(NEGROS_OCCIDENTAL_BOUNDS, { padding: [10, 10] });
-  }, [enabled, map]);
+    if (!enabled || !bounds) return;
+    map.setMaxBounds(bounds.pad(0.2));
+
+    const center = map.getCenter();
+    if (!Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
+
+    if (!bounds.contains(center)) {
+      map.setView(bounds.getCenter(), Math.max(map.getZoom(), 9), { animate: false });
+    }
+  }, [bounds, enabled, map]);
 
   return null;
 }
@@ -370,6 +520,79 @@ function NavigationCamera({
   return null;
 }
 
+function ManualRecenter({
+  center,
+  recenterSignal,
+  bounds,
+}: {
+  center: [number, number];
+  recenterSignal?: number;
+  bounds: L.LatLngBounds | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (typeof recenterSignal !== 'number') return;
+    if (!Array.isArray(center) || center.length !== 2) return;
+    if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) return;
+    map.setView(clampPointToBounds(center, bounds), map.getZoom(), { animate: true } as any);
+  }, [bounds, center, map, recenterSignal]);
+
+  return null;
+}
+
+function MapResizeSync() {
+  const map = useMap();
+
+  useEffect(() => {
+    let cancelled = false;
+    let firstFrame = 0;
+    let secondFrame = 0;
+
+    const invalidate = () => {
+      if (cancelled) return;
+      map.invalidateSize({ animate: false });
+    };
+
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(invalidate);
+    });
+
+    const container = map.getContainer();
+    const observer = 'ResizeObserver' in window
+      ? new ResizeObserver(() => {
+          window.requestAnimationFrame(invalidate);
+        })
+      : null;
+
+    observer?.observe(container);
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      observer?.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
+function NegrosMaskPane() {
+  const map = useMap();
+
+  useEffect(() => {
+    const paneName = 'negros-mask-pane';
+    if (!map.getPane(paneName)) {
+      const pane = map.createPane(paneName);
+      pane.style.zIndex = '650';
+      pane.style.pointerEvents = 'none';
+    }
+  }, [map]);
+
+  return null;
+}
+
 function getTruckIcon(options: { direction?: TruckIconDirection; heading?: number } = {}) {
   const direction = options.direction || 'right';
   const heading = typeof options.heading === 'number' && Number.isFinite(options.heading) ? options.heading : null;
@@ -411,9 +634,11 @@ export default function LiveTrackingMap({
   routeLines = [],
   restrictToNegrosOccidental = false,
   navigationPerspective = false,
+  recenterSignal,
+  showZoomControls = true,
   className = "w-full h-[350px] rounded-xl overflow-hidden border shadow-sm",
 }: LiveTrackingMapProps) {
-  const safeLocations = useMemo(
+  const rawSafeLocations = useMemo(
     () =>
       (locations || []).filter(
         (loc): loc is DriverLocation =>
@@ -425,7 +650,7 @@ export default function LiveTrackingMap({
     [locations]
   );
 
-  const safeRouteLines = useMemo(
+  const rawSafeRouteLines = useMemo(
     () =>
       (routeLines || [])
         .map((line) => ({
@@ -442,10 +667,98 @@ export default function LiveTrackingMap({
     [routeLines]
   );
 
-  const [smoothedLocations, setSmoothedLocations] = useState<DriverLocation[]>(safeLocations);
+  const [smoothedLocations, setSmoothedLocations] = useState<DriverLocation[]>(rawSafeLocations);
   const [snappedRoutePointsById, setSnappedRoutePointsById] = useState<Record<string, [number, number][]>>({});
   const [currentZoom, setCurrentZoom] = useState(zoom);
+  const [negrosIslandBoundary, setNegrosIslandBoundary] = useState<NegrosIslandBoundary | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!restrictToNegrosOccidental) {
+      setNegrosIslandBoundary(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const response = await fetch(NEGROS_ISLAND_GEOJSON_URL, { signal: controller.signal });
+        const payload = await response.json().catch(() => ({}));
+        const feature = Array.isArray(payload?.features) ? payload.features[0] : null;
+        const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
+        const bbox = Array.isArray(feature?.bbox) && feature.bbox.length === 4
+          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
+          : null;
+
+        if (!response.ok || !geometry || !bbox) {
+          throw new Error('Failed to load Negros Island geometry');
+        }
+
+        if (!cancelled) {
+          setNegrosIslandBoundary({ geometry, bbox });
+        }
+      } catch {
+        if (!cancelled) {
+          setNegrosIslandBoundary(null);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [restrictToNegrosOccidental]);
+
+  const negrosIslandBounds = useMemo(
+    () =>
+      negrosIslandBoundary
+        ? L.latLngBounds(
+            [negrosIslandBoundary.bbox[1], negrosIslandBoundary.bbox[0]],
+            [negrosIslandBoundary.bbox[3], negrosIslandBoundary.bbox[2]]
+          )
+        : null,
+    [negrosIslandBoundary]
+  );
+
+  const negrosIslandMaskRings = useMemo(
+    () => {
+      const expansionMeters = getMaskExpansionMetersForZoom(currentZoom);
+      return geometryToExteriorRings(negrosIslandBoundary?.geometry || null).map((ring) =>
+        expandRingForMask(ring, expansionMeters)
+      );
+    },
+    [currentZoom, negrosIslandBoundary]
+  );
+
+  const safeLocations = useMemo(
+    () =>
+      restrictToNegrosOccidental
+        ? negrosIslandBoundary
+          ? rawSafeLocations.filter((loc) => isPointInNegrosIsland([loc.lat, loc.lng], negrosIslandBoundary.geometry))
+          : []
+        : rawSafeLocations,
+    [negrosIslandBoundary, rawSafeLocations, restrictToNegrosOccidental]
+  );
+
+  const safeRouteLines = useMemo(
+    () =>
+      restrictToNegrosOccidental
+        ? negrosIslandBoundary
+          ? rawSafeRouteLines
+              .map((line) => ({
+                ...line,
+                points: line.points.filter((point) => isPointInNegrosIsland(point, negrosIslandBoundary.geometry)),
+              }))
+              .filter((line) => line.points.length > 1)
+          : []
+        : rawSafeRouteLines,
+    [negrosIslandBoundary, rawSafeRouteLines, restrictToNegrosOccidental]
+  );
 
   const roadSnapSignature = useMemo(
     () =>
@@ -679,22 +992,39 @@ export default function LiveTrackingMap({
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = navigationPerspective && singleTruck.length === 1 ? singleTruck[0] : null;
+  const resolvedCenter =
+    restrictToNegrosOccidental && Array.isArray(center) && center.length === 2
+      ? clampPointToBounds(center, negrosIslandBounds)
+      : center;
+  const isIslandModeReady = !restrictToNegrosOccidental || Boolean(negrosIslandBoundary);
 
   return (
-    <div className={className}>
+    <div className={`bg-white ${className}`}>
+      {restrictToNegrosOccidental && !isIslandModeReady ? (
+        <div className="flex h-full w-full items-center justify-center bg-[#aad3df] text-sm text-slate-500">
+          Loading Negros Island boundary...
+        </div>
+      ) : (
       <MapContainerUnsafe
-        center={center}
+        center={resolvedCenter}
         zoom={zoom}
         scrollWheelZoom={true}
+        inertia={false}
+        bounceAtZoomLimits={false}
         className="w-full h-full z-0"
+        zoomControl={showZoomControls}
         zoomAnimation={false}
         markerZoomAnimation={false}
-        minZoom={restrictToNegrosOccidental ? 9 : undefined}
-        maxBounds={restrictToNegrosOccidental ? NEGROS_OCCIDENTAL_BOUNDS : undefined}
+        minZoom={restrictToNegrosOccidental ? 10 : undefined}
+        bounds={restrictToNegrosOccidental ? negrosIslandBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS : undefined}
+        maxBounds={restrictToNegrosOccidental ? negrosIslandBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS : undefined}
         maxBoundsViscosity={restrictToNegrosOccidental ? 1.0 : undefined}
       >
+        <MapResizeSync />
+        <NegrosMaskPane />
         <ZoomTracker onZoomChange={setCurrentZoom} />
-        <MapBoundsGuard enabled={restrictToNegrosOccidental} />
+        <MapBoundsGuard enabled={restrictToNegrosOccidental} bounds={negrosIslandBounds} />
+        <ManualRecenter center={center} recenterSignal={recenterSignal} bounds={negrosIslandBounds} />
         <NavigationCamera
           enabled={Boolean(navTruck)}
           truckPosition={navTruck ? [navTruck.lat, navTruck.lng] : null}
@@ -707,8 +1037,21 @@ export default function LiveTrackingMap({
         <TileLayerUnsafe
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          noWrap={restrictToNegrosOccidental}
         />
-
+        {restrictToNegrosOccidental && negrosIslandBoundary ? (
+          <PolygonUnsafe
+            positions={[WORLD_MASK_RING, ...negrosIslandMaskRings]}
+            pane="negros-mask-pane"
+            interactive={false}
+            pathOptions={{
+              stroke: false,
+              fillColor: '#aad3df',
+              fillOpacity: 1,
+              opacity: 1,
+            }}
+          />
+        ) : null}
         {renderedRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
             <Fragment key={line.id}>
@@ -774,7 +1117,7 @@ export default function LiveTrackingMap({
             <MarkerUnsafe
               key={loc.id}
               position={[loc.lat, loc.lng]}
-              icon={getStatusPinIcon(pinColor)}
+              icon={getStatusPinIcon(pinColor, loc.markerNumber)}
             >
               {loc.markerEta ? (
                 <TooltipUnsafe
@@ -832,6 +1175,7 @@ export default function LiveTrackingMap({
           )
         )}
       </MapContainerUnsafe>
+      )}
       <style jsx global>{`
         .map-eta-tooltip {
           background: transparent;

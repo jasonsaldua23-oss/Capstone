@@ -79,6 +79,57 @@ export function WarehouseTripsSection({
     return value === 'IN_TRANSIT' ? 'IN_PROGRESS' : value
   }
 
+  const normalizeDropPointStatus = (status: string | null | undefined) => {
+    const value = String(status || '').toUpperCase()
+    if (value === 'FAILED_DELIVERY') return 'FAILED'
+    if (value === 'IN_TRANSIT' || value === 'OUT_FOR_DELIVERY') return 'IN_PROGRESS'
+    return value
+  }
+
+  const terminalDropPointStatuses = new Set([
+    'COMPLETED',
+    'DELIVERED',
+    'FULFILLED',
+    'FAILED',
+    'SKIPPED',
+    'CANCELED',
+    'CANCELLED',
+  ])
+
+  const getEffectiveTripStatus = (trip: TripItem) => {
+    const normalizedTripStatus = normalizeTripStatus(trip.status)
+    const dropPoints = Array.isArray(trip.dropPoints) ? trip.dropPoints : []
+
+    if (dropPoints.length === 0) {
+      return normalizedTripStatus
+    }
+
+    const normalizedDropPointStatuses = dropPoints.map((point) => normalizeDropPointStatus(point.status))
+    const completedCount = normalizedDropPointStatuses.filter((status) => terminalDropPointStatuses.has(status)).length
+
+    if (completedCount === 0) {
+      return normalizedTripStatus
+    }
+
+    if (completedCount >= dropPoints.length) {
+      return 'COMPLETED'
+    }
+
+    return normalizedTripStatus === 'PLANNED' ? 'IN_PROGRESS' : normalizedTripStatus
+  }
+
+  const getEffectiveCompletedDropPoints = (trip: TripItem) => {
+    const derivedCompleted = Array.isArray(trip.dropPoints)
+      ? trip.dropPoints.filter((point) => terminalDropPointStatuses.has(normalizeDropPointStatus(point.status))).length
+      : 0
+
+    return Math.max(Number(trip.completedDropPoints || 0), derivedCompleted)
+  }
+
+  const getEffectiveTotalDropPoints = (trip: TripItem) => {
+    return Math.max(Number(trip.totalDropPoints || 0), Array.isArray(trip.dropPoints) ? trip.dropPoints.length : 0)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
@@ -162,7 +213,7 @@ export function WarehouseTripsSection({
             <div className="space-y-3">
               {scopedTrips.map((trip) => (
                 (() => {
-                  const statusKey = normalizeTripStatus(trip.status)
+                  const statusKey = getEffectiveTripStatus(trip)
                   return (
                 <div
                   key={trip.id}
@@ -209,7 +260,9 @@ export function WarehouseTripsSection({
         <DialogContent className="max-w-3xl w-full">
           {selectedTrip && (
             (() => {
-              const statusKey = normalizeTripStatus(selectedTrip.status)
+              const statusKey = getEffectiveTripStatus(selectedTrip)
+              const effectiveCompletedDropPoints = getEffectiveCompletedDropPoints(selectedTrip)
+              const effectiveTotalDropPoints = getEffectiveTotalDropPoints(selectedTrip)
               return (
             <div className="space-y-4">
               <div className="flex items-center gap-3 mb-2">
@@ -226,7 +279,7 @@ export function WarehouseTripsSection({
               </div>
               <div className="flex flex-wrap gap-6 mb-2 text-sm">
                 <div>
-                  <span className="font-semibold">Progress:</span> {selectedTrip.completedDropPoints ?? 0}/{selectedTrip.totalDropPoints ?? 0}
+                  <span className="font-semibold">Progress:</span> {effectiveCompletedDropPoints}/{effectiveTotalDropPoints}
                 </div>
                 <div>
                   <span className="font-semibold">Drop points:</span> {selectedTrip.dropPoints?.length ?? 0}
@@ -238,13 +291,14 @@ export function WarehouseTripsSection({
                 {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
                   <div className="space-y-2 max-h-72 overflow-auto pr-1">
                     {selectedTrip.dropPoints.map((point, index) => {
-                      const statusLabel = String(point.status || 'PENDING').replace(/_/g, ' ')
+                      const normalizedPointStatus = normalizeDropPointStatus(point.status)
+                      const statusLabel = normalizedPointStatus.replace(/_/g, ' ') || 'PENDING'
                       const statusClass =
-                        point.status === 'DELIVERED'
+                        ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(normalizedPointStatus)
                           ? 'bg-green-100 text-green-700 border-green-200'
-                          : point.status === 'FAILED_DELIVERY' || point.status === 'CANCELLED'
+                          : ['FAILED', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(normalizedPointStatus)
                             ? 'bg-red-100 text-red-700 border-red-200'
-                            : point.status === 'IN_TRANSIT' || point.status === 'OUT_FOR_DELIVERY'
+                            : normalizedPointStatus === 'IN_PROGRESS'
                               ? 'bg-blue-100 text-blue-700 border-blue-200'
                               : 'bg-gray-100 text-gray-700 border-gray-200'
 

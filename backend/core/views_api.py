@@ -186,7 +186,7 @@ _ORDER_STATUS_ALIASES: dict[str, str] = {
     "DISPATCHED": OrderStatus.OUT_FOR_DELIVERY,
     "READY_FOR_PICKUP": OrderStatus.PREPARING,
     "IN_TRANSIT": OrderStatus.OUT_FOR_DELIVERY,
-    "UNAPPROVED": OrderStatus.PREPARING,
+    "UNAPPROVED": OrderStatus.PENDING,
     "FAILED_DELIVERY": OrderStatus.CANCELLED,
 }
 
@@ -231,6 +231,11 @@ def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> s
             return ReturnStatus.RESOLVED_ON_DELIVERY
         return ReturnStatus.COMPLETED
     return raw
+
+
+def _is_replacement_closed(entry: Return) -> bool:
+    normalized = _normalize_replacement_status(entry.status, entry.replacement_mode)
+    return normalized in {ReturnStatus.RESOLVED_ON_DELIVERY, ReturnStatus.COMPLETED}
 
 
 def _serialize_value(value: Any) -> Any:
@@ -308,7 +313,7 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
     }
 
 
-def _serialize_order(order: Order, include_items: bool = True) -> dict[str, Any]:
+def _serialize_order(order: Order, include_items: bool = True, include_progress: bool = False) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
     data["customer"] = _serialize_model(order.customer, exclude={"password"})
@@ -355,6 +360,48 @@ def _serialize_order(order: Order, include_items: bool = True) -> dict[str, Any]
             row["product"] = _serialize_model(item.product)
             items.append(row)
         data["items"] = items
+
+    assigned_trip = (
+        Trip.objects.filter(drop_points__order_id=order.id, driver__isnull=False)
+        .select_related("driver__user", "vehicle")
+        .order_by("-updated_at")
+        .first()
+    )
+    assigned_driver = getattr(assigned_trip, "driver", None)
+    assigned_driver_name = ""
+    if assigned_driver:
+        assigned_driver_name = str(getattr(getattr(assigned_driver, "user", None), "name", "") or getattr(assigned_driver, "name", "") or "").strip()
+    data["isDriverAssigned"] = bool(assigned_driver)
+    data["assignedDriverName"] = assigned_driver_name or None
+    data["assignedTripId"] = getattr(assigned_trip, "id", None)
+    if include_progress:
+        progress_trip = (
+            Trip.objects.filter(drop_points__order_id=order.id)
+            .select_related("driver__user", "vehicle")
+            .prefetch_related("drop_points__order")
+            .order_by("-updated_at")
+            .first()
+        )
+        progress_drop_point = None
+        if progress_trip:
+            progress_drop_point = next(
+                (dp for dp in progress_trip.drop_points.all() if str(getattr(dp, "order_id", "")) == str(order.id)),
+                None,
+            )
+        data["progress"] = {
+            "trip": _serialize_trip(progress_trip, include_points=True) if progress_trip else None,
+            "dropPoint": _serialize_model(progress_drop_point) if progress_drop_point else None,
+            "pod": {
+                "recipientName": getattr(progress_drop_point, "recipient_name", None) if progress_drop_point else None,
+                "recipientSignature": getattr(progress_drop_point, "recipient_signature", None) if progress_drop_point else None,
+                "deliveryPhoto": getattr(progress_drop_point, "delivery_photo", None) if progress_drop_point else None,
+                "actualArrival": progress_drop_point.actual_arrival.isoformat() if progress_drop_point and progress_drop_point.actual_arrival else None,
+                "actualDeparture": progress_drop_point.actual_departure.isoformat() if progress_drop_point and progress_drop_point.actual_departure else None,
+                "failureReason": getattr(progress_drop_point, "failure_reason", None) if progress_drop_point else None,
+                "failureNotes": getattr(progress_drop_point, "failure_notes", None) if progress_drop_point else None,
+                "notes": getattr(progress_drop_point, "notes", None) if progress_drop_point else None,
+            },
+        }
     return data
 
 
@@ -383,8 +430,43 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
         for dp in trip.drop_points.select_related("order").order_by("sequence"):
             row = _serialize_model(dp)
             if dp.order_id and dp.order:
+                order_items = list(dp.order.items.select_related("product").all())
+                order_returns = list(dp.order.returns.all())
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
+                row["order"] = {
+                    "id": dp.order.id,
+                    "orderNumber": dp.order.order_number,
+                    "totalAmount": dp.order.total_amount,
+                    "items": [
+                        {
+                            "id": item.id,
+                            "productId": item.product_id,
+                            "quantity": item.quantity,
+                            "product": {
+                                "sku": item.product.sku if item.product else None,
+                                "name": item.product.name if item.product else None,
+                            },
+                        }
+                        for item in order_items
+                    ],
+                    "returns": [
+                        {
+                            **_serialize_return(entry),
+                            "remainingQuantity": max(
+                                _int(
+                                    next((item.quantity for item in order_items if item.id == entry.original_order_item_id), 0),
+                                    0,
+                                )
+                                - _int(entry.replacement_quantity, 0),
+                                0,
+                            ),
+                            "isClosed": _is_replacement_closed(entry),
+                        }
+                        for entry in order_returns
+                        if not dp.order_id or str(entry.drop_point_id or "") == str(dp.id)
+                    ],
+                }
 
                 # Backfill coordinates for old trips where TripDropPoint lat/lng were saved as null.
                 if _to_float_or_none(row.get("latitude")) is None or _to_float_or_none(row.get("longitude")) is None:
@@ -2126,7 +2208,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 order = Order.objects.create(
                     order_number=f"ORD-{timezone.now().year}-{str(count).zfill(4)}",
                     customer=customer,
-                    status=_normalize_order_status(body.get("status") or OrderStatus.PREPARING),
+                    status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
                     priority=body.get("priority") or "normal",
                     subtotal=0,
                     tax=0,
@@ -2252,7 +2334,7 @@ def order_detail(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err("Order not found", 404)
     if p.get("type") == "customer" and p.get("userId") != o.customer_id:
         return _err("Forbidden", 403)
-    return _ok({"success": True, "order": _serialize_order(o)})
+    return _ok({"success": True, "order": _serialize_order(o, include_progress=True)})
 
 
 @csrf_exempt
@@ -2281,22 +2363,28 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     except Order.DoesNotExist:
         return _err("Order not found", 404)
 
-    if o.status == next_status:
+    current_status = _normalize_order_status(o.status)
+
+    if current_status == next_status:
         current = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=o.id)
         return _ok({"success": True, "order": _serialize_order(current, include_items=False)})
 
-    if o.status == OrderStatus.DELIVERED and next_status != OrderStatus.DELIVERED:
+    if current_status == OrderStatus.DELIVERED and next_status != OrderStatus.DELIVERED:
         return _err("Delivered orders cannot be moved to another status", 400)
 
+    allowed_transitions = {
+        OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.CANCELLED},
+        OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.CANCELLED},
+        OrderStatus.PREPARING: {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED},
+        OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.CANCELLED},
+        OrderStatus.DELIVERED: set(),
+        OrderStatus.CANCELLED: set(),
+    }
+    if next_status not in allowed_transitions.get(current_status, set()):
+        return _err(f"Invalid transition from {current_status} to {next_status}", 400)
+
     if next_status == OrderStatus.OUT_FOR_DELIVERY:
-        if o.warehouse_stage != WarehouseStage.DISPATCHED:
-            return _err("Order must be moved to warehouse stage DISPATCHED first", 400)
-        if not _warehouse_checklist_complete(o):
-            return _err("Dispatch checklist must be completed before OUT_FOR_DELIVERY status", 400)
-        if not o.dispatch_signed_off_by or not o.dispatch_signed_off_at:
-            return _err("Dispatch signoff is required before OUT_FOR_DELIVERY status", 400)
-        if str(o.exception_hold_reason or "").strip():
-            return _err("Order has a hold reason and cannot be dispatched", 400)
+        return _err("OUT_FOR_DELIVERY is set automatically when the trip starts", 400)
 
     try:
         with transaction.atomic():
@@ -2355,6 +2443,9 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     if stage_rank.get(stage, 0) < stage_rank.get(current_stage, 0):
         return _err("Warehouse stage cannot move backward", 400)
 
+    if stage == WarehouseStage.DISPATCHED:
+        return _err("DISPATCHED is set automatically when the trip starts", 400)
+
     checklist = body.get("checklist") if isinstance(body.get("checklist"), dict) else {}
     if "itemsVerified" in checklist:
         order.checklist_items_verified = bool(checklist.get("itemsVerified"))
@@ -2377,6 +2468,13 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         order.exception_notes = str(body.get("exceptionNotes") or "").strip() or None
 
     signoff_name = str(body.get("signoffName") or "").strip()
+
+    if stage == WarehouseStage.LOADED:
+        assigned_trip = Trip.objects.filter(drop_points__order_id=order.id, driver__isnull=False).order_by("-updated_at").first()
+        if not assigned_trip:
+            return _err("Order must be assigned to a driver before LOADED", 400)
+        if not _warehouse_checklist_complete(order):
+            return _err("Checklist must be completed before LOADED", 400)
 
     if stage == WarehouseStage.DISPATCHED:
         if not _warehouse_checklist_complete(order):
@@ -2590,7 +2688,7 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
         o = Order.objects.get(id=order_id, customer_id=p.get("userId"))
     except Order.DoesNotExist:
         return _err("Order not found", 404)
-    if o.status in {OrderStatus.DELIVERED, OrderStatus.CANCELLED}:
+    if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.CANCELLED}:
         return _err("Order cannot be cancelled", 400)
 
     with transaction.atomic():
@@ -2736,21 +2834,128 @@ def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
     if not d:
         return _err("Driver not found", 404)
     body = _json_body(request)
-    order = Order.objects.filter(id=str(body.get("orderId") or "")).first()
-    product = Product.objects.filter(id=str(body.get("productId") or "")).first()
-    qty = _int(body.get("quantity"), 1)
-    if not order or not product:
-        return _err("orderId and productId are required")
-    stock = DriverSpareStock.objects.filter(driver=d, product=product).first()
-    if not stock or stock.quantity < qty:
-        return _err("Insufficient spare stock", 400)
+    outcome = str(body.get("outcome") or "RESOLVED").strip().upper()
+    if outcome not in {"RESOLVED", "PARTIALLY_REPLACED"}:
+        return _err("outcome is required and must be RESOLVED or PARTIALLY_REPLACED")
+
+    follow_up_return_id = str(body.get("followUpReturnId") or "").strip()
+    follow_up_return = None
+    if follow_up_return_id:
+        follow_up_return = Return.objects.select_related("order").filter(id=follow_up_return_id).first()
+
+    order_item = None
+    order_item_id = str(body.get("orderItemId") or "").strip()
+    if order_item_id:
+        order_item = OrderItem.objects.select_related("order", "product").filter(id=order_item_id).first()
+
+    order = order_item.order if order_item else Order.objects.filter(id=str(body.get("orderId") or "")).first()
+    product = order_item.product if order_item else Product.objects.filter(id=str(body.get("productId") or "")).first()
+    qty = _int(body.get("quantity"), 0)
+    resolved_on_delivery = outcome == "RESOLVED"
+    if not order:
+        return _err("orderItemId or orderId is required")
+    if resolved_on_delivery and not product:
+        return _err("product is required for RESOLVED outcome")
+    if qty < 0:
+        return _err("quantity cannot be negative")
+    if outcome == "RESOLVED" and qty <= 0:
+        return _err("quantity must be greater than zero for RESOLVED outcome")
+    if order_item and qty > _int(order_item.quantity, 0):
+        return _err("quantity cannot exceed ordered quantity")
+
+    if follow_up_return:
+        if not order:
+            order = follow_up_return.order
+        if not product and follow_up_return.replacement_product_id:
+            product = Product.objects.filter(id=follow_up_return.replacement_product_id).first()
+        if follow_up_return.order_id != getattr(order, "id", None):
+            return _err("followUpReturnId does not match the selected order", 400)
+        if follow_up_return.drop_point_id and follow_up_return.drop_point_id != str(body.get("dropPointId") or "").strip():
+            return _err("followUpReturnId does not match the selected drop point", 400)
+        if _is_replacement_closed(follow_up_return):
+            return _err("Replacement is already closed", 400)
+        if outcome != "RESOLVED":
+            return _err("Follow-up replacement can only be submitted as RESOLVED", 400)
+        if not order_item and follow_up_return.original_order_item_id:
+            order_item = OrderItem.objects.select_related("order", "product").filter(id=follow_up_return.original_order_item_id).first()
+        if order_item and qty > max(_int(order_item.quantity, 0) - _int(follow_up_return.replacement_quantity, 0), 0):
+            return _err("quantity cannot exceed the remaining quantity to replace", 400)
+
+    stock = DriverSpareStock.objects.filter(driver=d, product=product).first() if product else None
+    available_qty = _int(getattr(stock, "quantity", 0), 0)
+    if qty > available_qty:
+        return _err("Insufficient spare stock for selected replacement quantity", 400)
+    replacement_status = ReturnStatus.RESOLVED_ON_DELIVERY if resolved_on_delivery else ReturnStatus.NEEDS_FOLLOW_UP
+    replacement_mode = "SPARE_STOCK_IMMEDIATE" if resolved_on_delivery else "SPARE_STOCK_PARTIAL"
+
+    damage_photo = str(body.get("damagePhoto") or "").strip() or None
+    damage_photos_raw = body.get("damagePhotos") if isinstance(body.get("damagePhotos"), list) else []
+    damage_photos = [str(x).strip() for x in damage_photos_raw if str(x).strip()]
+    if damage_photo and damage_photo not in damage_photos:
+        damage_photos.insert(0, damage_photo)
+    if not damage_photos:
+        return _err("At least one damage photo is required", 400)
+
+    meta = {
+        "outcome": outcome,
+        "damagePhotos": damage_photos,
+        "reportedAt": timezone.now().isoformat(),
+        "tripId": str(body.get("tripId") or "").strip() or None,
+        "dropPointId": str(body.get("dropPointId") or "").strip() or None,
+    }
+
     with transaction.atomic():
-        stock.quantity -= qty
-        stock.save(update_fields=["quantity", "updated_at"])
-        SpareStockTransaction.objects.create(driver=d, product=product, type="OUT", quantity=qty, reference_type="replacement", reference_id=order.id, notes="Driver replacement from spare stock")
-        count = Return.objects.count() + 1
-        r = Return.objects.create(return_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}", order=order, customer_id=order.customer_id, reason=str(body.get("reason") or "Damaged item"), description=body.get("description") or "Replacement fulfilled by driver spare stock", status=ReturnStatus.RESOLVED_ON_DELIVERY, requested_by="DRIVER", replacement_mode="SPARE_STOCK_IMMEDIATE", original_order_item_id=body.get("orderItemId"), replacement_product_id=product.id, replacement_quantity=qty, pickup_address=body.get("pickupAddress") or "", pickup_city=body.get("pickupCity") or "", pickup_province=body.get("pickupProvince") or "", pickup_zip_code=body.get("pickupZipCode") or "", processed_at=timezone.now(), processed_by=p.get("userId"), notes="Immediate replacement completed by driver")
-    return _ok({"success": True, "replacement": _serialize_return(r)})
+        if qty > 0:
+            stock.quantity -= qty
+            stock.save(update_fields=["quantity", "updated_at"])
+            SpareStockTransaction.objects.create(
+                driver=d,
+                product=product,
+                type="OUT",
+                quantity=qty,
+                reference_type="replacement",
+                reference_id=order.id,
+                notes="Driver replacement from spare stock",
+            )
+        if follow_up_return:
+            follow_up_return.status = ReturnStatus.COMPLETED
+            follow_up_return.replacement_mode = follow_up_return.replacement_mode or replacement_mode
+            follow_up_return.replacement_quantity = _int(follow_up_return.replacement_quantity, 0) + qty
+            follow_up_return.damage_photo_url = damage_photos[0]
+            follow_up_return.processed_at = timezone.now()
+            follow_up_return.processed_by = p.get("userId")
+            follow_up_return.notes = (
+                f"{follow_up_return.notes or ''}\nFollow-up replacement completed by driver\nMeta: {json.dumps(meta)}"
+            ).strip()
+            follow_up_return.save()
+            r = follow_up_return
+        else:
+            count = Return.objects.count() + 1
+            r = Return.objects.create(
+                return_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}",
+                order=order,
+                customer_id=order.customer_id,
+                reason=str(body.get("reason") or "Damaged item"),
+                description=body.get("description") or ("Replacement fulfilled by driver spare stock" if resolved_on_delivery else "Partial replacement from driver spare stock; follow-up required"),
+                status=replacement_status,
+                requested_by="DRIVER",
+                replacement_mode=replacement_mode,
+                original_order_item_id=order_item.id if order_item else (body.get("orderItemId") or ""),
+                replacement_product_id=product.id if product else None,
+                replacement_quantity=qty,
+                trip_id=str(body.get("tripId") or "").strip() or None,
+                drop_point_id=str(body.get("dropPointId") or "").strip() or None,
+                pickup_address=body.get("pickupAddress") or "",
+                pickup_city=body.get("pickupCity") or "",
+                pickup_province=body.get("pickupProvince") or "",
+                pickup_zip_code=body.get("pickupZipCode") or "",
+                damage_photo_url=damage_photos[0],
+                processed_at=timezone.now() if resolved_on_delivery else None,
+                processed_by=p.get("userId") if resolved_on_delivery else None,
+                notes=f"{'Immediate replacement completed by driver' if resolved_on_delivery else 'Partial replacement reported by driver'}\nMeta: {json.dumps(meta)}",
+            )
+    remaining_qty = max((_int(order_item.quantity, 0) if order_item else 0) - _int(r.replacement_quantity, 0), 0)
+    return _ok({"success": True, "replacement": _serialize_return(r), "remainingSpareStock": max(available_qty - qty, 0), "remainingReplacementQty": remaining_qty})
 
 
 @csrf_exempt
@@ -2965,14 +3170,47 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     p, err = _require_staff(request)
     if err:
         return err
-    t = Trip.objects.filter(id=trip_id).first()
+    t = Trip.objects.prefetch_related("drop_points__order").filter(id=trip_id).first()
     if not t:
         return _err("Trip not found", 404)
     if p.get("role") == "DRIVER" and p.get("userId") != t.driver.user_id:
         return _err("Forbidden", 403)
-    t.status = TripStatus.IN_PROGRESS
-    t.actual_start_at = timezone.now()
-    t.save(update_fields=["status", "actual_start_at", "updated_at"])
+
+    # Drivers can only start a trip when all assigned delivery orders are loaded.
+    not_loaded_order_numbers: list[str] = []
+    for drop_point in t.drop_points.all():
+        if not drop_point.order_id or not drop_point.order:
+            continue
+        stage = str(drop_point.order.warehouse_stage or "").upper()
+        if stage not in {WarehouseStage.LOADED, WarehouseStage.DISPATCHED}:
+            not_loaded_order_numbers.append(str(drop_point.order.order_number or drop_point.order_id))
+
+    if not_loaded_order_numbers:
+        preview = ", ".join(not_loaded_order_numbers[:5])
+        if len(not_loaded_order_numbers) > 5:
+            preview += f", +{len(not_loaded_order_numbers) - 5} more"
+        return _err(f"Trip cannot be started. Orders not loaded yet: {preview}", 400)
+
+    now = timezone.now()
+    with transaction.atomic():
+        t.status = TripStatus.IN_PROGRESS
+        t.actual_start_at = now
+        t.save(update_fields=["status", "actual_start_at", "updated_at"])
+
+        for drop_point in t.drop_points.all():
+            if not drop_point.order_id or not drop_point.order:
+                continue
+            order = drop_point.order
+            if str(order.warehouse_stage or "").upper() == WarehouseStage.LOADED:
+                order.warehouse_stage = WarehouseStage.DISPATCHED
+                order.warehouse_dispatched_at = now
+                order.status = OrderStatus.OUT_FOR_DELIVERY
+                order.save(update_fields=["warehouse_stage", "warehouse_dispatched_at", "status", "updated_at"])
+
+                timeline, _ = OrderTimeline.objects.get_or_create(order=order)
+                if not timeline.shipped_at:
+                    timeline.shipped_at = now
+                    timeline.save(update_fields=["shipped_at", "updated_at"])
     return _ok({"success": True, "trip": _serialize_model(t)})
 
 
@@ -2988,6 +3226,37 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     if p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver.user_id:
         return _err("Forbidden", 403)
     body = _json_body(request)
+    requeued_to_route_pool = False
+    next_status = str(body.get("status") or "").strip().upper()
+    reschedule_window = str(body.get("rescheduleWindow") or "").strip().lower()
+    reschedule_requested = bool(body.get("rescheduleRequested")) or bool(reschedule_window)
+    rescheduled_delivery_at: datetime | None = None
+    if next_status == "FAILED" and reschedule_requested:
+        reschedule_date_raw = str(body.get("rescheduleDate") or "").strip()
+        if reschedule_date_raw:
+            parsed_delivery_dt: datetime | None = None
+            try:
+                parsed_delivery_dt = datetime.fromisoformat(reschedule_date_raw.replace("Z", "+00:00"))
+            except ValueError:
+                try:
+                    parsed_delivery_dt = datetime.fromisoformat(f"{reschedule_date_raw}T09:00:00")
+                except ValueError:
+                    return _err("Invalid rescheduleDate. Expected ISO date or datetime", 400)
+            if parsed_delivery_dt is not None:
+                if timezone.is_naive(parsed_delivery_dt):
+                    parsed_delivery_dt = timezone.make_aware(parsed_delivery_dt, timezone.get_current_timezone())
+                rescheduled_delivery_at = parsed_delivery_dt
+        elif reschedule_window == "today":
+            rescheduled_delivery_at = timezone.now()
+        elif reschedule_window == "tomorrow":
+            rescheduled_delivery_at = timezone.now() + timedelta(days=1)
+    if next_status == "COMPLETED" and dp.order_id:
+        open_replacements = []
+        for entry in Return.objects.filter(order_id=dp.order_id, drop_point_id=dp.id):
+            if not _is_replacement_closed(entry):
+                open_replacements.append(entry)
+        if open_replacements:
+            return _err("Drop point cannot be completed while a replacement follow-up is still open", 400)
     mapping = [("status", "status"), ("recipientName", "recipient_name"), ("recipientSignature", "recipient_signature"), ("deliveryPhoto", "delivery_photo"), ("failureReason", "failure_reason"), ("failureNotes", "failure_notes"), ("notes", "notes")]
     for key, attr in mapping:
         if key in body:
@@ -2998,13 +3267,78 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     if body.get("status") in {"COMPLETED", "FAILED", "SKIPPED"}:
         dp.actual_departure = now
     dp.save()
+    
+    release_inventory = body.get("releaseInventory")
+    if isinstance(release_inventory, str):
+        normalized_release_inventory = release_inventory.strip().lower()
+        parsed_release_inventory = normalized_release_inventory in {"1", "true", "yes", "y", "on"}
+    elif release_inventory is None:
+        parsed_release_inventory = True
+    else:
+        parsed_release_inventory = bool(release_inventory)
+    should_release_inventory = body.get("status") == "SKIPPED" or parsed_release_inventory
+
+    # If drop point is marked as FAILED or SKIPPED, optionally return items back to inventory
+    if body.get("status") in {"FAILED", "SKIPPED"} and should_release_inventory and dp.order_id:
+        order = Order.objects.prefetch_related("items").filter(id=dp.order_id).first()
+        if order:
+            user_id = str(p.get("userId") or "").strip() or None
+            for order_item in order.items.all():
+                _adjust_reserved_for_order_item(
+                    order_item=order_item,
+                    operation="release",
+                    performed_by=user_id,
+                )
+
+    if next_status in {"FAILED", "SKIPPED"} and dp.order_id:
+        order = Order.objects.select_related("timeline").filter(id=dp.order_id).first()
+        if order:
+            timeline = getattr(order, "timeline", None)
+            if next_status == "FAILED" and reschedule_requested:
+                order.status = OrderStatus.PREPARING
+                order.warehouse_stage = WarehouseStage.READY_TO_LOAD
+                order.loaded_at = None
+                order.warehouse_dispatched_at = None
+                update_fields = ["status", "warehouse_stage", "loaded_at", "warehouse_dispatched_at", "updated_at"]
+                if not order.ready_to_load_at:
+                    order.ready_to_load_at = now
+                    update_fields.append("ready_to_load_at")
+                order.save(update_fields=update_fields)
+
+                if timeline:
+                    timeline.delivery_date = rescheduled_delivery_at
+                    timeline.save(update_fields=["delivery_date", "updated_at"])
+                elif rescheduled_delivery_at is not None:
+                    OrderTimeline.objects.create(order=order, delivery_date=rescheduled_delivery_at)
+                requeued_to_route_pool = True
+            else:
+                order.status = OrderStatus.CANCELLED
+                order.save(update_fields=["status", "updated_at"])
+                if timeline:
+                    if not timeline.cancelled_at:
+                        timeline.cancelled_at = now
+                    timeline.save(update_fields=["cancelled_at", "updated_at"])
+                else:
+                    OrderTimeline.objects.create(order=order, cancelled_at=now)
+    
     t = dp.trip
-    t.completed_drop_points = t.drop_points.filter(status="COMPLETED").count()
-    if t.total_drop_points and t.completed_drop_points >= t.total_drop_points:
+    terminal_drop_point_statuses = ["COMPLETED", "FAILED", "SKIPPED"]
+    actual_total_drop_points = t.drop_points.count()
+    effective_total_drop_points = max(_int(t.total_drop_points, 0), actual_total_drop_points)
+
+    t.total_drop_points = effective_total_drop_points
+    t.completed_drop_points = t.drop_points.filter(status__in=terminal_drop_point_statuses).count()
+
+    all_drop_points_terminal = effective_total_drop_points > 0 and t.completed_drop_points >= effective_total_drop_points
+    if all_drop_points_terminal:
         t.status = TripStatus.COMPLETED
         t.actual_end_at = now
-    t.save(update_fields=["completed_drop_points", "status", "actual_end_at", "updated_at"])
-    return _ok({"success": True, "dropPoint": _serialize_model(dp)})
+    else:
+        t.status = TripStatus.IN_PROGRESS if t.actual_start_at else TripStatus.PLANNED
+        t.actual_end_at = None
+
+    t.save(update_fields=["total_drop_points", "completed_drop_points", "status", "actual_end_at", "updated_at"])
+    return _ok({"success": True, "dropPoint": _serialize_model(dp), "requeuedToRoutePool": requeued_to_route_pool})
 
 
 @csrf_exempt
