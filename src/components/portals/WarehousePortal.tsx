@@ -1795,7 +1795,7 @@ export function WarehousePortal() {
     }
 
     refreshOrdersQuick()
-    const intervalId = window.setInterval(refreshOrdersQuick, 15000)
+    const intervalId = window.setInterval(refreshOrdersQuick, 5000)
 
     return () => {
       window.clearInterval(intervalId)
@@ -2322,16 +2322,16 @@ export function WarehousePortal() {
 
   const Sidebar = () => (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
+      <div className="border-b border-white/20 bg-white/10 p-4 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <img
             src="/ann-anns-logo.png"
             alt="Ann Ann's Beverages Trading logo"
-            className="h-11 w-11 rounded-lg object-cover border"
+            className="h-11 w-11 rounded-xl border border-white/40 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.14)]"
           />
           <div>
-            <h2 className="font-bold text-gray-900">Ann Ann's Beverages Trading</h2>
-            <p className="text-xs text-gray-500">Warehouse Portal</p>
+            <h2 className="font-bold text-slate-950">Ann Ann's Beverages Trading</h2>
+            <p className="text-xs text-slate-600">Warehouse Portal</p>
           </div>
         </div>
       </div>
@@ -2343,7 +2343,9 @@ export function WarehousePortal() {
               key={navItem.id}
               variant={activeView === navItem.id ? 'secondary' : 'ghost'}
               className={`w-full justify-start gap-3 ${
-                activeView === navItem.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:text-gray-900'
+                activeView === navItem.id
+                  ? 'border border-white/50 bg-linear-to-r from-cyan-600/95 via-sky-600/95 to-emerald-500/90 text-white shadow-[0_14px_30px_rgba(8,145,178,0.26)]'
+                  : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
               }`}
               onClick={() => {
                 setActiveView(navItem.id)
@@ -2361,34 +2363,39 @@ export function WarehousePortal() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <aside className="hidden lg:flex w-64 bg-white border-r flex-col">
+    <div className="relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-14 top-10 h-64 w-64 rounded-full bg-cyan-200/20 blur-3xl" />
+        <div className="absolute right-[-4rem] top-28 h-72 w-72 rounded-full bg-sky-300/15 blur-3xl" />
+        <div className="absolute bottom-[-5rem] left-1/3 h-80 w-80 rounded-full bg-emerald-200/20 blur-3xl" />
+      </div>
+      <aside className="relative z-[1] hidden w-64 flex-col border-r border-white/25 bg-white/38 shadow-[0_24px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl lg:flex">
         <Sidebar />
       </aside>
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="p-0 w-64">
+        <SheetContent side="left" className="w-64 border-white/30 bg-white/44 p-0 shadow-[0_24px_60px_rgba(15,23,42,0.2)] backdrop-blur-2xl">
           <Sidebar />
         </SheetContent>
       </Sheet>
 
-      <div className="flex-1 flex flex-col min-h-screen">
-        <header className="bg-white border-b sticky top-0 z-10">
+      <div className="relative z-[1] flex min-h-screen flex-1 flex-col">
+        <header className="sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+              <Button variant="ghost" size="icon" className="text-slate-700 hover:bg-white/45 hover:text-slate-950 lg:hidden" onClick={() => setSidebarOpen(true)}>
                 <Menu className="h-5 w-5" />
               </Button>
               <div className="relative hidden md:block">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search inventory, warehouse..." className="pl-10 w-64" />
+                <Input placeholder="Search inventory, warehouse..." className="w-64 border-white/40 bg-white/50 pl-10 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-md" />
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               <DropdownMenu onOpenChange={(open) => { void handleNotificationsOpen(open) }}>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative">
+                  <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Bell className="h-5 w-5" />
                     {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" />}
                   </Button>
@@ -2413,9 +2420,9 @@ export function WarehousePortal() {
               </DropdownMenu>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="gap-2">
+                  <Button variant="ghost" className="gap-2 text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-indigo-600 text-white text-sm">
+                      <AvatarFallback className="bg-linear-to-br from-cyan-600 to-emerald-600 text-sm text-white shadow-[0_8px_18px_rgba(8,145,178,0.28)]">
                         {user?.name?.charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
@@ -2624,7 +2631,7 @@ export function WarehousePortal() {
                                   className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
                                   onClick={() => updateWarehouseOrderStatus(order.id, 'PREPARING')}
                                   disabled={(!['PENDING', 'CONFIRMED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
-                                  title="Approve Order"
+                                  title="Confirm Order"
                                 >
                                   {updatingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleCheck className="h-4 w-4" />}
                                 </Button>
@@ -3612,9 +3619,15 @@ export function WarehousePortal() {
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Warehouse Stage</p>
                   <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
-                  <p className="text-xs text-gray-600">
-                    Driver: {selectedOrder.isDriverAssigned ? selectedOrder.assignedDriverName || 'Assigned' : 'Not assigned'}
-                  </p>
+                  {selectedOrder.isDriverAssigned ? (
+                    <p className="text-xs text-gray-600">
+                      Driver: {selectedOrder.assignedDriverName || 'Assigned'}
+                    </p>
+                  ) : (
+                    <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 shadow-[0_6px_14px_rgba(239,68,68,0.14)]">
+                      Driver not assigned
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-md border p-3 space-y-1">
                   <p className="font-medium">Client Information</p>
@@ -3681,7 +3694,7 @@ export function WarehousePortal() {
                           onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
-                          Approve Order
+                          Confirm Order
                         </Button>
                       ) : (
                         <Button variant="outline" disabled>

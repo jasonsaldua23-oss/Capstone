@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Poppins } from 'next/font/google'
 import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/page'
-import { emitDataSync } from '@/lib/data-sync'
+import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -161,60 +161,48 @@ type NativeCameraCheckResult = {
   reason?: string
 }
 
-const isNativeAndroidApp = () => {
+type LocationPermissionState = 'granted' | 'denied' | 'prompt'
+
+const isNativeCapacitorApp = () => {
   if (typeof window === 'undefined') return false
   const cap = (window as any).Capacitor
   if (!cap) return false
-  if (typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) {
-    const platform = typeof cap.getPlatform === 'function' ? String(cap.getPlatform()) : ''
-    return platform === 'android' || platform === ''
+  if (typeof cap.isNativePlatform === 'function') {
+    return Boolean(cap.isNativePlatform())
   }
-  return String(cap?.getPlatform?.() || '').toLowerCase() === 'android'
+  return String(cap?.getPlatform?.() || '').toLowerCase() !== 'web'
 }
 
-const checkNativeAndroidCameraPermission = async (): Promise<NativeCameraCheckResult> => {
-  if (typeof window === 'undefined' || !isNativeAndroidApp()) {
+const checkNativeCameraPermission = async (): Promise<NativeCameraCheckResult> => {
+  if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
     return { granted: true }
   }
 
-  const cap = (window as any).Capacitor
-  const cameraPlugin = cap?.Plugins?.Camera
-
-  if (!cameraPlugin?.checkPermissions || !cameraPlugin?.requestPermissions) {
-    return {
-      granted: false,
-      reason: 'Native camera plugin is unavailable. Rebuild Android app with Capacitor Camera plugin.',
-    }
-  }
-
   try {
-    let result = await cameraPlugin.checkPermissions()
-    const current = String(result?.camera || '')
+    const cameraModule = await import('@capacitor/camera')
+    let result = await cameraModule.Camera.checkPermissions()
+    const current = String((result as any)?.camera || (result as any)?.photos || '')
     if (current !== 'granted') {
-      result = await cameraPlugin.requestPermissions({ permissions: ['camera'] })
+      result = await cameraModule.Camera.requestPermissions({ permissions: ['camera'] })
     }
-    const finalState = String(result?.camera || '')
+    const finalState = String((result as any)?.camera || (result as any)?.photos || '')
     if (finalState === 'granted') {
       return { granted: true }
     }
-    return { granted: false, reason: 'Camera permission is blocked. Enable it in Android app settings.' }
+    return { granted: false, reason: 'Camera permission is blocked. Enable it in app settings.' }
   } catch {
-    return { granted: false, reason: 'Unable to verify camera permission. Please allow it in Android settings.' }
+    return { granted: false, reason: 'Unable to verify camera permission. Please allow it in app settings.' }
   }
 }
 
-const openNativeAndroidAppSettings = async (): Promise<boolean> => {
-  if (typeof window === 'undefined' || !isNativeAndroidApp()) {
+const openNativeAppSettings = async (): Promise<boolean> => {
+  if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
     return false
   }
   try {
-    const cap = (window as any).Capacitor
-    const appPlugin = cap?.Plugins?.App
-    if (appPlugin?.openSettings) {
-      await appPlugin.openSettings()
-      return true
-    }
-    return false
+    const appModule = await import('@capacitor/app')
+    await appModule.App.openSettings()
+    return true
   } catch {
     return false
   }
@@ -226,7 +214,7 @@ export function DriverPortal() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt')
+  const [locationPermission, setLocationPermission] = useState<LocationPermissionState>('prompt')
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [isTracking, setIsTracking] = useState(false)
   const [isNativeCameraGateOpen, setIsNativeCameraGateOpen] = useState(false)
@@ -235,8 +223,8 @@ export function DriverPortal() {
   const watchIdRef = useRef<number | null>(null)
   const isFetchingTripsRef = useRef(false)
 
-  const fetchTrips = useCallback(async (silent = false) => {
-    if (isFetchingTripsRef.current) return
+  const fetchTrips = useCallback(async (silent = false): Promise<Trip[]> => {
+    if (isFetchingTripsRef.current) return trips
     isFetchingTripsRef.current = true
     try {
       const response = await fetch('/api/driver/trips', { cache: 'no-store', credentials: 'include' })
@@ -260,21 +248,30 @@ export function DriverPortal() {
         throw new Error((rawMessage || fallbackMessage) + detail)
       }
 
-      setTrips(data.trips || [])
+      const nextTrips = Array.isArray(data.trips) ? data.trips : []
+      setTrips(nextTrips)
+      return nextTrips
     } catch (error: any) {
       if (!silent) {
         toast.error(error?.message || 'Failed to load assigned trips')
       }
       console.warn('Failed to fetch trips:', error)
+      return trips
     } finally {
       isFetchingTripsRef.current = false
       setIsLoading(false)
     }
-  }, [])
+  }, [trips])
 
   // Fetch trips
   useEffect(() => {
     void fetchTrips()
+
+    const unsubscribe = subscribeDataSync((message) => {
+      if (message.scopes.includes('orders') || message.scopes.includes('trips') || message.scopes.includes('returns')) {
+        void fetchTrips(true)
+      }
+    })
 
     const onFocus = () => {
       void fetchTrips(true)
@@ -291,9 +288,10 @@ export function DriverPortal() {
       if (document.visibilityState === 'visible') {
         void fetchTrips(true)
       }
-    }, 15000)
+    }, 5000)
 
     return () => {
+      unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(intervalId)
@@ -302,12 +300,12 @@ export function DriverPortal() {
 
 
   const enforceNativeCameraPermission = useCallback(async () => {
-    if (!isNativeAndroidApp()) {
+    if (!isNativeCapacitorApp()) {
       setIsNativeCameraGateOpen(false)
       return true
     }
     setIsCheckingNativeCameraPermission(true)
-    const permission = await checkNativeAndroidCameraPermission()
+    const permission = await checkNativeCameraPermission()
     if (permission.granted) {
       setIsNativeCameraGateOpen(false)
       setIsCheckingNativeCameraPermission(false)
@@ -340,12 +338,21 @@ export function DriverPortal() {
 
   // Check location permission
   useEffect(() => {
-    if ('permissions' in navigator) {
-      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
-        setLocationPermission(result.state as 'granted' | 'denied' | 'prompt')
+    if (!('permissions' in navigator) || !navigator.permissions?.query) return
+    navigator.permissions
+      .query({ name: 'geolocation' })
+      .then((result) => {
+        setLocationPermission(result.state as LocationPermissionState)
       })
-    }
+      .catch(() => {
+        setLocationPermission('prompt')
+      })
   }, [])
+
+  const readCurrentPosition = (options?: PositionOptions) =>
+    new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, options)
+    })
 
   const sendLocationUpdate = async (lat: number, lng: number, tripId?: string | null) => {
     try {
@@ -372,8 +379,11 @@ export function DriverPortal() {
     return inProgress?.id || null
   }
 
-  const openLocationSettings = () => {
+  const openLocationSettings = async () => {
     try {
+      if (await openNativeAppSettings()) {
+        return
+      }
       const ua = navigator.userAgent.toLowerCase()
       if (ua.includes('android')) {
         window.location.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end'
@@ -392,7 +402,7 @@ export function DriverPortal() {
   // Start location tracking
   const startLocationTracking = async (): Promise<boolean> => {
     if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser')
+      toast.error('Location is not supported on this device/browser')
       return false
     }
 
@@ -401,29 +411,19 @@ export function DriverPortal() {
       return true
     }
 
-    const canAccessLocation = await new Promise<boolean>((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude
-          const lng = position.coords.longitude
-          setCurrentLocation({ lat, lng })
-          setLocationPermission('granted')
-          setIsTracking(true)
-          void sendLocationUpdate(lat, lng, getActiveTripId())
-          resolve(true)
-        },
-        () => {
-          setLocationPermission('denied')
-          setIsTracking(false)
-          toast.error('Location is required to start trip. Please enable location access in settings.')
-          openLocationSettings()
-          resolve(false)
-        },
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-      )
-    })
-
-    if (!canAccessLocation) {
+    try {
+      const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+      const lat = position.coords.latitude
+      const lng = position.coords.longitude
+      setCurrentLocation({ lat, lng })
+      setLocationPermission('granted')
+      setIsTracking(true)
+      void sendLocationUpdate(lat, lng, getActiveTripId())
+    } catch {
+      setLocationPermission('denied')
+      setIsTracking(false)
+      toast.error('Location is required to start trip. Please enable location access in settings.')
+      void openLocationSettings()
       return false
     }
 
@@ -642,7 +642,7 @@ export function DriverPortal() {
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
               <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Camera Access Required</DialogTitle>
               <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                This Android app is configured to force camera permission before driver operations.
+                This app requires camera permission before driver operations.
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -653,9 +653,9 @@ export function DriverPortal() {
                 variant="outline"
                 className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
                 onClick={async () => {
-                  const opened = await openNativeAndroidAppSettings()
+                  const opened = await openNativeAppSettings()
                   if (!opened) {
-                    toast.error('Could not open Android settings automatically. Open app settings manually and allow Camera.')
+                    toast.error('Could not open app settings automatically. Open app settings manually and allow Camera.')
                   }
                 }}
               >
@@ -896,7 +896,7 @@ function TripDetailView({
   onBack: () => void
   locationPermission: 'granted' | 'denied' | 'prompt'
   onStartTracking: () => Promise<boolean>
-  onRefreshTrips: () => Promise<void>
+  onRefreshTrips: () => Promise<Trip[]>
   isTracking: boolean
   currentLocation: { lat: number; lng: number } | null
 }) {
@@ -948,6 +948,12 @@ function TripDetailView({
   )
   const highlightedDropPoint = activeDropPoint || sortedDropPoints[0] || null
   const mobileSheetSnapPoints: Array<number | string> = [0.52, 0.88, 0.98]
+  const hasBlockingDialogOpen =
+    isCameraOpen ||
+    isCameraPermissionDialogOpen ||
+    isSpareReplaceOpen ||
+    isFailedDeliveryChoiceOpen ||
+    isFailedDeliveryRescheduleOpen
 
   useEffect(() => {
     if (mobileSheetPeekTimeoutRef.current) {
@@ -1097,14 +1103,16 @@ function TripDetailView({
   }
 
   const handleStartTrip = async () => {
-    const currentStatus = String(trip.status || '').toUpperCase()
+    const refreshedTrips = await onRefreshTrips()
+    const latestTrip = refreshedTrips.find((entry) => entry.id === trip.id) || trip
+    const currentStatus = String(latestTrip.status || '').toUpperCase()
     if (currentStatus !== 'PLANNED') {
       toast.error(`Trip cannot be started because status is ${currentStatus.replace(/_/g, ' ')}`)
       await onRefreshTrips()
       return
     }
 
-    const notLoadedOrders = (trip.dropPoints || [])
+    const notLoadedOrders = (latestTrip.dropPoints || [])
       .filter((point) => point.order)
       .filter((point) => !['LOADED', 'DISPATCHED'].includes(String((point.order as any)?.warehouseStage || '').toUpperCase()))
       .map((point) => String(point.order?.orderNumber || point.order?.id || 'Unknown order'))
@@ -1248,6 +1256,45 @@ function TripDetailView({
   }
 
   const openCameraCapture = (target: 'pod' | 'spare' = 'pod') => {
+    if (isNativeCapacitorApp()) {
+      setCameraCaptureTarget(target)
+      setCapturedCameraPhoto(null)
+      setCameraError(null)
+      setCameraPermissionHint('')
+      setIsCameraOpen(false)
+      void (async () => {
+        try {
+          const permission = await checkNativeCameraPermission()
+          if (!permission.granted) {
+            handleCameraPermissionDenied(permission.reason)
+            return
+          }
+          const cameraModule = await import('@capacitor/camera')
+          const photo = await cameraModule.Camera.getPhoto({
+            source: cameraModule.CameraSource.Camera,
+            resultType: cameraModule.CameraResultType.Uri,
+            quality: 90,
+            allowEditing: false,
+          })
+          const photoPath = String(photo?.webPath || photo?.path || '').trim()
+          if (!photoPath) throw new Error('Failed to capture photo')
+          const fileResponse = await fetch(photoPath)
+          const blob = await fileResponse.blob()
+          const mimeType = blob.type || 'image/jpeg'
+          const ext = mimeType.includes('png') ? 'png' : 'jpg'
+          const file = new File([blob], `pod-camera-${Date.now()}.${ext}`, { type: mimeType })
+          if (target === 'spare') {
+            appendSpareDamagePhotos([file])
+          } else {
+            handlePodFileChange(file)
+          }
+        } catch (error: any) {
+          handleCameraPermissionDenied(error?.message || 'Unable to access camera on this device.')
+        }
+      })()
+      return
+    }
+
     setCameraCaptureTarget(target)
     setCapturedCameraPhoto(null)
     setCameraError(null)
@@ -1468,6 +1515,15 @@ function TripDetailView({
   }
 
   const openCameraSettings = () => {
+    if (isNativeCapacitorApp()) {
+      void openNativeAppSettings().then((opened) => {
+        if (!opened) {
+          toast.message('If settings did not open, follow the steps shown below.')
+        }
+      })
+      return
+    }
+
     try {
       const ua = navigator.userAgent.toLowerCase()
       const isAndroid = ua.includes('android')
@@ -1510,6 +1566,13 @@ function TripDetailView({
   }
 
   const getCameraPermissionSteps = () => {
+    if (isNativeCapacitorApp()) {
+      return [
+        'Open this app in system settings.',
+        'Allow Camera permission for the app.',
+        'Return to AnnDrive and tap Retry Camera.',
+      ]
+    }
     const ua = navigator.userAgent.toLowerCase()
     if (ua.includes('android')) {
       return [
@@ -2172,7 +2235,7 @@ function TripDetailView({
               </button>
 
               <Drawer
-                open={isMobileSheetOpen}
+                open={isMobileSheetOpen && !hasBlockingDialogOpen}
                 onOpenChange={handleMobileSheetOpenChange}
                 direction="bottom"
                 dismissible
@@ -2379,7 +2442,7 @@ function TripDetailView({
             </div>
 
             <AnimatePresence mode="wait">
-              {!isMobileSheetOpen && showMobileSheetPeek ? (
+              {!hasBlockingDialogOpen && !isMobileSheetOpen && showMobileSheetPeek ? (
                 <motion.button
                   key="mobile-sheet-peek"
                   type="button"

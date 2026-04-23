@@ -545,16 +545,16 @@ export function AdminPortal() {
 
     return (
       <div className="flex flex-col h-full">
-        <div className="p-4 border-b">
+        <div className="border-b border-white/20 bg-white/10 p-4 backdrop-blur-xl">
           <div className="flex items-center gap-3">
             <img
               src="/ann-anns-logo.png"
               alt="Ann Ann's Beverages Trading logo"
-              className="h-11 w-11 rounded-lg object-cover border"
+              className="h-11 w-11 rounded-xl border border-white/40 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.14)]"
             />
             <div>
-              <h2 className="font-bold text-gray-900">Ann Ann's Beverages Trading</h2>
-              <p className="text-xs text-gray-500">Admin Portal</p>
+              <h2 className="font-bold text-slate-950">Ann Ann's Beverages Trading</h2>
+              <p className="text-xs text-slate-600">Admin Portal</p>
             </div>
           </div>
         </div>
@@ -569,8 +569,8 @@ export function AdminPortal() {
                 variant={activeView === item.id ? 'default' : 'ghost'}
                 className={`w-full justify-start gap-3 ${
                   activeView === item.id
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
+                    ? 'border border-white/50 bg-linear-to-r from-sky-600/95 via-blue-600/95 to-cyan-500/95 text-white shadow-[0_14px_30px_rgba(37,99,235,0.28)] hover:from-sky-500 hover:via-blue-500 hover:to-cyan-400'
+                    : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
                 }`}
                 onClick={() => {
                   setActiveView(item.id)
@@ -588,7 +588,7 @@ export function AdminPortal() {
         <div className="p-4 border-t">
           <Button
             variant="ghost"
-            className="w-full justify-start gap-3 text-gray-700 hover:bg-red-50 hover:text-red-600"
+            className="w-full justify-start gap-3 text-slate-700 hover:bg-white/45 hover:text-red-600"
             onClick={handleLogout}
           >
             <LogOut className="h-4 w-4" />
@@ -635,29 +635,34 @@ export function AdminPortal() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-16 top-8 h-64 w-64 rounded-full bg-sky-300/20 blur-3xl" />
+        <div className="absolute right-[-4rem] top-24 h-72 w-72 rounded-full bg-cyan-200/20 blur-3xl" />
+        <div className="absolute bottom-[-5rem] left-1/3 h-72 w-72 rounded-full bg-emerald-200/20 blur-3xl" />
+      </div>
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-64 bg-white border-r flex-col">
+      <aside className="relative z-[1] hidden w-64 flex-col border-r border-white/25 bg-white/38 shadow-[0_24px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl lg:flex">
         <SidebarContent />
       </aside>
 
       {/* Mobile Sidebar */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="p-0 w-64">
+        <SheetContent side="left" className="w-64 border-white/30 bg-white/44 p-0 shadow-[0_24px_60px_rgba(15,23,42,0.2)] backdrop-blur-2xl">
           <SidebarContent />
         </SheetContent>
       </Sheet>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div className="relative z-[1] flex min-h-screen flex-1 flex-col">
         {/* Top Header */}
-        <header className="bg-white border-b sticky top-0 z-10">
+        <header className="sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
                 size="icon"
-                className="lg:hidden"
+                className="text-slate-700 hover:bg-white/45 hover:text-slate-950 lg:hidden"
                 onClick={() => setSidebarOpen(true)}
               >
                 <Menu className="h-5 w-5" />
@@ -667,7 +672,7 @@ export function AdminPortal() {
                 <Input
                   id="global-admin-search"
                   placeholder="Search orders, customers..."
-                  className="pl-10 w-64"
+                  className="w-64 border-white/40 bg-white/50 pl-10 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-md"
                 />
               </div>
             </div>
@@ -675,7 +680,7 @@ export function AdminPortal() {
             <div className="flex items-center gap-3">
               <DropdownMenu onOpenChange={(open) => { void handleNotificationsOpen(open) }}>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative">
+                  <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Bell className="h-5 w-5" />
                     {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>}
                   </Button>
@@ -701,9 +706,9 @@ export function AdminPortal() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="gap-2">
+                  <Button variant="ghost" className="gap-2 text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-blue-600 text-white text-sm">
+                      <AvatarFallback className="bg-linear-to-br from-sky-600 to-blue-700 text-white text-sm shadow-[0_8px_18px_rgba(37,99,235,0.3)]">
                         {user?.name?.charAt(0)?.toUpperCase() ?? 'U'}
                       </AvatarFallback>
                     </Avatar>
@@ -1073,7 +1078,8 @@ function OrdersView() {
       if (isFetchingOrders) return
       isFetchingOrders = true
       try {
-        const requestOrders = () => fetch('/api/orders?limit=100&includeItems=preview', { credentials: 'include' })
+        const requestOrders = () =>
+          fetch('/api/orders?limit=100&includeItems=preview', { credentials: 'include', cache: 'no-store' })
 
         let response = await requestOrders()
         let data = await response.json().catch(() => ({}))
@@ -1132,7 +1138,7 @@ function OrdersView() {
       if (document.visibilityState === 'visible') {
         void fetchOrders(true)
       }
-    }, 15000)
+    }, 5000)
 
     return () => {
       isMounted = false
@@ -1431,9 +1437,15 @@ function OrdersView() {
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-gray-500">Warehouse Stage</p>
                   <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
-                  <p className="text-xs text-gray-600">
-                    Driver: {selectedOrder.isDriverAssigned ? selectedOrder.assignedDriverName || 'Assigned' : 'Not assigned'}
-                  </p>
+                  {selectedOrder.isDriverAssigned ? (
+                    <p className="text-xs text-gray-600">
+                      Driver: {selectedOrder.assignedDriverName || 'Assigned'}
+                    </p>
+                  ) : (
+                    <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 shadow-[0_6px_14px_rgba(239,68,68,0.14)]">
+                      Driver not assigned
+                    </div>
+                  )}
                   {(selectedOrder.exceptionHoldReason || selectedOrder.exceptionShortLoadQty || selectedOrder.exceptionDamagedOnLoadingQty) ? (
                     <p className="text-xs text-red-600">
                       Exceptions: short load {Number(selectedOrder.exceptionShortLoadQty || 0)}, damaged {Number(selectedOrder.exceptionDamagedOnLoadingQty || 0)}

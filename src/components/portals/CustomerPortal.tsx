@@ -719,7 +719,7 @@ export function CustomerPortal() {
     addToCart(pendingCartProduct, qty)
     setIsAddToCartDialogOpen(false)
     setPendingCartProduct(null)
-    toast.success('Added to cart')
+    toast.success('Added to cart', { duration: 1000 })
   }
 
   const adjustPendingCartQty = (delta: number) => {
@@ -1932,14 +1932,14 @@ export function CustomerPortal() {
   }
 
   return (
-    <div className={`${poppins.className} min-h-[100dvh] bg-[#d7dce3] md:bg-[#d8dce2]`}>
-      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:min-h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
+    <div className={`${poppins.className} h-[100dvh] overflow-hidden bg-[#d7dce3] md:bg-[#d8dce2]`}>
+      <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/35 blur-3xl" />
         <div className="absolute -bottom-16 -right-16 h-72 w-72 rounded-full bg-lime-200/30 blur-3xl" />
       </div>
-      <div className="relative z-[1] flex min-h-[100dvh] flex-col">
-      <header className="sticky top-0 z-20 border-b border-sky-200/70 bg-[#edf5fb]/95 text-[#0f3d72] shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-md">
+      <div className="relative z-[1] flex h-full min-h-0 flex-col">
+      <header className="sticky top-0 z-20 shrink-0 border-b border-sky-200/70 bg-[#edf5fb]/95 text-[#0f3d72] shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-md">
         <div className="px-4 pb-3 pt-[max(env(safe-area-inset-top),0.65rem)] md:py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -2008,11 +2008,11 @@ export function CustomerPortal() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex-1 min-h-0 w-full space-y-4 px-4 pb-24 pt-0 md:px-6 md:pb-8 md:pt-2"
+        className="flex-1 min-h-0 w-full overflow-y-auto space-y-4 px-4 pb-24 pt-0 md:px-6 md:pb-8 md:pt-2"
       >
         {activeView === 'home' && (
           <section className="-mx-4 -mt-0 min-h-[calc(100dvh-9.5rem)] bg-[linear-gradient(180deg,#d8edf7_0%,#d9eef8_38%,#dce8dc_100%)] pb-6 md:mx-0 md:mt-0 md:rounded-[1.2rem] md:border md:border-slate-200/70 md:pb-4">
-            <div className="sticky top-[calc(env(safe-area-inset-top)+52px)] z-[5] border-b border-slate-200/70 bg-[#f1f3f6]/95 px-3 py-2.5 md:static md:rounded-t-[1.2rem]">
+            <div className="border-b border-slate-200/70 bg-[#f1f3f6]/95 px-3 py-2.5 md:rounded-t-[1.2rem]">
               <div className="flex items-center gap-2 rounded-2xl border border-slate-300/85 bg-[#eef0f4] px-3 py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
                 <Search className="h-4 w-4 text-slate-500" />
                 <Input
@@ -2101,7 +2101,7 @@ export function CustomerPortal() {
 
         {activeView === 'cart' && (
           <section className="-mx-4 -mt-4 min-h-[calc(100dvh-9.5rem)] bg-[linear-gradient(180deg,#f5f8fc_0%,#ebf3fb_55%,#e9f0f6_100%)] pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-emerald-100/70 md:pb-4 md:shadow-[0_14px_32px_rgba(5,150,105,0.08)] md:backdrop-blur-md">
-            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur md:static md:rounded-t-[1.6rem]">
+            <div className="border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur md:rounded-t-[1.6rem]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-100" onClick={() => setActiveView('home')}>
@@ -2226,7 +2226,7 @@ export function CustomerPortal() {
 
         {activeView === 'checkout' && (
           <section className="-mx-4 -mt-4 bg-white/55 pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
-            <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] border-b bg-white px-3 py-3 md:static md:rounded-t-xl">
+            <div className="border-b bg-white px-3 py-3 md:rounded-t-xl">
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('cart')}>
                   <ArrowLeft className="h-4 w-4" />
@@ -2545,7 +2545,7 @@ export function CustomerPortal() {
         )}
 
         {activeView === 'track' && (
-          <section className="-mx-4 -mt-4 bg-white/55 pb-8 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
+          <section className="-mx-4 mt-0 bg-white/55 pb-8 md:mx-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
             {(() => {
               const order = orders.find((o) => o.id === selectedTrackingOrderId)
               if (!order) {
@@ -2573,7 +2573,7 @@ export function CustomerPortal() {
 
               return (
                 <>
-                  <div className="sticky top-[calc(env(safe-area-inset-top)+60px)] z-[6] flex h-14 items-center justify-between border-b border-[#e8e8e8] bg-white px-2 md:static md:rounded-t-xl">
+                  <div className="flex h-14 items-center justify-between border-b border-[#e8e8e8] bg-white px-2 md:rounded-t-xl">
                     <Button variant="ghost" size="icon" onClick={() => setActiveView('orders')}>
                       <ArrowLeft className="h-5 w-5" />
                     </Button>

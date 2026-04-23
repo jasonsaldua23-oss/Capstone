@@ -437,6 +437,8 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                 row["order"] = {
                     "id": dp.order.id,
                     "orderNumber": dp.order.order_number,
+                    "warehouseStage": str(dp.order.warehouse_stage or WarehouseStage.READY_TO_LOAD),
+                    "status": _normalize_order_status(dp.order.status),
                     "totalAmount": dp.order.total_amount,
                     "items": [
                         {

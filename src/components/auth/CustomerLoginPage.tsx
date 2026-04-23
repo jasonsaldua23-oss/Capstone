@@ -41,17 +41,17 @@ export function CustomerLoginPage() {
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
   const googleContinueSection = googleClientId ? (
-    <div className="space-y-3">
-      <div className="relative py-1">
+    <div className="mb-1.5 mt-1.5 space-y-1.5 sm:mb-2 sm:mt-2 sm:space-y-2">
+      <div className="relative py-0.5 sm:py-1">
         <div className="absolute inset-0 flex items-center">
           <span className="w-full border-t border-slate-200" />
         </div>
-        <div className="relative flex justify-center text-xs uppercase">
+        <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
           <span className="bg-white px-2 text-slate-500">Or continue with</span>
         </div>
       </div>
-      <div className="flex justify-center">
-        <div ref={googleButtonRef} className="w-full flex justify-center" />
+      <div className="flex justify-center w-full">
+        <div ref={googleButtonRef} className="flex w-full max-w-xs items-center justify-center" style={{ minWidth: '0' }} />
       </div>
     </div>
   ) : (
@@ -103,6 +103,9 @@ export function CustomerLoginPage() {
     if (!window.google?.accounts?.id) return
     if (!googleButtonRef.current) return
 
+    const availableWidth = googleButtonRef.current.parentElement?.clientWidth ?? googleButtonRef.current.clientWidth ?? 0
+    const buttonWidth = Math.max(220, Math.min(360, Math.floor(availableWidth || 280)))
+
     googleButtonRef.current.innerHTML = ''
     window.google.accounts.id.initialize({
       client_id: googleClientId,
@@ -120,7 +123,7 @@ export function CustomerLoginPage() {
       text: 'continue_with',
       shape: 'pill',
       logo_alignment: 'left',
-      width: 360,
+      width: buttonWidth,
     })
   }
 
@@ -152,6 +155,19 @@ export function CustomerLoginPage() {
 
   useEffect(() => {
     renderGoogleButton()
+  }, [authMode, googleClientId])
+
+  useEffect(() => {
+    if (!googleClientId) return
+
+    const handleResize = () => {
+      renderGoogleButton()
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
   }, [authMode, googleClientId])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -251,47 +267,47 @@ export function CustomerLoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#ecf7f3] px-4 py-6 sm:py-10">
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#ecf7f3] px-2 py-2 sm:min-h-screen sm:px-4 sm:py-8">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-20 top-12 h-64 w-64 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl" />
-        <div className="absolute -right-16 bottom-8 h-64 w-64 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl" />
+        <div className="absolute -left-10 top-6 h-32 w-32 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl sm:-left-16 sm:top-12 sm:h-64 sm:w-64" />
+        <div className="absolute -right-8 bottom-4 h-32 w-32 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl sm:-right-16 sm:bottom-8 sm:h-64 sm:w-64" />
       </div>
       {googleClientId ? (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
-      <div className="relative z-[1] mx-auto w-full max-w-md">
-        <Card className="overflow-hidden border-sky-200/80 bg-white/96 shadow-[0_24px_65px_rgba(2,132,199,0.20)] backdrop-blur-md sm:rounded-[32px]">
-          <div className="border-b border-sky-100 bg-[#f3fbff] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-center sm:px-6">
+      <div className="relative z-[1] mx-auto flex w-full max-w-md items-center justify-center">
+        <Card className="w-full overflow-hidden rounded-[20px] border-sky-200/80 bg-white/96 py-0 shadow-[0_14px_36px_rgba(2,132,199,0.12)] backdrop-blur-md sm:rounded-[30px] sm:shadow-[0_18px_50px_rgba(2,132,199,0.14)]">
+          <div className="border-b border-sky-100 bg-[#f3fbff] px-3 pb-2.5 pt-3 text-center sm:px-6 sm:pb-5 sm:pt-6">
             <div className="flex items-center justify-center">
-              <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-[1.15rem] border border-sky-200/70 bg-sky-100 shadow-[0_10px_24px_rgba(14,165,233,0.25)] ring-2 ring-emerald-200/90">
-                <img src="/annshop.png" alt="AnnShop" className="h-full w-full scale-125 object-contain" />
+              <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-sky-200/70 bg-sky-100 shadow-[0_6px_16px_rgba(14,165,233,0.14)] ring-2 ring-emerald-200/90 sm:h-12 sm:w-12 sm:rounded-2xl sm:shadow-[0_10px_24px_rgba(14,165,233,0.16)]">
+                <img src="/annshop.png" alt="AnnShop" className="h-full w-full scale-100 object-contain" />
               </div>
             </div>
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/80">Ann Ann's Beverages Trading</p>
-            <h1 className="mt-1 text-[2rem] font-black tracking-[-0.02em]">
+            <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-sky-700/80 sm:mt-3 sm:text-[11px]">Ann Ann's Beverages Trading</p>
+            <h1 className="mt-1 text-[1.55rem] font-black tracking-[-0.02em] sm:mt-2 sm:text-[2rem]">
               <span className="text-[#0f4f8f]">Ann</span>
               <span className="text-[#2f9a34]">Shop</span>
             </h1>
-            <p className="mt-1 text-[0.95rem] leading-relaxed text-slate-600">Track orders and manage deliveries from one place.</p>
+            <p className="mt-1 text-[12px] leading-tight text-slate-600 sm:mt-2 sm:text-[0.95rem]">Track orders and manage deliveries from one place.</p>
           </div>
-          <CardContent className="px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pb-7">
+          <CardContent className="w-full px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2.5 sm:px-6 sm:pb-6 sm:pt-5">
           {authMode === 'login' ? (
-              <form onSubmit={handleLogin} autoComplete="off" className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="customer-email" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Email</Label>
-                  <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
+              <form onSubmit={handleLogin} autoComplete="off" className="space-y-2.5 sm:space-y-4">
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="customer-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email</Label>
+                  <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-10 rounded-xl border-sky-100 bg-sky-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500 sm:h-12 sm:text-base" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="customer-password" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Password</Label>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="customer-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
                   <div className="relative">
-                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-12 rounded-xl border-sky-100 bg-sky-50/50 pr-11 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500" />
+                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-10 rounded-xl border-sky-100 bg-sky-50/50 pr-10 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500 sm:h-12 sm:pr-11 sm:text-base" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-slate-600">
+                <label className="flex items-center gap-2 text-[12px] text-slate-600 sm:text-sm">
                   <input
                     type="checkbox"
                     checked={rememberMe}
@@ -300,16 +316,16 @@ export function CustomerLoginPage() {
                   />
                   Keep me logged in
                 </label>
-                <Button type="submit" className="h-12 w-full rounded-xl bg-sky-600 text-white shadow-[0_12px_24px_rgba(2,132,199,0.30)] hover:bg-sky-500 font-bold tracking-[0.01em]" disabled={isLoading}>
+                <Button type="submit" className="h-10 w-full rounded-xl bg-sky-600 text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(2,132,199,0.24)] hover:bg-sky-500 sm:h-12 sm:text-base sm:shadow-[0_12px_24px_rgba(2,132,199,0.30)]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
                 </Button>
                 <ForgotPasswordDialog
                   accountType="customer"
                   initialEmail={email}
-                  triggerClassName="w-full text-center text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                  triggerClassName="w-full text-center text-[12px] text-slate-500 transition-colors hover:text-slate-700 sm:text-sm"
                 />
                 {googleContinueSection}
-                <p className="text-center text-sm text-slate-600">
+                <p className="text-center text-[12px] text-slate-600 sm:text-sm">
                   Don&apos;t have an account?{' '}
                   <button
                     type="button"
@@ -321,26 +337,26 @@ export function CustomerLoginPage() {
                 </p>
               </form>
             ) : (
-              <form onSubmit={handleRegister} autoComplete="off" className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="reg-name" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Full Name</Label>
-                  <Input id="reg-name" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" required className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500" />
+              <form onSubmit={handleRegister} autoComplete="off" className="space-y-2.5 sm:space-y-4">
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="reg-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Full Name</Label>
+                  <Input id="reg-name" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" required className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reg-email" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Email</Label>
-                  <Input id="reg-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500" />
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="reg-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email</Label>
+                  <Input id="reg-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reg-password" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Password</Label>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="reg-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
                   <div className="relative">
-                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 pr-11 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500" />
+                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 pr-10 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:pr-11 sm:text-base" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reg-confirm-password" className="text-[13px] font-semibold tracking-[0.01em] text-slate-700">Confirm Password</Label>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="reg-confirm-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Confirm Password</Label>
                   <Input
                     id="reg-confirm-password"
                     type={showPassword ? 'text' : 'password'}
@@ -349,17 +365,17 @@ export function CustomerLoginPage() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm password"
                     required
-                    className="h-12 rounded-xl border-emerald-100 bg-emerald-50/50 text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500"
+                    className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base"
                   />
                   {confirmPassword && password !== confirmPassword ? (
-                    <p className="text-sm text-red-600">Passwords do not match</p>
+                    <p className="text-[12px] text-red-600 sm:text-sm">Passwords do not match</p>
                   ) : null}
                 </div>
-                <Button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 text-white shadow-[0_12px_24px_rgba(5,150,105,0.26)] hover:bg-emerald-500 font-bold tracking-[0.01em]" disabled={isLoading}>
+                <Button type="submit" className="h-10 w-full rounded-xl bg-emerald-600 text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(5,150,105,0.2)] hover:bg-emerald-500 sm:h-12 sm:text-base sm:shadow-[0_12px_24px_rgba(5,150,105,0.26)]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
                 {googleContinueSection}
-                <p className="text-center text-sm text-slate-600">
+                <p className="text-center text-[12px] text-slate-600 sm:text-sm">
                   Already have an account?{' '}
                   <button
                     type="button"
