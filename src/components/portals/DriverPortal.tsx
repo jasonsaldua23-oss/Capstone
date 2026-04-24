@@ -117,6 +117,17 @@ interface Trip {
   dropPoints: DropPoint[]
 }
 
+interface SpareProductsInfo {
+  unit?: string | null
+  minPercent?: number
+  maxPercent?: number
+  recommendedPercent?: number
+  minQuantity?: number
+  recommendedQuantity?: number
+  maxQuantity?: number
+  totalLoadQuantity?: number
+}
+
 interface DropPoint {
   id: string
   sequence: number
@@ -133,6 +144,16 @@ interface DropPoint {
     id?: string
     orderNumber: string
     totalAmount?: number | null
+    warehouseStage?: string | null
+    loadedAt?: string | null
+    checklistItemsVerified?: boolean
+    checklistQuantityVerified?: boolean
+    checklistPackagingVerified?: boolean
+    checklistSpareProductsVerified?: boolean
+    checklistVehicleAssigned?: boolean
+    checklistDriverAssigned?: boolean
+    isDriverAssigned?: boolean
+    assignedDriverName?: string | null
     items?: Array<{
       id: string
       productId: string
@@ -140,7 +161,9 @@ interface DropPoint {
       product?: {
         sku?: string | null
         name?: string | null
+        unit?: string | null
       } | null
+      spareProducts?: SpareProductsInfo | null
     }>
     returns?: Array<{
       id: string
@@ -156,6 +179,12 @@ interface DropPoint {
       isClosed?: boolean
     }>
   } | null
+}
+
+type AssignedOrderRow = {
+  trip: Trip
+  dropPoint: DropPoint
+  order: NonNullable<DropPoint['order']>
 }
 
 type NativeCameraCheckResult = {
@@ -239,6 +268,7 @@ export function DriverPortal() {
   const [isNativeCameraGateOpen, setIsNativeCameraGateOpen] = useState(false)
   const [nativeCameraGateMessage, setNativeCameraGateMessage] = useState('Camera permission is required to use AnnDrive.')
   const [isCheckingNativeCameraPermission, setIsCheckingNativeCameraPermission] = useState(false)
+  const [loadingOrderId, setLoadingOrderId] = useState<string | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const isFetchingTripsRef = useRef(false)
 
@@ -314,6 +344,40 @@ export function DriverPortal() {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(intervalId)
+    }
+  }, [fetchTrips])
+
+  const markOrderLoaded = useCallback(async (orderId: string) => {
+    setLoadingOrderId(orderId)
+    try {
+      const response = await fetch(`/api/orders/${orderId}/warehouse-stage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          warehouseStage: 'LOADED',
+          checklist: {
+            itemsVerified: true,
+            quantityVerified: true,
+            packagingVerified: true,
+            spareProductsVerified: true,
+            vehicleAssigned: true,
+            driverAssigned: true,
+          },
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to mark order as loaded')
+      }
+      toast.success(payload?.message || 'Order marked as loaded')
+      emitDataSync(['orders', 'trips'])
+      await fetchTrips(true)
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to mark order as loaded')
+      return false
+    } finally {
+      setLoadingOrderId(null)
     }
   }, [fetchTrips])
 
@@ -583,6 +647,8 @@ export function DriverPortal() {
             onOpenTrips={() => { setActiveView('trips'); setSelectedTripId(null) }}
             onOpenActiveTrip={(trip) => { setActiveView('trips'); setSelectedTripId(trip.id) }}
             onStartTracking={startLocationTracking}
+            loadingOrderId={loadingOrderId}
+            onMarkOrderLoaded={markOrderLoaded}
           />
         )}
 
@@ -717,6 +783,8 @@ function HomeView({
   onOpenTrips,
   onOpenActiveTrip,
   onStartTracking,
+  loadingOrderId,
+  onMarkOrderLoaded,
 }: {
   user: any
   trips: Trip[]
@@ -727,10 +795,39 @@ function HomeView({
   onOpenTrips: () => void
   onOpenActiveTrip: (trip: Trip) => void
   onStartTracking: () => Promise<boolean>
+  loadingOrderId: string | null
+  onMarkOrderLoaded: (orderId: string) => Promise<boolean>
 }) {
+  const [loadChecklistByOrder, setLoadChecklistByOrder] = useState<Record<string, Record<string, boolean>>>({})
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
   const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
+  const isCancelledTrip = (status: string | null | undefined) => ['CANCELLED', 'CANCELED'].includes(String(status || '').toUpperCase())
+  const formatWarehouseStage = (stage: string | null | undefined) => String(stage || 'READY_TO_LOAD').toUpperCase().replace(/_/g, ' ')
+  const formatSpareProductDetails = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
+    const spareProducts = item.spareProducts
+    if (!spareProducts) return null
+    const recommendedQuantity = Number(spareProducts.recommendedQuantity || 0)
+    const totalLoadQuantity = Number(spareProducts.totalLoadQuantity ?? (Number(item.quantity || 0) + recommendedQuantity))
+    const recommendedPercent = Number(spareProducts.recommendedPercent || 0)
+    const minPercent = Number(spareProducts.minPercent || 0)
+    const maxPercent = Number(spareProducts.maxPercent || 0)
+    return `Ordered ${Number(item.quantity || 0)} • Auto spare products ${recommendedQuantity} • Total load ${totalLoadQuantity} • Policy ${minPercent}-${maxPercent}% (default ${recommendedPercent}%)`
+  }
+  const isWarehouseChecklistComplete = (order: AssignedOrderRow['order']) =>
+    Boolean(
+      order?.checklistItemsVerified &&
+      order?.checklistQuantityVerified &&
+      order?.checklistPackagingVerified &&
+      order?.checklistSpareProductsVerified &&
+      order?.checklistVehicleAssigned &&
+      order?.checklistDriverAssigned
+    )
+  const stageBadgeStyles: Record<string, string> = {
+    READY_TO_LOAD: 'bg-amber-100 text-amber-800 border border-amber-200',
+    LOADED: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+    DISPATCHED: 'bg-sky-100 text-sky-800 border border-sky-200',
+  }
 
   const activeTrip = trips.find((trip) => isInProgressTrip(trip.status)) || null
   const plannedTrips = trips.filter((trip) => isPlannedTrip(trip.status)).length
@@ -739,6 +836,28 @@ function HomeView({
   const pendingStops = activeTrip
     ? (activeTrip.dropPoints || []).filter((point) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
     : 0
+  const assignedOrderRows: AssignedOrderRow[] = []
+  const seenAssignedOrderIds = new Set<string>()
+  const relevantTrips = [...trips].sort((a, b) => {
+    const rank = (status: string | null | undefined) => {
+      const normalized = String(status || '').toUpperCase()
+      if (normalized === 'IN_PROGRESS') return 0
+      if (normalized === 'PLANNED') return 1
+      return 2
+    }
+    return rank(a.status) - rank(b.status)
+  })
+
+  for (const trip of relevantTrips) {
+    if (isCompletedTrip(trip.status) || isCancelledTrip(trip.status)) continue
+    for (const dropPoint of [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)) {
+      const order = dropPoint.order
+      const orderId = String(order?.id || '').trim()
+      if (!order || !orderId || seenAssignedOrderIds.has(orderId)) continue
+      seenAssignedOrderIds.add(orderId)
+      assignedOrderRows.push({ trip, dropPoint, order })
+    }
+  }
 
   if (isLoading) {
     return (
@@ -828,6 +947,136 @@ function HomeView({
                 View My Trips
               </Button>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-[1.5rem] font-semibold tracking-[-0.01em] leading-tight text-[#0e2442]">
+            Assigned Orders
+          </CardTitle>
+          <CardDescription className="text-[#46617f]">
+            Drivers complete the checklist and mark orders as loaded here. Warehouse can view the loaded status only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {assignedOrderRows.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 px-4 py-8 text-center text-sm text-slate-500">
+              No assigned orders available.
+            </div>
+          ) : (
+            assignedOrderRows.map(({ trip, dropPoint, order }) => {
+              const orderId = String(order.id || '')
+              const warehouseStage = String(order.warehouseStage || 'READY_TO_LOAD').toUpperCase()
+              const checklistDone = isWarehouseChecklistComplete(order)
+              const defaultChecklist = Object.fromEntries(
+                (order.items || []).map((item) => [String(item.id), checklistDone])
+              )
+              const checklistState = loadChecklistByOrder[orderId] || defaultChecklist
+              const itemChecklistValues = (order.items || []).map((item) => Boolean(checklistState[String(item.id)]))
+              const allItemsChecked = itemChecklistValues.length > 0 && itemChecklistValues.every(Boolean)
+              const canMarkLoaded = warehouseStage === 'READY_TO_LOAD'
+
+              return (
+                <div key={`${trip.id}-${dropPoint.id}-${orderId}`} className="rounded-2xl border border-slate-200 bg-white/92 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-bold tracking-tight text-slate-900">{order.orderNumber}</p>
+                        <Badge className={stageBadgeStyles[warehouseStage] || 'bg-slate-100 text-slate-700 border border-slate-200'}>
+                          {formatWarehouseStage(order.warehouseStage)}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-slate-700">Trip: {trip.tripNumber}</p>
+                      <p className="text-sm text-slate-600">{dropPoint.locationName} • {dropPoint.address}</p>
+                      <p className="text-xs text-slate-500">{dropPoint.city}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Checklist</p>
+                      <p className={`text-sm font-semibold ${checklistDone ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {checklistDone ? 'Completed' : 'Pending'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {(order.items || []).length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Assigned Items</p>
+                      <p className="text-xs text-slate-500">
+                        Automatic spare products are added per ordered item using the unit policy: case = 8-12% with 10% default, pack(bundle) = 3-5% with 4% default.
+                      </p>
+                      {(order.items || []).map((item) => {
+                        const itemId = String(item.id)
+                        const checked = Boolean(checklistState[itemId])
+                        const spareProductDetails = formatSpareProductDetails(item)
+                        return (
+                          <label key={itemId} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
+                            <div>
+                              <p className="font-medium text-slate-900">{item.product?.name || 'Product'}</p>
+                              <p className="text-xs text-slate-500">SKU: {item.product?.sku || 'N/A'} • Unit {item.product?.unit || 'N/A'}</p>
+                              {spareProductDetails ? (
+                                <p className="text-xs text-slate-500">{spareProductDetails}</p>
+                              ) : (
+                                <p className="text-xs text-slate-500">Ordered Qty {Number(item.quantity || 0)}</p>
+                              )}
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!canMarkLoaded || loadingOrderId === orderId}
+                              onChange={(event) => {
+                                const nextChecked = event.target.checked
+                                setLoadChecklistByOrder((prev) => ({
+                                  ...prev,
+                                  [orderId]: {
+                                    ...(prev[orderId] || defaultChecklist),
+                                    [itemId]: nextChecked,
+                                  },
+                                }))
+                              }}
+                            />
+                          </label>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                      No item details available for this order.
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs text-slate-500">
+                      {warehouseStage === 'LOADED' || warehouseStage === 'DISPATCHED'
+                        ? `Loaded status recorded${order.loadedAt ? ` on ${new Date(order.loadedAt).toLocaleString()}` : ''}.`
+                        : 'Complete every assigned item, including the automatic spare products, before marking this order as loaded.'}
+                    </div>
+                    <Button
+                      className="bg-amber-600 text-white hover:bg-amber-700"
+                      disabled={!canMarkLoaded || !allItemsChecked || loadingOrderId === orderId}
+                      onClick={async () => {
+                        if (!orderId) return
+                        if (!allItemsChecked) {
+                          toast.error('Complete the checklist first.')
+                          return
+                        }
+                        const done = await onMarkOrderLoaded(orderId)
+                        if (done) {
+                          setLoadChecklistByOrder((prev) => ({
+                            ...prev,
+                            [orderId]: Object.fromEntries((order.items || []).map((item) => [String(item.id), true])),
+                          }))
+                        }
+                      }}
+                    >
+                      {loadingOrderId === orderId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {warehouseStage === 'LOADED' || warehouseStage === 'DISPATCHED' ? 'Loaded' : 'Mark as Loaded'}
+                    </Button>
+                  </div>
+                </div>
+              )
+            })
           )}
         </CardContent>
       </Card>
@@ -1266,7 +1515,7 @@ function TripDetailView({
 
     const errorMessage = String(payload?.error || 'Failed to upload POD image')
     if (/upload storage is unavailable/i.test(errorMessage)) {
-      toast('Storage is not configured on this deployment. Damage photo will be saved inline for this report.')
+      toast('Storage is not configured on this deployment. The image will be saved inline for this record.')
       return toDataUrl(preparedFile)
     }
     throw new Error(errorMessage)
@@ -1278,6 +1527,17 @@ function TripDetailView({
       if (previous) URL.revokeObjectURL(previous)
       return file ? URL.createObjectURL(file) : null
     })
+  }
+
+  const attachCameraStreamToVideo = async () => {
+    const stream = cameraStreamRef.current
+    const video = videoRef.current
+    if (!stream || !video) return
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream
+    }
+    await video.play().catch(() => {})
   }
 
   const stopCameraStream = () => {
@@ -1508,7 +1768,7 @@ function TripDetailView({
     setIsSpareReplacing(true)
     try {
       const damagePhotos = await Promise.all(spareDamagePhotoFiles.map((photo) => uploadPodImage(photo)))
-      const response = await fetch('/api/driver/replacements/from-spare-stock', {
+      const response = await fetch('/api/driver/replacements/from-spare-products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1530,10 +1790,11 @@ function TripDetailView({
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to process on-delivery replacement')
       }
+      const remainingSpareProducts = Number(payload?.remainingSpareProducts ?? 0)
       toast.success(
         spareOutcome === 'RESOLVED'
-          ? `Damage reported and resolved on delivery. Remaining spare stock: ${Number(payload?.remainingSpareStock ?? 0)}`
-          : `Damage reported as partially replaced. Follow-up required. Remaining spare stock: ${Number(payload?.remainingSpareStock ?? 0)}`
+          ? `Damage reported and resolved on delivery. Remaining spare products: ${remainingSpareProducts}`
+          : `Damage reported as partially replaced. Follow-up required. Remaining spare products: ${remainingSpareProducts}`
       )
       setSparePartiallyReplacedQuantity(0)
       closeSpareReplacement()
@@ -1549,6 +1810,7 @@ function TripDetailView({
     stopCameraStream()
     setIsCameraOpen(false)
     setIsCameraLoading(false)
+    setCapturedCameraPhoto(null)
   }
 
   const openCameraSettings = async () => {
@@ -1728,10 +1990,7 @@ function TripDetailView({
           return
         }
         cameraStreamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play().catch(() => {})
-        }
+        await attachCameraStreamToVideo()
       } catch (error: any) {
         const errName = String(error?.name || '')
         const denied =
@@ -1767,6 +2026,11 @@ function TripDetailView({
       stopCameraStream()
     }
   }, [isCameraOpen])
+
+  useEffect(() => {
+    if (!isCameraOpen || capturedCameraPhoto) return
+    void attachCameraStreamToVideo()
+  }, [isCameraOpen, capturedCameraPhoto])
 
   useEffect(() => {
     const sorted = [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)
@@ -2553,9 +2817,14 @@ function TripDetailView({
                                     <p className="text-[11px] font-semibold text-slate-600">Order Details</p>
                                     <div className="mt-1 space-y-0.5">
                                       {(dropPoint.order.items || []).map((item, index) => (
-                                        <p key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600">
-                                          {item.product?.name || 'Item'} x{Number(item.quantity || 0)}
-                                        </p>
+                                        <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600">
+                                          <p>{item.product?.name || 'Item'} x{Number(item.quantity || 0)}</p>
+                                          {Number(item.spareProducts?.recommendedQuantity || 0) > 0 ? (
+                                            <p className="text-[10px] text-slate-500">
+                                              Auto spare products {Number(item.spareProducts?.recommendedQuantity || 0)} • Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}
+                                            </p>
+                                          ) : null}
+                                        </div>
                                       ))}
                                     </div>
                                   </div>
@@ -2625,7 +2894,7 @@ function TripDetailView({
                                   variant="outline"
                                   className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
                                   onClick={(e) => {
-                                    e.stopPropagation()
+                                    e.stopPropagation();
                                     openSpareReplacement(dropPoint)
                                   }}
                                   disabled={isUpdating || isSpareReplacing}
@@ -2723,7 +2992,7 @@ function TripDetailView({
               <DialogDescription className="mt-1 text-sm text-[#4d6785]">
                 {cameraCaptureTarget === 'spare'
                   ? 'Take a clear photo of the damaged item evidence.'
-                  : 'Take a clear photo of the delivered package/recipient.'}
+                  : 'Take a clear photo of the delivered package or recipient.'}
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -2810,12 +3079,12 @@ function TripDetailView({
           <DialogHeader>
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
               <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
-                {spareFollowUpReturnId ? 'Resolve Replacement' : 'Damage Report'}
+                {spareFollowUpReturnId ? 'Resolve Replacement' : 'Spare Product Replacement'}
               </DialogTitle>
               <DialogDescription className="mt-1 text-sm text-[#4d6785]">
                 {spareFollowUpReturnId
                   ? 'Capture follow-up photo evidence and submit the remaining replacement quantity to close the case.'
-                  : 'Capture damage evidence using camera, then mark as resolved or partially replaced.'}
+                  : 'Capture damage evidence using camera, then use the driver spare products to mark as resolved or partially replaced.'}
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -2831,222 +3100,222 @@ function TripDetailView({
               : Math.max(Number(selectedSpareItem?.quantity || 0), 0)
 
             return (
-          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            {targetOpenReplacement ? (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                Follow-up replacement in progress: {targetReplacementProgress.replacedQuantity} replaced, {targetReplacementProgress.remainingQuantity} still need to be replaced.
-              </div>
-            ) : null}
-            <div className="space-y-2">
-              <Label htmlFor="spare-order-item">Damaged Item</Label>
-              <Select
-                value={spareOrderItemId}
-                onValueChange={(value) => {
-                  setSpareOrderItemId(value)
-                  if (followUpMode) return
-                  const nextItem = targetItems.find((item) => item.id === value) || null
-                  const itemMaxQuantity = Math.max(Number(nextItem?.quantity || 0), 0)
-                  setSpareQuantity((previous) => {
-                    if (!Number.isFinite(previous)) return itemMaxQuantity
-                    return Math.min(Math.max(previous, 0), itemMaxQuantity)
-                  })
-                }}
-                disabled={targetItems.length === 0 || followUpMode}
-              >
-                <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
-                  <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
-                </SelectTrigger>
-                <SelectContent className="border-sky-200 bg-white text-slate-900">
-                  {targetItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
-                      {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {Number(item.quantity || 0)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="spare-qty">Quantity to Replace</Label>
-              <Input
-                id="spare-qty"
-                type="number"
-                min={followUpMode ? targetReplacementProgress.remainingQuantity : 0}
-                max={maxReplaceQuantity}
-                value={spareQuantity}
-                onChange={(e) => {
-                  if (followUpMode) return
-                  const parsed = Number(e.target.value || 0)
-                  const clamped = Math.min(Math.max(parsed, 0), maxReplaceQuantity)
-                  setSpareQuantity(clamped)
-                }}
-                disabled={followUpMode}
-              />
-              {followUpMode ? (
-                <p className="text-xs text-emerald-700">Follow-up cases use the remaining quantity only, tied to the original damaged item.</p>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label>Resolution</Label>
-              {followUpMode ? (
-                <>
-                  <Button type="button" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled>
-                    Resolved
-                  </Button>
-                  <p className="text-xs text-emerald-700">
-                    Follow-up cases can only be submitted as resolved with photo evidence.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant={spareOutcome === 'RESOLVED' ? 'default' : 'outline'}
-                      onClick={() => setSpareOutcome('RESOLVED')}
-                      disabled={isSpareReplacing}
-                    >
-                      Resolved
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={spareOutcome === 'PARTIALLY_REPLACED' ? 'default' : 'outline'}
-                      onClick={() => setSpareOutcome('PARTIALLY_REPLACED')}
-                      disabled={isSpareReplacing}
-                    >
-                      Partially Replaced
-                    </Button>
+              <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+                {targetOpenReplacement ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    Follow-up replacement in progress: {targetReplacementProgress.replacedQuantity} replaced, {targetReplacementProgress.remainingQuantity} still need to be replaced.
                   </div>
-                  <p className="text-xs text-slate-500">
-                    Resolved = replacement completed. Partially Replaced = needs warehouse follow-up.
-                  </p>
-                </>
-              )}
-            </div>
-            <AnimatePresence mode="wait">
-              {spareOutcome === 'PARTIALLY_REPLACED' && (
-                <motion.div
-                  key="partial-qty-field"
-                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                  animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
-                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                  transition={{ duration: 0.3, ease: 'easeInOut' }}
-                  className="space-y-2 overflow-hidden"
-                >
-                  <Label htmlFor="spare-partial-qty">How Many Were Replaced?</Label>
-                  <Input
-                    id="spare-partial-qty"
-                    type="number"
-                    min="1"
-                    max={spareQuantity}
-                    value={sparePartiallyReplacedQuantity}
-                    onChange={(e) => setSparePartiallyReplacedQuantity(Number(e.target.value || 0))}
-                    disabled={isSpareReplacing}
-                    placeholder="Enter quantity replaced"
-                  />
-                  <p className="text-xs text-slate-500">
-                    Total damaged: {spareQuantity} | You are replacing: {sparePartiallyReplacedQuantity}
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <div className="space-y-2">
-              <Label htmlFor="spare-reason">Damage Details</Label>
-              <Textarea
-                id="spare-reason"
-                placeholder="Describe damage observed by driver..."
-                value={spareReason}
-                onChange={(e) => setSpareReason(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="spare-photo">Damage Photo</Label>
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                    onClick={openSpareCameraCapture}
-                    disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
+                ) : null}
+                <div className="space-y-2">
+                  <Label htmlFor="spare-order-item">Damaged Item</Label>
+                  <Select
+                    value={spareOrderItemId}
+                    onValueChange={(value) => {
+                      setSpareOrderItemId(value)
+                      if (followUpMode) return
+                      const nextItem = targetItems.find((item) => item.id === value) || null
+                      const itemMaxQuantity = Math.max(Number(nextItem?.quantity || 0), 0)
+                      setSpareQuantity((previous) => {
+                        if (!Number.isFinite(previous)) return itemMaxQuantity
+                        return Math.min(Math.max(previous, 0), itemMaxQuantity)
+                      })
+                    }}
+                    disabled={targetItems.length === 0 || followUpMode}
                   >
-                    <Camera className="mr-2 h-4 w-4" />
-                    Take Photo
-                  </Button>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Camera evidence is required. Up to {MAX_SPARE_DAMAGE_PHOTOS} photos only.
-                </p>
-                {spareDamagePhotoFiles.length ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-emerald-700">Selected: {spareDamagePhotoFiles.length}/{MAX_SPARE_DAMAGE_PHOTOS}</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {spareDamagePhotoPreviews.map((previewUrl, index) => (
-                        <div key={`damage-preview-${index}`} className="space-y-1">
-                          <img
-                            src={previewUrl}
-                            alt={`Damage photo preview ${index + 1}`}
-                            className="h-24 w-full rounded border border-slate-200 object-cover"
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => clearSpareDamagePhoto(index)}
-                            disabled={isSpareReplacing}
-                          >
-                            Remove
-                          </Button>
-                        </div>
+                    <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
+                      <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
+                    </SelectTrigger>
+                    <SelectContent className="border-sky-200 bg-white text-slate-900">
+                      {targetItems.map((item) => (
+                        <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
+                          {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {Number(item.quantity || 0)}
+                        </SelectItem>
                       ))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="spare-qty">Quantity to Replace</Label>
+                  <Input
+                    id="spare-qty"
+                    type="number"
+                    min={followUpMode ? targetReplacementProgress.remainingQuantity : 0}
+                    max={maxReplaceQuantity}
+                    value={spareQuantity}
+                    onChange={(e) => {
+                      if (followUpMode) return
+                      const parsed = Number(e.target.value || 0)
+                      const clamped = Math.min(Math.max(parsed, 0), maxReplaceQuantity)
+                      setSpareQuantity(clamped)
+                    }}
+                    disabled={followUpMode}
+                  />
+                  {followUpMode ? (
+                    <p className="text-xs text-emerald-700">Follow-up cases use the remaining quantity only, tied to the original damaged item.</p>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <Label>Resolution</Label>
+                  {followUpMode ? (
+                    <>
+                      <Button type="button" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled>
+                        Resolved
+                      </Button>
+                      <p className="text-xs text-emerald-700">
+                        Follow-up cases can only be submitted as resolved with photo evidence.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant={spareOutcome === 'RESOLVED' ? 'default' : 'outline'}
+                          onClick={() => setSpareOutcome('RESOLVED')}
+                          disabled={isSpareReplacing}
+                        >
+                          Resolved
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={spareOutcome === 'PARTIALLY_REPLACED' ? 'default' : 'outline'}
+                          onClick={() => setSpareOutcome('PARTIALLY_REPLACED')}
+                          disabled={isSpareReplacing}
+                        >
+                          Partially Replaced
+                        </Button>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Resolved = replacement completed. Partially Replaced = needs warehouse follow-up.
+                      </p>
+                    </>
+                  )}
+                </div>
+                <AnimatePresence mode="wait">
+                  {spareOutcome === 'PARTIALLY_REPLACED' ? (
+                    <motion.div
+                      key="partial-qty-field"
+                      initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                      animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
+                      exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                      transition={{ duration: 0.3, ease: 'easeInOut' }}
+                      className="space-y-2 overflow-hidden"
+                    >
+                      <Label htmlFor="spare-partial-qty">How Many Were Replaced?</Label>
+                      <Input
+                        id="spare-partial-qty"
+                        type="number"
+                        min="1"
+                        max={spareQuantity}
+                        value={sparePartiallyReplacedQuantity}
+                        onChange={(e) => setSparePartiallyReplacedQuantity(Number(e.target.value || 0))}
+                        disabled={isSpareReplacing}
+                        placeholder="Enter quantity replaced"
+                      />
+                      <p className="text-xs text-slate-500">
+                        Total damaged: {spareQuantity} | You are replacing: {sparePartiallyReplacedQuantity}
+                      </p>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+                <div className="space-y-2">
+                  <Label htmlFor="spare-reason">Damage Details</Label>
+                  <Textarea
+                    id="spare-reason"
+                    placeholder="Describe damage observed by driver..."
+                    value={spareReason}
+                    onChange={(e) => setSpareReason(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="spare-photo">Damage Photo</Label>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 gap-2">
                       <Button
                         type="button"
-                        size="sm"
                         variant="outline"
                         className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
                         onClick={openSpareCameraCapture}
                         disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
                       >
-                        Add Camera Photo
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                        onClick={() => clearSpareDamagePhoto()}
-                        disabled={isSpareReplacing}
-                      >
-                        Clear All
+                        <Camera className="mr-2 h-4 w-4" />
+                        Take Photo
                       </Button>
                     </div>
+                    <p className="text-xs text-slate-500">
+                      Camera evidence is required. Up to {MAX_SPARE_DAMAGE_PHOTOS} photos only.
+                    </p>
+                    {spareDamagePhotoFiles.length ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-emerald-700">Selected: {spareDamagePhotoFiles.length}/{MAX_SPARE_DAMAGE_PHOTOS}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {spareDamagePhotoPreviews.map((previewUrl, index) => (
+                            <div key={`damage-preview-${index}`} className="space-y-1">
+                              <img
+                                src={previewUrl}
+                                alt={`Damage photo preview ${index + 1}`}
+                                className="h-24 w-full rounded border border-slate-200 object-cover"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-full"
+                                onClick={() => clearSpareDamagePhoto(index)}
+                                disabled={isSpareReplacing}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
+                            onClick={openSpareCameraCapture}
+                            disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
+                          >
+                            Add Camera Photo
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
+                            onClick={() => clearSpareDamagePhoto()}
+                            disabled={isSpareReplacing}
+                          >
+                            Clear All
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
+                    onClick={closeSpareReplacement}
+                    disabled={isSpareReplacing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    onClick={() => void submitSpareReplacement()}
+                    disabled={isSpareReplacing}
+                  >
+                    {isSpareReplacing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                    {followUpMode ? 'Submit Follow-up' : 'Submit Report'}
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                onClick={closeSpareReplacement}
-                disabled={isSpareReplacing}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                className="bg-emerald-600 hover:bg-emerald-700"
-                onClick={() => void submitSpareReplacement()}
-                disabled={isSpareReplacing}
-              >
-                {isSpareReplacing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                {followUpMode ? 'Submit Follow-up' : 'Submit Report'}
-              </Button>
-            </div>
-          </div>
             )
           })()}
         </DialogContent>

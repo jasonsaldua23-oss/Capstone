@@ -172,7 +172,7 @@ async function main() {
       name: 'Wireless Headphones',
       description: 'Premium wireless Bluetooth headphones',
       categoryId: category.id,
-      unit: 'piece',
+      unit: 'case',
       weight: 0.5,
       dimensions: '20x15x10',
       price: 149.99,
@@ -185,7 +185,7 @@ async function main() {
       name: 'Smartphone Case',
       description: 'Protective case for smartphones',
       categoryId: category.id,
-      unit: 'piece',
+      unit: 'pack(bundle)',
       weight: 0.1,
       price: 29.99,
     }
@@ -197,7 +197,7 @@ async function main() {
       name: 'Cotton T-Shirt',
       description: '100% cotton t-shirt',
       categoryId: category2.id,
-      unit: 'piece',
+      unit: 'case',
       weight: 0.2,
       price: 24.99,
     }
@@ -209,7 +209,7 @@ async function main() {
       name: 'Denim Jeans',
       description: 'Classic blue denim jeans',
       categoryId: category2.id,
-      unit: 'piece',
+      unit: 'pack(bundle)',
       weight: 0.5,
       price: 59.99,
     }

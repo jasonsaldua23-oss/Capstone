@@ -8,6 +8,7 @@ from .auth import create_token
 from .models import (
     Customer,
     Driver,
+    DriverSpareStock,
     DropPointType,
     Inventory,
     InventoryTransaction,
@@ -21,6 +22,7 @@ from .models import (
     Product,
     Role,
     SavedRouteDraft,
+    SpareStockTransaction,
     StockBatch,
     Trip,
     TripDropPoint,
@@ -953,6 +955,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
             checklist_items_verified=True,
             checklist_quantity_verified=True,
             checklist_packaging_verified=True,
+            checklist_spare_products_verified=True,
             checklist_vehicle_assigned=True,
             checklist_driver_assigned=True,
             dispatch_signed_off_by="Warehouse Lead",
@@ -1013,6 +1016,15 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
                 "email": self.admin_user.email,
                 "name": self.admin_user.name,
                 "role": self.admin_role.name,
+                "type": "staff",
+            }
+        )
+        self.driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": self.driver_role.name,
                 "type": "staff",
             }
         )
@@ -1101,6 +1113,7 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
                     "itemsVerified": True,
                     "quantityVerified": True,
                     "packagingVerified": True,
+                    "spareProductsVerified": True,
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },
@@ -1133,6 +1146,7 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
                     "itemsVerified": True,
                     "quantityVerified": True,
                     "packagingVerified": True,
+                    "spareProductsVerified": True,
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },
@@ -1149,6 +1163,86 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertEqual(order.warehouse_stage, WarehouseStage.LOADED)
         self.assertEqual(order.status, OrderStatus.PREPARING)
         self.assertIsNotNone(order.loaded_at)
+
+    def test_loaded_stage_auto_allocates_spare_products_for_driver(self) -> None:
+        order = self._create_order(status=OrderStatus.PREPARING)
+        product = Product.objects.create(
+            sku="SKU-STAGE-SPARE-CASE-001",
+            name="Stage Spare Case",
+            unit="case",
+            price=25,
+        )
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=25,
+            unit_price=25,
+            total_price=625,
+        )
+        self._assign_order_to_driver(order)
+
+        response = self._patch_stage(
+            order.id,
+            {
+                "warehouseStage": "LOADED",
+                "checklist": {
+                    "itemsVerified": True,
+                    "quantityVerified": True,
+                    "packagingVerified": True,
+                    "spareProductsVerified": True,
+                    "vehicleAssigned": True,
+                    "driverAssigned": True,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertTrue(order.checklist_spare_products_verified)
+
+        spare_products = DriverSpareStock.objects.get(driver=self.driver, product=product)
+        self.assertEqual(spare_products.quantity, 3)
+        self.assertEqual(spare_products.min_quantity, 3)
+
+        transaction = SpareStockTransaction.objects.get(
+            driver=self.driver,
+            product=product,
+            reference_type="order_spare_products_auto_load",
+            reference_id=order_item.id,
+        )
+        self.assertEqual(transaction.quantity, 3)
+
+    def test_driver_trips_includes_spare_product_policy_per_item(self) -> None:
+        order = self._create_order(status=OrderStatus.PREPARING)
+        product = Product.objects.create(
+            sku="SKU-STAGE-SPARE-PACK-001",
+            name="Stage Spare Pack",
+            unit="pack(bundle)",
+            price=12,
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=100,
+            unit_price=12,
+            total_price=1200,
+        )
+        self._assign_order_to_driver(order)
+
+        response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        trip_order = payload["trips"][0]["dropPoints"][0]["order"]
+        self.assertIn("items", trip_order)
+        self.assertEqual(trip_order["items"][0]["spareProducts"]["minPercent"], 3)
+        self.assertEqual(trip_order["items"][0]["spareProducts"]["maxPercent"], 5)
+        self.assertEqual(trip_order["items"][0]["spareProducts"]["recommendedPercent"], 4)
+        self.assertEqual(trip_order["items"][0]["spareProducts"]["recommendedQuantity"], 4)
 
     def test_dispatched_stage_is_automatic_when_trip_starts(self) -> None:
         order = self._create_order(warehouse_stage=WarehouseStage.LOADED)
@@ -1377,6 +1471,7 @@ class TripExecutionApiContractTests(TestCase):
             checklist_items_verified=True,
             checklist_quantity_verified=True,
             checklist_packaging_verified=True,
+            checklist_spare_products_verified=True,
             checklist_vehicle_assigned=True,
             checklist_driver_assigned=True,
         )
@@ -2965,6 +3060,7 @@ class DeliveryLifecycleFlowContractTests(TestCase):
                     "itemsVerified": True,
                     "quantityVerified": True,
                     "packagingVerified": True,
+                    "spareProductsVerified": True,
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },

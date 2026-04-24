@@ -147,6 +147,11 @@ interface PortalNotification {
   createdAt: string
 }
 
+const PRODUCT_UNIT_OPTIONS = [
+  { value: 'case', label: 'case' },
+  { value: 'pack(bundle)', label: 'pack(bundle)' },
+]
+
 interface WarehouseOrderItem {
   id: string
   orderNumber: string
@@ -158,6 +163,7 @@ interface WarehouseOrderItem {
   checklistItemsVerified?: boolean
   checklistQuantityVerified?: boolean
   checklistPackagingVerified?: boolean
+  checklistSpareProductsVerified?: boolean
   checklistVehicleAssigned?: boolean
   checklistDriverAssigned?: boolean
   createdAt: string
@@ -440,15 +446,13 @@ export function WarehousePortal() {
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
-  const [loadChecklistOpen, setLoadChecklistOpen] = useState(false)
-  const [loadChecklist, setLoadChecklist] = useState<Record<string, boolean>>({})
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [editName, setEditName] = useState('')
   const [editSku, setEditSku] = useState('')
-  const [editUnit, setEditUnit] = useState('piece')
+  const [editUnit, setEditUnit] = useState('case')
   const [editImageUrl, setEditImageUrl] = useState('')
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
   const [editPrice, setEditPrice] = useState('')
@@ -468,7 +472,7 @@ export function WarehousePortal() {
   const [newProductName, setNewProductName] = useState('')
   const [newProductDescription, setNewProductDescription] = useState('')
   const [newProductPrice, setNewProductPrice] = useState('')
-  const [newProductUnit, setNewProductUnit] = useState('piece')
+  const [newProductUnit, setNewProductUnit] = useState('case')
   const [newProductImageFile, setNewProductImageFile] = useState<File | null>(null)
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
@@ -952,13 +956,13 @@ export function WarehousePortal() {
             : rawStatus === 'REJECTED'
               ? 'NEEDS_FOLLOW_UP'
               : rawStatus === 'PROCESSED'
-                ? (mode === 'SPARE_STOCK_IMMEDIATE' ? 'RESOLVED_ON_DELIVERY' : 'COMPLETED')
+                ? 'COMPLETED'
                 : rawStatus
       const qty = Number(entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
       if (qty > 0) {
         replacedQty += qty
       }
-      if (status === 'RESOLVED_ON_DELIVERY' || (status === 'COMPLETED' && mode === 'SPARE_STOCK_IMMEDIATE')) {
+      if (status === 'RESOLVED_ON_DELIVERY') {
         resolvedOnDelivery += 1
       }
       if (status === 'NEEDS_FOLLOW_UP') {
@@ -1899,7 +1903,7 @@ export function WarehousePortal() {
     setDeleteEditOpen(false)
     setEditName(item.product?.name || '')
     setEditSku(item.product?.sku || '')
-    setEditUnit(item.product?.unit || 'piece')
+    setEditUnit(item.product?.unit || 'case')
     setEditImageUrl(item.product?.imageUrl || '')
     setEditImageFile(null)
     setEditPrice(String(item.product?.price ?? 0))
@@ -2034,7 +2038,7 @@ export function WarehousePortal() {
     setNewProductName('')
     setNewProductDescription('')
     setNewProductPrice('')
-    setNewProductUnit('piece')
+    setNewProductUnit('case')
     setNewProductImageFile(null)
   }
 
@@ -2125,6 +2129,7 @@ export function WarehousePortal() {
       order?.checklistItemsVerified &&
       order?.checklistQuantityVerified &&
       order?.checklistPackagingVerified &&
+      order?.checklistSpareProductsVerified &&
       order?.checklistVehicleAssigned &&
       order?.checklistDriverAssigned
     )
@@ -2200,53 +2205,6 @@ export function WarehousePortal() {
       emitDataSync(['orders', 'trips'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
-    } finally {
-      setUpdatingOrderId(null)
-    }
-  }
-
-  const updateWarehouseStage = async (
-    orderId: string,
-    stage: 'LOADED',
-    payload: {
-      itemsVerified?: boolean
-      quantityVerified?: boolean
-      packagingVerified?: boolean
-      vehicleAssigned?: boolean
-      driverAssigned?: boolean
-    } = {}
-  ) => {
-    setUpdatingOrderId(orderId)
-    try {
-      const response = await fetch(`/api/orders/${orderId}/warehouse-stage`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          warehouseStage: stage,
-          checklist: {
-            itemsVerified: payload.itemsVerified,
-            quantityVerified: payload.quantityVerified,
-            packagingVerified: payload.packagingVerified,
-            vehicleAssigned: payload.vehicleAssigned,
-            driverAssigned: payload.driverAssigned,
-          },
-        }),
-      })
-
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok || result?.success === false) {
-        throw new Error(result?.error || 'Failed to update warehouse stage')
-      }
-
-      setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...(result?.order || {}) } : prev))
-      toast.success(result?.message || `Warehouse stage moved to ${stage.replace(/_/g, ' ')}`)
-      await fetchOrdersData()
-      await fetchTripsData()
-      emitDataSync(['orders', 'trips'])
-      return true
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to update warehouse stage')
-      return false
     } finally {
       setUpdatingOrderId(null)
     }
@@ -2764,9 +2722,6 @@ export function WarehousePortal() {
                                   <p className="text-sm text-gray-900">{issueReason}</p>
                                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                                     {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
-                                    {replacementMode === 'SPARE_STOCK_IMMEDIATE' ? (
-                                      <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">On-delivery replacement</Badge>
-                                    ) : null}
                                   </div>
                                 </td>
                                 <td className="p-4">
@@ -3002,7 +2957,7 @@ export function WarehousePortal() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'piece'}</td>
+                              <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
                               <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
                               <td className="p-4 font-semibold text-gray-900">{item.minStock ?? 0}</td>
                               <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
@@ -3642,8 +3597,15 @@ export function WarehousePortal() {
                   <p className="font-medium mb-2">Order Details</p>
                   <div className="space-y-1">
                     {(selectedOrder.items || []).map((item) => (
-                      <div key={item.id} className="flex justify-between text-sm">
-                        <span>{item.product?.name || 'Product'} x{item.quantity}</span>
+                      <div key={item.id} className="flex justify-between gap-3 text-sm">
+                        <div>
+                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
+                          {(item as any).spareProducts ? (
+                            <p className="text-xs text-gray-500">
+                              Auto spare products {Number((item as any).spareProducts.recommendedQuantity || 0)} • Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)} • Policy {Number((item as any).spareProducts.minPercent || 0)}-{Number((item as any).spareProducts.maxPercent || 0)}%
+                            </p>
+                          ) : null}
+                        </div>
                         <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                       </div>
                     ))}
@@ -3660,7 +3622,14 @@ export function WarehousePortal() {
                   <div className="space-y-2">
                     {(selectedOrder.items || []).map((item) => (
                       <div key={item.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                        <span>{item.product?.name || 'Product'} x{item.quantity}</span>
+                        <div>
+                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
+                          {(item as any).spareProducts ? (
+                            <p className="text-xs text-gray-500">
+                              Auto spare products {Number((item as any).spareProducts.recommendedQuantity || 0)} • Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)}
+                            </p>
+                          ) : null}
+                        </div>
                         <span className={`font-medium ${isWarehouseChecklistComplete(selectedOrder) ? 'text-emerald-700' : 'text-gray-500'}`}>
                           {isWarehouseChecklistComplete(selectedOrder) ? 'Completed' : 'Pending'}
                         </span>
@@ -3672,21 +3641,19 @@ export function WarehousePortal() {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
                   const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()
                   const isPendingApproval = String((selectedOrder as any).paymentStatus || '').toLowerCase() === 'pending_approval'
-                  const isDriverAssigned = Boolean(selectedOrder.isDriverAssigned)
                   return (
                     <div className="grid grid-cols-2 gap-2">
                       {!isPendingApproval && selectedOrderStatus === 'PREPARING' && selectedWarehouseStage === 'READY_TO_LOAD' ? (
-                        <Button
-                          className="bg-amber-600 text-white hover:bg-amber-700"
-                          onClick={() => {
-                            setLoadChecklist(
-                              Object.fromEntries((selectedOrder.items || []).map((item) => [String(item.id), false]))
-                            )
-                            setLoadChecklistOpen(true)
-                          }}
-                          disabled={updatingOrderId === selectedOrder.id || !isDriverAssigned}
-                        >
-                          Mark as Loaded
+                        <Button variant="outline" disabled>
+                          Waiting for Driver Load
+                        </Button>
+                      ) : selectedWarehouseStage === 'LOADED' ? (
+                        <Button variant="outline" disabled>
+                          Loaded by Driver
+                        </Button>
+                      ) : selectedWarehouseStage === 'DISPATCHED' ? (
+                        <Button variant="outline" disabled>
+                          Dispatched
                         </Button>
                       ) : isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
                         <Button
@@ -3710,68 +3677,6 @@ export function WarehousePortal() {
               </div>
             </>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={loadChecklistOpen} onOpenChange={setLoadChecklistOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Checklist</DialogTitle>
-            <DialogDescription>Complete every product before marking this order as loaded.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2 text-sm">
-              {(selectedOrder?.items || []).map((item) => (
-                <label key={item.id} className="flex items-center gap-3 rounded border p-3">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(loadChecklist[String(item.id)])}
-                    onChange={(event) =>
-                      setLoadChecklist((prev) => ({
-                        ...prev,
-                        [String(item.id)]: event.target.checked,
-                      }))
-                    }
-                  />
-                  <span>{item.product?.name || 'Product'} x{item.quantity}</span>
-                </label>
-              ))}
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setLoadChecklistOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 bg-amber-600 hover:bg-amber-700"
-                onClick={async () => {
-                  if (!selectedOrder?.id) return
-                  if (!selectedOrder.isDriverAssigned) {
-                    toast.error('Assign this order to a driver first.')
-                    return
-                  }
-                  const checklistEntries = Object.values(loadChecklist)
-                  if (checklistEntries.length === 0 || checklistEntries.some((value) => !value)) {
-                    toast.error('Complete the checklist first.')
-                    return
-                  }
-                  const done = await updateWarehouseStage(selectedOrder.id, 'LOADED', {
-                    itemsVerified: true,
-                    quantityVerified: true,
-                    packagingVerified: true,
-                    vehicleAssigned: true,
-                    driverAssigned: true,
-                  })
-                  if (done) {
-                    setLoadChecklistOpen(false)
-                  }
-                }}
-                disabled={updatingOrderId === selectedOrder?.id}
-              >
-                Confirm Loaded
-              </Button>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
 
@@ -3891,7 +3796,18 @@ export function WarehousePortal() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-gray-700">Unit</label>
-                    <Input id="new-product-unit" value={newProductUnit} onChange={(e) => setNewProductUnit(e.target.value)} />
+                    <select
+                      id="new-product-unit"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={newProductUnit}
+                      onChange={(e) => setNewProductUnit(e.target.value)}
+                    >
+                      {PRODUCT_UNIT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-gray-700">Threshold</label>
@@ -3942,7 +3858,18 @@ export function WarehousePortal() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="edit-unit">Unit</Label>
-              <Input id="edit-unit" value={editUnit} onChange={(e) => setEditUnit(e.target.value)} />
+              <select
+                id="edit-unit"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={editUnit}
+                onChange={(e) => setEditUnit(e.target.value)}
+              >
+                {PRODUCT_UNIT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1">
               <Label htmlFor="edit-price">Price</Label>

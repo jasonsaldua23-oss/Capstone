@@ -25,8 +25,8 @@ from .auth import TOKEN_NAME, create_token, decode_token, extract_token, hash_pa
 from .models import (
     Customer,
     Driver,
-    DriverVehicle,
     DriverSpareStock,
+    DriverVehicle,
     Feedback,
     Inventory,
     InventoryTransaction,
@@ -58,6 +58,25 @@ from .models import (
 
 
 logger = logging.getLogger(__name__)
+
+PRODUCT_UNIT_CASE = "case"
+PRODUCT_UNIT_PACK_BUNDLE = "pack(bundle)"
+ALLOWED_PRODUCT_UNITS = {PRODUCT_UNIT_CASE, PRODUCT_UNIT_PACK_BUNDLE}
+SPARE_PRODUCTS_REFERENCE_TYPE = "order_spare_products_auto_load"
+REPLACEMENT_MODE_SPARE_PRODUCTS_IMMEDIATE = "SPARE_PRODUCTS_IMMEDIATE"
+REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL = "SPARE_PRODUCTS_PARTIAL"
+SPARE_PRODUCT_POLICY_BY_UNIT = {
+    PRODUCT_UNIT_CASE: {
+        "minPercent": 8,
+        "maxPercent": 12,
+        "recommendedPercent": 10,
+    },
+    PRODUCT_UNIT_PACK_BUNDLE: {
+        "minPercent": 3,
+        "maxPercent": 5,
+        "recommendedPercent": 4,
+    },
+}
 
 
 def _serialize_driver_vehicle_link(link: DriverVehicle) -> dict[str, Any]:
@@ -227,9 +246,16 @@ def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> s
     if raw == "REJECTED":
         return ReturnStatus.NEEDS_FOLLOW_UP
     if raw == "PROCESSED":
-        if mode == "SPARE_STOCK_IMMEDIATE":
-            return ReturnStatus.RESOLVED_ON_DELIVERY
         return ReturnStatus.COMPLETED
+    return raw
+
+
+def _normalize_replacement_mode(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    if raw == "SPARE_STOCK_IMMEDIATE":
+        return REPLACEMENT_MODE_SPARE_PRODUCTS_IMMEDIATE
+    if raw == "SPARE_STOCK_PARTIAL":
+        return REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
     return raw
 
 
@@ -254,6 +280,11 @@ def _serialize_model(obj: Any, include: dict[str, Any] | None = None, exclude: s
         if key in exclude:
             continue
         out[_camel(key)] = _serialize_value(val)
+    if isinstance(obj, Product):
+        try:
+            out["unit"] = _normalize_product_unit(raw.get("unit"))
+        except ValueError:
+            out["unit"] = PRODUCT_UNIT_CASE
     for key, fn in include.items():
         out[key] = fn(obj)
     return out
@@ -356,8 +387,7 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
     if include_items:
         items = []
         for item in order.items.select_related("product").all():
-            row = _serialize_model(item)
-            row["product"] = _serialize_model(item.product)
+            row = _serialize_order_item_with_spare_products(item, include_full_product=True)
             items.append(row)
         data["items"] = items
 
@@ -407,6 +437,7 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
 
 def _serialize_return(entry: Return) -> dict[str, Any]:
     data = _serialize_model(entry)
+    data["replacementMode"] = _normalize_replacement_mode(data.get("replacementMode"))
     data["status"] = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
     return data
 
@@ -438,18 +469,19 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                     "id": dp.order.id,
                     "orderNumber": dp.order.order_number,
                     "warehouseStage": str(dp.order.warehouse_stage or WarehouseStage.READY_TO_LOAD),
+                    "loadedAt": dp.order.loaded_at.isoformat() if dp.order.loaded_at else None,
                     "status": _normalize_order_status(dp.order.status),
+                    "checklistItemsVerified": bool(dp.order.checklist_items_verified),
+                    "checklistQuantityVerified": bool(dp.order.checklist_quantity_verified),
+                    "checklistPackagingVerified": bool(dp.order.checklist_packaging_verified),
+                    "checklistSpareProductsVerified": bool(dp.order.checklist_spare_products_verified),
+                    "checklistVehicleAssigned": bool(dp.order.checklist_vehicle_assigned),
+                    "checklistDriverAssigned": bool(dp.order.checklist_driver_assigned),
+                    "isDriverAssigned": bool(trip.driver_id),
+                    "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
                     "items": [
-                        {
-                            "id": item.id,
-                            "productId": item.product_id,
-                            "quantity": item.quantity,
-                            "product": {
-                                "sku": item.product.sku if item.product else None,
-                                "name": item.product.name if item.product else None,
-                            },
-                        }
+                        _serialize_order_item_with_spare_products(item, include_full_product=False)
                         for item in order_items
                     ],
                     "returns": [
@@ -508,6 +540,7 @@ def _warehouse_checklist_complete(order: Order) -> bool:
         order.checklist_items_verified
         and order.checklist_quantity_verified
         and order.checklist_packaging_verified
+        and order.checklist_spare_products_verified
         and order.checklist_vehicle_assigned
         and order.checklist_driver_assigned
     )
@@ -527,6 +560,111 @@ def _resolve_allocation_policy(body: dict[str, Any]) -> str:
         return _normalize_allocation_policy(requested)
     configured = getattr(settings, "INVENTORY_ALLOCATION_POLICY", "FEFO")
     return _normalize_allocation_policy(configured)
+
+
+def _normalize_product_unit(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if not value:
+        return PRODUCT_UNIT_CASE
+    if value in {"piece", "pieces", PRODUCT_UNIT_CASE}:
+        return PRODUCT_UNIT_CASE
+    if value in {"pack", "bundle", "pack(bundle)", "pack (bundle)"}:
+        return PRODUCT_UNIT_PACK_BUNDLE
+    raise ValueError("unit must be either 'case' or 'pack(bundle)'")
+
+
+def _round_half_up(value: float) -> int:
+    return max(0, int(math.floor(max(value, 0) + 0.5)))
+
+
+def _spare_product_policy(raw_unit: Any) -> dict[str, Any]:
+    unit = _normalize_product_unit(raw_unit)
+    policy = SPARE_PRODUCT_POLICY_BY_UNIT.get(unit, SPARE_PRODUCT_POLICY_BY_UNIT[PRODUCT_UNIT_CASE])
+    return {"unit": unit, **policy}
+
+
+def _spare_product_quantities(quantity: Any, raw_unit: Any) -> dict[str, Any]:
+    ordered_qty = max(_int(quantity, 0), 0)
+    policy = _spare_product_policy(raw_unit)
+    min_quantity = _round_half_up(ordered_qty * float(policy["minPercent"]) / 100.0)
+    recommended_quantity = _round_half_up(ordered_qty * float(policy["recommendedPercent"]) / 100.0)
+    max_quantity = _round_half_up(ordered_qty * float(policy["maxPercent"]) / 100.0)
+    if max_quantity < min_quantity:
+        max_quantity = min_quantity
+    recommended_quantity = max(min_quantity, min(recommended_quantity, max_quantity))
+    return {
+        "unit": policy["unit"],
+        "minPercent": int(policy["minPercent"]),
+        "maxPercent": int(policy["maxPercent"]),
+        "recommendedPercent": int(policy["recommendedPercent"]),
+        "minQuantity": min_quantity,
+        "recommendedQuantity": recommended_quantity,
+        "maxQuantity": max_quantity,
+        "totalLoadQuantity": ordered_qty + recommended_quantity,
+    }
+
+
+def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_product: bool = True) -> dict[str, Any]:
+    row = _serialize_model(item)
+    product = getattr(item, "product", None)
+    if include_full_product:
+        row["product"] = _serialize_model(product) if product else None
+    else:
+        row["product"] = (
+            {
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "unit": _normalize_product_unit(product.unit),
+            }
+            if product
+            else None
+        )
+    row["spareProducts"] = _spare_product_quantities(item.quantity, getattr(product, "unit", None))
+    return row
+
+
+def _allocate_driver_spare_products_for_loaded_order(order: Order, driver: Driver | None) -> None:
+    if not driver:
+        return
+
+    for item in order.items.select_related("product").all():
+        product = getattr(item, "product", None)
+        if not product:
+            continue
+        spare_products = _spare_product_quantities(item.quantity, product.unit)
+        recommended_qty = _int(spare_products.get("recommendedQuantity"), 0)
+        if recommended_qty <= 0:
+            continue
+        if SpareStockTransaction.objects.filter(
+            driver=driver,
+            product=product,
+            reference_type=SPARE_PRODUCTS_REFERENCE_TYPE,
+            reference_id=item.id,
+        ).exists():
+            continue
+
+        stock, _ = DriverSpareStock.objects.get_or_create(
+            driver=driver,
+            product=product,
+            defaults={"quantity": 0, "min_quantity": 0},
+        )
+        stock.quantity = _int(stock.quantity, 0) + recommended_qty
+        stock.min_quantity = max(_int(stock.min_quantity, 0), recommended_qty)
+        stock.save(update_fields=["quantity", "min_quantity", "updated_at"])
+
+        SpareStockTransaction.objects.create(
+            driver=driver,
+            product=product,
+            type="IN",
+            quantity=recommended_qty,
+            reference_type=SPARE_PRODUCTS_REFERENCE_TYPE,
+            reference_id=item.id,
+            notes=(
+                f"Auto-loaded spare products for {order.order_number}: "
+                f"{recommended_qty} ({spare_products['recommendedPercent']}% of ordered qty {max(_int(item.quantity, 0), 0)})"
+            ),
+        )
 
 
 def _sorted_batches_for_policy(batches: list[StockBatch], policy: str) -> list[StockBatch]:
@@ -1627,13 +1765,17 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             category = ProductCategory.objects.get(id=str(body["categoryId"]))
         except ProductCategory.DoesNotExist:
             return _err("Category not found", 404)
+    try:
+        product_unit = _normalize_product_unit(body.get("unit"))
+    except ValueError as exc:
+        return _err(str(exc), 400)
     prod = Product.objects.create(
         sku=str(body["sku"]).strip(),
         name=str(body["name"]).strip(),
         image_url=body.get("imageUrl"),
         description=body.get("description"),
         category=category,
-        unit=body.get("unit") or "piece",
+        unit=product_unit,
         weight=body.get("weight"),
         dimensions=body.get("dimensions"),
         price=float(body.get("price") or 0),
@@ -1661,7 +1803,12 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         prod.delete()
         return _ok({"success": True})
     body = _json_body(request)
-    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("description", "description"), ("unit", "unit"), ("weight", "weight"), ("dimensions", "dimensions"), ("price", "price")]
+    if "unit" in body:
+        try:
+            prod.unit = _normalize_product_unit(body.get("unit"))
+        except ValueError as exc:
+            return _err(str(exc), 400)
+    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("description", "description"), ("weight", "weight"), ("dimensions", "dimensions"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
@@ -1821,12 +1968,17 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     if Product.objects.filter(sku=sku).exists():
                         sku = f"{sku}-{secrets.token_hex(1).upper()}"
 
+                    try:
+                        product_unit = _normalize_product_unit(body.get("unit"))
+                    except ValueError as exc:
+                        return _err(str(exc), 400)
+
                     product = Product.objects.create(
                         sku=sku,
                         name=name,
                         image_url=body.get("imageUrl"),
                         description=body.get("description"),
-                        unit=str(body.get("unit") or "piece").strip() or "piece",
+                        unit=product_unit,
                         price=float(body.get("price") or 0),
                         is_active=True,
                     )
@@ -2436,6 +2588,19 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     except Order.DoesNotExist:
         return _err("Order not found", 404)
 
+    assigned_trip_for_loaded_stage = None
+    if staff.get("role") == "DRIVER":
+        assigned_trip_for_loaded_stage = (
+            Trip.objects.select_related("driver__user")
+            .filter(drop_points__order_id=order.id, driver__user_id=staff.get("userId"))
+            .order_by("-updated_at")
+            .first()
+        )
+        if stage != WarehouseStage.LOADED:
+            return _err("Drivers can only mark assigned orders as LOADED", 403)
+        if not assigned_trip_for_loaded_stage:
+            return _err("This order is not assigned to you", 403)
+
     current_stage = str(order.warehouse_stage or WarehouseStage.READY_TO_LOAD)
     stage_rank = {
         WarehouseStage.READY_TO_LOAD: 1,
@@ -2455,6 +2620,8 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         order.checklist_quantity_verified = bool(checklist.get("quantityVerified"))
     if "packagingVerified" in checklist:
         order.checklist_packaging_verified = bool(checklist.get("packagingVerified"))
+    if "spareProductsVerified" in checklist:
+        order.checklist_spare_products_verified = bool(checklist.get("spareProductsVerified"))
     if "vehicleAssigned" in checklist:
         order.checklist_vehicle_assigned = bool(checklist.get("vehicleAssigned"))
     if "driverAssigned" in checklist:
@@ -2472,8 +2639,14 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     signoff_name = str(body.get("signoffName") or "").strip()
 
     if stage == WarehouseStage.LOADED:
-        assigned_trip = Trip.objects.filter(drop_points__order_id=order.id, driver__isnull=False).order_by("-updated_at").first()
-        if not assigned_trip:
+        if not assigned_trip_for_loaded_stage:
+            assigned_trip_for_loaded_stage = (
+                Trip.objects.select_related("driver__user")
+                .filter(drop_points__order_id=order.id, driver__isnull=False)
+                .order_by("-updated_at")
+                .first()
+            )
+        if not assigned_trip_for_loaded_stage:
             return _err("Order must be assigned to a driver before LOADED", 400)
         if not _warehouse_checklist_complete(order):
             return _err("Checklist must be completed before LOADED", 400)
@@ -2504,7 +2677,13 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     if stage == WarehouseStage.DISPATCHED:
         order.status = OrderStatus.OUT_FOR_DELIVERY
 
-    order.save()
+    with transaction.atomic():
+        order.save()
+        if stage == WarehouseStage.LOADED and current_stage != WarehouseStage.LOADED:
+            _allocate_driver_spare_products_for_loaded_order(
+                order,
+                getattr(assigned_trip_for_loaded_stage, "driver", None),
+            )
 
     if stage == WarehouseStage.DISPATCHED:
         timeline, _ = OrderTimeline.objects.get_or_create(order=order)
@@ -2898,7 +3077,7 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
-def driver_spare_stock(request: HttpRequest) -> JsonResponse:
+def driver_spare_products(request: HttpRequest) -> JsonResponse:
     p, err = _require_staff(request)
     if err:
         return err
@@ -2910,7 +3089,7 @@ def driver_spare_stock(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         rows = DriverSpareStock.objects.select_related("product").filter(driver=d).order_by("product__name")
         data = [_serialize_model(x, include={"product": lambda o: _serialize_model(o.product)}) for x in rows]
-        return _ok({"success": True, "spareStock": data})
+        return _ok({"success": True, "spareProducts": data})
     body = _json_body(request)
     pid = str(body.get("productId") or "")
     qty = _int(body.get("quantity"), 0)
@@ -2925,12 +3104,13 @@ def driver_spare_stock(request: HttpRequest) -> JsonResponse:
         stock.min_quantity = _int(body.get("minQuantity"), stock.min_quantity)
     stock.save()
     SpareStockTransaction.objects.create(driver=d, product=prod, type=body.get("type") or ("IN" if qty > 0 else "OUT"), quantity=qty, reference_type=body.get("referenceType"), reference_id=body.get("referenceId"), notes=body.get("notes"))
-    return _ok({"success": True, "spareStock": _serialize_model(stock)})
+    serialized = _serialize_model(stock)
+    return _ok({"success": True, "spareProducts": serialized})
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
+def driver_replacements_from_spare_products(request: HttpRequest) -> JsonResponse:
     p, err = _require_staff(request)
     if err:
         return err
@@ -2990,9 +3170,13 @@ def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
     stock = DriverSpareStock.objects.filter(driver=d, product=product).first() if product else None
     available_qty = _int(getattr(stock, "quantity", 0), 0)
     if qty > available_qty:
-        return _err("Insufficient spare stock for selected replacement quantity", 400)
+        return _err("Insufficient spare products for selected replacement quantity", 400)
     replacement_status = ReturnStatus.RESOLVED_ON_DELIVERY if resolved_on_delivery else ReturnStatus.NEEDS_FOLLOW_UP
-    replacement_mode = "SPARE_STOCK_IMMEDIATE" if resolved_on_delivery else "SPARE_STOCK_PARTIAL"
+    replacement_mode = (
+        REPLACEMENT_MODE_SPARE_PRODUCTS_IMMEDIATE
+        if resolved_on_delivery
+        else REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
+    )
 
     damage_photo = str(body.get("damagePhoto") or "").strip() or None
     damage_photos_raw = body.get("damagePhotos") if isinstance(body.get("damagePhotos"), list) else []
@@ -3021,7 +3205,7 @@ def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
                 quantity=qty,
                 reference_type="replacement",
                 reference_id=order.id,
-                notes="Driver replacement from spare stock",
+                notes="Driver replacement from spare products",
             )
         if follow_up_return:
             follow_up_return.status = ReturnStatus.COMPLETED
@@ -3042,7 +3226,7 @@ def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
                 order=order,
                 customer_id=order.customer_id,
                 reason=str(body.get("reason") or "Damaged item"),
-                description=body.get("description") or ("Replacement fulfilled by driver spare stock" if resolved_on_delivery else "Partial replacement from driver spare stock; follow-up required"),
+                description=body.get("description") or ("Replacement fulfilled by driver spare products" if resolved_on_delivery else "Partial replacement from driver spare products; follow-up required"),
                 status=replacement_status,
                 requested_by="DRIVER",
                 replacement_mode=replacement_mode,
@@ -3061,7 +3245,13 @@ def driver_replacements_from_spare_stock(request: HttpRequest) -> JsonResponse:
                 notes=f"{'Immediate replacement completed by driver' if resolved_on_delivery else 'Partial replacement reported by driver'}\nMeta: {json.dumps(meta)}",
             )
     remaining_qty = max((_int(order_item.quantity, 0) if order_item else 0) - _int(r.replacement_quantity, 0), 0)
-    return _ok({"success": True, "replacement": _serialize_return(r), "remainingSpareStock": max(available_qty - qty, 0), "remainingReplacementQty": remaining_qty})
+    remaining_spare_products = max(available_qty - qty, 0)
+    return _ok({
+        "success": True,
+        "replacement": _serialize_return(r),
+        "remainingSpareProducts": remaining_spare_products,
+        "remainingReplacementQty": remaining_qty,
+    })
 
 
 @csrf_exempt

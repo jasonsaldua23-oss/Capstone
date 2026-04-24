@@ -184,7 +184,7 @@ class Product(models.Model):
     image_url = models.TextField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     category = models.ForeignKey(ProductCategory, on_delete=models.SET_NULL, blank=True, null=True, related_name="products")
-    unit = models.CharField(max_length=50, default="piece")
+    unit = models.CharField(max_length=50, default="case")
     weight = models.FloatField(blank=True, null=True)
     dimensions = models.CharField(max_length=255, blank=True, null=True)
     price = models.FloatField(default=0)
@@ -271,6 +271,7 @@ class Order(models.Model):
     checklist_items_verified = models.BooleanField(default=False)
     checklist_quantity_verified = models.BooleanField(default=False)
     checklist_packaging_verified = models.BooleanField(default=False)
+    checklist_spare_products_verified = models.BooleanField(default=False)
     checklist_vehicle_assigned = models.BooleanField(default=False)
     checklist_driver_assigned = models.BooleanField(default=False)
 

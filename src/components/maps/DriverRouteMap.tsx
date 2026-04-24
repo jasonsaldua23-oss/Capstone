@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
-import { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet'
+import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
 
@@ -10,18 +10,11 @@ const MapContainerUnsafe = MapContainer as any
 const TileLayerUnsafe = TileLayer as any
 const CircleMarkerUnsafe = CircleMarker as any
 const MarkerUnsafe = Marker as any
-const PolygonUnsafe = Polygon as any
 const PolylineUnsafe = Polyline as any
 
 const NEGROS_ISLAND_GEOJSON_URL =
   'https://nominatim.openstreetmap.org/search?format=geojson&polygon_geojson=1&limit=1&q=Negros%20Island%20Philippines'
 const NEGROS_ISLAND_FALLBACK_BOUNDS = L.latLngBounds([9.0380812, 122.3758966], [11.002995, 123.5688567])
-const WORLD_MASK_RING: [number, number][] = [
-  [-90, -180],
-  [-90, 180],
-  [90, 180],
-  [90, -180],
-]
 
 type NegrosIslandGeometry = {
   type: 'Polygon' | 'MultiPolygon'
@@ -111,21 +104,6 @@ function MapBoundsGuard({ enabled, bounds }: { enabled: boolean; bounds: L.LatLn
   return null
 }
 
-function NegrosMaskPane() {
-  const map = useMap()
-
-  useEffect(() => {
-    const paneName = 'negros-mask-pane'
-    if (!map.getPane(paneName)) {
-      const pane = map.createPane(paneName)
-      pane.style.zIndex = '650'
-      pane.style.pointerEvents = 'none'
-    }
-  }, [map])
-
-  return null
-}
-
 function findNearestPolylineIndex(
   target: { lat: number; lng: number },
   points: [number, number][]
@@ -144,6 +122,38 @@ function findNearestPolylineIndex(
     }
   }
   return bestIndex
+}
+
+function dedupeLatLngPoints(points: [number, number][]) {
+  return points.filter((point, index, list) => {
+    if (index === 0) return true
+    const previous = list[index - 1]
+    return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001)
+  })
+}
+
+function RouteViewport({ points }: { points: [number, number][] }) {
+  const map = useMap()
+
+  useEffect(() => {
+    const validPoints = dedupeLatLngPoints(
+      points.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+    )
+
+    if (validPoints.length < 2) return
+
+    const bounds = L.latLngBounds(validPoints)
+    if (!bounds.isValid()) return
+
+    map.fitBounds(bounds, {
+      animate: false,
+      maxZoom: 14,
+      paddingTopLeft: [20, 88],
+      paddingBottomRight: [20, 20],
+    })
+  }, [map, points])
+
+  return null
 }
 
 export function DriverRouteMap({
@@ -173,10 +183,6 @@ export function DriverRouteMap({
             [negrosIslandBoundary.bbox[3], negrosIslandBoundary.bbox[2]]
           )
         : null,
-    [negrosIslandBoundary]
-  )
-  const negrosIslandMaskRings = useMemo(
-    () => geometryToExteriorRings(negrosIslandBoundary?.geometry || null),
     [negrosIslandBoundary]
   )
 
@@ -328,6 +334,37 @@ export function DriverRouteMap({
       ? activeRoadRoutePoints.slice(Math.max(0, roadSplitIndex))
       : upcomingFallbackPoints
 
+  const viewportPoints = useMemo(() => {
+    const points: [number, number][] = []
+
+    if (upcomingRoutePoints.length > 1) {
+      points.push(...upcomingRoutePoints)
+    } else if (activeRoadRoutePoints.length > 1) {
+      points.push(...activeRoadRoutePoints)
+    } else if (completedRoutePoints.length > 1) {
+      points.push(...completedRoutePoints)
+    }
+
+    points.push([Number(latitude), Number(longitude)])
+
+    if (hasDestination) {
+      points.push([Number(destinationLatitude), Number(destinationLongitude)])
+    }
+
+    return dedupeLatLngPoints(
+      points.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+    )
+  }, [
+    upcomingRoutePoints,
+    activeRoadRoutePoints,
+    completedRoutePoints,
+    latitude,
+    longitude,
+    hasDestination,
+    destinationLatitude,
+    destinationLongitude,
+  ])
+
   return (
     <div className={cn('h-44 w-full overflow-hidden rounded-md border', className)}>
       <MapContainerUnsafe
@@ -340,26 +377,13 @@ export function DriverRouteMap({
         maxBounds={negrosIslandBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS}
         maxBoundsViscosity={1.0}
       >
-        <NegrosMaskPane />
         <MapBoundsGuard enabled bounds={negrosIslandBounds} />
+        <RouteViewport points={viewportPoints} />
         <TileLayerUnsafe
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           noWrap
         />
-        {negrosIslandBoundary ? (
-          <PolygonUnsafe
-            positions={[WORLD_MASK_RING, ...negrosIslandMaskRings]}
-            pane="negros-mask-pane"
-            interactive={false}
-            pathOptions={{
-              stroke: false,
-              fillColor: '#aad3df',
-              fillOpacity: 1,
-              opacity: 1,
-            }}
-          />
-        ) : null}
 
         {completedRoutePoints.length > 1 ? (
           <PolylineUnsafe positions={completedRoutePoints} pathOptions={{ color: '#6b7280', weight: 5, opacity: 0.95 }} />

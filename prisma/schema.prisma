@@ -117,7 +117,7 @@ model Product {
   description  String?
   categoryId   String?
   category     ProductCategory? @relation(fields: [categoryId], references: [id])
-  unit         String    @default("piece") // piece, kg, liter, box, etc.
+  unit         String    @default("case") // case or pack(bundle)
   weight       Float?
   dimensions   String?   // LxWxH in cm
   price        Float     @default(0)
@@ -128,8 +128,6 @@ model Product {
   inventory    Inventory[]
   orderItems   OrderItem[]
   inventoryTransactions InventoryTransaction[]
-  spareStock   DriverSpareStock[]
-  spareStockTransactions SpareStockTransaction[]
 }
 
 model Inventory {
@@ -345,36 +343,6 @@ model Driver {
   vehicles        DriverVehicle[]
   trips           Trip[]
   locationLogs    LocationLog[]
-  spareStock      DriverSpareStock[]
-  spareStockTransactions SpareStockTransaction[]
-}
-
-model DriverSpareStock {
-  id          String   @id @default(cuid())
-  driverId    String
-  driver      Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  quantity    Int      @default(0)
-  minQuantity Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([driverId, productId])
-}
-
-model SpareStockTransaction {
-  id            String   @id @default(cuid())
-  driverId      String
-  driver        Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
-  productId     String
-  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  type          String   // IN, OUT, ADJUSTMENT
-  quantity      Int
-  referenceType String?
-  referenceId   String?
-  notes         String?
-  createdAt     DateTime @default(now())
 }
 
 model DriverVehicle {
@@ -531,7 +499,7 @@ model Return {
   description     String?
   status          ReturnStatus @default(REPORTED)
   requestedBy     String       @default("CUSTOMER") // CUSTOMER, DRIVER
-  replacementMode String?      // SPARE_STOCK_IMMEDIATE
+  replacementMode String?
   originalOrderItemId String?
   replacementProductId String?
   replacementQuantity Int?

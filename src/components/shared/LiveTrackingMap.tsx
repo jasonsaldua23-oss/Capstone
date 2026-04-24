@@ -356,36 +356,6 @@ function geometryToExteriorRings(geometry: NegrosIslandGeometry | null) {
     .map((ring) => ring.map((pair) => [Number(pair[1]), Number(pair[0])] as [number, number]));
 }
 
-function expandRingForMask(ring: [number, number][], meters = 600): [number, number][] {
-  if (!Array.isArray(ring) || ring.length < 3) return ring;
-
-  const centroidLat = ring.reduce((sum, point) => sum + point[0], 0) / ring.length;
-  const centroidLng = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
-  const cosRef = Math.max(Math.cos((centroidLat * Math.PI) / 180), 0.01);
-
-  return ring.map((point) => {
-    const dxMeters = (point[1] - centroidLng) * 111320 * cosRef;
-    const dyMeters = (point[0] - centroidLat) * 110540;
-    const length = Math.sqrt(dxMeters * dxMeters + dyMeters * dyMeters);
-
-    if (!Number.isFinite(length) || length < 1e-6) return point;
-
-    const scale = (length + meters) / length;
-    const expandedLat = centroidLat + (dyMeters * scale) / 110540;
-    const expandedLng = centroidLng + (dxMeters * scale) / (111320 * cosRef);
-    return [expandedLat, expandedLng] as [number, number];
-  });
-}
-
-function getMaskExpansionMetersForZoom(zoomLevel: number) {
-  if (!Number.isFinite(zoomLevel)) return 4200;
-  if (zoomLevel >= 13) return 1800;
-  if (zoomLevel >= 12) return 2600;
-  if (zoomLevel >= 11) return 4200;
-  if (zoomLevel >= 10) return 6200;
-  return 8200;
-}
-
 function pointInRing(point: [number, number], ring: [number, number][]) {
   let inside = false;
 
@@ -726,13 +696,8 @@ export default function LiveTrackingMap({
   );
 
   const negrosIslandMaskRings = useMemo(
-    () => {
-      const expansionMeters = getMaskExpansionMetersForZoom(currentZoom);
-      return geometryToExteriorRings(negrosIslandBoundary?.geometry || null).map((ring) =>
-        expandRingForMask(ring, expansionMeters)
-      );
-    },
-    [currentZoom, negrosIslandBoundary]
+    () => geometryToExteriorRings(negrosIslandBoundary?.geometry || null),
+    [negrosIslandBoundary]
   );
 
   const safeLocations = useMemo(
