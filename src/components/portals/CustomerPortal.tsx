@@ -129,6 +129,8 @@ interface DriverTrackingItem {
   driverPhone: string | null
   latitude: number | null
   longitude: number | null
+  destinationLatitude?: number | null
+  destinationLongitude?: number | null
   source: 'driver_gps' | 'trip_stop' | 'shipping_address' | 'unavailable'
   updatedAt: string | null
   recipientName?: string | null
@@ -293,6 +295,8 @@ export function CustomerPortal() {
   const [trackingByOrderId, setTrackingByOrderId] = useState<Record<string, DriverTrackingItem>>({})
   const [isTrackingLoading, setIsTrackingLoading] = useState(false)
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null)
+  const [driverLocationLabelByOrderId, setDriverLocationLabelByOrderId] = useState<Record<string, string>>({})
+  const reverseGeocodeCacheRef = useRef<Map<string, string>>(new Map())
   const [reviewedOrderIds, setReviewedOrderIds] = useState<Set<string>>(new Set())
   const [orderRatings, setOrderRatings] = useState<Record<string, number>>({})
   const [deliveryIssueRecords, setDeliveryIssueRecords] = useState<DeliveryIssueRecord[]>([])
@@ -630,13 +634,63 @@ export function CustomerPortal() {
     }
 
     fetchTracking()
-    const interval = setInterval(fetchTracking, 15000)
+    const interval = setInterval(fetchTracking, 5000)
 
     return () => {
       mounted = false
       clearInterval(interval)
     }
   }, [activeView])
+
+  useEffect(() => {
+    if (activeView !== 'track' || !selectedTrackingOrderId) return
+
+    const tracking = trackingByOrderId[selectedTrackingOrderId]
+    const hasDriverCoordinates =
+      tracking?.source === 'driver_gps' &&
+      typeof tracking?.latitude === 'number' &&
+      typeof tracking?.longitude === 'number'
+    if (!hasDriverCoordinates) return
+
+    const lat = Number(tracking?.latitude)
+    const lng = Number(tracking?.longitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+    const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`
+    const cached = reverseGeocodeCacheRef.current.get(cacheKey)
+    if (cached) {
+      setDriverLocationLabelByOrderId((prev) => (
+        prev[selectedTrackingOrderId] === cached ? prev : { ...prev, [selectedTrackingOrderId]: cached }
+      ))
+      return
+    }
+
+    const controller = new AbortController()
+    const fetchLabel = async () => {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&addressdetails=1&countrycodes=ph&zoom=18`,
+          { signal: controller.signal }
+        )
+        if (!response.ok) return
+        const payload = await response.json().catch(() => ({}))
+        const address = payload?.address || {}
+        const barangay = String(address?.suburb || address?.village || address?.hamlet || address?.quarter || address?.neighbourhood || '').trim()
+        const city = String(address?.city || address?.town || address?.municipality || address?.county || '').trim()
+        const province = String(address?.state || address?.region || '').trim()
+        const composed = [barangay, city, province].filter(Boolean).join(', ')
+        const fallback = String(payload?.display_name || '').split(',').slice(0, 3).map((part: string) => part.trim()).filter(Boolean).join(', ')
+        const label = composed || fallback || 'Driver live location'
+        reverseGeocodeCacheRef.current.set(cacheKey, label)
+        setDriverLocationLabelByOrderId((prev) => ({ ...prev, [selectedTrackingOrderId]: label }))
+      } catch {
+        // Best effort only for location label.
+      }
+    }
+
+    void fetchLabel()
+    return () => controller.abort()
+  }, [activeView, selectedTrackingOrderId, trackingByOrderId])
 
   const handleLogout = async () => {
     await logout()
@@ -2564,12 +2618,35 @@ export function CustomerPortal() {
 
               const tracking = trackingByOrderId[order.id]
               const routePoints = Array.isArray(tracking?.routePoints) ? tracking.routePoints : []
-              const hasDriverCoordinates = typeof tracking?.latitude === 'number' && typeof tracking?.longitude === 'number'
+              const hasDriverCoordinates =
+                tracking?.source === 'driver_gps' &&
+                typeof tracking?.latitude === 'number' &&
+                typeof tracking?.longitude === 'number'
+              const destinationLatitude =
+                typeof tracking?.destinationLatitude === 'number'
+                  ? tracking.destinationLatitude
+                  : (typeof order.shippingLatitude === 'number' ? order.shippingLatitude : null)
+              const destinationLongitude =
+                typeof tracking?.destinationLongitude === 'number'
+                  ? tracking.destinationLongitude
+                  : (typeof order.shippingLongitude === 'number' ? order.shippingLongitude : null)
+              const warehouseLatitude =
+                typeof (tracking as any)?.trip?.warehouseLatitude === 'number'
+                  ? Number((tracking as any).trip.warehouseLatitude)
+                  : null
+              const warehouseLongitude =
+                typeof (tracking as any)?.trip?.warehouseLongitude === 'number'
+                  ? Number((tracking as any).trip.warehouseLongitude)
+                  : null
               const mapLat = hasDriverCoordinates ? (tracking.latitude as number) : null
               const mapLng = hasDriverCoordinates ? (tracking.longitude as number) : null
+              const mapHeaderLabel = hasDriverCoordinates
+                ? (driverLocationLabelByOrderId[order.id] || 'Locating driver...')
+                : (shippingProvince || (order as any).shippingProvince || 'Location')
               const currentIndex = getOrderStageIndex(order.status, order.paymentStatus)
               const currentStatusLabel = formatOrderStatus(order.status, order.paymentStatus)
               const headlineDate = new Date(order.deliveredAt || order.deliveryDate || order.createdAt)
+              const isDestinationCompleted = String(normalizeDeliveryStatus(order.status, order.paymentStatus)) === 'DELIVERED'
 
               return (
                 <>
@@ -2587,13 +2664,20 @@ export function CustomerPortal() {
                         latitude={mapLat}
                         longitude={mapLng}
                         routePoints={routePoints}
+                        destinationLatitude={destinationLatitude}
+                        destinationLongitude={destinationLongitude}
+                        warehouseLatitude={warehouseLatitude}
+                        warehouseLongitude={warehouseLongitude}
+                        destinationCompleted={isDestinationCompleted}
                         className="h-[260px] rounded-none border-0"
                       />
                     ) : (
-                      <div className="h-[260px] w-full bg-cyan-100" />
+                      <div className="grid h-[260px] w-full place-items-center bg-cyan-100 px-4 text-center text-sm text-slate-600">
+                        Waiting for live driver GPS for this order.
+                      </div>
                     )}
                     <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-[#d7d7d7] bg-white/95 px-4 py-1.5 text-sm font-medium text-slate-800 shadow-sm">
-                      {shippingProvince || (order as any).shippingProvince || 'Location'}
+                      {mapHeaderLabel}
                     </div>
                   </div>
 

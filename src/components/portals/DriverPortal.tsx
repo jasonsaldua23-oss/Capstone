@@ -75,6 +75,8 @@ const NEGROS_OCCIDENTAL_BOUNDS = {
   east: 123.35,
 }
 
+const isSecureWebContext = typeof window !== 'undefined' ? window.isSecureContext : true
+
 interface Trip {
   id: string
   tripNumber: string
@@ -199,9 +201,26 @@ const openNativeAppSettings = async (): Promise<boolean> => {
   if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
     return false
   }
+
+    try {
+      const appModule = await import('@capacitor/app')
+      const appAny = appModule.App as any
+      if (typeof appAny?.openAppSettings === 'function') {
+        await appAny.openAppSettings()
+        return true
+      }
+    } catch {
+      // Fall back to platform-specific best effort below.
+    }
+
   try {
-    const appModule = await import('@capacitor/app')
-    await appModule.App.openSettings()
+    const ua = navigator.userAgent.toLowerCase()
+    if (ua.includes('android')) {
+      window.location.href = 'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
+      return true
+    }
+
+    window.location.href = 'app-settings:'
     return true
   } catch {
     return false
@@ -401,6 +420,11 @@ export function DriverPortal() {
 
   // Start location tracking
   const startLocationTracking = async (): Promise<boolean> => {
+    if (!isSecureWebContext && !isNativeCapacitorApp()) {
+      toast.error('Location requires HTTPS on browser. Open this app over HTTPS or use the native app.')
+      return false
+    }
+
     if (!navigator.geolocation) {
       toast.error('Location is not supported on this device/browser')
       return false
@@ -475,6 +499,10 @@ export function DriverPortal() {
   return (
     <div className={`${poppins.className} min-h-[100dvh] bg-[#dff0ea] md:bg-[#dceff0]`}>
       <div className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-transparent">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/45 blur-3xl" />
+        <div className="absolute -bottom-16 -right-16 h-56 w-56 rounded-full bg-emerald-200/45 blur-3xl" />
+      </div>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/45 blur-3xl" />
         <div className="absolute -bottom-16 -right-16 h-56 w-56 rounded-full bg-emerald-200/45 blur-3xl" />
@@ -925,7 +953,8 @@ function TripDetailView({
   const [failedDeliveryDropPointId, setFailedDeliveryDropPointId] = useState<string | null>(null)
   const [isFailedDeliveryRescheduleOpen, setIsFailedDeliveryRescheduleOpen] = useState(false)
   const [failedDeliveryRescheduleDropPointId, setFailedDeliveryRescheduleDropPointId] = useState<string | null>(null)
-  const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'today' | 'tomorrow' | 'next_trip'>('today')
+  const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'today' | 'tomorrow' | 'other_date'>('today')
+  const [failedDeliveryOtherDate, setFailedDeliveryOtherDate] = useState('')
   const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false)
   const [showMobileSheetPeek, setShowMobileSheetPeek] = useState(true)
@@ -1161,7 +1190,7 @@ function TripDetailView({
     options?: {
       releaseInventory?: boolean
       rescheduleRequested?: boolean
-      rescheduleWindow?: 'today' | 'tomorrow' | 'next_trip'
+      rescheduleWindow?: 'today' | 'tomorrow' | 'other_date'
       rescheduleDate?: string
     }
   ) => {
@@ -1181,12 +1210,18 @@ function TripDetailView({
           rescheduleDate: options?.rescheduleDate,
         }),
       })
-      if (response.ok) {
-        toast.success(`Drop point marked as ${status.toLowerCase()}`)
+      const payload = await response.json().catch(() => ({}))
+      if (response.ok && payload?.success !== false) {
+        const actualStatus = String(payload?.dropPoint?.status || status).toUpperCase()
+        const deferredLaterToday = status === 'FAILED' && options?.rescheduleWindow === 'today' && actualStatus === 'PENDING'
+        if (deferredLaterToday) {
+          toast.success('Order moved to the end of this route for later today')
+        } else {
+          toast.success(`Drop point marked as ${actualStatus.toLowerCase()}`)
+        }
         emitDataSync(['orders', 'trips'])
         await onRefreshTrips()
       } else {
-        const payload = await response.json().catch(() => ({}))
         toast.error(payload?.error || 'Failed to update drop point')
         await onRefreshTrips()
       }
@@ -1339,6 +1374,7 @@ function TripDetailView({
   const openFailedDeliveryReschedule = (dropPointId: string) => {
     setFailedDeliveryRescheduleDropPointId(dropPointId)
     setFailedDeliveryReceiveAgain('today')
+    setFailedDeliveryOtherDate('')
     setIsFailedDeliveryRescheduleOpen(true)
   }
 
@@ -1346,6 +1382,7 @@ function TripDetailView({
     setIsFailedDeliveryRescheduleOpen(false)
     setFailedDeliveryRescheduleDropPointId(null)
     setFailedDeliveryReceiveAgain('today')
+    setFailedDeliveryOtherDate('')
   }
 
   const setSpareDamagePhotos = (files: File[]) => {
@@ -1514,13 +1551,12 @@ function TripDetailView({
     setIsCameraLoading(false)
   }
 
-  const openCameraSettings = () => {
+  const openCameraSettings = async () => {
     if (isNativeCapacitorApp()) {
-      void openNativeAppSettings().then((opened) => {
-        if (!opened) {
-          toast.message('If settings did not open, follow the steps shown below.')
-        }
-      })
+      const opened = await openNativeAppSettings()
+      if (!opened) {
+        toast.message('If settings did not open, follow the steps shown below.')
+      }
       return
     }
 
@@ -2789,6 +2825,10 @@ function TripDetailView({
             const targetOpenReplacement = getDropPointOpenReplacement(targetDropPoint)
             const targetReplacementProgress = getReplacementProgress(targetDropPoint)
             const followUpMode = Boolean(targetOpenReplacement)
+            const selectedSpareItem = targetItems.find((item) => item.id === spareOrderItemId) || null
+            const maxReplaceQuantity = followUpMode
+              ? Math.max(Number(targetReplacementProgress.remainingQuantity || 0), 0)
+              : Math.max(Number(selectedSpareItem?.quantity || 0), 0)
 
             return (
           <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
@@ -2799,7 +2839,20 @@ function TripDetailView({
             ) : null}
             <div className="space-y-2">
               <Label htmlFor="spare-order-item">Damaged Item</Label>
-              <Select value={spareOrderItemId} onValueChange={setSpareOrderItemId} disabled={targetItems.length === 0 || followUpMode}>
+              <Select
+                value={spareOrderItemId}
+                onValueChange={(value) => {
+                  setSpareOrderItemId(value)
+                  if (followUpMode) return
+                  const nextItem = targetItems.find((item) => item.id === value) || null
+                  const itemMaxQuantity = Math.max(Number(nextItem?.quantity || 0), 0)
+                  setSpareQuantity((previous) => {
+                    if (!Number.isFinite(previous)) return itemMaxQuantity
+                    return Math.min(Math.max(previous, 0), itemMaxQuantity)
+                  })
+                }}
+                disabled={targetItems.length === 0 || followUpMode}
+              >
                 <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
                   <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
                 </SelectTrigger>
@@ -2818,10 +2871,13 @@ function TripDetailView({
                 id="spare-qty"
                 type="number"
                 min={followUpMode ? targetReplacementProgress.remainingQuantity : 0}
+                max={maxReplaceQuantity}
                 value={spareQuantity}
                 onChange={(e) => {
                   if (followUpMode) return
-                  setSpareQuantity(Number(e.target.value || 0))
+                  const parsed = Number(e.target.value || 0)
+                  const clamped = Math.min(Math.max(parsed, 0), maxReplaceQuantity)
+                  setSpareQuantity(clamped)
                 }}
                 disabled={followUpMode}
               />
@@ -3007,9 +3063,6 @@ function TripDetailView({
             </div>
           </DialogHeader>
           <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Reschedule keeps the stop open for a later attempt. Cancel delivery skips the stop and returns inventory.
-            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
                 type="button"
@@ -3076,14 +3129,33 @@ function TripDetailView({
               </Button>
               <Button
                 type="button"
-                variant={failedDeliveryReceiveAgain === 'next_trip' ? 'default' : 'outline'}
-                className={failedDeliveryReceiveAgain === 'next_trip' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
-                onClick={() => setFailedDeliveryReceiveAgain('next_trip')}
+                variant={failedDeliveryReceiveAgain === 'other_date' ? 'default' : 'outline'}
+                className={failedDeliveryReceiveAgain === 'other_date' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
+                onClick={() => setFailedDeliveryReceiveAgain('other_date')}
                 disabled={isUpdating}
               >
-                Next available trip
+                Other date
               </Button>
             </div>
+            {failedDeliveryReceiveAgain === 'other_date' ? (
+              <div className="rounded-xl border border-sky-200/80 bg-white/80 px-3 py-3">
+                <Label htmlFor="failed-delivery-other-date" className="text-xs font-semibold text-[#17365d]">
+                  Select delivery date
+                </Label>
+                <Input
+                  id="failed-delivery-other-date"
+                  type="date"
+                  className="mt-2"
+                  value={failedDeliveryOtherDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(event) => setFailedDeliveryOtherDate(event.target.value)}
+                  disabled={isUpdating}
+                />
+                <p className="mt-2 text-xs text-sky-800">
+                  This order will be removed from this trip and returned to route planning.
+                </p>
+              </div>
+            ) : null}
             <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
               Inventory will stay reserved for this rescheduled delivery.
             </div>
@@ -3102,11 +3174,18 @@ function TripDetailView({
                 className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
                 onClick={async () => {
                   if (!failedDeliveryRescheduleDropPointId) return
+                  if (failedDeliveryReceiveAgain === 'other_date' && !failedDeliveryOtherDate) {
+                    toast.error('Select a date for reschedule')
+                    return
+                  }
+                  const selectedOtherDateIso = failedDeliveryReceiveAgain === 'other_date'
+                    ? new Date(`${failedDeliveryOtherDate}T09:00:00`).toISOString()
+                    : undefined
                   const label =
                     failedDeliveryReceiveAgain === 'tomorrow'
                       ? 'tomorrow'
-                      : failedDeliveryReceiveAgain === 'next_trip'
-                        ? 'next available trip'
+                      : failedDeliveryReceiveAgain === 'other_date'
+                        ? `other date (${failedDeliveryOtherDate})`
                         : 'later today'
                   closeFailedDeliveryReschedule()
                   await handleUpdateDropPoint(
@@ -3119,8 +3198,8 @@ function TripDetailView({
                       rescheduleRequested: true,
                       rescheduleWindow: failedDeliveryReceiveAgain,
                       rescheduleDate:
-                        failedDeliveryReceiveAgain === 'next_trip'
-                          ? undefined
+                        failedDeliveryReceiveAgain === 'other_date'
+                          ? selectedOtherDateIso
                           : (() => {
                               const scheduled = new Date()
                               if (failedDeliveryReceiveAgain === 'tomorrow') {

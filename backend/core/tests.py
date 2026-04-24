@@ -1504,6 +1504,118 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.trip.status, TripStatus.COMPLETED)
         self.assertIsNotNone(self.trip.actual_end_at)
 
+    def test_drop_point_failed_reschedule_today_moves_stop_to_route_end(self) -> None:
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={
+                "status": "FAILED",
+                "notes": "Customer asked for later today",
+                "releaseInventory": False,
+                "rescheduleRequested": True,
+                "rescheduleWindow": "today",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["dropPoint"]["status"], "PENDING")
+        self.assertEqual(payload["dropPoint"]["sequence"], 2)
+        self.assertFalse(payload.get("requeuedToRoutePool"))
+
+        self.dp_1.refresh_from_db()
+        self.dp_2.refresh_from_db()
+        self.trip.refresh_from_db()
+
+        self.assertEqual(self.dp_1.status, "PENDING")
+        self.assertEqual(self.dp_1.sequence, 2)
+        self.assertEqual(self.dp_2.sequence, 1)
+        self.assertEqual(self.trip.completed_drop_points, 0)
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+
+    def test_drop_point_failed_reschedule_other_date_requeues_order_to_route_pool(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Other Date Warehouse",
+            code="WH-OTHER-DATE-001",
+            address="Warehouse Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            country="Philippines",
+        )
+        product = Product.objects.create(
+            sku="SKU-OTHER-DATE-001",
+            name="Other Date Product",
+            unit="piece",
+            price=20,
+        )
+        Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=1,
+            min_stock=0,
+            max_stock=100,
+            reorder_point=0,
+        )
+        order = Order.objects.create(
+            order_number="ORD-OTHER-DATE-001",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=20,
+            total_amount=20,
+            warehouse_id=warehouse.id,
+            warehouse_stage=WarehouseStage.DISPATCHED,
+            ready_to_load_at=timezone.now() - timedelta(days=1),
+            loaded_at=timezone.now() - timedelta(hours=8),
+            warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=1,
+            unit_price=20,
+            total_price=20,
+        )
+        InventoryTransaction.objects.create(
+            warehouse=warehouse,
+            product=product,
+            type="RESERVE",
+            quantity=1,
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+            notes="Initial reservation for other date",
+            performed_by=self.admin_user.id,
+        )
+        self.dp_1.order = order
+        self.dp_1.save(update_fields=["order", "updated_at"])
+
+        target_date = (timezone.now() + timedelta(days=3)).date().isoformat()
+        response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={
+                "status": "FAILED",
+                "notes": "Reschedule on custom date",
+                "releaseInventory": False,
+                "rescheduleRequested": True,
+                "rescheduleWindow": "other_date",
+                "rescheduleDate": target_date,
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload.get("requeuedToRoutePool"))
+        self.assertEqual(payload["dropPoint"]["status"], "FAILED")
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+        self.assertEqual(order.warehouse_stage, WarehouseStage.READY_TO_LOAD)
+
     def test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it(self) -> None:
         warehouse = Warehouse.objects.create(
             name="Lifecycle Warehouse",

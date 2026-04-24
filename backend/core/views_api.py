@@ -2718,17 +2718,121 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
-    orders = Order.objects.filter(customer_id=p.get("userId")).order_by("-updated_at")[:100]
-    tracking = []
+    orders = list(
+        Order.objects.select_related("logistics", "customer")
+        .filter(customer_id=p.get("userId"))
+        .order_by("-updated_at")[:100]
+    )
+    order_ids = [o.id for o in orders]
+
+    latest_drop_point_by_order: dict[str, TripDropPoint] = {}
+    trip_ids: set[str] = set()
+    if order_ids:
+        drop_points = (
+            TripDropPoint.objects.select_related("trip__driver__user", "trip__vehicle")
+            .filter(order_id__in=order_ids)
+            .order_by("order_id", "-trip__updated_at", "-updated_at")
+        )
+        for drop_point in drop_points:
+            if not drop_point.order_id:
+                continue
+            if drop_point.order_id in latest_drop_point_by_order:
+                continue
+            latest_drop_point_by_order[drop_point.order_id] = drop_point
+            if drop_point.trip_id:
+                trip_ids.add(drop_point.trip_id)
+
+    latest_log_by_trip: dict[str, LocationLog] = {}
+    route_logs_by_trip: dict[str, list[LocationLog]] = {}
+    if trip_ids:
+        logs = LocationLog.objects.filter(trip_id__in=list(trip_ids)).order_by("trip_id", "-recorded_at")
+        for log in logs:
+            if not log.trip_id:
+                continue
+            if log.trip_id not in latest_log_by_trip:
+                latest_log_by_trip[log.trip_id] = log
+            bucket = route_logs_by_trip.setdefault(log.trip_id, [])
+            if len(bucket) < 40:
+                bucket.append(log)
+
+    tracking: list[dict[str, Any]] = []
     for o in orders:
-        trip = Trip.objects.filter(drop_points__order_id=o.id).select_related("driver__user", "vehicle").order_by("-updated_at").first()
+        drop_point = latest_drop_point_by_order.get(o.id)
+        trip = drop_point.trip if drop_point else None
+        latest_log = latest_log_by_trip.get(trip.id) if trip else None
+
+        driver_lat = _to_float_or_none(getattr(latest_log, "latitude", None))
+        driver_lng = _to_float_or_none(getattr(latest_log, "longitude", None))
+        drop_lat = _to_float_or_none(getattr(drop_point, "latitude", None))
+        drop_lng = _to_float_or_none(getattr(drop_point, "longitude", None))
+        shipping_lat = _to_float_or_none((o.logistics.shipping_latitude if o.logistics else None) or getattr(o.customer, "latitude", None))
+        shipping_lng = _to_float_or_none((o.logistics.shipping_longitude if o.logistics else None) or getattr(o.customer, "longitude", None))
+
+        if driver_lat is not None and driver_lng is not None:
+            latitude = driver_lat
+            longitude = driver_lng
+            source = "driver_gps"
+        elif drop_lat is not None and drop_lng is not None:
+            latitude = drop_lat
+            longitude = drop_lng
+            source = "trip_stop"
+        elif shipping_lat is not None and shipping_lng is not None:
+            latitude = shipping_lat
+            longitude = shipping_lng
+            source = "shipping_address"
+        else:
+            latitude = None
+            longitude = None
+            source = "unavailable"
+
+        route_points = []
+        if trip and trip.id in route_logs_by_trip:
+            latest_first_logs = route_logs_by_trip[trip.id]
+            for log in reversed(latest_first_logs):
+                log_lat = _to_float_or_none(getattr(log, "latitude", None))
+                log_lng = _to_float_or_none(getattr(log, "longitude", None))
+                if log_lat is None or log_lng is None:
+                    continue
+                route_points.append(
+                    {
+                        "latitude": float(log_lat),
+                        "longitude": float(log_lng),
+                        "recordedAt": log.recorded_at.isoformat() if log.recorded_at else None,
+                    }
+                )
+
+        driver_name = None
+        driver_phone = None
+        trip_number = None
+        if trip:
+            trip_number = trip.trip_number
+            if getattr(trip, "driver", None):
+                driver_name = getattr(trip.driver, "name", None) or getattr(getattr(trip.driver, "user", None), "name", None)
+                driver_phone = getattr(trip.driver, "phone", None) or getattr(getattr(trip.driver, "user", None), "phone", None)
+
         tracking.append(
             {
                 "orderId": o.id,
                 "orderNumber": o.order_number,
                 "status": _normalize_order_status(o.status),
                 "orderStatus": _normalize_order_status(o.status),
-                "updatedAt": o.updated_at.isoformat() if o.updated_at else None,
+                "updatedAt": (
+                    latest_log.recorded_at.isoformat()
+                    if latest_log and latest_log.recorded_at
+                    else (o.updated_at.isoformat() if o.updated_at else None)
+                ),
+                "tripNumber": trip_number,
+                "driverName": driver_name,
+                "driverPhone": driver_phone,
+                "latitude": latitude,
+                "longitude": longitude,
+                "source": source,
+                "destinationLatitude": drop_lat if drop_lat is not None else shipping_lat,
+                "destinationLongitude": drop_lng if drop_lng is not None else shipping_lng,
+                "recipientName": getattr(drop_point, "recipient_name", None),
+                "deliveryPhoto": getattr(drop_point, "delivery_photo", None),
+                "deliveredMessage": "Your order has been delivered." if _normalize_order_status(o.status) == OrderStatus.DELIVERED else None,
+                "routePoints": route_points,
                 "trip": _serialize_trip(trip, include_points=False) if trip else None,
             }
         )
@@ -3229,11 +3333,15 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         return _err("Forbidden", 403)
     body = _json_body(request)
     requeued_to_route_pool = False
-    next_status = str(body.get("status") or "").strip().upper()
+    requested_status = str(body.get("status") or "").strip().upper()
+    next_status = requested_status
     reschedule_window = str(body.get("rescheduleWindow") or "").strip().lower()
     reschedule_requested = bool(body.get("rescheduleRequested")) or bool(reschedule_window)
+    defer_within_trip_today = next_status == "FAILED" and reschedule_requested and reschedule_window == "today"
+    if defer_within_trip_today:
+        next_status = "PENDING"
     rescheduled_delivery_at: datetime | None = None
-    if next_status == "FAILED" and reschedule_requested:
+    if requested_status == "FAILED" and reschedule_requested:
         reschedule_date_raw = str(body.get("rescheduleDate") or "").strip()
         if reschedule_date_raw:
             parsed_delivery_dt: datetime | None = None
@@ -3259,14 +3367,15 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
                 open_replacements.append(entry)
         if open_replacements:
             return _err("Drop point cannot be completed while a replacement follow-up is still open", 400)
-    mapping = [("status", "status"), ("recipientName", "recipient_name"), ("recipientSignature", "recipient_signature"), ("deliveryPhoto", "delivery_photo"), ("failureReason", "failure_reason"), ("failureNotes", "failure_notes"), ("notes", "notes")]
+    dp.status = next_status
+    mapping = [("recipientName", "recipient_name"), ("recipientSignature", "recipient_signature"), ("deliveryPhoto", "delivery_photo"), ("failureReason", "failure_reason"), ("failureNotes", "failure_notes"), ("notes", "notes")]
     for key, attr in mapping:
         if key in body:
             setattr(dp, attr, body.get(key))
     now = timezone.now()
-    if body.get("status") == "ARRIVED":
+    if next_status == "ARRIVED":
         dp.actual_arrival = now
-    if body.get("status") in {"COMPLETED", "FAILED", "SKIPPED"}:
+    if next_status in {"COMPLETED", "FAILED", "SKIPPED"}:
         dp.actual_departure = now
     dp.save()
     
@@ -3278,10 +3387,10 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         parsed_release_inventory = True
     else:
         parsed_release_inventory = bool(release_inventory)
-    should_release_inventory = body.get("status") == "SKIPPED" or parsed_release_inventory
+    should_release_inventory = next_status == "SKIPPED" or parsed_release_inventory
 
     # If drop point is marked as FAILED or SKIPPED, optionally return items back to inventory
-    if body.get("status") in {"FAILED", "SKIPPED"} and should_release_inventory and dp.order_id:
+    if next_status in {"FAILED", "SKIPPED"} and should_release_inventory and dp.order_id:
         order = Order.objects.prefetch_related("items").filter(id=dp.order_id).first()
         if order:
             user_id = str(p.get("userId") or "").strip() or None
@@ -3324,6 +3433,22 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
                     OrderTimeline.objects.create(order=order, cancelled_at=now)
     
     t = dp.trip
+    if defer_within_trip_today:
+        with transaction.atomic():
+            ordered_drop_points = list(t.drop_points.order_by("sequence", "id"))
+            reordered_drop_points = [point for point in ordered_drop_points if point.id != dp.id]
+            reordered_drop_points.append(next((point for point in ordered_drop_points if point.id == dp.id), dp))
+
+            for idx, point in enumerate(reordered_drop_points, start=1):
+                point.sequence = -idx
+            TripDropPoint.objects.bulk_update(reordered_drop_points, ["sequence"])
+
+            for idx, point in enumerate(reordered_drop_points, start=1):
+                point.sequence = idx
+            TripDropPoint.objects.bulk_update(reordered_drop_points, ["sequence"])
+
+            dp.sequence = len(reordered_drop_points)
+
     terminal_drop_point_statuses = ["COMPLETED", "FAILED", "SKIPPED"]
     actual_total_drop_points = t.drop_points.count()
     effective_total_drop_points = max(_int(t.total_drop_points, 0), actual_total_drop_points)
@@ -3340,6 +3465,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         t.actual_end_at = None
 
     t.save(update_fields=["total_drop_points", "completed_drop_points", "status", "actual_end_at", "updated_at"])
+    dp.refresh_from_db()
     return _ok({"success": True, "dropPoint": _serialize_model(dp), "requeuedToRoutePool": requeued_to_route_pool})
 
 
