@@ -95,6 +95,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 FORCE_SQLITE = _bool("DJANGO_USE_SQLITE", False)
+SHOW_SAMPLE_DATA = _bool("SHOW_SAMPLE_DATA", False)
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if FORCE_SQLITE:
     DATABASES = {

@@ -1,4 +1,4 @@
-
+﻿
 "use client";
 
 
@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer } from 'recharts';
 import type { DashboardStats } from '@/types';
@@ -71,30 +71,6 @@ const PERCENT_WIDTH_CLASSES: Record<number, string> = {
   100: 'w-full',
 }
 
-const PERCENT_HEIGHT_CLASSES: Record<number, string> = {
-  0: 'h-0',
-  5: 'h-[5%]',
-  10: 'h-[10%]',
-  15: 'h-[15%]',
-  20: 'h-[20%]',
-  25: 'h-1/4',
-  30: 'h-[30%]',
-  35: 'h-[35%]',
-  40: 'h-2/5',
-  45: 'h-[45%]',
-  50: 'h-1/2',
-  55: 'h-[55%]',
-  60: 'h-3/5',
-  65: 'h-[65%]',
-  70: 'h-[70%]',
-  75: 'h-3/4',
-  80: 'h-4/5',
-  85: 'h-[85%]',
-  90: 'h-[90%]',
-  95: 'h-[95%]',
-  100: 'h-full',
-}
-
 function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value))
 }
@@ -105,10 +81,6 @@ function toPercentStep(value: number) {
 
 function getWidthClass(value: number) {
   return PERCENT_WIDTH_CLASSES[toPercentStep(value)] ?? 'w-0'
-}
-
-function getHeightClass(value: number) {
-  return PERCENT_HEIGHT_CLASSES[toPercentStep(value)] ?? 'h-0'
 }
 
 const PRODUCT_UNIT_OPTIONS = [
@@ -189,32 +161,9 @@ function withinRange(value: unknown, startAt: Date) {
   return new Date(iso).getTime() >= startAt.getTime()
 }
 
-function toCsvValue(value: unknown) {
-  if (value === null || value === undefined) return ''
-  const normalized = String(value).replace(/\r?\n/g, ' ').replace(/"/g, '""')
-  return `"${normalized}"`
-}
-
-function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
-  if (!rows.length) {
-    toast.error(`No data to export for ${filename}`)
-    return
-  }
-  const headers = Object.keys(rows[0])
-  const csvLines = [headers.join(',')]
-  rows.forEach((row) => {
-    csvLines.push(headers.map((header) => toCsvValue(row[header])).join(','))
-  })
-
-  const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
+function getWarehouseIdFromRow(row: any) {
+  const value = row?.warehouseId ?? row?.warehouse_id ?? row?.warehouse?.id ?? row?.warehouse
+  return typeof value === 'object' && value !== null ? String(value.id || '') : String(value || '')
 }
 
 async function downloadPdf(
@@ -375,7 +324,7 @@ async function safeFetchJson(
   init?: RequestInit,
   options?: { retries?: number; timeoutMs?: number }
 ) {
-  const retries = options?.retries ?? 1
+  const retries = options?.retries ?? 5
   const timeoutMs = options?.timeoutMs ?? 12000
   let lastError = 'Request failed'
   let lastStatus = 0
@@ -534,9 +483,8 @@ export function AdminPortal() {
     const navItems = [
       { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
       { id: 'orders', label: 'Orders', icon: ShoppingCart },
-      { id: 'trips', label: 'Trips & Deliveries', icon: Package },
       { id: 'transportation', label: 'Transportation', icon: Truck },
-      { id: 'returns', label: 'Replacements', icon: AlertTriangle },
+      { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
       { id: 'tracking', label: 'Live Tracking', icon: MapPin },
       { id: 'inventory', label: 'Inventory', icon: Archive },
       { id: 'warehouses', label: 'Warehouses', icon: Building2 },
@@ -620,8 +568,8 @@ export function AdminPortal() {
         return <InventoryView />
       case 'stocks':
         return <StocksView />
-      case 'returns':
-        return <ReturnsView />
+      case 'replacements':
+        return <ReplacementsView />
       case 'tracking':
         return <TrackingView />
       case 'feedback':
@@ -995,17 +943,23 @@ function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isL
           </CardHeader>
           <CardContent>
             <div className="h-[250px] flex items-end gap-3">
-              {revenueOverviewData.map((item) => {
-                const maxRevenueBar = Math.max(...revenueOverviewData.map((d) => d.value), 1)
-                return (
-                  <div key={item.day} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="h-full w-full rounded-t-md bg-cyan-100/50 relative min-h-[18px] overflow-hidden">
-                      <div className={`absolute bottom-0 left-0 right-0 rounded-t-md bg-cyan-400 min-h-[18px] ${getHeightClass((item.value / maxRevenueBar) * 100)}`} />
+              {(() => {
+                const maxRevenueBar = Math.max(...revenueOverviewData.map((d) => Number(d.value) || 0), 1)
+                return revenueOverviewData.map((item) => {
+                  const percent = Math.max(0, Math.min(100, ((Number(item.value) || 0) / maxRevenueBar) * 100))
+                  return (
+                    <div key={item.day} className="flex-1 flex flex-col items-center gap-2">
+                      <div className="flex-1 w-full rounded-t-md bg-cyan-100/50 relative min-h-[18px] overflow-hidden">
+                        <div
+                          className="absolute bottom-0 left-0 right-0 rounded-t-md bg-cyan-400 min-h-[4px]"
+                          style={{ height: `${percent}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-gray-500">{item.day}</span>
                     </div>
-                    <span className="text-[10px] text-gray-500">{item.day}</span>
-                  </div>
-                )
-              })}
+                  )
+                })
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -1083,30 +1037,27 @@ function OrdersView() {
       if (isFetchingOrders) return
       isFetchingOrders = true
       try {
-        const requestOrders = () =>
-          fetch('/api/orders?limit=100&includeItems=preview', { credentials: 'include', cache: 'no-store' })
+        const result = await safeFetchJson(
+          '/api/orders?limit=100&includeItems=preview',
+          { cache: 'no-store' },
+          { retries: 3, timeoutMs: 15000 }
+        )
 
-        let response = await requestOrders()
-        let data = await response.json().catch(() => ({}))
-
-        if (response.status === 401 || response.status === 403) {
-          clearTabAuthToken()
-          response = await requestOrders()
-          data = await response.json().catch(() => ({}))
-          if (response.status === 401 || response.status === 403) {
-            if (isMounted) {
-              setOrders([])
-            }
-            return
+        if (!result.ok) {
+          if (result.status === 401 || result.status === 403) {
+            clearTabAuthToken()
           }
-        }
-
-        if (!response.ok || data?.success === false) {
-          throw new Error(data?.error || 'Failed to fetch orders')
+          if (isMounted) {
+            setOrders([])
+          }
+          if (!silent) {
+            console.error('Failed to fetch orders:', result.error || 'Request failed')
+          }
+          return
         }
 
         if (isMounted) {
-          setOrders(getCollection<any>(data, ['orders']))
+          setOrders(getCollection<any>(result.data, ['orders']))
         }
       } catch (error) {
         if (!silent) {
@@ -1372,6 +1323,7 @@ function OrdersView() {
                     <th className="text-left p-4 font-medium text-gray-600">ORDER ID</th>
                     <th className="text-left p-4 font-medium text-gray-600">CUSTOMER</th>
                     <th className="text-left p-4 font-medium text-gray-600">PRODUCTS</th>
+                    <th className="text-left p-4 font-medium text-gray-600">WAREHOUSE</th>
                     <th className="text-left p-4 font-medium text-gray-600">DELIVERY</th>
                     <th className="text-left p-4 font-medium text-gray-600">VALUE</th>
                     <th className="text-left p-4 font-medium text-gray-600">Actions</th>
@@ -1403,6 +1355,10 @@ function OrdersView() {
                         <p className="text-sm text-gray-500">
                           {order.priority === 'high' || order.priority === 'urgent' ? 'Express' : 'Standard'}
                         </p>
+                      </td>
+                      <td className="p-4">
+                        <p className="font-medium text-gray-900">{order.warehouseName || order.warehouseCode || 'Unassigned'}</p>
+                        <p className="text-sm text-gray-500">{order.warehouseCity || order.warehouseProvince || 'N/A'}</p>
                       </td>
                       <td className="p-4 text-gray-600">
                         {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
@@ -1478,9 +1434,10 @@ function OrdersView() {
                         <div>
                           <p>{item.product?.name || 'Product'} x{item.quantity}</p>
                           {item.spareProducts ? (
-                            <p className="text-xs text-gray-500">
-                              Auto spare products {Number(item.spareProducts.recommendedQuantity || 0)} • Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)} • Policy {Number(item.spareProducts.minPercent || 0)}-{Number(item.spareProducts.maxPercent || 0)}%
-                            </p>
+                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                              <p>Spare products: {Number(item.spareProducts.recommendedQuantity || 0)}</p>
+                              <p>Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)} | Policy {Number(item.spareProducts.minPercent || 0)}-{Number(item.spareProducts.maxPercent || 0)}%</p>
+                            </div>
                           ) : null}
                         </div>
                         <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
@@ -1563,9 +1520,10 @@ function OrdersView() {
                         <div>
                           <p>{item.product?.name || 'Product'} x{item.quantity}</p>
                           {item.spareProducts ? (
-                            <p className="text-xs text-gray-500">
-                              Auto spare products {Number(item.spareProducts.recommendedQuantity || 0)} • Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)}
-                            </p>
+                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                              <p>Spare products: {Number(item.spareProducts.recommendedQuantity || 0)}</p>
+                              <p>Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)}</p>
+                            </div>
                           ) : null}
                         </div>
                       </label>
@@ -1660,6 +1618,9 @@ function OrdersView() {
 
 function TripsView() {
     const [selectedTrip, setSelectedTrip] = useState<any | null>(null)
+  const [tripToDelete, setTripToDelete] = useState<any | null>(null)
+  const [deleteTripOpen, setDeleteTripOpen] = useState(false)
+  const [isDeletingTrip, setIsDeletingTrip] = useState(false)
   const [trips, setTrips] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
@@ -1683,18 +1644,12 @@ function TripsView() {
   // Auto-fill popup when opened
   useEffect(() => {
     if (createRouteOpen && warehouses.length > 0) {
-      // Pre-select first warehouse if not already selected
-      if (!routeWarehouseId) {
-        setRouteWarehouseId(warehouses[0].id)
-      }
-      // Pre-select today's date if not already set
-      if (!routeDate) {
-        setRouteDate(getDefaultRouteDate())
-      }
-      // Auto-filter orders if not already filtered
-      if (routePlans.length === 0) {
-        createRoutePlan(true, routeDate, warehouses[0].id)
-      }
+      const effectiveWarehouseId = routeWarehouseId || warehouses[0].id
+      const effectiveDate = routeDate || getDefaultRouteDate()
+      if (!routeWarehouseId) setRouteWarehouseId(effectiveWarehouseId)
+      if (!routeDate) setRouteDate(effectiveDate)
+      // Always refresh whenever the route dialog is opened.
+      void createRoutePlan(true, effectiveDate, effectiveWarehouseId)
     }
   }, [createRouteOpen, warehouses])
 
@@ -1717,15 +1672,13 @@ function TripsView() {
     .find((vehicle) => vehicle?.id)
 
   const fetchSavedRoutes = async () => {
-    try {
-      const response = await fetch('/api/trips/saved-routes?limit=200')
-      if (!response.ok) throw new Error('Failed to load saved routes')
-      const data = await response.json().catch(() => ({}))
-      setSavedRoutes(getCollection<any>(data, ['savedRoutes']))
-    } catch (error) {
-      console.error('Failed to fetch saved routes:', error)
+    const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
+    if (!result.ok) {
+      console.error('Failed to fetch saved routes:', result.error || 'Request failed')
       setSavedRoutes([])
+      return
     }
+    setSavedRoutes(getCollection<any>(result.data, ['savedRoutes']))
   }
 
   const deleteSavedRouteDraft = async (routeId: string) => {
@@ -1754,31 +1707,26 @@ function TripsView() {
   useEffect(() => {
     async function fetchTripsAndMeta() {
       try {
-        const [tripsResponse, warehousesResponse, driversResponse, vehiclesResponse, savedRoutesResponse] = await Promise.all([
-          fetch('/api/trips?limit=100'),
-          fetch('/api/warehouses'),
-          fetch('/api/drivers'),
-          fetch('/api/vehicles?status=AVAILABLE'),
-          fetch('/api/trips/saved-routes?limit=200'),
+        const [tripsResult, warehousesResult, driversResult, vehiclesResult, savedRoutesResult] = await Promise.all([
+          safeFetchJson('/api/trips?limit=1000', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/drivers', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/vehicles?status=AVAILABLE', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
         ])
 
-        if (tripsResponse.ok) {
-          const tripsData = await tripsResponse.json()
-          setTrips(getCollection<any>(tripsData, ['trips']))
-        }
+        setTrips(tripsResult.ok ? getCollection<any>(tripsResult.data, ['trips']) : [])
 
-        if (warehousesResponse.ok) {
-          const warehousesData = await warehousesResponse.json()
-          const list = getCollection<any>(warehousesData, ['warehouses'])
+        if (warehousesResult.ok) {
+          const list = getCollection<any>(warehousesResult.data, ['warehouses'])
           setWarehouses(list)
           if (list[0]?.id) {
             setRouteWarehouseId((prev) => prev || list[0].id)
           }
         }
 
-        if (driversResponse.ok) {
-          const driversData = await driversResponse.json()
-          const list = getCollection<any>(driversData, ['drivers'])
+        if (driversResult.ok) {
+          const list = getCollection<any>(driversResult.data, ['drivers'])
           setDrivers(list)
           const preferredDriver =
             list.find((driver: any) => driver?.isActive !== false && toArray<any>(driver?.vehicles).some((entry: any) => entry?.vehicle?.id)) ||
@@ -1790,19 +1738,15 @@ function TripsView() {
           }
         }
 
-        if (vehiclesResponse.ok) {
-          const vehiclesData = await vehiclesResponse.json()
-          const list = getCollection<any>(vehiclesData, ['vehicles'])
+        if (vehiclesResult.ok) {
+          const list = getCollection<any>(vehiclesResult.data, ['vehicles'])
           setVehicles(list)
           if (list[0]?.id) {
             setSelectedRouteVehicleId((prev) => prev || list[0].id)
           }
         }
 
-        if (savedRoutesResponse.ok) {
-          const savedRoutesData = await savedRoutesResponse.json().catch(() => ({}))
-          setSavedRoutes(getCollection<any>(savedRoutesData, ['savedRoutes']))
-        }
+        setSavedRoutes(savedRoutesResult.ok ? getCollection<any>(savedRoutesResult.data, ['savedRoutes']) : [])
       } catch (error) {
         console.error('Failed to fetch trips meta:', error)
       } finally {
@@ -1812,18 +1756,19 @@ function TripsView() {
     fetchTripsAndMeta()
   }, [])
 
-  const refreshTrips = async () => {
-    setIsLoading(true)
+  const refreshTrips = async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading !== false
+    if (showLoading) setIsLoading(true)
     try {
-      const response = await fetch('/api/trips?limit=100')
-      if (!response.ok) throw new Error('Failed trips fetch')
-      const data = await response.json()
-      setTrips(getCollection<any>(data, ['trips']))
+      const result = await safeFetchJson('/api/trips?limit=1000', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed trips fetch')
+      }
+      setTrips(getCollection<any>(result.data, ['trips']))
     } catch (error) {
       console.error(error)
-      toast.error('Failed to load trips')
     } finally {
-      setIsLoading(false)
+      if (showLoading) setIsLoading(false)
     }
   }
 
@@ -1838,6 +1783,9 @@ function TripsView() {
 
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
+    setRoutePlans([])
+    setSelectedRouteCity('')
+    setSelectedRouteOrderIds([])
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
@@ -1880,6 +1828,42 @@ function TripsView() {
       clearTimeout(timeout);
       setLoadingRoutePlans(false);
     }
+  }
+
+  const deleteTrip = async (trip: any) => {
+    if (String(trip.status || '').toUpperCase() !== 'PLANNED') {
+      toast.error('Only planned trips can be deleted')
+      return
+    }
+    setIsDeletingTrip(true)
+    try {
+      const response = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to delete trip')
+      }
+
+      setSelectedTrip((current: any) => (current?.id === trip.id ? null : current))
+      setTrips((prev) => prev.filter((entry: any) => entry.id !== trip.id))
+      if (routeDate && routeWarehouseId) {
+        await createRoutePlan(true, routeDate, routeWarehouseId)
+      }
+      await refreshTrips()
+      await fetchSavedRoutes()
+      emitDataSync(['trips', 'orders'])
+      toast.success('Trip deleted')
+      setDeleteTripOpen(false)
+      setTripToDelete(null)
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to delete trip')
+    } finally {
+      setIsDeletingTrip(false)
+    }
+  }
+
+  const requestDeleteTrip = (trip: any) => {
+    setTripToDelete(trip)
+    setDeleteTripOpen(true)
   }
 
   const handleRouteOrderClick = (city: string, orderId: string) => {
@@ -1928,15 +1912,22 @@ function TripsView() {
         throw new Error(data?.error || 'Failed to create trip')
       }
       toast.success('Trip created from route')
-      try {
-        await deleteSavedRouteDraft(selectedSavedRoute.id)
-      } catch (deleteError) {
-        console.error('Failed to delete saved route:', deleteError)
+      const createdTrip = data?.trip
+      if (createdTrip) {
+        setTrips((prev: any[]) => [createdTrip, ...prev.filter((trip: any) => trip.id !== createdTrip.id)])
       }
       setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
       setSelectedSavedRouteId('')
       setCreateTripOpen(false)
-      await refreshTrips()
+      emitDataSync(['trips', 'orders'])
+      void (async () => {
+        try {
+          await deleteSavedRouteDraft(selectedSavedRoute.id)
+        } catch (deleteError) {
+          console.error('Failed to delete saved route:', deleteError)
+        }
+        await refreshTrips({ showLoading: false })
+      })()
     } catch (error: any) {
       const message = String(error?.message || 'Failed to create trip')
       const lowerMessage = message.toLowerCase()
@@ -1950,7 +1941,8 @@ function TripsView() {
         setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
         setSelectedSavedRouteId('')
         setCreateTripOpen(false)
-        await refreshTrips()
+        emitDataSync(['trips', 'orders'])
+        void refreshTrips({ showLoading: false })
         toast.success('Trip data refreshed. Stale saved route was removed.')
       } else {
         toast.error(message)
@@ -2021,8 +2013,8 @@ function TripsView() {
       <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Trips & Deliveries</h1>
-          <p className="text-gray-500">Manage delivery trips and schedules</p>
+          <h1 className="text-2xl font-bold text-gray-900">Trips</h1>
+          <p className="text-gray-500">All trip records</p>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={() => setCreateRouteOpen(true)} className="bg-black text-white hover:bg-black/90 rounded-xl px-4">
@@ -2075,7 +2067,7 @@ function TripsView() {
                   </div>
                   <div className="p-3 space-y-2">
                     <p className="text-xs text-gray-500">
-                      {route.warehouseName} • {new Date(route.date).toLocaleDateString()}
+                      {route.warehouseName} | {new Date(route.date).toLocaleDateString()}
                     </p>
                     {toArray<any>(route.orders).map((order: any) => (
                       <div key={order.id} className="flex items-center justify-between text-sm">
@@ -2105,7 +2097,11 @@ function TripsView() {
             </div>
           ) : (
             <div className="space-y-3">
-              {trips.map((trip: any) => (
+              {trips.map((trip: any) => {
+                const normalizedTripStatus = normalizeTripStatus(trip.status)
+                const deleteAllowed = normalizedTripStatus === 'PLANNED'
+
+                return (
                 <div
                   key={trip.id}
                   className="rounded-xl border bg-white shadow-sm p-4 hover:shadow-md transition-shadow cursor-pointer"
@@ -2115,41 +2111,77 @@ function TripsView() {
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xl font-semibold text-gray-900">{trip.tripNumber}</span>
-                        <Badge className={`${statusColors[normalizeTripStatus(trip.status)] || 'bg-gray-100'} text-xs px-2 py-0.5`}>
-                          {normalizeTripStatus(trip.status).replace(/_/g, ' ')}
+                        <Badge className={`${statusColors[normalizedTripStatus] || 'bg-gray-100'} text-xs px-2 py-0.5`}>
+                          {normalizedTripStatus.replace(/_/g, ' ')}
                         </Badge>
                       </div>
                       <p className="text-[13px] text-gray-700">
-                        Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} • Driver: {trip.driver?.user?.name || 'Unassigned'}
+                        Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.user?.name || 'Unassigned'}
                       </p>
                       <p className="text-[13px] text-gray-600">
                         Route: {(trip.route?.start || trip.origin || 'Warehouse')} {'->'} {(trip.route?.end || trip.destination || trip.destinationCity || 'Destination')}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0 h-8 px-3 text-xs"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setSelectedTrip(trip)
-                      }}
-                    >
-                      View Details
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setSelectedTrip(trip)
+                        }}
+                      >
+                        View Details
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs text-red-600 hover:text-red-700"
+                        disabled={!deleteAllowed}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (!deleteAllowed) return
+                          void deleteTrip(trip)
+                        }}
+                        title={deleteAllowed ? 'Delete trip' : 'Only planned trips can be deleted'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         {/* Trip Details Dialog (outside conditional block) */}
         <Dialog open={!!selectedTrip} onOpenChange={(open) => !open && setSelectedTrip(null)}>
           <DialogContent className="max-w-3xl w-full">
             {selectedTrip && (
+              (() => {
+                const normalizedTripStatus = normalizeTripStatus(selectedTrip.status)
+                const deleteAllowed = normalizedTripStatus === 'PLANNED'
+
+                return (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 mb-2">
                   <span className="text-lg font-bold text-gray-900">{selectedTrip.tripNumber}</span>
-                  <Badge className={statusColors[normalizeTripStatus(selectedTrip.status)] || 'bg-gray-100'}>{normalizeTripStatus(selectedTrip.status).replace(/_/g, ' ')}</Badge>
+                  <Badge className={statusColors[normalizedTripStatus] || 'bg-gray-100'}>{normalizedTripStatus.replace(/_/g, ' ')}</Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-8 text-red-600 hover:text-red-700"
+                    disabled={!deleteAllowed}
+                    onClick={() => {
+                      if (!deleteAllowed) return
+                      void deleteTrip(selectedTrip)
+                    }}
+                    title={deleteAllowed ? 'Delete trip' : 'Only planned trips can be deleted'}
+                  >
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    Delete Trip
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-6 mb-2 text-sm">
                   <div>
@@ -2213,6 +2245,8 @@ function TripsView() {
                   <Button variant="outline" onClick={() => setSelectedTrip(null)}>Close</Button>
                 </div>
               </div>
+                )
+              })()
             )}
           </DialogContent>
         </Dialog>
@@ -2220,34 +2254,57 @@ function TripsView() {
       </Card>
 
 
-      <Dialog open={createRouteOpen} onOpenChange={setCreateRouteOpen}>
-        <DialogContent className="w-[98vw] min-w-[1400px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
+      <Dialog
+        open={createRouteOpen}
+        onOpenChange={(open) => {
+          setCreateRouteOpen(open)
+          if (!open) {
+            setRoutePlans([])
+            setSelectedRouteCity('')
+            setSelectedRouteOrderIds([])
+            setRoutePlanMessage(null)
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
           <DialogHeader>
             <DialogTitle className="sr-only">Create Delivery Route</DialogTitle>
           </DialogHeader>
           <div className="flex flex-row w-full h-full">
             {/* Left: Filters and Orders Preview */}
-            <div className="flex flex-col bg-white border-r p-8 min-w-[340px] max-w-[400px] w-[360px]">
-              <h2 className="text-2xl font-bold mb-6">Create Delivery Route</h2>
-              <div className="mb-4">
+            <div className="flex flex-col bg-white border-r p-4 min-w-[280px] max-w-[330px] w-[300px]">
+              <h2 className="mb-4 text-xl font-bold">Create Delivery Route</h2>
+              <div className="mb-3">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">Delivery Date</label>
                 <Input
                   id="popup-route-date"
                   type="date"
                   value={routeDate}
                   min={new Date().toISOString().split('T')[0]}
-                  onChange={e => setRouteDate(e.target.value)}
-                  className="mt-1"
+                  onChange={(e) => {
+                    const nextDate = e.target.value
+                    setRouteDate(nextDate)
+                    if (createRouteOpen && nextDate && routeWarehouseId) {
+                      void createRoutePlan(true, nextDate, routeWarehouseId)
+                    }
+                  }}
+                  className="mt-1 h-10 text-sm"
                 />
               </div>
-              <div className="mb-4">
+              <div className="mb-3">
                 <label htmlFor="warehouse-select" className="text-sm font-medium text-gray-700">Select Warehouse</label>
                 <select
                   id="warehouse-select"
                   value={routeWarehouseId}
-                  onChange={(e) => setRouteWarehouseId(e.target.value)}
+                  onChange={(e) => {
+                    const nextWarehouseId = e.target.value
+                    setRouteWarehouseId(nextWarehouseId)
+                    if (createRouteOpen && routeDate && nextWarehouseId) {
+                      void createRoutePlan(true, routeDate, nextWarehouseId)
+                    }
+                  }}
                   title="Select warehouse"
-                  className="w-full mt-1 px-3 py-2 border rounded-md bg-white"
+                  className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm"
                 >
                   <option value="">-- Choose Warehouse --</option>
                   {warehouses.map((warehouse) => (
@@ -2257,20 +2314,20 @@ function TripsView() {
                   ))}
                 </select>
               </div>
-              <Button className="w-full bg-black text-white hover:bg-black/90 mt-2 mb-4" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
+              <Button className="mt-1 mb-3 h-10 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Filter Orders
               </Button>
               
               {routePlanMessage && (
-                <div className={`p-3 rounded-lg mb-4 text-sm ${routePlanMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                <div className={`mb-3 rounded-lg p-2.5 text-xs ${routePlanMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
                   {routePlanMessage.text}
                 </div>
               )}
               
               {/* Orders Preview below the filter button */}
-              <div className="bg-gray-50 rounded-lg p-4 overflow-y-auto flex-1">
-                <h3 className="text-lg font-semibold mb-3">Orders by City</h3>
+              <div className="flex-1 overflow-y-auto rounded-lg bg-gray-50 p-3">
+                <h3 className="mb-2 text-base font-semibold">Orders by City</h3>
                 {routePlans.length === 0 ? (
                   <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
                     {loadingRoutePlans ? 'Loading orders...' : 'Pick a delivery date and warehouse to view orders by city'}
@@ -2281,7 +2338,7 @@ function TripsView() {
                       <div key={cityGroup.city}>
                         <button 
                           onClick={() => setSelectedRouteCity(cityGroup.city)}
-                          className={`w-full text-left p-3 rounded-lg font-semibold mb-2 transition-colors ${
+                          className={`mb-1.5 w-full rounded-lg p-2.5 text-left text-sm font-semibold transition-colors ${
                             selectedRouteCity === cityGroup.city 
                               ? 'bg-blue-500 text-white' 
                               : 'bg-white border border-gray-200 text-gray-900 hover:border-blue-400'
@@ -2290,12 +2347,12 @@ function TripsView() {
                           {cityGroup.city} ({toArray<any>(cityGroup.orders).length} orders)
                         </button>
                         {selectedRouteCity === cityGroup.city && (
-                          <div className="space-y-1 pl-2 mb-3">
+                          <div className="mb-2.5 space-y-1 pl-2">
                             {toArray<any>(cityGroup.orders).map((order: any) => (
                               <button
                                 key={order.id}
                                 onClick={() => handleRouteOrderClick(cityGroup.city, order.id)}
-                                className={`w-full text-left text-sm p-2 rounded transition-colors ${
+                                className={`w-full rounded p-1.5 text-left text-xs transition-colors ${
                                   selectedRouteOrderIds.includes(order.id)
                                     ? 'bg-blue-100 text-blue-900 font-medium'
                                     : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -2310,7 +2367,7 @@ function TripsView() {
                                         : 'border-gray-300 bg-white'
                                     }`}
                                   >
-                                    {selectedRouteOrderIds.includes(order.id) ? '✓' : ''}
+                                    {selectedRouteOrderIds.includes(order.id) ? 'âœ“' : ''}
                                   </span>
                                   <span className="truncate">{order.orderNumber || order.id}</span>
                                 </div>
@@ -2324,12 +2381,12 @@ function TripsView() {
                   </div>
                 )}
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-2 space-y-1.5">
                 <p className="text-xs text-gray-500">
                   Driver assignment is done in New Trip.
                 </p>
                 <Button
-                  className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                  className="h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
                     void saveRouteDraft()
                   }}
@@ -2346,54 +2403,54 @@ function TripsView() {
               </div>
             </div>
             {/* Right: Delivery Route Map or other content */}
-            <div className="flex-1 flex flex-col bg-gray-50 p-10 overflow-y-auto min-w-0">
+            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-6">
               {/* Delivery Route Map - styled like Warehouse Portal */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Delivery Locations</CardTitle>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Delivery Locations</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="w-full rounded-xl border bg-gray-50 p-6 flex flex-col items-center">
+                <CardContent className="pt-2">
+                  <div className="flex w-full flex-col items-center rounded-xl border bg-gray-50 p-4">
                     {/* Warehouse as starting point */}
                     {(() => {
                       const wh = warehouses.find((w) => w.id === routeWarehouseId);
                       if (!wh) return <div className="mb-4 text-gray-400">Select a warehouse to start</div>;
                       return (
-                        <div className="w-full max-w-xl mb-4">
-                          <div className="rounded-lg border-2 border-green-400 bg-green-50 p-4 flex flex-col items-start mb-2">
-                            <div className="flex items-center gap-2 mb-1">
+                        <div className="mb-3 w-full max-w-xl">
+                          <div className="mb-1.5 flex flex-col items-start rounded-lg border-2 border-green-400 bg-green-50 p-3">
+                            <div className="mb-1 flex items-center gap-2">
                               <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-green-500 text-white font-bold mr-2">
                                 <svg width="18" height="18" fill="none"><path d="M9 2.25a6.75 6.75 0 1 1 0 13.5a6.75 6.75 0 0 1 0-13.5Zm0 2.25v2.25m0 2.25h.008v.008H9V6.75Z" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                               </span>
                               <span className="font-semibold text-green-900">Warehouse - Starting Point</span>
                             </div>
-                            <div className="text-sm font-medium text-gray-700">{wh.name}</div>
-                            <div className="text-xs text-green-700">{[wh.address, wh.city, wh.province].filter(Boolean).join(', ')}</div>
+                            <div className="text-xs font-semibold text-gray-700">{wh.name}</div>
+                            <div className="text-[11px] text-green-700">{[wh.address, wh.city, wh.province].filter(Boolean).join(', ')}</div>
                             {wh.latitude && wh.longitude && (
-                              <div className="text-xs text-gray-500 mt-1">?? {wh.latitude}, {wh.longitude}</div>
+                              <div className="mt-1 text-[11px] text-gray-500">?? {wh.latitude}, {wh.longitude}</div>
                             )}
                           </div>
                         </div>
                       );
                     })()}
                     {/* Delivery locations */}
-                    <div className="w-full max-w-xl flex flex-col gap-3">
+                    <div className="flex w-full max-w-xl flex-col gap-2">
                       {(() => {
                         if (!routePlans || !selectedRouteCity) return null;
                         const group = routePlans.find((g) => g.city === selectedRouteCity);
                         if (!group) return null;
                         const selectedOrders = toArray(group.orders).filter((order: any) => selectedRouteOrderIds.includes(order.id));
                         return selectedOrders.map((order: any, idx: number) => (
-                          <div key={order.id} className="rounded-lg border bg-white flex items-start gap-3 p-4">
-                            <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-500 text-white font-bold text-lg">{idx + 1}</div>
+                          <div key={order.id} className="flex items-start gap-2 rounded-lg border bg-white p-3">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-sm font-bold text-white">{idx + 1}</div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
-                              <div className="text-xs text-gray-600">{order.address || order.city || ''}</div>
+                              <div className="text-sm font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
+                              <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
                               {order.products && (
-                                <div className="text-xs text-gray-500 mt-1">{order.products}</div>
+                                <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
                               )}
                               {order.latitude && order.longitude && (
-                                <div className="text-xs text-gray-500 mt-1">?? {order.latitude}, {order.longitude}</div>
+                                <div className="mt-0.5 text-[11px] text-gray-500">?? {order.latitude}, {order.longitude}</div>
                               )}
                             </div>
                           </div>
@@ -2427,7 +2484,7 @@ function TripsView() {
                 <option value="">Select route</option>
                 {savedRoutes.map((route: any) => (
                   <option key={route.id} value={route.id}>
-                    {route.city} • {new Date(route.date).toLocaleDateString()} • {route.orderIds.length} orders
+                    {route.city} | {new Date(route.date).toLocaleDateString()} | {route.orderIds.length} orders
                   </option>
                 ))}
               </select>
@@ -2943,7 +3000,7 @@ function DriversView() {
         if (!createUserResponse.ok || createUserPayload?.success === false) {
           throw new Error(createUserPayload?.error || 'Failed to create user')
         }
-        userId = createUserPayload?.data?.id
+        userId = createUserPayload?.user?.id || createUserPayload?.data?.id
       }
 
       if (!userId) {
@@ -3319,23 +3376,14 @@ function TransportationView() {
     setIsLoading(true)
     try {
       const [vehiclesRes, driversRes, tripsRes] = await Promise.all([
-        fetch('/api/vehicles?page=1&pageSize=100'),
-        fetch('/api/drivers?page=1&pageSize=100'),
-        fetch('/api/trips?page=1&pageSize=100'),
+        safeFetchJson('/api/vehicles?page=1&pageSize=100', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+        safeFetchJson('/api/drivers?page=1&pageSize=100&includeSample=true', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+        safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
       ])
 
-      if (vehiclesRes.ok) {
-        const data = await vehiclesRes.json()
-        setVehicles(getCollection<any>(data, ['vehicles']))
-      }
-      if (driversRes.ok) {
-        const data = await driversRes.json()
-        setDrivers(getCollection<any>(data, ['drivers']))
-      }
-      if (tripsRes.ok) {
-        const data = await tripsRes.json()
-        setTrips(getCollection<any>(data, ['trips']))
-      }
+      setVehicles(vehiclesRes.ok ? getCollection<any>(vehiclesRes.data, ['vehicles']) : [])
+      setDrivers(driversRes.ok ? getCollection<any>(driversRes.data, ['drivers']) : [])
+      setTrips(tripsRes.ok ? getCollection<any>(tripsRes.data, ['trips']) : [])
     } catch (error) {
       console.error('Failed to fetch transportation data:', error)
     } finally {
@@ -3348,7 +3396,7 @@ function TransportationView() {
   }, [])
 
   const activeTripsCount = trips.filter((trip) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))).length
-  const driversOnDutyCount = drivers.filter((driver) => String(driver?.status).toUpperCase() === 'ACTIVE' || String(driver?.status).toUpperCase() === 'ON_DUTY').length
+  const driversOnDutyCount = drivers.filter((driver) => driver?.isActive !== false).length
   const maintenanceCount = vehicles.filter((vehicle) => String(vehicle?.status).toUpperCase().includes('MAINTENANCE')).length
 
   const isDriverAssignable = (driver: any) => {
@@ -3756,7 +3804,7 @@ function TransportationView() {
                             <p className="text-base font-semibold">{trip.tripNumber || trip.id}</p>
                             <Badge className={`${status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'} text-xs px-2 py-0.5`}>{status.replace(/_/g, ' ')}</Badge>
                           </div>
-                          <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} • Driver: {driverName}</p>
+                          <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} | Driver: {driverName}</p>
                           <p className="text-[13px] text-gray-600">Route: {origin} {'->'} {destination}</p>
                         </div>
                         <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => openTripDetails(trip)}>View Details</Button>
@@ -3966,7 +4014,7 @@ function WarehousesView() {
     city: '',
     province: '',
     zipCode: '',
-    country: 'USA',
+    country: 'Philippines',
     latitude: '',
     longitude: '',
     capacity: '',
@@ -4029,7 +4077,6 @@ function WarehousesView() {
       setWarehouseStaffUsers(scopedUsers)
     } catch (error) {
       console.error('Failed to fetch warehouse staff users:', error)
-      toast.error('Failed to load warehouse staff users')
     }
   }
 
@@ -4041,7 +4088,7 @@ function WarehousesView() {
       city: '',
       province: '',
       zipCode: '',
-      country: 'USA',
+      country: 'Philippines',
       latitude: '',
       longitude: '',
       capacity: '',
@@ -4193,7 +4240,7 @@ function WarehousesView() {
           city: form.city.trim(),
           province: form.province.trim(),
           zipCode: form.zipCode.trim(),
-          country: form.country.trim() || 'USA',
+          country: form.country.trim() || 'Philippines',
           latitude: latitudeValue,
           longitude: longitudeValue,
           capacity: form.capacity ? Number(form.capacity) : 1000,
@@ -4226,7 +4273,7 @@ function WarehousesView() {
       city: warehouse.city || '',
       province: warehouse.province || '',
       zipCode: warehouse.zipCode || '',
-      country: warehouse.country || 'USA',
+      country: warehouse.country || 'Philippines',
       latitude: typeof warehouse.latitude === 'number' ? String(warehouse.latitude) : '',
       longitude: typeof warehouse.longitude === 'number' ? String(warehouse.longitude) : '',
       capacity: warehouse.capacity ? String(warehouse.capacity) : '',
@@ -4270,7 +4317,7 @@ function WarehousesView() {
       setInsightStockBatches(filteredBatches)
       setInsightsOpen(true)
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to load warehouse insights')
+      console.warn('Failed to load warehouse insights:', error)
     }
   }
 
@@ -4998,18 +5045,13 @@ function InventoryView() {
   const fetchInventory = async () => {
     setIsLoading(true)
     try {
-      const result = await safeFetchJson('/api/inventory', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/inventory', { cache: 'no-store' })
       if (!result.ok) {
-        setInventory([])
-        if (result.status !== 401 && result.status !== 403) {
-          toast.error('Failed to load inventory')
-        }
         return
       }
       setInventory(getCollection<any>(result.data, ['inventory']))
     } catch (error) {
       console.error(error)
-      toast.error('Failed to load inventory')
     } finally {
       setIsLoading(false)
     }
@@ -5017,12 +5059,8 @@ function InventoryView() {
 
   const fetchWarehouses = async () => {
     try {
-      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' })
       if (!result.ok) {
-        setWarehouses([])
-        if (result.status !== 401 && result.status !== 403) {
-          toast.error('Failed to load warehouses')
-        }
         return
       }
       const list = getCollection<any>(result.data, ['warehouses'])
@@ -5030,24 +5068,18 @@ function InventoryView() {
       if (list[0]?.id && !stockInWarehouseId) setStockInWarehouseId(list[0].id)
     } catch (error) {
       console.error(error)
-      toast.error('Failed to load warehouses')
     }
   }
 
   const fetchProducts = async () => {
     try {
-      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' })
       if (!result.ok) {
-        setProducts([])
-        if (result.status !== 401 && result.status !== 403) {
-          toast.error('Failed to load products')
-        }
         return
       }
       setProducts(getCollection<any>(result.data, ['products']))
     } catch (error) {
       console.error(error)
-      toast.error('Failed to load products')
     }
   }
 
@@ -5542,7 +5574,6 @@ function StocksView() {
         setStockBatches(getCollection<any>(data, ['stockBatches']))
       } catch (error) {
         console.error(error)
-        toast.error('Failed to load stock-in batches')
       } finally {
         setIsLoading(false)
       }
@@ -5622,19 +5653,25 @@ function StocksView() {
   )
 }
 
-function ReturnsView() {
-  const [returns, setReturns] = useState<any[]>([])
+function ReplacementsView() {
+  const [replacements, setReplacements] = useState<any[]>([])
+  const [warehouses, setWarehouses] = useState<any[]>([])
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
+  const [selectedStatus, setSelectedStatus] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
+  const [selectedReplacement, setSelectedReplacement] = useState<any | null>(null)
 
-  const fetchReturns = async () => {
+  const fetchReplacements = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/orders?includeReturns=true&includeOrders=false&includeItems=none&limit=100')
-      if (response.ok) {
-        const data = await response.json()
-        setReturns(getCollection(data, ['returns']))
+      let response = await fetch('/api/replacements?limit=200', { cache: 'no-store', credentials: 'include' })
+      if (!response.ok) {
+        response = await fetch('/api/orders?includeReplacements=true&includeOrders=false&includeItems=none&limit=200', { cache: 'no-store', credentials: 'include' })
       }
+      if (!response.ok) return
+      const data = await response.json()
+      setReplacements(getCollection(data, ['replacements']))
     } catch (error) {
       console.error('Failed to fetch replacements:', error)
     } finally {
@@ -5642,8 +5679,20 @@ function ReturnsView() {
     }
   }
 
+  const fetchWarehouses = async () => {
+    try {
+      const response = await fetch('/api/warehouses?page=1&pageSize=200', { cache: 'no-store', credentials: 'include' })
+      if (!response.ok) return
+      const data = await response.json().catch(() => ({}))
+      setWarehouses(getCollection(data, ['warehouses']))
+    } catch (error) {
+      console.error('Failed to fetch warehouses for replacements filter:', error)
+    }
+  }
+
   useEffect(() => {
-    fetchReturns()
+    fetchReplacements()
+    fetchWarehouses()
   }, [])
 
   const parseMeta = (notes: string | null | undefined) => {
@@ -5662,6 +5711,31 @@ function ReturnsView() {
     }
   }
 
+  const buildReplacementLines = (replacement: any, meta: any) => {
+    const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
+      ? replacement.replacementLines
+      : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
+        ? meta.replacementLines
+        : Array.isArray(replacement?.replacementItems) && replacement.replacementItems.length
+          ? replacement.replacementItems
+          : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
+            ? meta.replacementItems
+        : []
+    const fallbackLine = {
+      originalProductName: replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      replacementProductName: replacement?.replacementProductName || meta?.replacementProductName || replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      quantityToReplace: replacement?.quantityToReplace ?? meta?.quantityToReplace ?? meta?.damagedQuantity ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
+      quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
+    }
+    const lines = sourceLines.length ? sourceLines : [fallbackLine]
+    return lines.map((line: any) => ({
+      originalProductName: String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A'),
+      replacementProductName: String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A'),
+      quantityToReplace: Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0),
+      quantityReplaced: Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0),
+    }))
+  }
+
   const formatIssueStatus = (item: any) => {
     const rawStatus = String(item?.status || '').toUpperCase()
     if (rawStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
@@ -5669,6 +5743,15 @@ function ReturnsView() {
     if (rawStatus === 'COMPLETED') return 'Completed'
     if (rawStatus === 'IN_PROGRESS') return 'In Progress'
     return 'Reported'
+  }
+
+  const getNormalizedIssueStatus = (item: any) => {
+    const rawStatus = String(item?.status || '').toUpperCase()
+    if (rawStatus === 'REQUESTED') return 'REPORTED'
+    if (['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)) return 'IN_PROGRESS'
+    if (rawStatus === 'REJECTED') return 'NEEDS_FOLLOW_UP'
+    if (rawStatus === 'PROCESSED') return 'COMPLETED'
+    return rawStatus || 'REPORTED'
   }
 
   const updateIssueStatus = async (
@@ -5683,7 +5766,7 @@ function ReturnsView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scope: 'replacement',
-          returnId: replacementId,
+          replacementId: replacementId,
           status,
           notes: options?.notes,
           createReplacementOrder: options?.createReplacementOrder,
@@ -5694,7 +5777,7 @@ function ReturnsView() {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
 
-      setReturns((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
+      setReplacements((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
       toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
@@ -5703,13 +5786,26 @@ function ReturnsView() {
     }
   }
 
-  const totalIssues = returns.length
-  const totalReplacedQty = returns.reduce((sum, item) => {
+  const warehouseFilteredReplacements = useMemo(() => {
+    if (selectedWarehouseId === 'all') return replacements
+    return replacements.filter((item) => {
+      const warehouseId = String(item?.warehouseId || item?.order?.warehouseId || '').trim()
+      return warehouseId === selectedWarehouseId
+    })
+  }, [replacements, selectedWarehouseId])
+
+  const filteredReplacements = useMemo(() => {
+    if (selectedStatus === 'all') return warehouseFilteredReplacements
+    return warehouseFilteredReplacements.filter((item) => getNormalizedIssueStatus(item) === selectedStatus)
+  }, [warehouseFilteredReplacements, selectedStatus])
+
+  const totalIssues = filteredReplacements.length
+  const totalReplacedQty = filteredReplacements.reduce((sum, item) => {
     const meta = parseMeta(item?.notes)
     const qty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
     return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0)
   }, 0)
-  const resolvedOnDelivery = returns.filter((item) => {
+  const resolvedOnDelivery = filteredReplacements.filter((item) => {
     const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').toUpperCase()
     const normalizedStatus =
@@ -5724,7 +5820,7 @@ function ReturnsView() {
               : rawStatus
     return normalizedStatus === 'RESOLVED_ON_DELIVERY'
   }).length
-  const needsFollowUp = returns.filter((item) => {
+  const needsFollowUp = filteredReplacements.filter((item) => {
     const rawStatus = String(item?.status || '').toUpperCase()
     return rawStatus === 'NEEDS_FOLLOW_UP' || rawStatus === 'REJECTED'
   }).length
@@ -5734,6 +5830,36 @@ function ReturnsView() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
           <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
+        </div>
+        <div className="w-full max-w-xs">
+          <div className="flex w-full gap-2">
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={selectedWarehouseId}
+              onChange={(event) => setSelectedWarehouseId(event.target.value)}
+              title="Filter by warehouse"
+            >
+              <option value="all">All Warehouses</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name || warehouse.code || warehouse.id}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={selectedStatus}
+              onChange={(event) => setSelectedStatus(event.target.value)}
+              title="Filter by status"
+            >
+              <option value="all">All Statuses</option>
+              <option value="RESOLVED_ON_DELIVERY">Resolved on Delivery</option>
+              <option value="NEEDS_FOLLOW_UP">Needs Follow-up</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="REPORTED">Reported</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -5790,7 +5916,7 @@ function ReturnsView() {
             <div className="flex items-center justify-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
             </div>
-          ) : returns.length === 0 ? (
+          ) : filteredReplacements.length === 0 ? (
             <div className="py-12 text-center">
               <p className="text-gray-500">No replacement cases found</p>
             </div>
@@ -5802,6 +5928,7 @@ function ReturnsView() {
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Customer</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Warehouse</th>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
                     <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
@@ -5810,7 +5937,7 @@ function ReturnsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {returns.map((item: any) => {
+                  {filteredReplacements.map((item: any) => {
                     const meta = parseMeta(item?.notes)
                     const issueReason = String(item?.description || item?.reason || 'No details provided')
                     const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
@@ -5820,9 +5947,13 @@ function ReturnsView() {
 
                     return (
                       <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4 font-medium">{item.returnNumber}</td>
-                        <td className="p-4">{item.order?.orderNumber || 'N/A'}</td>
-                        <td className="p-4">{item.order?.customer?.name || 'N/A'}</td>
+                        <td className="p-4 font-medium">{item.replacementNumber}</td>
+                        <td className="p-4">{item.orderNumber || item.order?.orderNumber || 'N/A'}</td>
+                        <td className="p-4">{item.customerName || item.order?.customer?.name || 'N/A'}</td>
+                        <td className="p-4">
+                          <p className="font-medium text-gray-900">{item.warehouseName || item.warehouseCode || item.order?.warehouseName || item.order?.warehouseCode || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
+                        </td>
                         <td className="p-4">
                           <p className="text-sm text-gray-900">{issueReason}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -5860,16 +5991,13 @@ function ReturnsView() {
                                 Mark Completed
                               </Button>
                             ) : null}
-                            {String(item?.status || '').toUpperCase() !== 'NEEDS_FOLLOW_UP' ? (
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => updateIssueStatus(item.id, 'NEEDS_FOLLOW_UP', { notes: 'Marked for follow-up by admin' })}
-                                disabled={updatingReplacementId === item.id}
-                              >
-                                Needs Follow-up
-                              </Button>
-                            ) : null}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSelectedReplacement(item)}
+                            >
+                              View Details
+                            </Button>
                             {updatingReplacementId === item.id ? (
                               <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                             ) : null}
@@ -5884,6 +6012,77 @@ function ReturnsView() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          {selectedReplacement ? (() => {
+            const meta = parseMeta(selectedReplacement.notes)
+            const evidenceUrl = String(selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+            const replacementLines = buildReplacementLines(selectedReplacement, meta)
+            const details = [
+              ['Replacement #', selectedReplacement.replacementNumber || 'N/A'],
+              ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
+              ['Customer', selectedReplacement.customerName || selectedReplacement.order?.customer?.name || 'N/A'],
+              ['Warehouse', selectedReplacement.warehouseName || selectedReplacement.warehouseCode || selectedReplacement.order?.warehouseName || selectedReplacement.order?.warehouseCode || 'N/A'],
+              ['Warehouse Location', selectedReplacement.warehouseCity || selectedReplacement.warehouseProvince || selectedReplacement.order?.warehouseCity || selectedReplacement.order?.warehouseProvince || 'N/A'],
+              ['Status', formatIssueStatus(selectedReplacement)],
+              ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
+              ['Reason', selectedReplacement.reason || 'N/A'],
+              ['Resolution', selectedReplacement.description || 'N/A'],
+              ['Replacement Mode', String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A').replace(/_/g, ' ')],
+            ] as Array<[string, string]>
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Replacement Details</DialogTitle>
+                  <DialogDescription>Complete information for {selectedReplacement.replacementNumber || 'this replacement'}</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {details.map(([label, value]) => (
+                    <div key={label} className="rounded-md border bg-slate-50 px-3 py-2">
+                      <p className="text-xs font-medium text-slate-500">{label}</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border bg-white">
+                  <div className="border-b px-3 py-2">
+                    <p className="text-xs font-medium text-slate-500">Replacement Items</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-xs text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Original Product</th>
+                          <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
+                          <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
+                          <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {replacementLines.map((line, index) => (
+                          <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplace}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplaced}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {evidenceUrl ? (
+                  <div className="rounded-md border bg-white px-3 py-2">
+                    <p className="text-xs font-medium text-slate-500">Evidence</p>
+                    <img src={evidenceUrl} alt="Replacement evidence" className="mt-2 max-h-[360px] w-full rounded-md border object-contain" />
+                  </div>
+                ) : null}
+              </>
+            )
+          })() : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -5922,9 +6121,13 @@ function TrackingView() {
 
   const tripMatchesTrackingDay = (trip: any) => {
     if (!trackingDate) return true
-    return [trip?.plannedStartAt, trip?.actualStartAt, trip?.actualEndAt, trip?.createdAt].some((value) =>
+    const hasMatchingTripDate = [trip?.plannedStartAt, trip?.actualStartAt, trip?.actualEndAt, trip?.createdAt].some((value) =>
       isDateMatch(value, trackingDate)
     )
+    if (hasMatchingTripDate) return true
+    const logs = toArray<any>(trip?.locationLogs)
+    if (logs.some((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))) return true
+    return isDateMatch(trip?.latestLocation?.recordedAt, trackingDate)
   }
 
   const fetchTrackingTrips = async () => {
@@ -5936,23 +6139,12 @@ function TrackingView() {
       })
       if (trackingDate) query.set('trackingDate', trackingDate)
       const [tripsResponse, ordersResponse] = await Promise.all([
-        fetch(`/api/trips?${query.toString()}`),
-        fetch('/api/orders?limit=300&includeItems=none'),
+        safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+        safeFetchJson('/api/orders?limit=300&includeItems=none', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
       ])
 
-      if (tripsResponse.ok) {
-        const data = await tripsResponse.json()
-        setTrips(getCollection(data, ['trips']))
-      } else {
-        setTrips([])
-      }
-
-      if (ordersResponse.ok) {
-        const ordersPayload = await ordersResponse.json()
-        setOrdersForMap(getCollection(ordersPayload, ['orders']))
-      } else {
-        setOrdersForMap([])
-      }
+      setTrips(tripsResponse.ok ? getCollection(tripsResponse.data, ['trips']) : [])
+      setOrdersForMap(ordersResponse.ok ? getCollection(ordersResponse.data, ['orders']) : [])
     } catch (error) {
       console.error('Failed to fetch live tracking data:', error)
       setTrips([])
@@ -5967,7 +6159,7 @@ function TrackingView() {
   }, [trackingDate])
 
   const activeTrips = useMemo(
-    () => trips.filter((trip: any) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))),
+    () => trips.filter((trip: any) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))),
     [trips]
   )
 
@@ -6010,7 +6202,7 @@ function TrackingView() {
 
     const tripsForMap = trips.filter(
       (trip: any) =>
-        ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip?.status)) &&
+        ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) &&
         tripMatchesTrackingDay(trip)
     )
     const dayOrders = ordersForMap.filter((order: any) => orderMatchesTrackingDay(order))
@@ -6020,6 +6212,7 @@ function TrackingView() {
     const tripOrderIds = new Set<string>()
 
     tripsForMap.forEach((trip: any) => {
+      const normalizedTripStatus = normalizeTripStatus(trip?.status)
       const tripMatchesDay = tripMatchesTrackingDay(trip)
       const toCoordinate = (value: unknown) => {
         const parsed = Number(value)
@@ -6092,7 +6285,7 @@ function TrackingView() {
             })()
           : null
 
-      if (hasDriverPosition) {
+      if (hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)) {
         locations.push({
           id: `driver-${trip.id}`,
           driverName,
@@ -6105,27 +6298,6 @@ function TrackingView() {
           markerType: 'truck',
           markerHeading: markerHeading ?? undefined,
         })
-      } else if (['PLANNED', 'IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))) {
-        const fallbackDriverPoint =
-          warehouseStart ||
-          (nextDropPoint &&
-          Number.isFinite(Number(nextDropPoint?.latitude)) &&
-          Number.isFinite(Number(nextDropPoint?.longitude))
-            ? ([Number(nextDropPoint.latitude), Number(nextDropPoint.longitude)] as [number, number])
-            : null)
-        if (fallbackDriverPoint) {
-          locations.push({
-            id: `driver-${trip.id}`,
-            driverName,
-            vehiclePlate,
-            lat: fallbackDriverPoint[0],
-            lng: fallbackDriverPoint[1],
-            status: String(trip?.status || 'PLANNED'),
-            markerColor: '#1d4ed8',
-            markerLabel: 'Driver location unavailable',
-            markerType: 'truck',
-          })
-        }
       }
 
       dropPoints.forEach((dropPoint: any, index: number) => {
@@ -6213,6 +6385,14 @@ function TrackingView() {
       const lng = Number(order?.shippingLongitude)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
 
+      const shippingAddress = String(order?.shippingAddress || '').trim()
+      const orderAddressLabel = shippingAddress || [
+        String(order?.shippingCity || '').trim(),
+        String(order?.shippingProvince || '').trim(),
+        String(order?.shippingZipCode || '').trim(),
+      ]
+        .filter(Boolean)
+        .join(', ') || 'Address unavailable'
       const completed = isCompletedOrderStatus(order?.status)
       locations.push({
         id: `standalone-order-${order.id}`,
@@ -6223,7 +6403,7 @@ function TrackingView() {
         status: String(order?.status || 'PREPARING'),
         markerColor: completed ? '#2563eb' : '#16a34a',
         markerType: 'pin',
-        markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+        markerLabel: orderAddressLabel,
       })
     })
 
@@ -6259,7 +6439,7 @@ function TrackingView() {
       </div>
 
       <div className="text-sm text-slate-600">
-        Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> •{' '}
+        Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> |{' '}
         <span className="font-medium text-blue-700">Bright blue = Upcoming</span>
       </div>
 
@@ -6274,6 +6454,7 @@ function TrackingView() {
                 zoom={mapLocations.length > 0 ? 12 : 10}
                 className="w-full h-full rounded-xl overflow-hidden"
                 restrictToNegrosOccidental
+                showDriverSelfBadge={false}
               />
             </CardContent>
           </Card>
@@ -6379,26 +6560,6 @@ function FeedbackView() {
   }))
   const maxDistribution = Math.max(...ratingDistribution.map((item) => item.value), 1)
 
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
-  const trendData = monthNames.map((month, index) => {
-    const monthRated = rated.filter((item) => {
-      const d = new Date(item.createdAt)
-      return !Number.isNaN(d.getTime()) && d.getMonth() === index
-    })
-    const avg = monthRated.length > 0
-      ? monthRated.reduce((sum, item) => sum + item.rating, 0) / monthRated.length
-      : null
-    return { month, avg: avg ?? null }
-  })
-  let fallback = 4.2
-  const trendWithFallback = trendData.map((item) => {
-    if (typeof item.avg === 'number') {
-      fallback = item.avg
-      return { ...item, avg: Number(item.avg.toFixed(2)) }
-    }
-    return { ...item, avg: Number(fallback.toFixed(2)) }
-  })
-
   const detectCategory = (item: any) => {
     const text = `${item.subject || ''} ${item.message || ''}`.toLowerCase()
     if (text.includes('price') || text.includes('cost') || text.includes('expensive')) return 'Pricing'
@@ -6426,14 +6587,19 @@ function FeedbackView() {
     return matchesSearch && matchesRating
   })
 
-  const renderStars = (rating: number) => (
-    <span className="text-amber-500">
-      {'★'.repeat(Math.max(0, Math.min(5, Math.round(Number(rating || 0)))))}
-      <span className="text-gray-300">
-        {'★'.repeat(Math.max(0, 5 - Math.max(0, Math.min(5, Math.round(Number(rating || 0))))))}
+  const renderStars = (rating: number) => {
+    const rounded = Math.max(0, Math.min(5, Math.round(Number(rating || 0))))
+    return (
+      <span className="flex items-center gap-0.5" aria-label={`${Number(rating || 0).toFixed(1)} out of 5`}>
+        {Array.from({ length: 5 }, (_, index) => (
+          <Star
+            key={index}
+            className={`h-4 w-4 ${index < rounded ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
+          />
+        ))}
       </span>
-    </span>
-  )
+    )
+  }
 
   const submitResponse = async () => {
     if (!respondingItem?.id) return
@@ -6654,10 +6820,10 @@ function FeedbackView() {
                         <MessageSquare className="h-5 w-5 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">� {item.order?.orderNumber || 'No Order'}</span></p>
+                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">ï¿½ {item.order?.orderNumber || 'No Order'}</span></p>
                         <div className="mt-2 flex items-center gap-2">
                           {renderStars(Number(item.rating || 0))}
-                          <span className="text-sm text-gray-500">� {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
+                          <span className="text-sm text-gray-500">ï¿½ {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
                         </div>
                       </div>
                     </div>
@@ -6691,7 +6857,7 @@ function FeedbackView() {
             <>
               <DialogHeader>
                 <DialogTitle>Respond to Feedback</DialogTitle>
-                <DialogDescription>Customer: {respondingItem.customer?.name || 'N/A'} � {respondingItem.order?.orderNumber || 'N/A'}</DialogDescription>
+                <DialogDescription>Customer: {respondingItem.customer?.name || 'N/A'} ï¿½ {respondingItem.order?.orderNumber || 'N/A'}</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <label className="text-sm font-medium text-gray-700">Response</label>
@@ -6725,9 +6891,11 @@ function ReportsView() {
   const [rangeDays, setRangeDays] = useState<'7' | '30' | '90'>('30')
   const [selectedWarehouse, setSelectedWarehouse] = useState('all')
   const [selectedDriver, setSelectedDriver] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState('all')
-  const [presetName, setPresetName] = useState('')
-  const [savedPresets, setSavedPresets] = useState<Array<{ name: string; filters: { rangeDays: '7' | '30' | '90'; selectedWarehouse: string; selectedDriver: string; selectedStatus: string; activeReportTab: string } }>>([])
+  const [selectedOrderStatus, setSelectedOrderStatus] = useState('all')
+  const [selectedTripStatus, setSelectedTripStatus] = useState('all')
+  const [selectedMovementType, setSelectedMovementType] = useState('all')
+  const [selectedReplacementStatus, setSelectedReplacementStatus] = useState('all')
+  const [selectedFeedbackStatus, setSelectedFeedbackStatus] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [orders, setOrders] = useState<any[]>([])
   const [trips, setTrips] = useState<any[]>([])
@@ -6735,46 +6903,28 @@ function ReportsView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [inventory, setInventory] = useState<any[]>([])
   const [inventoryTransactions, setInventoryTransactions] = useState<any[]>([])
-  const [returnsData, setReturnsData] = useState<any[]>([])
+  const [replacementsData, setReplacementsData] = useState<any[]>([])
   const [feedback, setFeedback] = useState<any[]>([])
   const reportBranding = {
     companyName: "Ann Ann's Beverages Trading",
     subtitle: 'Logistics Management System - Report Pack',
     preparedBy: String(user?.name || user?.email || 'System Administrator'),
   }
-  const presetStorageKey = 'admin-reports-filter-presets-v1'
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(presetStorageKey)
-      if (!raw) return
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return
-      setSavedPresets(parsed)
-    } catch {
-      setSavedPresets([])
-    }
-  }, [])
-
-  const persistPresets = (next: Array<{ name: string; filters: { rangeDays: '7' | '30' | '90'; selectedWarehouse: string; selectedDriver: string; selectedStatus: string; activeReportTab: string } }>) => {
-    setSavedPresets(next)
-    window.localStorage.setItem(presetStorageKey, JSON.stringify(next))
-  }
-
   useEffect(() => {
     let isMounted = true
 
     async function fetchReportsPack() {
       setIsLoading(true)
       try {
-        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, feedbackRes] = await Promise.all([
-          safeFetchJson('/api/orders?limit=1000&includeItems=none&includeReturns=true', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/trips?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/drivers?limit=500', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/inventory?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes] = await Promise.all([
+          safeFetchJson('/api/orders?limit=1000&includeItems=none', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/trips?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/drivers?limit=500&includeSample=true', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/inventory?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
         ])
 
         if (!isMounted) return
@@ -6785,7 +6935,8 @@ function ReportsView() {
         setWarehouses(warehousesRes.ok ? getCollection<any>(warehousesRes.data, ['warehouses']) : [])
         setInventory(inventoryRes.ok ? getCollection<any>(inventoryRes.data, ['inventory']) : [])
         setInventoryTransactions(transactionsRes.ok ? getCollection<any>(transactionsRes.data, ['transactions']) : [])
-        setReturnsData(ordersRes.ok ? getCollection<any>(ordersRes.data, ['returns']) : [])
+        const fallbackReplacements = ordersRes.ok ? getCollection<any>(ordersRes.data, ['replacements']) : []
+        setReplacementsData(replacementsRes.ok ? getCollection<any>(replacementsRes.data, ['replacements']) : fallbackReplacements)
         setFeedback(feedbackRes.ok ? getCollection<any>(feedbackRes.data, ['feedback']) : [])
       } catch (error) {
         console.error('Failed to load reports pack:', error)
@@ -6796,7 +6947,7 @@ function ReportsView() {
           setWarehouses([])
           setInventory([])
           setInventoryTransactions([])
-          setReturnsData([])
+          setReplacementsData([])
           setFeedback([])
         }
       } finally {
@@ -6815,7 +6966,7 @@ function ReportsView() {
         message.scopes.includes('inventory') ||
         message.scopes.includes('stocks') ||
         message.scopes.includes('feedback') ||
-        message.scopes.includes('returns')
+        message.scopes.includes('replacements')
       ) {
         void fetchReportsPack()
       }
@@ -6837,8 +6988,8 @@ function ReportsView() {
   const orderRows = useMemo(() => {
     return orders
       .filter((order) => withinRange(order.createdAt, rangeStart))
-      .filter((order) => selectedWarehouse === 'all' || String(order.warehouseId || '') === selectedWarehouse)
-      .filter((order) => selectedStatus === 'all' || String(order.status || '').toUpperCase() === selectedStatus)
+      .filter((order) => selectedWarehouse === 'all' || getWarehouseIdFromRow(order) === selectedWarehouse)
+      .filter((order) => selectedOrderStatus === 'all' || String(order.status || '').toUpperCase() === selectedOrderStatus)
       .map((order) => {
         const checklistComplete = Boolean(
           order.checklistItemsVerified &&
@@ -6868,7 +7019,7 @@ function ReportsView() {
           deliveredAt: order.timeline?.deliveredAt || order.deliveredAt,
         }
       })
-  }, [orders, rangeStart, selectedWarehouse, selectedStatus])
+  }, [orders, rangeStart, selectedWarehouse, selectedOrderStatus])
 
   const warehouseDispatchRows = useMemo(() => {
     return orderRows
@@ -6911,9 +7062,9 @@ function ReportsView() {
   const transportRows = useMemo(() => {
     return trips
       .filter((trip) => withinRange(trip.createdAt || trip.plannedStartAt, rangeStart))
-      .filter((trip) => selectedWarehouse === 'all' || String(trip.warehouseId || '') === selectedWarehouse)
+      .filter((trip) => selectedWarehouse === 'all' || getWarehouseIdFromRow(trip) === selectedWarehouse)
       .filter((trip) => selectedDriver === 'all' || String(trip.driver?.id || '') === selectedDriver)
-      .filter((trip) => selectedStatus === 'all' || normalizeTripStatus(trip.status) === selectedStatus)
+      .filter((trip) => selectedTripStatus === 'all' || normalizeTripStatus(trip.status) === selectedTripStatus)
       .map((trip) => {
         const dropPointsTotal = Number(trip.totalDropPoints || toArray<any>(trip.dropPoints).length)
         const dropPointsCompleted = Number(trip.completedDropPoints || 0)
@@ -6931,13 +7082,13 @@ function ReportsView() {
           actualEndAt: trip.actualEndAt,
         }
       })
-  }, [trips, rangeStart, selectedWarehouse, selectedDriver, selectedStatus])
+  }, [trips, rangeStart, selectedWarehouse, selectedDriver, selectedTripStatus])
 
   const inventoryMovementRows = useMemo(() => {
     return inventoryTransactions
       .filter((transaction) => withinRange(transaction.createdAt, rangeStart))
-      .filter((transaction) => selectedWarehouse === 'all' || String(transaction.warehouse?.id || '') === selectedWarehouse)
-      .filter((transaction) => selectedStatus === 'all' || String(transaction.type || '').toUpperCase() === selectedStatus)
+      .filter((transaction) => selectedWarehouse === 'all' || getWarehouseIdFromRow(transaction) === selectedWarehouse)
+      .filter((transaction) => selectedMovementType === 'all' || String(transaction.type || '').toUpperCase() === selectedMovementType)
       .map((transaction) => ({
         createdAt: transaction.createdAt,
         warehouse: transaction.warehouse?.name || 'N/A',
@@ -6947,10 +7098,10 @@ function ReportsView() {
         referenceType: transaction.referenceType || 'N/A',
         referenceId: transaction.referenceId || 'N/A',
       }))
-  }, [inventoryTransactions, rangeStart, selectedWarehouse, selectedStatus])
+  }, [inventoryTransactions, rangeStart, selectedWarehouse, selectedMovementType])
 
   const replacementRows = useMemo(() => {
-    return returnsData
+    return replacementsData
       .filter((item) => withinRange(item.createdAt, rangeStart))
       .map((item) => {
         const relatedOrder = orders.find((order) => order.id === item.order)
@@ -6966,7 +7117,7 @@ function ReportsView() {
                   ? 'COMPLETED'
                   : rawStatus
         return {
-          returnNumber: item.returnNumber,
+          replacementNumber: item.replacementNumber,
           orderNumber: relatedOrder?.orderNumber || 'N/A',
           customer: relatedOrder?.customer?.name || 'N/A',
           status: normalizedStatus,
@@ -6975,13 +7126,13 @@ function ReportsView() {
           createdAt: item.createdAt,
         }
       })
-      .filter((item) => selectedStatus === 'all' || String(item.status || '').toUpperCase() === selectedStatus)
-  }, [orders, returnsData, rangeStart, selectedStatus])
+      .filter((item) => selectedReplacementStatus === 'all' || String(item.status || '').toUpperCase() === selectedReplacementStatus)
+  }, [orders, replacementsData, rangeStart, selectedReplacementStatus])
 
   const feedbackRows = useMemo(() => {
     return feedback
       .filter((item) => withinRange(item.createdAt, rangeStart))
-      .filter((item) => selectedStatus === 'all' || String(item.status || '').toUpperCase() === selectedStatus)
+      .filter((item) => selectedFeedbackStatus === 'all' || String(item.status || '').toUpperCase() === selectedFeedbackStatus)
       .map((item) => ({
         createdAt: item.createdAt,
         customer: item.customer?.name || 'N/A',
@@ -6991,33 +7142,78 @@ function ReportsView() {
         status: item.status || 'N/A',
         subject: item.subject || 'N/A',
       }))
-  }, [feedback, rangeStart, selectedStatus])
+  }, [feedback, rangeStart, selectedFeedbackStatus])
 
-  const statusOptions = useMemo(() => {
-    const values = new Set<string>()
-    orders.forEach((row) => values.add(String(row.status || '').toUpperCase()))
-    trips.forEach((row) => values.add(String(normalizeTripStatus(row.status) || '').toUpperCase()))
-    inventoryTransactions.forEach((row) => values.add(String(row.type || '').toUpperCase()))
-    returnsData.forEach((row) => values.add(String(row.status || '').toUpperCase()))
-    feedback.forEach((row) => values.add(String(row.status || '').toUpperCase()))
-    return Array.from(values).filter(Boolean).sort()
-  }, [feedback, inventoryTransactions, orders, returnsData, trips])
+  const orderStatusOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        orders
+          .filter((order) => withinRange(order.createdAt, rangeStart))
+          .filter((order) => selectedWarehouse === 'all' || getWarehouseIdFromRow(order) === selectedWarehouse)
+          .map((row) => String(row.status || '').toUpperCase())
+      )
+    )
+      .filter(Boolean)
+      .sort()
+  }, [orders, rangeStart, selectedWarehouse])
 
-  const activeStatusOptions = useMemo(() => {
-    if (activeReportTab === 'orders') {
-      return Array.from(new Set(orderRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
-    }
-    if (activeReportTab === 'transport') {
-      return Array.from(new Set(transportRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
-    }
-    if (activeReportTab === 'warehouse') {
-      return Array.from(new Set(inventoryMovementRows.map((row) => String(row.type || '').toUpperCase()))).filter(Boolean).sort()
-    }
-    if (activeReportTab === 'replacement') {
-      return Array.from(new Set(replacementRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
-    }
-    return Array.from(new Set(feedbackRows.map((row) => String(row.status || '').toUpperCase()))).filter(Boolean).sort()
-  }, [activeReportTab, feedbackRows, inventoryMovementRows, orderRows, replacementRows, transportRows])
+  const transportStatusOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        trips
+          .filter((trip) => withinRange(trip.createdAt || trip.plannedStartAt, rangeStart))
+          .filter((trip) => selectedWarehouse === 'all' || getWarehouseIdFromRow(trip) === selectedWarehouse)
+          .filter((trip) => selectedDriver === 'all' || String(trip.driver?.id || '') === selectedDriver)
+          .map((row) => String(normalizeTripStatus(row.status) || '').toUpperCase())
+      )
+    )
+      .filter(Boolean)
+      .sort()
+  }, [trips, rangeStart, selectedWarehouse, selectedDriver])
+
+  const inventoryMovementTypeOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        inventoryTransactions
+          .filter((transaction) => withinRange(transaction.createdAt, rangeStart))
+          .filter((transaction) => selectedWarehouse === 'all' || getWarehouseIdFromRow(transaction) === selectedWarehouse)
+          .map((row) => String(row.type || '').toUpperCase())
+      )
+    )
+      .filter(Boolean)
+      .sort()
+  }, [inventoryTransactions, rangeStart, selectedWarehouse])
+
+  const replacementStatusOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        replacementsData
+          .filter((item) => withinRange(item.createdAt, rangeStart))
+          .map((item) => {
+            const rawStatus = String(item.status || '').toUpperCase()
+            if (rawStatus === 'REQUESTED') return 'REPORTED'
+            if (['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)) return 'IN_PROGRESS'
+            if (rawStatus === 'REJECTED') return 'NEEDS_FOLLOW_UP'
+            if (rawStatus === 'PROCESSED') return 'COMPLETED'
+            return rawStatus
+          })
+      )
+    )
+      .filter(Boolean)
+      .sort()
+  }, [replacementsData, rangeStart])
+
+  const feedbackStatusOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        feedback
+          .filter((item) => withinRange(item.createdAt, rangeStart))
+          .map((row) => String(row.status || '').toUpperCase())
+      )
+    )
+      .filter(Boolean)
+      .sort()
+  }, [feedback, rangeStart])
 
   const orderStatusChart = useMemo(() => {
     const counts = new Map<string, number>()
@@ -7073,6 +7269,10 @@ function ReportsView() {
     return ['1', '2', '3', '4', '5'].map((rating) => ({ rating, count: counts.get(rating) || 0 }))
   }, [feedbackRows])
 
+  const scopedInventory = useMemo(() => {
+    return inventory.filter((item) => selectedWarehouse === 'all' || getWarehouseIdFromRow(item) === selectedWarehouse)
+  }, [inventory, selectedWarehouse])
+
   const orderKpi = useMemo(() => {
     const delivered = orderRows.filter((row) => row.status === 'DELIVERED').length
     const total = orderRows.length
@@ -7100,9 +7300,9 @@ function ReportsView() {
   }, [transportRows])
 
   const inventoryKpi = useMemo(() => {
-    const totalSkus = inventory.length
-    const lowStock = inventory.filter((item) => Number(item.quantity || 0) <= Number(item.minStock || 0)).length
-    const totalQuantity = inventory.reduce((acc, item) => acc + Number(item.quantity || 0), 0)
+    const totalSkus = scopedInventory.length
+    const lowStock = scopedInventory.filter((item) => Number(item.quantity || 0) <= Number(item.minStock || 0)).length
+    const totalQuantity = scopedInventory.reduce((acc, item) => acc + Number(item.quantity || 0), 0)
     const stockIn = inventoryMovementRows
       .filter((row) => row.type === 'IN')
       .reduce((acc, row) => acc + Number(row.quantity || 0), 0)
@@ -7111,7 +7311,7 @@ function ReportsView() {
       .reduce((acc, row) => acc + Number(row.quantity || 0), 0)
 
     return { totalSkus, lowStock, totalQuantity, stockIn, stockOut }
-  }, [inventory, inventoryMovementRows])
+  }, [scopedInventory, inventoryMovementRows])
 
   const warehouseComplianceKpi = useMemo(() => {
     const total = warehouseDispatchRows.length
@@ -7162,17 +7362,6 @@ function ReportsView() {
     return { total, avgRating, open }
   }, [feedbackRows])
 
-  const exportAll = () => {
-    const stamp = new Date().toISOString().slice(0, 10)
-    downloadCsv(`orders-report-${stamp}.csv`, orderRows)
-    downloadCsv(`transport-report-${stamp}.csv`, transportRows)
-    downloadCsv(`warehouse-inventory-report-${stamp}.csv`, inventoryMovementRows)
-    downloadCsv(`warehouse-dispatch-compliance-report-${stamp}.csv`, warehouseDispatchRows)
-    downloadCsv(`replacement-report-${stamp}.csv`, replacementRows)
-    downloadCsv(`feedback-report-${stamp}.csv`, feedbackRows)
-    toast.success('Reports exported')
-  }
-
   const exportAllPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
     await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, reportBranding)
@@ -7188,47 +7377,95 @@ function ReportsView() {
     setRangeDays('30')
     setSelectedWarehouse('all')
     setSelectedDriver('all')
-    setSelectedStatus('all')
+    setSelectedOrderStatus('all')
+    setSelectedTripStatus('all')
+    setSelectedMovementType('all')
+    setSelectedReplacementStatus('all')
+    setSelectedFeedbackStatus('all')
   }
 
-  const saveCurrentPreset = () => {
-    const name = presetName.trim()
-    if (!name) {
-      toast.error('Enter a preset name')
-      return
-    }
-    const next = savedPresets.filter((preset) => preset.name !== name)
-    next.unshift({
-      name,
-      filters: {
-        rangeDays,
-        selectedWarehouse,
-        selectedDriver,
-        selectedStatus,
-        activeReportTab,
-      },
-    })
-    persistPresets(next.slice(0, 10))
-    setPresetName('')
-    toast.success('Filter preset saved')
-  }
-
-  const applyPreset = (name: string) => {
-    const preset = savedPresets.find((item) => item.name === name)
-    if (!preset) return
-    setRangeDays(preset.filters.rangeDays)
-    setSelectedWarehouse(preset.filters.selectedWarehouse)
-    setSelectedDriver(preset.filters.selectedDriver)
-    setSelectedStatus(preset.filters.selectedStatus)
-    setActiveReportTab(preset.filters.activeReportTab)
-    toast.success(`Preset applied: ${name}`)
-  }
-
-  const deletePreset = (name: string) => {
-    const next = savedPresets.filter((preset) => preset.name !== name)
-    persistPresets(next)
-    toast.success('Preset deleted')
-  }
+  const reportToolbar = ({
+    title,
+    statusLabel,
+    statusOptions,
+    statusValue,
+    onStatusChange,
+    showWarehouse = false,
+    showDriver = false,
+  }: {
+    title: string
+    statusLabel: string
+    statusOptions: string[]
+    statusValue: string
+    onStatusChange: (value: string) => void
+    showWarehouse?: boolean
+    showDriver?: boolean
+  }) => (
+    <div className="rounded-xl border border-sky-100 bg-white/80 p-3 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={rangeDays}
+          onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
+          title="Select report date range"
+        >
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+        {showWarehouse ? (
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={selectedWarehouse}
+            onChange={(event) => setSelectedWarehouse(event.target.value)}
+            title="Filter by warehouse"
+          >
+            <option value="all">All Warehouses</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name || warehouse.code || warehouse.id}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {showDriver ? (
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={selectedDriver}
+            onChange={(event) => setSelectedDriver(event.target.value)}
+            title="Filter by driver"
+          >
+            <option value="all">All Drivers</option>
+            {drivers.map((driver) => (
+              <option key={driver.id} value={driver.id}>
+                {driver?.user?.name || driver.name || driver.id}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={statusValue}
+          onChange={(event) => onStatusChange(event.target.value)}
+          title={`Filter by ${statusLabel.toLowerCase()}`}
+        >
+          <option value="all">All {statusLabel}</option>
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
+        </select>
+        <Button variant="outline" className="gap-2" onClick={resetFilters}>
+          Reset Filters
+        </Button>
+        <Button variant="outline" className="gap-2" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+          <Download className="h-4 w-4" />
+          Export {title} PDF
+        </Button>
+      </div>
+    </div>
+  )
 
   const exportCurrentPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
@@ -7340,114 +7577,6 @@ function ReportsView() {
           <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
           <p className="text-gray-500">Order, transport, warehouse, replacement, and feedback reports</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={rangeDays}
-            onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
-            title="Select report date range"
-          >
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-          </select>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={selectedWarehouse}
-            onChange={(event) => setSelectedWarehouse(event.target.value)}
-            title="Filter by warehouse"
-          >
-            <option value="all">All Warehouses</option>
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.name || warehouse.code || warehouse.id}
-              </option>
-            ))}
-          </select>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={selectedDriver}
-            onChange={(event) => setSelectedDriver(event.target.value)}
-            title="Filter by driver"
-          >
-            <option value="all">All Drivers</option>
-            {drivers.map((driver) => (
-              <option key={driver.id} value={driver.id}>
-                {driver?.user?.name || driver.name || driver.id}
-              </option>
-            ))}
-          </select>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={selectedStatus}
-            onChange={(event) => setSelectedStatus(event.target.value)}
-            title="Filter by status"
-          >
-            <option value="all">All Statuses</option>
-            {(activeStatusOptions.length ? activeStatusOptions : statusOptions).map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-          <Input
-            value={presetName}
-            onChange={(event) => setPresetName(event.target.value)}
-            placeholder="Preset name"
-            className="h-10 w-36"
-          />
-          <Button variant="outline" className="gap-2" onClick={saveCurrentPreset}>
-            Save Preset
-          </Button>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            onChange={(event) => {
-              if (!event.target.value) return
-              applyPreset(event.target.value)
-              event.target.value = ''
-            }}
-            title="Apply saved preset"
-            defaultValue=""
-          >
-            <option value="">Apply Preset</option>
-            {savedPresets.map((preset) => (
-              <option key={preset.name} value={preset.name}>{preset.name}</option>
-            ))}
-          </select>
-          <Button variant="outline" className="gap-2" onClick={resetFilters}>
-            Reset Filters
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              const latest = savedPresets[0]
-              if (!latest) {
-                toast.error('No saved presets to delete')
-                return
-              }
-              deletePreset(latest.name)
-            }}
-          >
-            Delete Latest Preset
-          </Button>
-          <Button variant="outline" className="gap-2" onClick={printCurrentReport} disabled={isLoading}>
-            <FileText className="h-4 w-4" />
-            Print Current
-          </Button>
-          <Button variant="outline" className="gap-2" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
-            <Download className="h-4 w-4" />
-            Export Current PDF
-          </Button>
-          <Button variant="outline" className="gap-2" onClick={() => void exportAllPdf()} disabled={isLoading}>
-            <Download className="h-4 w-4" />
-            Export All PDF
-          </Button>
-          <Button variant="outline" className="gap-2" onClick={exportAll} disabled={isLoading}>
-            <Download className="h-4 w-4" />
-            Export All CSV
-          </Button>
-        </div>
       </div>
 
       {isLoading ? (
@@ -7458,15 +7587,25 @@ function ReportsView() {
         </Card>
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 p-1 md:grid-cols-5">
-            <TabsTrigger value="orders">Orders</TabsTrigger>
-            <TabsTrigger value="transport">Transport</TabsTrigger>
-            <TabsTrigger value="warehouse">Warehouse/Inventory</TabsTrigger>
-            <TabsTrigger value="replacement">Replacement</TabsTrigger>
-            <TabsTrigger value="feedback">Feedback</TabsTrigger>
-          </TabsList>
+          <div className="rounded-xl border border-sky-100 bg-white/80 p-3 shadow-sm">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 p-1 md:grid-cols-5">
+              <TabsTrigger value="orders">Orders</TabsTrigger>
+              <TabsTrigger value="transport">Transport</TabsTrigger>
+              <TabsTrigger value="warehouse">Warehouse/Inventory</TabsTrigger>
+              <TabsTrigger value="replacement">Replacement</TabsTrigger>
+              <TabsTrigger value="feedback">Feedback</TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="orders" className="space-y-4">
+            {reportToolbar({
+              title: 'Orders',
+              statusLabel: 'Order Statuses',
+              statusOptions: orderStatusOptions,
+              statusValue: selectedOrderStatus,
+              onStatusChange: setSelectedOrderStatus,
+              showWarehouse: true,
+            })}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <Card><CardHeader><CardDescription>Total Orders</CardDescription><CardTitle>{orderKpi.total}</CardTitle></CardHeader></Card>
               <Card><CardHeader><CardDescription>Delivered</CardDescription><CardTitle>{orderKpi.delivered}</CardTitle></CardHeader></Card>
@@ -7506,12 +7645,11 @@ function ReportsView() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <div>
                   <CardTitle>Order Fulfillment Report</CardTitle>
                   <CardDescription>Latest orders within selected date range</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => downloadCsv('orders-report.csv', orderRows)}>Export CSV</Button>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -7544,6 +7682,15 @@ function ReportsView() {
           </TabsContent>
 
           <TabsContent value="transport" className="space-y-4">
+            {reportToolbar({
+              title: 'Transport',
+              statusLabel: 'Trip Statuses',
+              statusOptions: transportStatusOptions,
+              statusValue: selectedTripStatus,
+              onStatusChange: setSelectedTripStatus,
+              showWarehouse: true,
+              showDriver: true,
+            })}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <Card><CardHeader><CardDescription>Total Trips</CardDescription><CardTitle>{transportKpi.total}</CardTitle></CardHeader></Card>
               <Card><CardHeader><CardDescription>Completed Trips</CardDescription><CardTitle>{transportKpi.completed}</CardTitle></CardHeader></Card>
@@ -7570,12 +7717,11 @@ function ReportsView() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <div>
                   <CardTitle>Transportation & Delivery Status Report</CardTitle>
                   <CardDescription>Trip assignment and completion details</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => downloadCsv('transport-report.csv', transportRows)}>Export CSV</Button>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -7608,6 +7754,14 @@ function ReportsView() {
           </TabsContent>
 
           <TabsContent value="warehouse" className="space-y-4">
+            {reportToolbar({
+              title: 'Warehouse',
+              statusLabel: 'Movement Types',
+              statusOptions: inventoryMovementTypeOptions,
+              statusValue: selectedMovementType,
+              onStatusChange: setSelectedMovementType,
+              showWarehouse: true,
+            })}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
               <Card><CardHeader><CardDescription>Total SKUs</CardDescription><CardTitle>{inventoryKpi.totalSkus}</CardTitle></CardHeader></Card>
               <Card><CardHeader><CardDescription>Low Stock SKUs</CardDescription><CardTitle>{inventoryKpi.lowStock}</CardTitle></CardHeader></Card>
@@ -7644,12 +7798,11 @@ function ReportsView() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <div>
                   <CardTitle>Warehouse & Inventory Movement Report</CardTitle>
                   <CardDescription>Stock transactions and movement history</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => downloadCsv('warehouse-inventory-report.csv', inventoryMovementRows)}>Export CSV</Button>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -7681,20 +7834,10 @@ function ReportsView() {
             </Card>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <div>
                   <CardTitle>Warehouse Dispatch Compliance Report</CardTitle>
                   <CardDescription>Checklist, signoff, and exception visibility for load/dispatch</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => downloadCsv('warehouse-dispatch-compliance-report.csv', warehouseDispatchRows)}>Export CSV</Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void downloadPdf('warehouse-dispatch-compliance-report.pdf', 'Warehouse Dispatch Compliance Report', warehouseDispatchRows, reportBranding)}
-                  >
-                    Export PDF
-                  </Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -7749,6 +7892,13 @@ function ReportsView() {
           </TabsContent>
 
           <TabsContent value="replacement" className="space-y-4">
+            {reportToolbar({
+              title: 'Replacement',
+              statusLabel: 'Replacement Statuses',
+              statusOptions: replacementStatusOptions,
+              statusValue: selectedReplacementStatus,
+              onStatusChange: setSelectedReplacementStatus,
+            })}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <Card><CardHeader><CardDescription>Total Cases</CardDescription><CardTitle>{replacementKpi.total}</CardTitle></CardHeader></Card>
               <Card><CardHeader><CardDescription>Processed</CardDescription><CardTitle>{replacementKpi.completed}</CardTitle></CardHeader></Card>
@@ -7774,12 +7924,11 @@ function ReportsView() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <div>
                   <CardTitle>Returned or Damaged Products Report</CardTitle>
                   <CardDescription>Replacement handling and case tracking</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => downloadCsv('replacement-report.csv', replacementRows)}>Export CSV</Button>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -7795,8 +7944,8 @@ function ReportsView() {
                     </thead>
                     <tbody>
                       {previewRows(replacementRows).map((row, index) => (
-                        <tr key={`${row.returnNumber}-${index}`} className="border-b last:border-0">
-                          <td className="p-3 font-medium">{String(row.returnNumber || 'N/A')}</td>
+                        <tr key={`${row.replacementNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.replacementNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.orderNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
                           <td className="p-3">{String(row.status || 'N/A')}</td>
@@ -7812,6 +7961,13 @@ function ReportsView() {
           </TabsContent>
 
           <TabsContent value="feedback" className="space-y-4">
+            {reportToolbar({
+              title: 'Feedback',
+              statusLabel: 'Feedback Statuses',
+              statusOptions: feedbackStatusOptions,
+              statusValue: selectedFeedbackStatus,
+              onStatusChange: setSelectedFeedbackStatus,
+            })}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <Card><CardHeader><CardDescription>Total Feedback</CardDescription><CardTitle>{feedbackKpi.total}</CardTitle></CardHeader></Card>
               <Card><CardHeader><CardDescription>Average Rating</CardDescription><CardTitle>{feedbackKpi.avgRating.toFixed(2)}</CardTitle></CardHeader></Card>
@@ -7837,12 +7993,11 @@ function ReportsView() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <div>
                   <CardTitle>Client Feedback & Service Evaluation Report</CardTitle>
                   <CardDescription>Customer ratings and evaluation records</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => downloadCsv('feedback-report.csv', feedbackRows)}>Export CSV</Button>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -8013,12 +8168,20 @@ function UsersView() {
       toast.error('Enter an email address first')
       return
     }
+    if (!email.endsWith('@gmail.com') || email.split('@').length !== 2) {
+      toast.error('Enter a full Gmail address, like name@gmail.com')
+      return
+    }
+    if (!form.roleId) {
+      toast.error('Select a role first')
+      return
+    }
     setIsVerificationSending(true)
     try {
       const response = await fetch('/api/auth/email-verification/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, accountType: 'staff' }),
+        body: JSON.stringify({ email, accountType: 'staff', roleId: form.roleId }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -8157,7 +8320,7 @@ function UsersView() {
                     setEmailVerified(false)
                   }}
                 />
-                <Button type="button" variant="outline" onClick={requestEmailVerification} disabled={isVerificationSending || !form.email.trim()}>
+                <Button type="button" variant="outline" onClick={requestEmailVerification} disabled={isVerificationSending}>
                   {isVerificationSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                   Send Code
                 </Button>
@@ -8172,7 +8335,17 @@ function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>
-              <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="User Role" value={form.roleId} onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                title="User Role"
+                value={form.roleId}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, roleId: e.target.value }))
+                  setEmailVerificationRequested(false)
+                  setEmailVerificationCode('')
+                  setEmailVerified(false)
+                }}
+              >
                 <option value="">Select role</option>
                 {roles.map((role) => (
                   <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
@@ -8313,7 +8486,6 @@ function CustomersView() {
       setFeedback(getCollection<any>(feedbackData, ['feedbacks']))
     } catch (error) {
       console.error('Failed to fetch customers:', error)
-      toast.error('Failed to load customers')
     } finally {
       setIsLoading(false)
     }
@@ -8355,7 +8527,7 @@ function CustomersView() {
     return customers.map((customer) => {
       const orderStats = statsByCustomer.get(customer.id) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
       const feedbackStats = ratingByCustomer.get(customer.id) || { sum: 0, count: 0 }
-      const rating = feedbackStats.count > 0 ? Number((feedbackStats.sum / feedbackStats.count).toFixed(1)) : 0
+      const rating = feedbackStats.count > 0 ? Number((feedbackStats.sum / feedbackStats.count).toFixed(1)) : null
       return {
         ...customer,
         orderCount: orderStats.orderCount,
@@ -8363,6 +8535,7 @@ function CustomersView() {
         lastOrderNumber: orderStats.lastOrderNumber,
         lastOrderDate: orderStats.lastOrderDate,
         rating,
+        ratingCount: feedbackStats.count,
       }
     })
   }, [customers, orders, feedback])
@@ -8384,7 +8557,7 @@ function CustomersView() {
       const matchesRating =
         ratingFilter === 'all'
           ? true
-          : row.rating >= Number(ratingFilter)
+          : row.rating !== null && row.rating >= Number(ratingFilter)
 
       return matchesSearch && matchesStatus && matchesRating
     })
@@ -8398,9 +8571,10 @@ function CustomersView() {
     const date = row.createdAt ? new Date(row.createdAt) : null
     return date && !Number.isNaN(date.getTime()) && date.getMonth() === currentMonth && date.getFullYear() === currentYear
   }).length
-  const avgSatisfaction = customerRows.length > 0
-    ? Number((customerRows.reduce((sum, row) => sum + Number(row.rating || 0), 0) / customerRows.length).toFixed(1))
-    : 0
+  const ratedCustomerRows = customerRows.filter((row) => row.rating !== null)
+  const avgSatisfaction = ratedCustomerRows.length > 0
+    ? Number((ratedCustomerRows.reduce((sum, row) => sum + Number(row.rating), 0) / ratedCustomerRows.length).toFixed(1))
+    : null
 
   const exportCsv = () => {
     const headers = ['Name', 'Email', 'Phone', 'Address', 'Status', 'Orders', 'TotalSpend', 'LastOrder', 'LastOrderDate', 'Rating']
@@ -8414,7 +8588,7 @@ function CustomersView() {
       row.totalSpend,
       row.lastOrderNumber || '',
       row.lastOrderDate ? new Date(row.lastOrderDate).toISOString() : '',
-      row.rating,
+      row.rating === null ? 'N/A' : row.rating,
     ])
     const csv = [headers, ...lines]
       .map((line) => line.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
@@ -8430,12 +8604,20 @@ function CustomersView() {
     URL.revokeObjectURL(url)
   }
 
-  const renderStars = (rating: number) => {
-    const rounded = Math.round(rating)
+  const renderStars = (rating: number | null) => {
+    if (rating === null || !Number.isFinite(Number(rating))) {
+      return <span className="text-sm text-gray-500">N/A</span>
+    }
+
+    const rounded = Math.max(0, Math.min(5, Math.round(Number(rating))))
     return (
-      <span className="text-amber-500">
-        {'★'.repeat(Math.max(0, Math.min(5, rounded)))}
-        <span className="text-gray-300">{'★'.repeat(Math.max(0, 5 - Math.max(0, Math.min(5, rounded))))}</span>
+      <span className="flex items-center gap-0.5" aria-label={`${Number(rating).toFixed(1)} out of 5`}>
+        {Array.from({ length: 5 }, (_, index) => (
+          <Star
+            key={index}
+            className={`h-4 w-4 ${index < rounded ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
+          />
+        ))}
       </span>
     )
   }
@@ -8487,7 +8669,7 @@ function CustomersView() {
               <div className="rounded-md bg-amber-50 p-1.5"><Star className="h-3.5 w-3.5 text-amber-600" /></div>
               <div>
                 <p className="text-xs text-gray-500">Avg Satisfaction</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{avgSatisfaction}</p>
+                <p className="text-2xl leading-tight font-bold text-gray-900">{avgSatisfaction === null ? 'N/A' : avgSatisfaction}</p>
               </div>
             </div>
           </CardContent>
@@ -8585,8 +8767,10 @@ function CustomersView() {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center gap-1 text-sm">
-                          {renderStars(row.rating || 0)}
-                          <span className="font-semibold text-emerald-600">{Number(row.rating || 0).toFixed(1)}</span>
+                          {renderStars(row.rating)}
+                          {row.rating === null ? null : (
+                            <span className="font-semibold text-emerald-600">{Number(row.rating).toFixed(1)}</span>
+                          )}
                         </div>
                       </td>
                       <td className="p-4">
@@ -8808,3 +8992,4 @@ function SettingsView() {
     </div>
   )
 }
+

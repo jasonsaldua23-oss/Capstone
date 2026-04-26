@@ -68,7 +68,7 @@ class DropPointType(models.TextChoices):
     RETURN = "RETURN", "Return"
 
 
-class ReturnStatus(models.TextChoices):
+class ReplacementStatus(models.TextChoices):
     REPORTED = "REPORTED", "Reported"
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     RESOLVED_ON_DELIVERY = "RESOLVED_ON_DELIVERY", "Resolved On Delivery"
@@ -106,7 +106,7 @@ class Role(models.Model):
 
 class User(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     password = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=50, blank=True, null=True)
@@ -132,7 +132,7 @@ class Customer(models.Model):
     city = models.CharField(max_length=100, blank=True, null=True)
     province = models.CharField(max_length=100, blank=True, null=True)
     zip_code = models.CharField(max_length=20, blank=True, null=True)
-    country = models.CharField(max_length=100, default="USA")
+    country = models.CharField(max_length=100, default="Philippines")
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
@@ -151,7 +151,7 @@ class Warehouse(models.Model):
     city = models.CharField(max_length=100)
     province = models.CharField(max_length=100)
     zip_code = models.CharField(max_length=20)
-    country = models.CharField(max_length=100, default="USA")
+    country = models.CharField(max_length=100, default="Philippines")
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)
     capacity = models.IntegerField(default=1000)
@@ -300,15 +300,9 @@ class OrderLogistics(models.Model):
     shipping_city = models.CharField(max_length=100)
     shipping_province = models.CharField(max_length=100)
     shipping_zip_code = models.CharField(max_length=20)
-    shipping_country = models.CharField(max_length=100, default="USA")
+    shipping_country = models.CharField(max_length=100, default="Philippines")
     shipping_latitude = models.FloatField(blank=True, null=True)
     shipping_longitude = models.FloatField(blank=True, null=True)
-    billing_name = models.CharField(max_length=255, blank=True, null=True)
-    billing_address = models.TextField(blank=True, null=True)
-    billing_city = models.CharField(max_length=100, blank=True, null=True)
-    billing_province = models.CharField(max_length=100, blank=True, null=True)
-    billing_zip_code = models.CharField(max_length=20, blank=True, null=True)
-    billing_country = models.CharField(max_length=100, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     special_instructions = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -530,14 +524,14 @@ class LocationLog(models.Model):
         db_table = "LocationLog"
 
 
-class Return(models.Model):
+class Replacement(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    return_number = models.CharField(max_length=120, unique=True)
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="returns")
+    replacement_number = models.CharField(max_length=120, unique=True)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="replacements")
     customer_id = models.CharField(max_length=25)
     reason = models.TextField()
     description = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=50, choices=ReturnStatus.choices, default=ReturnStatus.REPORTED)
+    status = models.CharField(max_length=50, choices=ReplacementStatus.choices, default=ReplacementStatus.REPORTED)
     requested_by = models.CharField(max_length=50, default="CUSTOMER")
     replacement_mode = models.CharField(max_length=100, blank=True, null=True)
     original_order_item_id = models.CharField(max_length=25, blank=True, null=True)
@@ -550,12 +544,7 @@ class Return(models.Model):
     pickup_city = models.CharField(max_length=100)
     pickup_province = models.CharField(max_length=100)
     pickup_zip_code = models.CharField(max_length=20)
-    pickup_latitude = models.FloatField(blank=True, null=True)
-    pickup_longitude = models.FloatField(blank=True, null=True)
-    pickup_scheduled = models.DateTimeField(blank=True, null=True)
     pickup_completed = models.DateTimeField(blank=True, null=True)
-    refund_amount = models.FloatField(blank=True, null=True)
-    refund_status = models.CharField(max_length=50, blank=True, null=True)
     processed_at = models.DateTimeField(blank=True, null=True)
     processed_by = models.CharField(max_length=100, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
@@ -563,7 +552,7 @@ class Return(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "Return"
+        db_table = "Replacement"
 
 
 class Feedback(models.Model):

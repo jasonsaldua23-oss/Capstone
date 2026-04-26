@@ -13,18 +13,226 @@ const CircleMarkerUnsafe = CircleMarker as any;
 const TooltipUnsafe = Tooltip as any;
 const PolygonUnsafe = Polygon as any;
 
-const NEGROS_ISLAND_GEOJSON_URL =
-  'https://nominatim.openstreetmap.org/search?format=geojson&polygon_geojson=1&limit=1&q=Negros%20Island%20Philippines';
+const NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL = '/geo/negros-occidental-maritime-with-bacolod.json?v=3';
+const NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL = '/geo/negros-island-region-boundary.json?v=2';
+const NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL = '/geo/negros-oriental-boundary.json?v=1';
 
 type NegrosIslandGeometry = {
   type: 'Polygon' | 'MultiPolygon';
   coordinates: number[][][] | number[][][][];
 };
 
-type NegrosIslandBoundary = {
-  geometry: NegrosIslandGeometry;
+type NegrosBoundary = {
+  maskGeometries?: NegrosIslandGeometry[];
+  geometries: NegrosIslandGeometry[];
   bbox: [number, number, number, number];
 };
+
+let negrosBoundaryCache: NegrosBoundary | null = null;
+let negrosBoundaryPromise: Promise<NegrosBoundary | null> | null = null;
+
+function getFeatureName(feature: any) {
+  const props = feature?.properties || {};
+  const candidates = [
+    props.display_name,
+    props.name,
+    props.NAME_1,
+    props.NAME_2,
+    props.PROVINCE,
+    props.province,
+    props.ADM1_EN,
+    props.adm1_en,
+  ];
+  const value = candidates.find((entry) => typeof entry === 'string' && entry.trim().length > 0);
+  return String(value || '').toLowerCase();
+}
+
+function scoreBoundaryFeature(feature: any, requiredTerms: string[]) {
+  const name = getFeatureName(feature);
+  const addresstype = String(feature?.properties?.addresstype || '').toLowerCase();
+  const type = String(feature?.properties?.type || '').toLowerCase();
+  const className = String(feature?.properties?.class || '').toLowerCase();
+  const adminLevel = String(feature?.properties?.admin_level || '').toLowerCase();
+
+  let score = 0;
+  const required = requiredTerms.map((term) => term.toLowerCase()).filter(Boolean);
+  const requiredMatches = required.filter((term) => name.includes(term)).length;
+  score += requiredMatches * 20;
+  if (name.includes('philippines')) score += 4;
+  if (name.includes('province')) score += 8;
+  if (addresstype === 'province') score += 16;
+  if (addresstype === 'state') score += 8;
+  if (addresstype === 'city' || addresstype === 'municipality') score -= 8;
+  if (type === 'administrative') score += 10;
+  if (className === 'boundary') score += 10;
+  if (adminLevel === '6') score += 12;
+  if (name.includes('region')) score -= 8;
+  return score;
+}
+
+function computeBBoxFromGeometry(geometry: NegrosIslandGeometry) {
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+
+  const visitPoint = (pair: any) => {
+    const lng = Number(pair?.[0]);
+    const lat = Number(pair?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (lng < minLng) minLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lng > maxLng) maxLng = lng;
+    if (lat > maxLat) maxLat = lat;
+  };
+
+  if (geometry.type === 'Polygon') {
+    (geometry.coordinates as number[][][]).forEach((ring) => ring.forEach(visitPoint));
+  } else {
+    (geometry.coordinates as number[][][][]).forEach((polygon) =>
+      polygon.forEach((ring) => ring.forEach(visitPoint))
+    );
+  }
+
+  if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) return null;
+  return [minLng, minLat, maxLng, maxLat] as [number, number, number, number];
+}
+
+function bboxAreaScore(bbox: [number, number, number, number]) {
+  const width = Math.max(0, bbox[2] - bbox[0]);
+  const height = Math.max(0, bbox[3] - bbox[1]);
+  return width * height;
+}
+
+function parseFirstBoundaryFeature(
+  payload: any,
+  requiredTerms: string[]
+): { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } | null {
+  const features = Array.isArray(payload?.features) ? payload.features : [];
+  const candidates = features
+    .map((feature: any) => {
+      const name = getFeatureName(feature);
+      const required = requiredTerms.map((term) => String(term || '').toLowerCase().trim()).filter(Boolean);
+      if (required.length > 0 && !required.every((term) => name.includes(term))) return null;
+
+      const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
+      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null;
+      const bbox =
+        Array.isArray(feature?.bbox) && feature.bbox.length === 4
+          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
+          : computeBBoxFromGeometry(geometry);
+      if (!bbox) return null;
+      if (!bbox.every((value) => Number.isFinite(value))) return null;
+      return { geometry, bbox, score: scoreBoundaryFeature(feature, requiredTerms), area: bboxAreaScore(bbox) };
+    })
+    .filter((candidate: any): candidate is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number]; score: number; area: number } => Boolean(candidate))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return right.area - left.area;
+    });
+
+  if (candidates.length === 0) return null;
+  return { geometry: candidates[0].geometry, bbox: candidates[0].bbox };
+}
+
+function parseAllBoundaryFeatures(
+  payload: any,
+  requiredTerms: string[]
+): { geometries: NegrosIslandGeometry[]; bbox: [number, number, number, number] } | null {
+  const features = Array.isArray(payload?.features) ? payload.features : [];
+  const required = requiredTerms.map((term) => String(term || '').toLowerCase().trim()).filter(Boolean);
+
+  const parsed = features
+    .map((feature: any) => {
+      const name = getFeatureName(feature);
+      if (required.length > 0 && !required.every((term) => name.includes(term))) return null;
+
+      const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
+      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null;
+
+      const bbox =
+        Array.isArray(feature?.bbox) && feature.bbox.length === 4
+          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
+          : computeBBoxFromGeometry(geometry);
+      if (!bbox || !bbox.every((value) => Number.isFinite(value))) return null;
+      return { geometry, bbox };
+    })
+    .filter((entry: any): entry is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } => Boolean(entry));
+
+  if (parsed.length === 0) return null;
+
+  const bbox = parsed.reduce<[number, number, number, number]>(
+    (acc, entry) => [
+      Math.min(acc[0], entry.bbox[0]),
+      Math.min(acc[1], entry.bbox[1]),
+      Math.max(acc[2], entry.bbox[2]),
+      Math.max(acc[3], entry.bbox[3]),
+    ],
+    [Infinity, Infinity, -Infinity, -Infinity]
+  );
+
+  return {
+    geometries: parsed.map((entry) => entry.geometry),
+    bbox,
+  };
+}
+
+async function loadFirstValidBoundaryFromUrls(
+  urls: string[],
+  requiredTerms: string[]
+): Promise<{ geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } | null> {
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const payload = await response.json().catch(() => ({}));
+      const parsed = parseFirstBoundaryFeature(payload, requiredTerms);
+      if (parsed) return parsed;
+    } catch {
+      // try next URL
+    }
+  }
+  return null;
+}
+
+function loadNegrosBoundary() {
+  if (negrosBoundaryCache) return Promise.resolve(negrosBoundaryCache);
+  if (negrosBoundaryPromise) return negrosBoundaryPromise;
+
+  negrosBoundaryPromise = (async () => {
+    const localBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL], [
+      'negros occidental',
+    ]);
+    if (!localBoundary) {
+      throw new Error('Failed to load local Negros Occidental maritime boundary geometry');
+    }
+
+    const regionBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL], [
+      'negros island region',
+    ]);
+    const orientalBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL], [
+      'negros oriental',
+    ]);
+
+    negrosBoundaryCache = {
+      geometries: [localBoundary.geometry],
+      bbox: localBoundary.bbox,
+      maskGeometries:
+        regionBoundary && orientalBoundary
+          ? [regionBoundary.geometry, orientalBoundary.geometry]
+          : regionBoundary
+            ? [regionBoundary.geometry]
+            : [localBoundary.geometry],
+    };
+    return negrosBoundaryCache;
+  })()
+    .catch(() => null)
+    .finally(() => {
+      negrosBoundaryPromise = null;
+    });
+
+  return negrosBoundaryPromise;
+}
 
 // Fix for default marker icons in Next.js + Leaflet
 const DefaultIcon = L.icon({
@@ -52,6 +260,7 @@ export type DriverLocation = {
   markerNumber?: number | string;
   markerEta?: string;
   markerEtaPhase?: 'completed' | 'next' | 'upcoming';
+  accuracyMeters?: number;
 };
 
 export type LiveRouteLine = {
@@ -74,6 +283,7 @@ interface LiveTrackingMapProps {
   navigationPerspective?: boolean;
   recenterSignal?: number;
   showZoomControls?: boolean;
+  showDriverSelfBadge?: boolean;
   className?: string;
 }
 
@@ -92,7 +302,6 @@ const WORLD_MASK_RING: [number, number][] = [
   [90, 180],
   [90, -180],
 ];
-
 const truckIconCache = new Map<string, L.DivIcon>();
 const statusPinIconCache = new Map<string, L.DivIcon>();
 type TruckIconDirection = 'left' | 'right';
@@ -303,57 +512,34 @@ function clampPointToBounds(point: [number, number], bounds: L.LatLngBounds | nu
   ];
 }
 
-function geometryToBounds(geometry: NegrosIslandGeometry | null) {
-  if (!geometry) return null;
-
-  let minLat = Number.POSITIVE_INFINITY;
-  let minLng = Number.POSITIVE_INFINITY;
-  let maxLat = Number.NEGATIVE_INFINITY;
-  let maxLng = Number.NEGATIVE_INFINITY;
-
-  const visit = (coordinates: any): void => {
-    if (!Array.isArray(coordinates)) return;
-
-    if (
-      coordinates.length === 2 &&
-      Number.isFinite(Number(coordinates[0])) &&
-      Number.isFinite(Number(coordinates[1]))
-    ) {
-      const lng = Number(coordinates[0]);
-      const lat = Number(coordinates[1]);
-      minLat = Math.min(minLat, lat);
-      minLng = Math.min(minLng, lng);
-      maxLat = Math.max(maxLat, lat);
-      maxLng = Math.max(maxLng, lng);
-      return;
-    }
-
-    for (const item of coordinates) {
-      visit(item);
-    }
-  };
-
-  visit(geometry.coordinates);
-
-  if (!Number.isFinite(minLat) || !Number.isFinite(minLng) || !Number.isFinite(maxLat) || !Number.isFinite(maxLng)) {
-    return null;
-  }
-
-  return L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
-}
-
 function geometryToExteriorRings(geometry: NegrosIslandGeometry | null) {
   if (!geometry) return [] as [number, number][][];
 
+  const sanitizeRing = (ring: number[][]) => {
+    const converted = ring
+      .map((pair) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
+      .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+
+    const deduped = converted.filter((point, index, list) => {
+      if (index === 0) return true;
+      const previous = list[index - 1];
+      return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001);
+    });
+
+    return deduped.length > 2 ? deduped : [];
+  };
+
   if (geometry.type === 'Polygon') {
     const outerRing = geometry.coordinates[0] || [];
-    return [outerRing.map((pair) => [Number(pair[1]), Number(pair[0])] as [number, number])];
+    const sanitized = sanitizeRing(outerRing);
+    return sanitized.length > 0 ? [sanitized] : [];
   }
 
   return (geometry.coordinates as number[][][][])
     .map((polygon) => polygon[0] || [])
     .filter((ring) => Array.isArray(ring) && ring.length > 0)
-    .map((ring) => ring.map((pair) => [Number(pair[1]), Number(pair[0])] as [number, number]));
+    .map((ring) => sanitizeRing(ring))
+    .filter((ring) => ring.length > 0);
 }
 
 function pointInRing(point: [number, number], ring: [number, number][]) {
@@ -372,9 +558,11 @@ function pointInRing(point: [number, number], ring: [number, number][]) {
   return inside;
 }
 
-function isPointInNegrosIsland(point: [number, number], geometry: NegrosIslandGeometry | null) {
-  const exteriorRings = geometryToExteriorRings(geometry);
-  return exteriorRings.some((ring) => ring.length > 2 && pointInRing(point, ring));
+function isPointInNegrosBoundary(point: [number, number], geometries: NegrosIslandGeometry[]) {
+  return geometries.some((geometry) => {
+    const exteriorRings = geometryToExteriorRings(geometry);
+    return exteriorRings.some((ring) => ring.length > 2 && pointInRing(point, ring));
+  });
 }
 
 function calculateBearingAlongRoute(
@@ -433,13 +621,14 @@ function MapBoundsGuard({ enabled, bounds }: { enabled: boolean; bounds: L.LatLn
 
   useEffect(() => {
     if (!enabled || !bounds) return;
-    map.setMaxBounds(bounds.pad(0.2));
+    const guardedBounds = bounds;
+    map.setMaxBounds(guardedBounds);
 
     const center = map.getCenter();
     if (!Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
 
-    if (!bounds.contains(center)) {
-      map.setView(bounds.getCenter(), Math.max(map.getZoom(), 9), { animate: false });
+    if (!guardedBounds.contains(center)) {
+      map.setView(guardedBounds.getCenter(), Math.max(map.getZoom(), 9), { animate: false });
     }
   }, [bounds, enabled, map]);
 
@@ -563,8 +752,9 @@ function NegrosMaskPane() {
   return null;
 }
 
-function getTruckIcon(options: { direction?: TruckIconDirection; heading?: number } = {}) {
+function getTruckIcon(options: { direction?: TruckIconDirection; heading?: number; showSelfBadge?: boolean } = {}) {
   const direction = options.direction || 'right';
+  const showSelfBadge = Boolean(options.showSelfBadge);
   const heading = typeof options.heading === 'number' && Number.isFinite(options.heading) ? options.heading : null;
   const quantizedHeading =
     heading === null
@@ -580,18 +770,19 @@ function getTruckIcon(options: { direction?: TruckIconDirection; heading?: numbe
       : direction === 'left'
         ? 180
         : 0;
-  const cacheKey = `${direction}:${rotation.toFixed(1)}`;
+  const cacheKey = `${direction}:${rotation.toFixed(1)}:${showSelfBadge ? 'self' : 'driver'}`;
   const cached = truckIconCache.get(cacheKey);
   if (cached) return cached;
 
   const icon = L.divIcon({
     className: 'custom-truck-marker',
-    html: `<div style="width:58px;height:58px;display:flex;align-items:center;justify-content:center;overflow:visible;transform:rotate(${rotation}deg);transform-origin:29px 29px;will-change:transform;">
-      <img src="${TRUCK_ICON_URL}" alt="truck" style="width:58px;height:58px;display:block;image-rendering:auto;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.35)) drop-shadow(0 4px 6px rgba(0,0,0,0.4)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src='/icons/delivery-truck.png';" />
+    html: `<div style="position:relative;width:66px;height:66px;display:flex;align-items:center;justify-content:center;overflow:visible;">
+      ${showSelfBadge ? '<div style="position:absolute;left:50%;top:-8px;transform:translateX(-50%);border-radius:9999px;background:#ffffff;border:1px solid rgba(15,23,42,0.18);padding:1px 6px;color:#0f3d72;font-size:10px;line-height:14px;font-weight:900;letter-spacing:0;">YOU</div>' : ''}
+      <img src="${TRUCK_ICON_URL}" alt="truck" style="position:relative;z-index:1;width:58px;height:58px;display:block;image-rendering:auto;transform:rotate(${rotation}deg);transform-origin:29px 29px;will-change:transform;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.35)) drop-shadow(0 3px 5px rgba(0,0,0,0.35)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src='/icons/delivery-truck.png';" />
     </div>`,
-    iconSize: [58, 58],
-    iconAnchor,
-    popupAnchor,
+    iconSize: [66, 66],
+    iconAnchor: [33, 33],
+    popupAnchor: [0, -33],
   });
   truckIconCache.set(cacheKey, icon);
   return icon;
@@ -606,6 +797,7 @@ export default function LiveTrackingMap({
   navigationPerspective = false,
   recenterSignal,
   showZoomControls = true,
+  showDriverSelfBadge = false,
   className = "w-full h-[350px] rounded-xl overflow-hidden border shadow-sm",
 }: LiveTrackingMapProps) {
   const rawSafeLocations = useMemo(
@@ -640,39 +832,21 @@ export default function LiveTrackingMap({
   const [smoothedLocations, setSmoothedLocations] = useState<DriverLocation[]>(rawSafeLocations);
   const [snappedRoutePointsById, setSnappedRoutePointsById] = useState<Record<string, [number, number][]>>({});
   const [currentZoom, setCurrentZoom] = useState(zoom);
-  const [negrosIslandBoundary, setNegrosIslandBoundary] = useState<NegrosIslandBoundary | null>(null);
+  const [negrosBoundary, setNegrosBoundary] = useState<NegrosBoundary | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!restrictToNegrosOccidental) {
-      setNegrosIslandBoundary(null);
+      setNegrosBoundary(null);
       return;
     }
 
-    const controller = new AbortController();
     let cancelled = false;
 
     const run = async () => {
-      try {
-        const response = await fetch(NEGROS_ISLAND_GEOJSON_URL, { signal: controller.signal });
-        const payload = await response.json().catch(() => ({}));
-        const feature = Array.isArray(payload?.features) ? payload.features[0] : null;
-        const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
-        const bbox = Array.isArray(feature?.bbox) && feature.bbox.length === 4
-          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
-          : null;
-
-        if (!response.ok || !geometry || !bbox) {
-          throw new Error('Failed to load Negros Island geometry');
-        }
-
-        if (!cancelled) {
-          setNegrosIslandBoundary({ geometry, bbox });
-        }
-      } catch {
-        if (!cancelled) {
-          setNegrosIslandBoundary(null);
-        }
+      const boundary = await loadNegrosBoundary();
+      if (!cancelled) {
+        setNegrosBoundary(boundary);
       }
     };
 
@@ -680,49 +854,42 @@ export default function LiveTrackingMap({
 
     return () => {
       cancelled = true;
-      controller.abort();
     };
   }, [restrictToNegrosOccidental]);
 
-  const negrosIslandBounds = useMemo(
+  const negrosBounds = useMemo(
     () =>
-      negrosIslandBoundary
+      negrosBoundary
         ? L.latLngBounds(
-            [negrosIslandBoundary.bbox[1], negrosIslandBoundary.bbox[0]],
-            [negrosIslandBoundary.bbox[3], negrosIslandBoundary.bbox[2]]
+            [negrosBoundary.bbox[1], negrosBoundary.bbox[0]],
+            [negrosBoundary.bbox[3], negrosBoundary.bbox[2]]
           )
         : null,
-    [negrosIslandBoundary]
+    [negrosBoundary]
   );
-
-  const negrosIslandMaskRings = useMemo(
-    () => geometryToExteriorRings(negrosIslandBoundary?.geometry || null),
-    [negrosIslandBoundary]
-  );
-
   const safeLocations = useMemo(
     () =>
       restrictToNegrosOccidental
-        ? negrosIslandBoundary
-          ? rawSafeLocations.filter((loc) => isPointInNegrosIsland([loc.lat, loc.lng], negrosIslandBoundary.geometry))
-          : []
+        ? negrosBoundary
+          ? rawSafeLocations.filter((loc) => isPointInNegrosBoundary([loc.lat, loc.lng], negrosBoundary.geometries))
+          : rawSafeLocations
         : rawSafeLocations,
-    [negrosIslandBoundary, rawSafeLocations, restrictToNegrosOccidental]
+    [negrosBoundary, rawSafeLocations, restrictToNegrosOccidental]
   );
 
   const safeRouteLines = useMemo(
     () =>
       restrictToNegrosOccidental
-        ? negrosIslandBoundary
+        ? negrosBoundary
           ? rawSafeRouteLines
               .map((line) => ({
                 ...line,
-                points: line.points.filter((point) => isPointInNegrosIsland(point, negrosIslandBoundary.geometry)),
+                points: line.points.filter((point) => isPointInNegrosBoundary(point, negrosBoundary.geometries)),
               }))
               .filter((line) => line.points.length > 1)
-          : []
+          : rawSafeRouteLines
         : rawSafeRouteLines,
-    [negrosIslandBoundary, rawSafeRouteLines, restrictToNegrosOccidental]
+    [negrosBoundary, rawSafeRouteLines, restrictToNegrosOccidental]
   );
 
   const roadSnapSignature = useMemo(
@@ -769,7 +936,7 @@ export default function LiveTrackingMap({
       cancelled = true;
       controller.abort();
     };
-  }, [roadSnapSignature, safeRouteLines]);
+  }, [roadSnapSignature]);
 
   const renderedRouteLines = useMemo(
     () =>
@@ -957,19 +1124,21 @@ export default function LiveTrackingMap({
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = navigationPerspective && singleTruck.length === 1 ? singleTruck[0] : null;
+  const activeBounds = restrictToNegrosOccidental ? (negrosBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS) : null;
+  const negrosMaskRings = useMemo(
+    () =>
+      (negrosBoundary?.maskGeometries || negrosBoundary?.geometries || []).flatMap((geometry) =>
+        geometryToExteriorRings(geometry)
+      ),
+    [negrosBoundary]
+  );
   const resolvedCenter =
     restrictToNegrosOccidental && Array.isArray(center) && center.length === 2
-      ? clampPointToBounds(center, negrosIslandBounds)
+      ? clampPointToBounds(center, activeBounds)
       : center;
-  const isIslandModeReady = !restrictToNegrosOccidental || Boolean(negrosIslandBoundary);
 
   return (
     <div className={`bg-white ${className}`}>
-      {restrictToNegrosOccidental && !isIslandModeReady ? (
-        <div className="flex h-full w-full items-center justify-center bg-[#aad3df] text-sm text-slate-500">
-          Loading Negros Island boundary...
-        </div>
-      ) : (
       <MapContainerUnsafe
         center={resolvedCenter}
         zoom={zoom}
@@ -980,16 +1149,17 @@ export default function LiveTrackingMap({
         zoomControl={showZoomControls}
         zoomAnimation={false}
         markerZoomAnimation={false}
-        minZoom={restrictToNegrosOccidental ? 10 : undefined}
-        bounds={restrictToNegrosOccidental ? negrosIslandBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS : undefined}
-        maxBounds={restrictToNegrosOccidental ? negrosIslandBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS : undefined}
+        preferCanvas
+        minZoom={restrictToNegrosOccidental ? 9 : undefined}
+        bounds={activeBounds ?? undefined}
+        maxBounds={activeBounds ?? undefined}
         maxBoundsViscosity={restrictToNegrosOccidental ? 1.0 : undefined}
       >
         <MapResizeSync />
         <NegrosMaskPane />
         <ZoomTracker onZoomChange={setCurrentZoom} />
-        <MapBoundsGuard enabled={restrictToNegrosOccidental} bounds={negrosIslandBounds} />
-        <ManualRecenter center={center} recenterSignal={recenterSignal} bounds={negrosIslandBounds} />
+        <MapBoundsGuard enabled={restrictToNegrosOccidental} bounds={activeBounds} />
+        <ManualRecenter center={center} recenterSignal={recenterSignal} bounds={activeBounds} />
         <NavigationCamera
           enabled={Boolean(navTruck)}
           truckPosition={navTruck ? [navTruck.lat, navTruck.lng] : null}
@@ -1004,15 +1174,16 @@ export default function LiveTrackingMap({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           noWrap={restrictToNegrosOccidental}
         />
-        {restrictToNegrosOccidental && negrosIslandBoundary ? (
+        {restrictToNegrosOccidental && negrosMaskRings.length > 0 ? (
           <PolygonUnsafe
-            positions={[WORLD_MASK_RING, ...negrosIslandMaskRings]}
+            positions={[WORLD_MASK_RING, ...negrosMaskRings]}
             pane="negros-mask-pane"
             interactive={false}
             pathOptions={{
               stroke: false,
               fillColor: '#aad3df',
               fillOpacity: 1,
+              fillRule: 'evenodd',
               opacity: 1,
             }}
           />
@@ -1054,22 +1225,23 @@ export default function LiveTrackingMap({
 
         {smoothedLocations.map((loc) =>
           loc.markerType === 'truck' ? (
-            <MarkerUnsafe
-              key={loc.id}
-              position={[loc.lat, loc.lng]}
-              icon={getTruckIcon({ direction: loc.markerDirection || 'right', heading: loc.markerHeading })}
-              zIndexOffset={1000}
-            >
-              <Popup>
-                <div className="text-sm">
-                  <p className="font-bold text-base mb-1">{loc.driverName}</p>
-                  <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
-                  <p className="text-gray-600">
-                    Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
-                  </p>
-                </div>
-              </Popup>
-            </MarkerUnsafe>
+            <Fragment key={loc.id}>
+              <MarkerUnsafe
+                position={[loc.lat, loc.lng]}
+                icon={getTruckIcon({ direction: loc.markerDirection || 'right', heading: loc.markerHeading, showSelfBadge: showDriverSelfBadge })}
+                zIndexOffset={1000}
+              >
+                <Popup>
+                  <div className="text-sm">
+                    <p className="font-bold text-base mb-1">{loc.driverName}</p>
+                    <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
+                    <p className="text-gray-600">
+                      Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
+                    </p>
+                  </div>
+                </Popup>
+              </MarkerUnsafe>
+            </Fragment>
           ) : loc.markerType === 'pin' ? (
             (() => {
               const pinColor: 'green' | 'blue' =
@@ -1140,8 +1312,7 @@ export default function LiveTrackingMap({
           )
         )}
       </MapContainerUnsafe>
-      )}
-      <style jsx global>{`
+      <style>{`
         .map-eta-tooltip {
           background: transparent;
           border: 0;

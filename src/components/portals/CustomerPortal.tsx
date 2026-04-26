@@ -55,6 +55,34 @@ const poppins = Poppins({
   weight: ['400', '500', '600', '700', '800'],
 })
 
+async function fetchJsonWithRetry(input: RequestInfo | URL, init?: RequestInit, retries = 5) {
+  let lastResponse: Response | null = null
+  let lastData: any = {}
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(input, init)
+      const data = await response.json().catch(() => ({}))
+      lastResponse = response
+      lastData = data
+      if (response.ok && data?.success !== false) {
+        return { response, data }
+      }
+      if (response?.status === 401 || response?.status === 403) {
+        return { response, data }
+      }
+    } catch (error) {
+      lastData = { error: error instanceof Error ? error.message : 'Request failed' }
+    }
+
+    if (attempt < retries) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)))
+    }
+  }
+
+  return { response: lastResponse, data: lastData }
+}
+
 interface Order {
   id: string
   orderNumber: string
@@ -146,14 +174,21 @@ interface DriverTrackingItem {
 interface DeliveryIssueRecord {
   id: string
   orderId: string
-  returnNumber?: string | null
+  orderNumber?: string | null
+  replacementNumber?: string | null
   reason?: string | null
   description?: string | null
   status?: string | null
   replacementMode?: string | null
   originalOrderItemId?: string | null
+  originalProductName?: string | null
+  originalProductSku?: string | null
+  originalQuantity?: number | null
   replacementProductId?: string | null
+  replacementProductName?: string | null
+  replacementProductSku?: string | null
   replacementQuantity?: number | null
+  remainingQuantity?: number | null
   damagePhotoUrl?: string | null
   notes?: string | null
   createdAt?: string | null
@@ -227,10 +262,40 @@ function parseReplacementMeta(notes: string | null | undefined): Record<string, 
 }
 
 function getReplacementRank(label: string): number {
-  if (label === 'Needs Follow-up') return 3
+  if (label === 'Needs Follow-up' || label === 'Partially Resolved') return 3
   if (label === 'In Progress') return 2
   if (label === 'Resolved on Delivery' || label === 'Completed') return 1
   return 0
+}
+
+function getReplacementStatusLabel(status?: string | null) {
+  const rawStatus = String(status || '').toUpperCase()
+  const normalizedStatus =
+    rawStatus === 'REQUESTED'
+      ? 'REPORTED'
+      : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+        ? 'IN_PROGRESS'
+        : rawStatus === 'REJECTED'
+          ? 'NEEDS_FOLLOW_UP'
+          : rawStatus === 'PROCESSED'
+            ? 'COMPLETED'
+            : rawStatus
+
+  if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
+  if (normalizedStatus === 'NEEDS_FOLLOW_UP') return 'Partially Resolved'
+  if (normalizedStatus === 'COMPLETED') return 'Completed'
+  if (normalizedStatus === 'IN_PROGRESS') return 'In Progress'
+  return 'Reported'
+}
+
+function getReplacementBadgeClass(label: string) {
+  if (label === 'Partially Resolved' || label === 'Needs Follow-up') {
+    return 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+  }
+  if (label === 'Resolved on Delivery' || label === 'Completed') {
+    return 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+  }
+  return 'bg-sky-100 text-sky-700 hover:bg-sky-100'
 }
 
 export function CustomerPortal() {
@@ -431,19 +496,16 @@ export function CustomerPortal() {
   const loadCustomerProfile = useCallback(async (silent = true) => {
     if (!customerId) return
     try {
-      const response = await fetch(`/api/customers/${customerId}`, {
+      const { response, data: payload } = await fetchJsonWithRetry(`/api/customers/${customerId}`, {
         cache: 'no-store',
         credentials: 'include',
       })
-      if (!response.ok) throw new Error('Failed to load customer profile')
-      const payload = await response.json().catch(() => ({}))
+      if (!response?.ok) throw new Error('Failed to load customer profile')
       const customer = extractCustomerPayload(payload)
       if (!customer) throw new Error('Customer profile is missing')
       hydrateAddressFromProfile(customer)
     } catch (error: any) {
-      if (!silent) {
-        toast.error(error?.message || 'Failed to load customer profile')
-      }
+      console.warn('Failed to load customer profile:', error)
     }
   }, [customerId])
 
@@ -453,26 +515,21 @@ export function CustomerPortal() {
 
   const fetchOrders = useCallback(async (silent = false) => {
     try {
-      const requestOrders = () => fetch('/api/customer/orders', { cache: 'no-store', credentials: 'include' })
+      const requestOrders = () => fetchJsonWithRetry('/api/customer/orders', { cache: 'no-store', credentials: 'include' })
 
-      let response = await requestOrders()
-      let data = await response.json().catch(() => ({}))
+      let { response, data } = await requestOrders()
 
       if (response.status === 401 || response.status === 403) {
         clearTabAuthToken()
-        response = await requestOrders()
-        data = await response.json().catch(() => ({}))
+        ;({ response, data } = await requestOrders())
       }
 
-      if (!response.ok || data?.success === false) {
+      if (!response?.ok || data?.success === false) {
         throw new Error(data?.error || 'Failed to fetch orders')
       }
       setOrders(data.orders || [])
     } catch (error: any) {
-      setOrders([])
-      if (!silent) {
-        toast.error(error?.message || 'Failed to load orders')
-      }
+      console.warn('Failed to load orders:', error)
     } finally {
       setIsLoading(false)
     }
@@ -480,13 +537,14 @@ export function CustomerPortal() {
 
   const fetchOrderMeta = useCallback(async () => {
     try {
-      const [feedbackResponse, replacementResponse] = await Promise.all([
-        fetch('/api/feedback?page=1&limit=500', { cache: 'no-store' }),
-        fetch('/api/customer/replacements', { cache: 'no-store' }),
+      const [feedbackResult, replacementResult] = await Promise.all([
+        fetchJsonWithRetry('/api/feedback?page=1&limit=500', { cache: 'no-store' }),
+        fetchJsonWithRetry('/api/replacements?limit=300', { cache: 'no-store' }),
       ])
+      const { response: feedbackResponse, data: feedbackPayload } = feedbackResult
+      const { response: replacementResponse, data: replacementPayload } = replacementResult
 
-      if (feedbackResponse.ok) {
-        const feedbackPayload = await feedbackResponse.json().catch(() => ({}))
+      if (feedbackResponse?.ok) {
         const feedbacks = Array.isArray(feedbackPayload?.feedbacks) ? feedbackPayload.feedbacks : []
         const reviewed = new Set<string>()
         const ratingsByOrder: Record<string, number> = {}
@@ -506,14 +564,17 @@ export function CustomerPortal() {
         setOrderRatings({})
       }
 
-      if (replacementResponse.ok) {
-        const replacementPayload = await replacementResponse.json().catch(() => ({}))
+      if (replacementResponse?.ok) {
         const replacements = Array.isArray(replacementPayload?.replacements)
           ? (replacementPayload.replacements as DeliveryIssueRecord[])
           : []
         setDeliveryIssueRecords(replacements)
       } else {
-        setDeliveryIssueRecords([])
+        const { response: legacyResponse, data: legacyPayload } = await fetchJsonWithRetry('/api/customer/replacements', { cache: 'no-store' })
+        const replacements = legacyResponse?.ok && Array.isArray(legacyPayload?.replacements)
+          ? (legacyPayload.replacements as DeliveryIssueRecord[])
+          : []
+        setDeliveryIssueRecords(replacements)
       }
     } catch {
       setReviewedOrderIds(new Set())
@@ -525,9 +586,8 @@ export function CustomerPortal() {
   const fetchProducts = async () => {
     setIsProductsLoading(true)
     try {
-      const response = await fetch('/api/products?page=1&pageSize=100')
-      if (!response.ok) throw new Error('Failed to fetch products')
-      const payload = await response.json()
+      const { response, data: payload } = await fetchJsonWithRetry('/api/products?page=1&pageSize=100', { cache: 'no-store', credentials: 'include' })
+      if (!response?.ok) throw new Error('Failed to fetch products')
       const sourceProducts: Product[] = Array.isArray(payload?.products)
         ? payload.products
         : Array.isArray(payload?.data)
@@ -544,8 +604,8 @@ export function CustomerPortal() {
           return available > 0
         })
       )
-    } catch {
-      toast.error('Failed to load products')
+    } catch (error) {
+      console.warn('Failed to load products:', error)
     } finally {
       setIsProductsLoading(false)
     }
@@ -571,7 +631,7 @@ export function CustomerPortal() {
 
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes || []
-      if (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('returns')) {
+      if (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('replacements')) {
         void refreshOrders()
       }
     })
@@ -866,28 +926,9 @@ export function CustomerPortal() {
       if (!orderId) continue
 
       const meta = parseReplacementMeta(item?.notes)
-      const rawStatus = String(item?.status || '').toUpperCase()
       const hasEvidence = Boolean(String(item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
-      const normalizedStatus =
-        rawStatus === 'REQUESTED'
-          ? 'REPORTED'
-          : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
-            ? 'IN_PROGRESS'
-            : rawStatus === 'REJECTED'
-              ? 'NEEDS_FOLLOW_UP'
-              : rawStatus === 'PROCESSED'
-                ? 'COMPLETED'
-                : rawStatus
-      const label =
-        normalizedStatus === 'RESOLVED_ON_DELIVERY'
-          ? 'Resolved on Delivery'
-          : normalizedStatus === 'NEEDS_FOLLOW_UP'
-            ? 'Needs Follow-up'
-            : normalizedStatus === 'COMPLETED'
-              ? 'Completed'
-              : normalizedStatus === 'IN_PROGRESS'
-                ? 'In Progress'
-                : 'Reported'
+      const rawStatus = String(item?.status || '').toUpperCase()
+      const label = getReplacementStatusLabel(item?.status)
 
       const reason = String(item?.description || item?.reason || 'Replacement case reported').trim()
       const nextSummary: DeliveryIssueSummary = { orderId, label, reason, hasEvidence, rawStatus }
@@ -967,6 +1008,33 @@ export function CustomerPortal() {
       )
     })
   }, [tabFilteredOrders, ordersSearch])
+
+  const visibleReplacementRecords = useMemo(() => {
+    const query = ordersSearch.trim().toLowerCase()
+    const sorted = [...deliveryIssueRecords].sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      return bTime - aTime
+    })
+    if (!query) return sorted
+    return sorted.filter((record) => {
+      const haystack = [
+        record.orderNumber,
+        record.replacementNumber,
+        record.originalProductName,
+        record.originalProductSku,
+        record.replacementProductName,
+        record.replacementProductSku,
+        record.reason,
+        record.description,
+        getReplacementStatusLabel(record.status),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [deliveryIssueRecords, ordersSearch])
 
   const placeOrder = async () => {
     if (
@@ -2471,6 +2539,62 @@ export function CustomerPortal() {
               <div className="flex items-center justify-center py-10">
                 <Loader2 className="h-6 w-6 animate-spin text-cyan-700" />
               </div>
+            ) : ordersTab === 'REPLACEMENT' ? (
+              visibleReplacementRecords.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-slate-500">No replacement records found.</div>
+              ) : (
+                <div className="space-y-3 px-3 pt-3">
+                  {visibleReplacementRecords.map((record) => {
+                    const statusLabel = getReplacementStatusLabel(record.status)
+                    const order = orders.find((item) => item.id === record.orderId) || null
+                    const replacedQty = Number(record.replacementQuantity || 0)
+                    const originalQty = Number(record.originalQuantity || 0)
+                    const remainingQty = Number(record.remainingQuantity ?? Math.max(originalQty - replacedQty, 0))
+                    const showRemaining = statusLabel === 'Partially Resolved' && remainingQty > 0
+                    const replacedProduct =
+                      String(record.replacementProductName || '').trim() ||
+                      String(record.originalProductName || '').trim() ||
+                      'N/A'
+
+                    return (
+                      <div
+                        key={record.id}
+                        onClick={() => {
+                          if (order) setSelectedOrder(order)
+                        }}
+                        className="rounded-lg border border-slate-200/50 bg-white/95 shadow-[0_2px_6px_rgba(0,0,0,0.04)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_12px_rgba(0,0,0,0.08)]"
+                      >
+                        <div className="flex items-center justify-between border-b border-slate-200/70 px-3 py-2 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-slate-800">{record.orderNumber || order?.orderNumber || 'Order'}</p>
+                            {record.replacementNumber ? <p className="text-xs text-slate-500">{record.replacementNumber}</p> : null}
+                          </div>
+                          <Badge className={getReplacementBadgeClass(statusLabel)}>{statusLabel}</Badge>
+                        </div>
+
+                        <div className="px-3 py-3">
+                          <div className="mb-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs">
+                            <p className="text-slate-500">Product Replaced</p>
+                            <p className="font-semibold text-slate-900">{replacedProduct}</p>
+                          </div>
+                          <div className={`grid gap-2 text-xs ${showRemaining ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                              <p className="text-slate-500">Quantity Replaced</p>
+                              <p className="font-semibold text-slate-900">{replacedQty}</p>
+                            </div>
+                            {showRemaining ? (
+                              <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                                <p className="text-slate-500">Remaining</p>
+                                <p className="font-semibold text-slate-900">{remainingQty}</p>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
             ) : visibleOrders.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-500">No orders found.</div>
             ) : (
@@ -3380,9 +3504,34 @@ export function CustomerPortal() {
 
               <p className="mt-3 text-[1.15rem] font-semibold text-slate-900">Total: {formatPeso(selectedOrder.totalAmount)}</p>
 
-              {deliveryIssuesByOrderId[selectedOrder.id] ? (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  {deliveryIssuesByOrderId[selectedOrder.id].label}: {deliveryIssuesByOrderId[selectedOrder.id].reason}
+              {deliveryIssueRecords.filter((record) => record.orderId === selectedOrder.id).length ? (
+                <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <p className="font-semibold">Replacement Details</p>
+                  {deliveryIssueRecords
+                    .filter((record) => record.orderId === selectedOrder.id)
+                    .map((record) => {
+                      const label = getReplacementStatusLabel(record.status)
+                      const replacedProduct =
+                        String(record.replacementProductName || '').trim() ||
+                        String(record.originalProductName || '').trim() ||
+                        'N/A'
+                      const remainingQty = Number(record.remainingQuantity ?? 0)
+                      return (
+                        <div key={record.id} className="rounded-md bg-white/70 px-2 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-slate-900">Status</p>
+                            <Badge className={getReplacementBadgeClass(label)}>{label}</Badge>
+                          </div>
+                          <p className="mt-1 text-slate-700">
+                            Product replaced: <span className="font-semibold">{replacedProduct}</span>
+                          </p>
+                          <p className="mt-1 text-slate-700">
+                            Quantity replaced: <span className="font-semibold">{Number(record.replacementQuantity || 0)}</span>
+                            {label === 'Partially Resolved' && remainingQty > 0 ? ` | Remaining: ${remainingQty}` : ''}
+                          </p>
+                        </div>
+                      )
+                    })}
                 </div>
               ) : null}
 

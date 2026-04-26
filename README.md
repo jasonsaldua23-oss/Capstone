@@ -106,9 +106,8 @@ This project is configured so all frontend `/api/*` calls are routed to Django.
 1. Start Django backend on port `8000`:
 ```bash
 cd backend
-set DJANGO_USE_SQLITE=1
+set DJANGO_USE_SQLITE=0
 python manage.py migrate
-python manage.py shell -c "from core.views_api import ensure_demo_accounts; ensure_demo_accounts(); print('ok')"
 python manage.py runserver 0.0.0.0:8000
 ```
 

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -27,7 +27,7 @@ import { toast } from 'sonner'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from '@/components/portals/warehouse/WarehouseTripsSection'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
-import { clearTabAuthToken } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import {
   Boxes,
   PackageCheck,
@@ -58,7 +58,7 @@ type WarehouseView =
   | 'dashboard'
   | 'orders'
   | 'trips'
-  | 'returns'
+  | 'replacements'
   | 'liveTracking'
   | 'inventory'
   | 'warehouses'
@@ -136,6 +136,25 @@ interface StockBatchItem {
       name?: string
     } | null
   }
+}
+
+interface InventoryTransactionItem {
+  id: string
+  createdAt: string
+  type?: string
+  quantity?: number
+  referenceType?: string | null
+  referenceId?: string | null
+  warehouse?: {
+    id?: string
+    name?: string
+    code?: string
+  } | null
+  product?: {
+    id?: string
+    name?: string
+    sku?: string
+  } | null
 }
 
 interface PortalNotification {
@@ -224,9 +243,12 @@ interface WarehouseTripItem {
   }>
 }
 
-interface WarehouseReturnItem {
+interface WarehouseReplacementItem {
   id: string
-  returnNumber: string
+  replacementNumber: string
+  orderId?: string | null
+  orderNumber?: string | null
+  customerName?: string | null
   warehouseId?: string
   status: string
   reason: string
@@ -352,42 +374,6 @@ function isActiveTripStatus(status: string | null | undefined) {
   return normalized === 'PLANNED' || normalized === 'IN_PROGRESS'
 }
 
-const PERCENT_HEIGHT_CLASSES: Record<number, string> = {
-  0: 'h-0',
-  5: 'h-[5%]',
-  10: 'h-[10%]',
-  15: 'h-[15%]',
-  20: 'h-[20%]',
-  25: 'h-1/4',
-  30: 'h-[30%]',
-  35: 'h-[35%]',
-  40: 'h-2/5',
-  45: 'h-[45%]',
-  50: 'h-1/2',
-  55: 'h-[55%]',
-  60: 'h-3/5',
-  65: 'h-[65%]',
-  70: 'h-[70%]',
-  75: 'h-3/4',
-  80: 'h-4/5',
-  85: 'h-[85%]',
-  90: 'h-[90%]',
-  95: 'h-[95%]',
-  100: 'h-full',
-}
-
-function clampPercent(value: number) {
-  return Math.max(0, Math.min(100, value))
-}
-
-function toPercentStep(value: number) {
-  return Math.round(clampPercent(value) / 5) * 5
-}
-
-function getHeightClass(value: number) {
-  return PERCENT_HEIGHT_CLASSES[toPercentStep(value)] ?? 'h-0'
-}
-
 function getStockHealthDotClass(name: string) {
   const key = name.toLowerCase()
   if (key === 'healthy') return 'bg-emerald-500'
@@ -401,7 +387,7 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
   { id: 'dashboard', label: 'Dashboard', icon: Boxes },
   { id: 'orders', label: 'Orders', icon: PackageCheck },
   { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
-  { id: 'returns', label: 'Replacements', icon: AlertTriangle },
+  { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
   { id: 'liveTracking', label: 'Live Tracking', icon: MapPin },
   { id: 'inventory', label: 'Inventory', icon: PackageOpen },
   { id: 'warehouses', label: 'Warehouse', icon: Warehouse },
@@ -416,9 +402,10 @@ export function WarehousePortal() {
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
   const [stockBatches, setStockBatches] = useState<StockBatchItem[]>([])
+  const [inventoryTransactions, setInventoryTransactions] = useState<InventoryTransactionItem[]>([])
   const [orders, setOrders] = useState<WarehouseOrderItem[]>([])
   const [trips, setTrips] = useState<WarehouseTripItem[]>([])
-  const [returns, setReturns] = useState<WarehouseReturnItem[]>([])
+  const [replacements, setReplacements] = useState<WarehouseReplacementItem[]>([])
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [vehicles, setVehicles] = useState<VehicleOption[]>([])
   const [routePlans, setRoutePlans] = useState<RoutePlanCityGroup[]>([])
@@ -430,20 +417,26 @@ export function WarehousePortal() {
   const [selectedRouteDriverId, setSelectedRouteDriverId] = useState('')
   const [selectedSavedRouteId, setSelectedSavedRouteId] = useState('')
   const [selectedRouteVehicleId, setSelectedRouteVehicleId] = useState('')
-  const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
+  const [trackingDate, setTrackingDate] = useState('')
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [loadingWarehouses, setLoadingWarehouses] = useState(true)
   const [loadingBatches, setLoadingBatches] = useState(true)
+  const [loadingInventoryTransactions, setLoadingInventoryTransactions] = useState(true)
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState('all')
+  const [transactionDateFrom, setTransactionDateFrom] = useState('')
+  const [transactionDateTo, setTransactionDateTo] = useState('')
+  const [transactionDatePreset, setTransactionDatePreset] = useState('custom')
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [loadingTrips, setLoadingTrips] = useState(true)
-  const [loadingReturns, setLoadingReturns] = useState(true)
+  const [loadingReplacements, setLoadingReplacements] = useState(true)
   const [loadingRoutePlans, setLoadingRoutePlans] = useState(false)
   const [creatingTripFromRoute, setCreatingTripFromRoute] = useState(false)
   const [routePlanMessage, setRoutePlanMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
+  const [selectedReplacement, setSelectedReplacement] = useState<WarehouseReplacementItem | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
@@ -480,7 +473,6 @@ export function WarehousePortal() {
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const isRefreshingAllRef = useRef(false)
-  const dbBackoffUntilRef = useRef<number>(0)
   const hasAssignedWarehouse = warehouses.length > 0
   const hasWarehouseFetchFailure = !hasAssignedWarehouse && Boolean(warehouseLoadError)
   const assignedWarehouse = warehouses[0] || null
@@ -535,17 +527,44 @@ export function WarehousePortal() {
     }
   }
 
+  const deleteTrip = async (trip: WarehouseTripItem) => {
+    if (String(trip.status || '').toUpperCase() !== 'PLANNED') {
+      toast.error('Only planned trips can be deleted')
+      return
+    }
+
+    const confirmed = window.confirm(`Delete trip ${trip.tripNumber}? Orders from this trip can be routed again after deletion.`)
+    if (!confirmed) return
+
+    try {
+      const response = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to delete trip')
+      }
+
+      setSelectedTrip((current) => (current?.id === trip.id ? null : current))
+      setTrips((prev) => prev.filter((entry) => entry.id !== trip.id))
+      if (routeDate && routeWarehouseId) {
+        await createRoutePlan(true, routeDate, routeWarehouseId)
+      }
+      await fetchTripsData()
+      await fetchOrdersData()
+      await fetchSavedRoutesData()
+      emitDataSync(['trips', 'orders'])
+      toast.success('Trip deleted')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to delete trip')
+    }
+  }
+
   useEffect(() => {
     if (createRouteOpen && warehouses.length > 0) {
-      if (!routeWarehouseId) {
-        setRouteWarehouseId(warehouses[0].id)
-      }
-      if (!routeDate) {
-        setRouteDate(getDefaultRouteDate())
-      }
-      if (routePlans.length === 0) {
-        createRoutePlan(true, routeDate, warehouses[0].id)
-      }
+      const effectiveWarehouseId = routeWarehouseId || warehouses[0].id
+      const effectiveDate = routeDate || getDefaultRouteDate()
+      if (!routeWarehouseId) setRouteWarehouseId(effectiveWarehouseId)
+      if (!routeDate) setRouteDate(effectiveDate)
+      void createRoutePlan(true, effectiveDate, effectiveWarehouseId)
     }
   }, [createRouteOpen, warehouses])
 
@@ -559,13 +578,7 @@ export function WarehousePortal() {
     }
   }, [routePlans])
 
-  const scopedTrips = useMemo(() => {
-    if (!assignedWarehouse) return trips
-    const hasTripWarehouseRefs = trips.some((trip) => trip?.warehouseId)
-    return hasTripWarehouseRefs
-      ? trips.filter((trip) => trip?.warehouseId === assignedWarehouse.id)
-      : trips
-  }, [assignedWarehouse, trips])
+  const scopedTrips = useMemo(() => trips, [trips])
 
   useEffect(() => {
     if (!selectedTrip) return
@@ -588,9 +601,9 @@ export function WarehousePortal() {
   const scopedOrders = useMemo(() => {
     if (!assignedWarehouse) return orders
     const hasOrderWarehouseRefs = orders.some((item) => item?.warehouseId)
-    return hasOrderWarehouseRefs
-      ? orders.filter((item) => item?.warehouseId === assignedWarehouse.id)
-      : orders
+    if (!hasOrderWarehouseRefs) return orders
+    const filtered = orders.filter((item) => !item?.warehouseId || item?.warehouseId === assignedWarehouse.id)
+    return filtered.length > 0 ? filtered : orders
   }, [assignedWarehouse, orders])
 
   const isDropPointCompleted = (status: unknown) => {
@@ -622,9 +635,13 @@ export function WarehousePortal() {
   const tripMatchesTrackingDay = (trip: WarehouseTripItem) => {
     if (!trackingDate) return true
     const tripAny = trip as any
-    return [tripAny?.plannedStartAt, tripAny?.actualStartAt, tripAny?.actualEndAt, tripAny?.createdAt].some((value) =>
+    const hasMatchingTripDate = [tripAny?.plannedStartAt, tripAny?.actualStartAt, tripAny?.actualEndAt, tripAny?.createdAt].some((value) =>
       isDateMatch(value, trackingDate)
     )
+    if (hasMatchingTripDate) return true
+    const logs = toArray<any>(tripAny?.locationLogs)
+    if (logs.some((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))) return true
+    return isDateMatch(tripAny?.latestLocation?.recordedAt, trackingDate)
   }
 
   const liveMapData = useMemo(() => {
@@ -662,10 +679,11 @@ export function WarehousePortal() {
     scopedTrips
       .filter(
         (trip: any) =>
-          ['PLANNED', 'IN_PROGRESS', 'COMPLETED'].includes(normalizeTripStatus(trip.status)) &&
+          ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status)) &&
           tripMatchesTrackingDay(trip)
       )
       .forEach((trip: any) => {
+        const normalizedTripStatus = normalizeTripStatus(trip?.status)
         const tripMatchesDay = tripMatchesTrackingDay(trip)
         const toCoordinate = (value: unknown) => {
           const parsed = Number(value)
@@ -739,7 +757,7 @@ export function WarehousePortal() {
               })()
             : null
 
-        if (hasDriverPosition) {
+        if (hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)) {
           locations.push({
             id: `driver-${trip.id}`,
             driverName,
@@ -752,27 +770,6 @@ export function WarehousePortal() {
             markerType: 'truck',
             markerHeading: markerHeading ?? undefined,
           })
-        } else if (['PLANNED', 'IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))) {
-          const fallbackDriverPoint =
-            warehouseStart ||
-            (nextDropPoint &&
-            Number.isFinite(Number(nextDropPoint?.latitude)) &&
-            Number.isFinite(Number(nextDropPoint?.longitude))
-              ? ([Number(nextDropPoint.latitude), Number(nextDropPoint.longitude)] as [number, number])
-              : null)
-          if (fallbackDriverPoint) {
-            locations.push({
-              id: `driver-${trip.id}`,
-              driverName,
-              vehiclePlate,
-              lat: fallbackDriverPoint[0],
-              lng: fallbackDriverPoint[1],
-              status: String(trip?.status || 'PLANNED'),
-              markerColor: '#1d4ed8',
-              markerLabel: 'Driver location unavailable',
-              markerType: 'truck',
-            })
-          }
         }
 
         dropPoints.forEach((dropPoint: any, index: number) => {
@@ -859,6 +856,14 @@ export function WarehousePortal() {
       const lng = Number(order?.shippingLongitude)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
 
+      const shippingAddress = String(order?.shippingAddress || '').trim()
+      const orderAddressLabel = shippingAddress || [
+        String(order?.shippingCity || '').trim(),
+        String(order?.shippingProvince || '').trim(),
+        String(order?.shippingZipCode || '').trim(),
+      ]
+        .filter(Boolean)
+        .join(', ') || 'Address unavailable'
       const completed = isCompletedOrderStatus(order?.status)
       locations.push({
         id: `warehouse-standalone-order-${order.id}`,
@@ -869,7 +874,7 @@ export function WarehousePortal() {
         status: String(order?.status || 'PREPARING'),
         markerColor: completed ? '#2563eb' : '#16a34a',
         markerType: 'pin',
-        markerLabel: completed ? 'Completed order location' : 'Not completed order location',
+        markerLabel: orderAddressLabel,
       })
     })
 
@@ -886,7 +891,7 @@ export function WarehousePortal() {
     () =>
       scopedTrips.filter(
         (trip) =>
-          ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip.status)) &&
+          ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status)) &&
           tripMatchesTrackingDay(trip)
       ),
     [scopedTrips, trackingDate]
@@ -914,14 +919,78 @@ export function WarehousePortal() {
       ? inventory.filter((item) => item?.warehouse?.id === assignedWarehouse.id)
       : inventory
   }, [assignedWarehouse, inventory])
+  const scopedInventoryTransactions = useMemo(() => {
+    if (!assignedWarehouse) return inventoryTransactions
+    const filtered = inventoryTransactions.filter((entry) =>
+      warehouseMatches(entry?.warehouse?.id, entry?.warehouse?.name, entry?.warehouse?.code)
+    )
+    return filtered.sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime()
+      const bTime = new Date(b.createdAt || 0).getTime()
+      return bTime - aTime
+    })
+  }, [assignedWarehouse, inventoryTransactions])
 
-  const scopedReturns = useMemo(() => {
-    if (!assignedWarehouse) return returns
-    const hasReturnWarehouseRefs = returns.some((entry) => entry?.warehouseId || entry?.order?.warehouseId)
-    return hasReturnWarehouseRefs
-      ? returns.filter((entry) => entry?.warehouseId === assignedWarehouse.id || entry?.order?.warehouseId === assignedWarehouse.id)
-      : returns
-  }, [assignedWarehouse, returns])
+  const availableInventoryTransactionTypes = useMemo(() => {
+    return Array.from(
+      new Set(
+        scopedInventoryTransactions
+          .map((entry) => String(entry?.type || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b))
+  }, [scopedInventoryTransactions])
+
+  const filteredInventoryTransactions = useMemo(() => {
+    return scopedInventoryTransactions.filter((entry) => {
+      const rawType = String(entry?.type || '').trim().toUpperCase()
+      if (transactionTypeFilter !== 'all' && rawType !== transactionTypeFilter.toUpperCase()) {
+        return false
+      }
+
+      if (transactionDateFrom || transactionDateTo) {
+        const createdAt = entry?.createdAt ? new Date(entry.createdAt) : null
+        if (!createdAt || Number.isNaN(createdAt.getTime())) {
+          return false
+        }
+        const dayKey = formatDayKey(createdAt)
+        if (transactionDateFrom && dayKey < transactionDateFrom) {
+          return false
+        }
+        if (transactionDateTo && dayKey > transactionDateTo) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }, [scopedInventoryTransactions, transactionDateFrom, transactionDateTo, transactionTypeFilter])
+
+  useEffect(() => {
+    if (transactionDatePreset === 'custom') return
+
+    const end = new Date()
+    const start = new Date(end)
+
+    if (transactionDatePreset === 'past_7_days') {
+      start.setDate(start.getDate() - 6)
+    } else if (transactionDatePreset === 'past_14_days') {
+      start.setDate(start.getDate() - 13)
+    } else if (transactionDatePreset === 'past_1_month') {
+      start.setMonth(start.getMonth() - 1)
+    } else if (transactionDatePreset === 'past_3_months') {
+      start.setMonth(start.getMonth() - 3)
+    } else if (transactionDatePreset === 'past_6_months') {
+      start.setMonth(start.getMonth() - 6)
+    } else if (transactionDatePreset === 'past_1_year') {
+      start.setFullYear(start.getFullYear() - 1)
+    }
+
+    setTransactionDateFrom(formatDayKey(start))
+    setTransactionDateTo(formatDayKey(end))
+  }, [transactionDatePreset])
+
+  const scopedReplacements = useMemo(() => replacements, [replacements])
 
   const replacementSummary = useMemo(() => {
     const parseMeta = (notes: string | null | undefined) => {
@@ -944,7 +1013,7 @@ export function WarehousePortal() {
     let resolvedOnDelivery = 0
     let needsFollowUp = 0
 
-    for (const entry of scopedReturns) {
+    for (const entry of scopedReplacements) {
       const meta = parseMeta(entry?.notes)
       const rawStatus = String(entry?.status || '').toUpperCase()
       const mode = String((entry as any)?.replacementMode || meta?.replacementMode || '').toUpperCase()
@@ -974,9 +1043,9 @@ export function WarehousePortal() {
       replacedQty,
       resolvedOnDelivery,
       needsFollowUp,
-      totalCases: scopedReturns.length,
+      totalCases: scopedReplacements.length,
     }
-  }, [scopedReturns])
+  }, [scopedReplacements])
 
   const lowStockCount = useMemo(
     () => scopedInventory.filter((item) => (item.quantity ?? 0) <= (item.minStock ?? 0)).length,
@@ -1064,7 +1133,7 @@ export function WarehousePortal() {
       ['PENDING', 'CONFIRMED', 'PREPARING'].includes(String(order.status || '').toUpperCase())
     ).length
     const inTransitTrips = scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length
-    const openReplacements = scopedReturns.filter((entry) => {
+    const openReplacements = scopedReplacements.filter((entry) => {
       const raw = String(entry.status || '').toUpperCase()
       const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw === 'REJECTED' ? 'NEEDS_FOLLOW_UP' : raw
       return !['RESOLVED_ON_DELIVERY', 'COMPLETED'].includes(normalized)
@@ -1169,7 +1238,7 @@ export function WarehousePortal() {
         detail: inTransitTrips > 0 ? `${inTransitTrips} trip(s) currently active` : 'No active outbound trips',
       },
       {
-        id: 'returns',
+        id: 'replacements',
         label: 'Replacement desk',
         detail: openReplacements > 0 ? `${openReplacements} replacement case(s) in progress` : 'No open replacement cases',
       },
@@ -1230,7 +1299,7 @@ export function WarehousePortal() {
       utilizationTrend,
       recentActivities,
     }
-  }, [assignedWarehouse, scopedInventory, scopedOrders, scopedTrips, scopedReturns, stockBatches])
+  }, [assignedWarehouse, scopedInventory, scopedOrders, scopedTrips, scopedReplacements, stockBatches])
 
   const tripStatusColors: Record<string, string> = {
     PLANNED: 'bg-blue-100 text-blue-800',
@@ -1249,19 +1318,7 @@ export function WarehousePortal() {
     init?: RequestInit,
     options?: { retries?: number; timeoutMs?: number }
   ) => {
-    if (Date.now() < dbBackoffUntilRef.current) {
-      return {
-        ok: true as const,
-        data: {
-          success: false,
-          dbUnavailable: true,
-          error: 'Database is temporarily unavailable',
-        },
-        status: 200,
-      }
-    }
-
-    const retries = options?.retries ?? 1
+    const retries = options?.retries ?? 5
     const timeoutMs = options?.timeoutMs ?? 12000
     let lastError = 'Request failed'
 
@@ -1269,24 +1326,25 @@ export function WarehousePortal() {
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
       try {
-        const response = await fetch(input, { ...(init || {}), signal: controller.signal })
+        const token = getTabAuthToken()
+        const headers = new Headers(init?.headers)
+        if (token && !headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`)
+        }
+        const response = await fetch(input, {
+          ...(init || {}),
+          headers,
+          credentials: init?.credentials ?? 'include',
+          signal: controller.signal,
+        })
         const data = await response.json().catch(() => ({}))
         const dbUnavailable = Boolean(data?.dbUnavailable)
-        if (response.ok && (data?.success !== false || dbUnavailable)) {
-          if (dbUnavailable) {
-            dbBackoffUntilRef.current = Date.now() + 5000
-          }
+        if (response.ok && data?.success !== false && !dbUnavailable) {
           return { ok: true as const, data, status: response.status }
         }
         lastError = data?.error || `Request failed (${response.status})`
-        if (dbUnavailable || /connection pool|database is temporarily unavailable/i.test(String(lastError))) {
-          dbBackoffUntilRef.current = Date.now() + 5000
-        }
       } catch (error: any) {
         lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
-        if (/connection pool|database|econnrefused|econnreset|timed out/i.test(String(lastError))) {
-          dbBackoffUntilRef.current = Date.now() + 5000
-        }
       } finally {
         window.clearTimeout(timeout)
       }
@@ -1302,15 +1360,13 @@ export function WarehousePortal() {
   const fetchInventoryData = async () => {
     setLoadingInventory(true)
     try {
-      const result = await safeFetchJson('/api/inventory', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/inventory', { cache: 'no-store' })
       if (!result.ok) {
-        setInventory([])
-        toast.error('Failed to load inventory')
         return
       }
       setInventory(getCollection<InventoryItem>(result.data, ['inventory']))
-    } catch {
-      toast.error('Failed to load inventory')
+    } catch (error) {
+      console.warn('Failed to load inventory:', error)
     } finally {
       setLoadingInventory(false)
     }
@@ -1319,10 +1375,9 @@ export function WarehousePortal() {
   const fetchWarehousesData = async () => {
     setLoadingWarehouses(true)
     try {
-      const result = await safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/warehouses', { cache: 'no-store' })
       if (!result.ok) {
         setWarehouseLoadError(result.error || 'Failed to fetch warehouses')
-        toast.error('Failed to load warehouses')
         return
       }
       if ((result.data as any)?.dbUnavailable) {
@@ -1339,9 +1394,9 @@ export function WarehousePortal() {
       if (firstWarehouse?.id && !routeWarehouseId) {
         setRouteWarehouseId(firstWarehouse.id)
       }
-    } catch {
+    } catch (error) {
       setWarehouseLoadError('Failed to fetch warehouses')
-      toast.error('Failed to load warehouses')
+      console.warn('Failed to load warehouses:', error)
     } finally {
       setLoadingWarehouses(false)
     }
@@ -1349,37 +1404,33 @@ export function WarehousePortal() {
 
   const fetchProductsData = async () => {
     try {
-      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' })
       if (!result.ok) {
-        setProducts([])
-        toast.error('Failed to load products')
         return
       }
       setProducts(getCollection<ProductOption>(result.data, ['products']))
-    } catch {
-      toast.error('Failed to load products')
+    } catch (error) {
+      console.warn('Failed to load products:', error)
     }
   }
 
   const fetchStockBatchesData = async () => {
     setLoadingBatches(true)
     try {
-      const result = await safeFetchJson('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store' })
       if (!result.ok) {
-        setStockBatches([])
-        toast.error('Failed to load stock-in batches')
         return
       }
       setStockBatches(getCollection<StockBatchItem>(result.data, ['stockBatches']))
-    } catch {
-      toast.error('Failed to load stock-in batches')
+    } catch (error) {
+      console.warn('Failed to load stock-in batches:', error)
     } finally {
       setLoadingBatches(false)
     }
   }
 
   const fetchOrderMarker = async () => {
-    const result = await safeFetchJson('/api/orders?limit=1&includeItems=none', { cache: 'no-store', credentials: 'include' }, { retries: 1 })
+    const result = await safeFetchJson('/api/orders?limit=1&includeItems=none', { cache: 'no-store', credentials: 'include' })
     if (!result.ok) {
       throw new Error(result.error || 'Failed orders fetch')
     }
@@ -1401,7 +1452,7 @@ export function WarehousePortal() {
       }
 
       const requestOrders = () =>
-        safeFetchJson('/api/orders?limit=300&includeItems=none', { cache: 'no-store', credentials: 'include' }, { retries: 1 })
+        safeFetchJson('/api/orders?limit=300&includeItems=none', { cache: 'no-store', credentials: 'include' })
 
       let result = await requestOrders()
 
@@ -1418,16 +1469,15 @@ export function WarehousePortal() {
       setOrders(list)
       latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${list[0]?.id || ''}`
     } catch (error: any) {
-      if (!silent) {
-        toast.error(error?.message || 'Failed to load orders')
-      }
+      console.warn('Failed to load orders:', error)
     } finally {
       if (showLoading) setLoadingOrders(false)
     }
   }
 
-  const fetchTripsData = async () => {
-    setLoadingTrips(true)
+  const fetchTripsData = async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading !== false
+    if (showLoading) setLoadingTrips(true)
     try {
       const normalizedTrackingDate =
         /^\d{4}-\d{2}-\d{2}$/.test(String(trackingDate || '').trim())
@@ -1440,43 +1490,53 @@ export function WarehousePortal() {
       if (normalizedTrackingDate) {
         query.set('trackingDate', normalizedTrackingDate)
       }
-      const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
       if (!result.ok) {
-        setTrips([])
-        toast.error(String((result as any)?.data?.error || 'Failed to load trips'))
         return
       }
       setTrips(getCollection<WarehouseTripItem>(result.data, ['trips']))
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to load trips')
+      console.warn('Failed to load trips:', error)
     } finally {
-      setLoadingTrips(false)
+      if (showLoading) setLoadingTrips(false)
     }
   }
 
-  const fetchReturnsData = async () => {
-    setLoadingReturns(true)
+  const fetchInventoryTransactionsData = async () => {
+    setLoadingInventoryTransactions(true)
     try {
-      const result = await safeFetchJson('/api/orders?includeReturns=true&includeOrders=false&includeItems=none&limit=100', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/inventory-transactions?limit=1000', { cache: 'no-store' })
       if (!result.ok) {
-        setReturns([])
-        toast.error('Failed to load replacements')
         return
       }
-      setReturns(getCollection<WarehouseReturnItem>(result.data, ['returns']))
-    } catch {
-      toast.error('Failed to load replacements')
+      setInventoryTransactions(getCollection<InventoryTransactionItem>(result.data, ['transactions']))
+    } catch (error) {
+      console.warn('Failed to load inventory transactions:', error)
     } finally {
-      setLoadingReturns(false)
+      setLoadingInventoryTransactions(false)
+    }
+  }
+
+  const fetchReplacementsData = async () => {
+    setLoadingReplacements(true)
+    try {
+      let result = await safeFetchJson('/api/replacements?limit=300', { cache: 'no-store' })
+      if (!result.ok) {
+        result = await safeFetchJson('/api/orders?includeReplacements=true&includeOrders=false&includeItems=none&limit=300', { cache: 'no-store' })
+      }
+      if (!result.ok) return
+      setReplacements(getCollection<WarehouseReplacementItem>(result.data, ['replacements']))
+    } catch (error) {
+      console.warn('Failed to load replacements:', error)
+    } finally {
+      setLoadingReplacements(false)
     }
   }
 
   const fetchDriversData = async () => {
     try {
-      const result = await safeFetchJson('/api/drivers', undefined, { retries: 1 })
+      const result = await safeFetchJson('/api/drivers?includeSample=true')
       if (!result.ok) {
-        setDrivers([])
-        toast.error('Failed to load drivers')
         return
       }
       const list = getCollection<DriverOption>(result.data, ['drivers'])
@@ -1489,17 +1549,15 @@ export function WarehousePortal() {
       if (preferredDriver?.id && !selectedRouteDriverId) {
         setSelectedRouteDriverId(preferredDriver.id)
       }
-    } catch {
-      toast.error('Failed to load drivers')
+    } catch (error) {
+      console.warn('Failed to load drivers:', error)
     }
   }
 
   const fetchVehiclesData = async () => {
     try {
-      const result = await safeFetchJson('/api/vehicles?status=AVAILABLE', undefined, { retries: 1 })
+      const result = await safeFetchJson('/api/vehicles?status=AVAILABLE')
       if (!result.ok) {
-        setVehicles([])
-        toast.error('Failed to load vehicles')
         return
       }
       const list = getCollection<VehicleOption>(result.data, ['vehicles'])
@@ -1507,28 +1565,23 @@ export function WarehousePortal() {
       if (list[0]?.id && !selectedRouteVehicleId) {
         setSelectedRouteVehicleId(list[0].id)
       }
-    } catch {
-      toast.error('Failed to load vehicles')
+    } catch (error) {
+      console.warn('Failed to load vehicles:', error)
     }
   }
 
   const fetchSavedRoutesData = async () => {
     try {
-      const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 1 })
+      const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' })
       if (!result.ok) {
-        setSavedRoutes([])
-        toast.error('Failed to load saved routes')
         return
       }
       if ((result.data as any)?.success === false) {
-        setSavedRoutes([])
-        toast.error(String((result.data as any)?.error || 'Failed to load saved routes'))
         return
       }
       setSavedRoutes(getCollection<SavedRouteDraft>(result.data, ['savedRoutes']))
-    } catch {
-      setSavedRoutes([])
-      toast.error('Failed to load saved routes')
+    } catch (error) {
+      console.warn('Failed to load saved routes:', error)
     }
   }
 
@@ -1542,6 +1595,9 @@ export function WarehousePortal() {
     }
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
+    setRoutePlans([])
+    setSelectedRouteCity('')
+    setSelectedRouteOrderIds([])
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 20000)
     try {
@@ -1631,17 +1687,25 @@ export function WarehousePortal() {
         throw new Error(data?.error || 'Failed to create trip')
       }
       toast.success('Trip created from route')
-      try {
-        await deleteSavedRouteDraft(selectedSavedRoute.id)
-      } catch (deleteError) {
-        console.error('Failed to delete saved route:', deleteError)
+      const createdTrip = data?.trip
+      if (createdTrip) {
+        setTrips((prev) => [createdTrip, ...prev.filter((trip) => trip.id !== createdTrip.id)])
       }
       setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
       setSelectedSavedRouteId('')
       setCreateTripOpen(false)
-      await fetchTripsData()
-      await fetchOrdersData()
       emitDataSync(['trips', 'orders'])
+      void (async () => {
+        try {
+          await deleteSavedRouteDraft(selectedSavedRoute.id)
+        } catch (deleteError) {
+          console.error('Failed to delete saved route:', deleteError)
+        }
+        await Promise.all([
+          fetchTripsData({ showLoading: false }),
+          fetchOrdersData({ showLoading: false, silent: true }),
+        ])
+      })()
     } catch (error: any) {
       const message = String(error?.message || 'Failed to create trip')
       const lowerMessage = message.toLowerCase()
@@ -1655,9 +1719,11 @@ export function WarehousePortal() {
         setSavedRoutes((prev) => prev.filter((route) => route.id !== selectedSavedRoute.id))
         setSelectedSavedRouteId('')
         setCreateTripOpen(false)
-        await fetchTripsData()
-        await fetchOrdersData()
         emitDataSync(['trips', 'orders'])
+        void Promise.all([
+          fetchTripsData({ showLoading: false }),
+          fetchOrdersData({ showLoading: false, silent: true }),
+        ])
         toast.success('Trip data refreshed. Stale saved route was removed.')
       } else {
         toast.error(message)
@@ -1726,11 +1792,12 @@ export function WarehousePortal() {
         await fetchWarehousesData()
         await fetchProductsData()
         await fetchStockBatchesData()
+        await fetchInventoryTransactionsData()
         await (initial
           ? fetchOrdersData({ showLoading: true })
           : fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true }))
         await fetchTripsData()
-        await fetchReturnsData()
+        await fetchReplacementsData()
         await fetchDriversData()
         await fetchVehiclesData()
         await fetchSavedRoutesData()
@@ -1744,11 +1811,12 @@ export function WarehousePortal() {
     const unsubscribe = subscribeDataSync((message) => {
       if (isRefreshingAllRef.current) return
       const scopes = message.scopes
-      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'warehouses'].includes(scope))) {
+      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'inventory-transactions', 'warehouses'].includes(scope))) {
         void (async () => {
           await fetchInventoryData()
           await fetchProductsData()
           await fetchStockBatchesData()
+          await fetchInventoryTransactionsData()
           await fetchWarehousesData()
         })()
       }
@@ -1758,8 +1826,8 @@ export function WarehousePortal() {
       if (scopes.includes('trips')) {
         void fetchTripsData()
       }
-      if (scopes.includes('returns')) {
-        void fetchReturnsData()
+      if (scopes.includes('replacements')) {
+        void fetchReplacementsData()
       }
       if (scopes.includes('drivers')) {
         void fetchDriversData()
@@ -1991,7 +2059,8 @@ export function WarehousePortal() {
       await fetchInventoryData()
       await fetchProductsData()
       await fetchStockBatchesData()
-      emitDataSync(['inventory', 'products', 'stock-batches'])
+      await fetchInventoryTransactionsData()
+      emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to save changes')
     } finally {
@@ -2021,7 +2090,8 @@ export function WarehousePortal() {
       await fetchInventoryData()
       await fetchProductsData()
       await fetchStockBatchesData()
-      emitDataSync(['inventory', 'products', 'stock-batches'])
+      await fetchInventoryTransactionsData()
+      emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete product')
     } finally {
@@ -2093,7 +2163,8 @@ export function WarehousePortal() {
       await fetchInventoryData()
       await fetchStockBatchesData()
       await fetchProductsData()
-      emitDataSync(['inventory', 'products', 'stock-batches'])
+      await fetchInventoryTransactionsData()
+      emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to add stock')
     } finally {
@@ -2123,16 +2194,6 @@ export function WarehousePortal() {
     const value = String(stage || 'READY_TO_LOAD').toUpperCase()
     return value.replace(/_/g, ' ')
   }
-
-  const isWarehouseChecklistComplete = (order: WarehouseOrderItem | null | undefined) =>
-    Boolean(
-      order?.checklistItemsVerified &&
-      order?.checklistQuantityVerified &&
-      order?.checklistPackagingVerified &&
-      order?.checklistSpareProductsVerified &&
-      order?.checklistVehicleAssigned &&
-      order?.checklistDriverAssigned
-    )
 
   const formatWarehouseOrderAddress = (order: WarehouseOrderItem | null) => {
     const address = String(order?.shippingAddress || '').trim()
@@ -2198,11 +2259,15 @@ export function WarehousePortal() {
         )
       }
 
-      setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, status, notes: reason || prev.notes } : prev))
+      const updatedOrder = payload?.order || {}
+      setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status, notes: reason || order.notes } : order)))
+      setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...updatedOrder, status, notes: reason || prev.notes } : prev))
       toast.success('Order status updated')
-      await fetchOrdersData()
-      await fetchTripsData()
       emitDataSync(['orders', 'trips'])
+      void Promise.all([
+        fetchOrdersData({ showLoading: false, silent: true }),
+        fetchTripsData({ showLoading: false }),
+      ])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
     } finally {
@@ -2226,7 +2291,32 @@ export function WarehousePortal() {
     }
   }
 
-  const formatIssueStatus = (entry: WarehouseReturnItem) => {
+  const buildReplacementLines = (replacement: any, meta: any) => {
+    const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
+      ? replacement.replacementLines
+      : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
+        ? meta.replacementLines
+        : Array.isArray(replacement?.replacementItems) && replacement.replacementItems.length
+          ? replacement.replacementItems
+          : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
+            ? meta.replacementItems
+        : []
+    const fallbackLine = {
+      originalProductName: replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      replacementProductName: replacement?.replacementProductName || meta?.replacementProductName || replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      quantityToReplace: replacement?.quantityToReplace ?? meta?.quantityToReplace ?? meta?.damagedQuantity ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
+      quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
+    }
+    const lines = sourceLines.length ? sourceLines : [fallbackLine]
+    return lines.map((line: any) => ({
+      originalProductName: String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A'),
+      replacementProductName: String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A'),
+      quantityToReplace: Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0),
+      quantityReplaced: Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0),
+    }))
+  }
+
+  const formatIssueStatus = (entry: WarehouseReplacementItem) => {
     const rawStatus = String(entry?.status || '').toUpperCase()
     const normalizedStatus =
       rawStatus === 'REQUESTED'
@@ -2257,7 +2347,7 @@ export function WarehousePortal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scope: 'replacement',
-          returnId: replacementId,
+          replacementId: replacementId,
           status,
           notes,
         }),
@@ -2268,9 +2358,13 @@ export function WarehousePortal() {
       }
 
       toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
-      await fetchReturnsData()
-      await fetchOrdersData()
-      emitDataSync(['returns', 'orders'])
+      emitDataSync(['replacements', 'orders'])
+      setReplacements((prev) => prev.map((entry) => (entry.id === replacementId ? { ...entry, status, notes: notes || entry.notes } : entry)))
+      setSelectedReplacement((current) => (current?.id === replacementId ? { ...current, status, notes: notes || current.notes } : current))
+      void Promise.all([
+        fetchReplacementsData(),
+        fetchOrdersData({ showLoading: false, silent: true }),
+      ])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
     } finally {
@@ -2514,21 +2608,115 @@ export function WarehousePortal() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-[250px] flex items-end gap-3">
-                      {incomeOverviewData.map((item) => {
-                        const max = Math.max(...incomeOverviewData.map((d) => d.value), 1)
-                        return (
-                          <div key={item.day} className="flex-1 flex flex-col items-center gap-2">
-                            <div className="h-full w-full rounded-t-md bg-cyan-100/50 relative min-h-[4px] overflow-hidden">
-                              <div className={`absolute bottom-0 left-0 right-0 rounded-t-md bg-cyan-400 min-h-[4px] ${getHeightClass((item.value / max) * 100)}`} />
+                      {(() => {
+                        const max = Math.max(...incomeOverviewData.map((d) => Number(d.value) || 0), 1)
+                        return incomeOverviewData.map((item) => {
+                          const percent = Math.max(0, Math.min(100, ((Number(item.value) || 0) / max) * 100))
+                          return (
+                            <div key={item.day} className="flex-1 flex flex-col items-center gap-2">
+                              <div className="flex-1 w-full rounded-t-md bg-cyan-100/50 relative min-h-[4px] overflow-hidden">
+                                <div
+                                  className="absolute bottom-0 left-0 right-0 rounded-t-md bg-cyan-400 min-h-[4px]"
+                                  style={{ height: `${percent}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-gray-500">{item.day}</span>
                             </div>
-                            <span className="text-[10px] text-gray-500">{item.day}</span>
-                          </div>
-                        )
-                      })}
+                          )
+                        })
+                      })()}
                     </div>
                   </CardContent>
                 </Card>
               </div>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <CardTitle>Inventory Transactions</CardTitle>
+                      <CardDescription>All inventory movement records for this warehouse.</CardDescription>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <Input
+                        type="date"
+                        value={transactionDateFrom}
+                        onChange={(event) => {
+                          setTransactionDateFrom(event.target.value)
+                          setTransactionDatePreset('custom')
+                        }}
+                        className="h-9"
+                      />
+                      <select
+                        value={transactionDatePreset}
+                        onChange={(event) => setTransactionDatePreset(event.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="custom">Custom range</option>
+                        <option value="past_7_days">Past 7 days</option>
+                        <option value="past_14_days">Past 14 days</option>
+                        <option value="past_1_month">Past 1 month</option>
+                        <option value="past_3_months">Past 3 months</option>
+                        <option value="past_6_months">Past 6 months</option>
+                        <option value="past_1_year">Past 1 year</option>
+                      </select>
+                      <select
+                        value={transactionTypeFilter}
+                        onChange={(event) => setTransactionTypeFilter(event.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="all">All types</option>
+                        {availableInventoryTransactionTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type.replace(/_/g, ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {loadingInventoryTransactions ? (
+                    <div className="h-40 flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+                    </div>
+                  ) : filteredInventoryTransactions.length === 0 ? (
+                    <div className="h-40 flex items-center justify-center text-gray-500">No inventory transactions found</div>
+                  ) : (
+                    <div className="max-h-[380px] overflow-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b sticky top-0 z-10">
+                          <tr>
+                            <th className="text-left p-4 font-medium text-gray-600">Date</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Type</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Product</th>
+                            <th className="text-left p-4 font-medium text-gray-600">SKU</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Qty</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Reference</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredInventoryTransactions.map((entry) => (
+                            <tr key={entry.id} className="border-b last:border-0 hover:bg-gray-50">
+                              <td className="p-4">{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'N/A'}</td>
+                              <td className="p-4">
+                                <Badge variant="outline">{String(entry.type || 'N/A').replace(/_/g, ' ')}</Badge>
+                              </td>
+                              <td className="p-4">{entry.product?.name || 'N/A'}</td>
+                              <td className="p-4">{entry.product?.sku || 'N/A'}</td>
+                              <td className="p-4 font-semibold">{Number(entry.quantity || 0).toLocaleString()}</td>
+                              <td className="p-4 text-gray-600">
+                                {entry.referenceType || 'N/A'}
+                                {entry.referenceId ? ` #${entry.referenceId}` : ''}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -2563,7 +2751,9 @@ export function WarehousePortal() {
                           <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
                             <td className="p-4 font-medium">{order.orderNumber}</td>
                             <td className="p-4">{order.customer?.name || 'N/A'}</td>
-                            <td className="p-4">{new Date(order.createdAt).toLocaleDateString()}</td>
+                            <td className="p-4">
+                              {new Date(order.deliveryDate || order.createdAt).toLocaleDateString()}
+                            </td>
                             <td className="p-4 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                             <td className="p-4">
                               <Badge>{formatWarehouseOrderStatus(order.status, (order as any).paymentStatus)}</Badge>
@@ -2621,10 +2811,13 @@ export function WarehousePortal() {
               onDeleteSavedRoute={(routeId) => {
                 void removeSavedRoute(routeId)
               }}
+              onDeleteTrip={(trip) => {
+                void deleteTrip(trip)
+              }}
             />
           )}
 
-          {activeView === 'returns' && (
+          {activeView === 'replacements' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -2682,11 +2875,11 @@ export function WarehousePortal() {
 
               <Card>
                 <CardContent className="p-0">
-                  {loadingReturns ? (
+                  {loadingReplacements ? (
                     <div className="flex items-center justify-center h-64">
                       <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
                     </div>
-                  ) : scopedReturns.length === 0 ? (
+                  ) : scopedReplacements.length === 0 ? (
                     <div className="py-12 text-center">
                       <p className="text-gray-500">No replacement cases found</p>
                     </div>
@@ -2706,7 +2899,7 @@ export function WarehousePortal() {
                           </tr>
                         </thead>
                         <tbody>
-                          {scopedReturns.map((ret) => {
+                          {scopedReplacements.map((ret) => {
                             const meta = parseIssueMeta(ret?.notes)
                             const issueReason = String(ret?.description || ret?.reason || 'No details provided')
                             const replacementQty = Number(ret?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
@@ -2715,9 +2908,9 @@ export function WarehousePortal() {
                             const statusLabel = formatIssueStatus(ret)
                             return (
                               <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
-                                <td className="p-4 font-medium">{ret.returnNumber}</td>
-                                <td className="p-4">{ret.order?.orderNumber || 'N/A'}</td>
-                                <td className="p-4">{ret.order?.customer?.name || 'N/A'}</td>
+                                <td className="p-4 font-medium">{ret.replacementNumber}</td>
+                                <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
+                                <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
                                 <td className="p-4">
                                   <p className="text-sm text-gray-900">{issueReason}</p>
                                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -2755,16 +2948,13 @@ export function WarehousePortal() {
                                         Mark Completed
                                       </Button>
                                     ) : null}
-                                    {String(ret?.status || '').toUpperCase() !== 'NEEDS_FOLLOW_UP' ? (
-                                      <Button
-                                        size="sm"
-                                        variant="destructive"
-                                        onClick={() => updateIssueStatus(ret.id, 'NEEDS_FOLLOW_UP', 'Marked for follow-up by warehouse staff')}
-                                        disabled={updatingReplacementId === ret.id}
-                                      >
-                                        Needs Follow-up
-                                      </Button>
-                                    ) : null}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setSelectedReplacement(ret)}
+                                    >
+                                      View Details
+                                    </Button>
                                     {updatingReplacementId === ret.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
                                   </div>
                                 </td>
@@ -2777,6 +2967,75 @@ export function WarehousePortal() {
                   )}
                 </CardContent>
               </Card>
+
+              <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
+                <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+                  {selectedReplacement ? (() => {
+                    const meta = parseIssueMeta(selectedReplacement.notes)
+                    const evidenceUrl = String(selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+                    const replacementLines = buildReplacementLines(selectedReplacement, meta)
+                    const details = [
+                      ['Replacement #', selectedReplacement.replacementNumber],
+                      ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
+                      ['Customer', selectedReplacement.customerName || selectedReplacement.order?.customer?.name || 'N/A'],
+                      ['Status', formatIssueStatus(selectedReplacement)],
+                      ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
+                      ['Reason', selectedReplacement.reason || 'N/A'],
+                      ['Resolution', selectedReplacement.description || 'N/A'],
+                      ['Replacement Mode', String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A').replace(/_/g, ' ')],
+                    ] as Array<[string, string]>
+                    return (
+                      <>
+                        <DialogHeader>
+                          <DialogTitle>Replacement Details</DialogTitle>
+                          <DialogDescription>Complete information for {selectedReplacement.replacementNumber}</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {details.map(([label, value]) => (
+                            <div key={label} className="rounded-md border bg-slate-50 px-3 py-2">
+                              <p className="text-xs font-medium text-slate-500">{label}</p>
+                              <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-md border bg-white">
+                          <div className="border-b px-3 py-2">
+                            <p className="text-xs font-medium text-slate-500">Replacement Items</p>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-slate-50 text-xs text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2 text-left font-medium">Original Product</th>
+                                  <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
+                                  <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
+                                  <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {replacementLines.map((line, index) => (
+                                  <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
+                                    <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
+                                    <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
+                                    <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplace}</td>
+                                    <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplaced}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        {evidenceUrl ? (
+                          <div className="rounded-md border bg-white px-3 py-2">
+                            <p className="text-xs font-medium text-slate-500">Evidence</p>
+                            <img src={evidenceUrl} alt="Replacement evidence" className="mt-2 max-h-[360px] w-full rounded-md border object-contain" />
+                          </div>
+                        ) : null}
+                      </>
+                    )
+                  })() : null}
+                </DialogContent>
+              </Dialog>
             </div>
           )}
 
@@ -2811,7 +3070,7 @@ export function WarehousePortal() {
               </div>
 
               <div className="text-sm text-slate-600">
-                Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> •{' '}
+                Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> |{' '}
                 <span className="font-medium text-blue-700">Bright blue = Upcoming</span>
               </div>
 
@@ -2825,6 +3084,7 @@ export function WarehousePortal() {
                         center={liveTrackingCenter}
                         zoom={liveTrackingLocations.length > 0 ? 12 : 10}
                         restrictToNegrosOccidental
+                        showDriverSelfBadge={false}
                         className="w-full h-full rounded-xl overflow-hidden"
                       />
                     </CardContent>
@@ -2896,92 +3156,182 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'inventory' && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <CardTitle>Inventory</CardTitle>
-                    <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <CardTitle>Inventory</CardTitle>
+                      <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
+                    </div>
+                    <Button onClick={() => setAddStockOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Stock
+                    </Button>
                   </div>
-                  <Button onClick={() => setAddStockOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Stock
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {loadingInventory ? (
-                  <div className="h-64 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-                  </div>
-                ) : inventory.length === 0 ? (
-                  <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="text-left p-4 font-medium text-gray-600">SKU</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Product</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Unit</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Price</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Threshold</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Available</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Location</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {inventory.map((item) => {
-                          const status = getStockStatus(item)
-                          const availableQty = getAvailableQty(item)
-                          return (
-                            <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                              <td className="p-4 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
-                              <td className="p-4">
-                                <div className="flex items-center gap-3">
-                                  <img
-                                    src={item.product?.imageUrl || '/logo.svg'}
-                                    alt={item.product?.name || 'Product'}
-                                    className="h-10 w-10 rounded-md object-cover border bg-white"
-                                    onError={(event) => {
-                                      const target = event.currentTarget
-                                      if (target.src.endsWith('/logo.svg')) return
-                                      target.src = '/logo.svg'
-                                    }}
-                                  />
-                                  <div>
-                                    <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
-                                    <p className="text-xs text-gray-500">{item.product?.category?.name || 'General'}</p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {loadingInventory ? (
+                    <div className="h-64 flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+                    </div>
+                  ) : inventory.length === 0 ? (
+                    <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="text-left p-4 font-medium text-gray-600">SKU</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Product</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Unit</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Price</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Threshold</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Available</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Location</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {inventory.map((item) => {
+                            const status = getStockStatus(item)
+                            const availableQty = getAvailableQty(item)
+                            return (
+                              <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                                <td className="p-4 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
+                                <td className="p-4">
+                                  <div className="flex items-center gap-3">
+                                    <img
+                                      src={item.product?.imageUrl || '/logo.svg'}
+                                      alt={item.product?.name || 'Product'}
+                                      className="h-10 w-10 rounded-md object-cover border bg-white"
+                                      onError={(event) => {
+                                        const target = event.currentTarget
+                                        if (target.src.endsWith('/logo.svg')) return
+                                        target.src = '/logo.svg'
+                                      }}
+                                    />
+                                    <div>
+                                      <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
+                                      <p className="text-xs text-gray-500">{item.product?.category?.name || 'General'}</p>
+                                    </div>
                                   </div>
-                                </div>
+                                </td>
+                                <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
+                                <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
+                                <td className="p-4 font-semibold text-gray-900">{item.minStock ?? 0}</td>
+                                <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
+                                <td className="p-4 text-gray-600">
+                                  {item.warehouse?.name || item.warehouse?.code || 'N/A'}
+                                </td>
+                                <td className="p-4">
+                                  {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
+                                  {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
+                                </td>
+                                <td className="p-4">
+                                  <Button size="icon" variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => openEditDialog(item)}>
+                                    <Pencil className="h-5 w-5" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <CardTitle>Inventory Transactions</CardTitle>
+                      <CardDescription>All inventory movement records for this warehouse.</CardDescription>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <Input
+                        type="date"
+                        value={transactionDateFrom}
+                        onChange={(event) => {
+                          setTransactionDateFrom(event.target.value)
+                          setTransactionDatePreset('custom')
+                        }}
+                        className="h-9"
+                      />
+                      <select
+                        value={transactionDatePreset}
+                        onChange={(event) => setTransactionDatePreset(event.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="custom">Custom range</option>
+                        <option value="past_7_days">Past 7 days</option>
+                        <option value="past_14_days">Past 14 days</option>
+                        <option value="past_1_month">Past 1 month</option>
+                        <option value="past_3_months">Past 3 months</option>
+                        <option value="past_6_months">Past 6 months</option>
+                        <option value="past_1_year">Past 1 year</option>
+                      </select>
+                      <select
+                        value={transactionTypeFilter}
+                        onChange={(event) => setTransactionTypeFilter(event.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="all">All types</option>
+                        {availableInventoryTransactionTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type.replace(/_/g, ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {loadingInventoryTransactions ? (
+                    <div className="h-40 flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+                    </div>
+                  ) : filteredInventoryTransactions.length === 0 ? (
+                    <div className="h-40 flex items-center justify-center text-gray-500">No inventory transactions found</div>
+                  ) : (
+                    <div className="max-h-[420px] overflow-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b sticky top-0 z-10">
+                          <tr>
+                            <th className="text-left p-4 font-medium text-gray-600">Date</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Type</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Product</th>
+                            <th className="text-left p-4 font-medium text-gray-600">SKU</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Qty</th>
+                            <th className="text-left p-4 font-medium text-gray-600">Reference</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredInventoryTransactions.map((entry) => (
+                            <tr key={entry.id} className="border-b last:border-0 hover:bg-gray-50">
+                              <td className="p-4">{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'N/A'}</td>
+                              <td className="p-4">
+                                <Badge variant="outline">{String(entry.type || 'N/A').replace(/_/g, ' ')}</Badge>
                               </td>
-                              <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
-                              <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
-                              <td className="p-4 font-semibold text-gray-900">{item.minStock ?? 0}</td>
-                              <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
+                              <td className="p-4">{entry.product?.name || 'N/A'}</td>
+                              <td className="p-4">{entry.product?.sku || 'N/A'}</td>
+                              <td className="p-4 font-semibold">{Number(entry.quantity || 0).toLocaleString()}</td>
                               <td className="p-4 text-gray-600">
-                                {item.warehouse?.name || item.warehouse?.code || 'N/A'}
-                              </td>
-                              <td className="p-4">
-                                {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
-                                {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
-                              </td>
-                              <td className="p-4">
-                                <Button size="icon" variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => openEditDialog(item)}>
-                                  <Pencil className="h-5 w-5" />
-                                </Button>
+                                {entry.referenceType || 'N/A'}
+                                {entry.referenceId ? ` #${entry.referenceId}` : ''}
                               </td>
                             </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeView === 'warehouses' && (
@@ -3302,33 +3652,56 @@ export function WarehousePortal() {
         </main>
       </div>
 
-      <Dialog open={createRouteOpen} onOpenChange={setCreateRouteOpen}>
-        <DialogContent className="w-[98vw] min-w-[1400px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
+      <Dialog
+        open={createRouteOpen}
+        onOpenChange={(open) => {
+          setCreateRouteOpen(open)
+          if (!open) {
+            setRoutePlans([])
+            setSelectedRouteCity('')
+            setSelectedRouteOrderIds([])
+            setRoutePlanMessage(null)
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
           <DialogHeader>
             <DialogTitle className="sr-only">Create Delivery Route</DialogTitle>
           </DialogHeader>
           <div className="flex flex-row w-full h-full">
-            <div className="flex flex-col bg-white border-r p-8 min-w-[340px] max-w-[400px] w-[360px]">
-              <h2 className="text-2xl font-bold mb-6">Create Delivery Route</h2>
-              <div className="mb-4">
+            <div className="flex flex-col bg-white border-r p-4 min-w-[280px] max-w-[330px] w-[300px]">
+              <h2 className="mb-4 text-xl font-bold">Create Delivery Route</h2>
+              <div className="mb-3">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">Delivery Date</label>
                 <Input
                   id="popup-route-date"
                   type="date"
                   value={routeDate}
                   min={new Date().toISOString().split('T')[0]}
-                  onChange={e => setRouteDate(e.target.value)}
-                  className="mt-1"
+                  onChange={(e) => {
+                    const nextDate = e.target.value
+                    setRouteDate(nextDate)
+                    if (createRouteOpen && nextDate && routeWarehouseId) {
+                      void createRoutePlan(true, nextDate, routeWarehouseId)
+                    }
+                  }}
+                  className="mt-1 h-10 text-sm"
                 />
               </div>
-              <div className="mb-4">
+              <div className="mb-3">
                 <label htmlFor="warehouse-select" className="text-sm font-medium text-gray-700">Select Warehouse</label>
                 <select
                   id="warehouse-select"
                   value={routeWarehouseId}
-                  onChange={(e) => setRouteWarehouseId(e.target.value)}
+                  onChange={(e) => {
+                    const nextWarehouseId = e.target.value
+                    setRouteWarehouseId(nextWarehouseId)
+                    if (createRouteOpen && routeDate && nextWarehouseId) {
+                      void createRoutePlan(true, routeDate, nextWarehouseId)
+                    }
+                  }}
                   title="Select warehouse"
-                  className="w-full mt-1 px-3 py-2 border rounded-md bg-white"
+                  className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm"
                 >
                   <option value="">-- Choose Warehouse --</option>
                   {warehouses.map((warehouse) => (
@@ -3338,19 +3711,19 @@ export function WarehousePortal() {
                   ))}
                 </select>
               </div>
-              <Button className="w-full bg-black text-white hover:bg-black/90 mt-2 mb-4" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
+              <Button className="mt-1 mb-3 h-10 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Filter Orders
               </Button>
 
               {routePlanMessage && (
-                <div className={`p-3 rounded-lg mb-4 text-sm ${routePlanMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                <div className={`mb-3 rounded-lg p-2.5 text-xs ${routePlanMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
                   {routePlanMessage.text}
                 </div>
               )}
 
-              <div className="bg-gray-50 rounded-lg p-4 overflow-y-auto flex-1">
-                <h3 className="text-lg font-semibold mb-3">Orders by City</h3>
+              <div className="flex-1 overflow-y-auto rounded-lg bg-gray-50 p-3">
+                <h3 className="mb-2 text-base font-semibold">Orders by City</h3>
                 {routePlans.length === 0 ? (
                   <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
                     {loadingRoutePlans ? 'Loading orders...' : 'Pick a delivery date and warehouse to view orders by city'}
@@ -3361,7 +3734,7 @@ export function WarehousePortal() {
                       <div key={cityGroup.city}>
                         <button
                           onClick={() => setSelectedRouteCity(cityGroup.city)}
-                          className={`w-full text-left p-3 rounded-lg font-semibold mb-2 transition-colors ${
+                          className={`mb-1.5 w-full rounded-lg p-2.5 text-left text-sm font-semibold transition-colors ${
                             selectedRouteCity === cityGroup.city
                               ? 'bg-blue-500 text-white'
                               : 'bg-white border border-gray-200 text-gray-900 hover:border-blue-400'
@@ -3370,12 +3743,12 @@ export function WarehousePortal() {
                           {cityGroup.city} ({cityGroup.orders.length} orders)
                         </button>
                         {selectedRouteCity === cityGroup.city && (
-                          <div className="space-y-1 pl-2 mb-3">
+                          <div className="mb-2.5 space-y-1 pl-2">
                             {cityGroup.orders.map((order) => (
                               <button
                                 key={order.id}
                                 onClick={() => handleRouteOrderClick(cityGroup.city, order.id)}
-                                className={`w-full text-left text-sm p-2 rounded transition-colors ${
+                                className={`w-full rounded p-1.5 text-left text-xs transition-colors ${
                                   selectedRouteOrderIds.includes(order.id)
                                     ? 'bg-blue-100 text-blue-900 font-medium'
                                     : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -3390,7 +3763,7 @@ export function WarehousePortal() {
                                         : 'border-gray-300 bg-white'
                                     }`}
                                   >
-                                    {selectedRouteOrderIds.includes(order.id) ? '✓' : ''}
+                                    {selectedRouteOrderIds.includes(order.id) ? 'âœ“' : ''}
                                   </span>
                                   <span className="truncate">{order.orderNumber || order.id}</span>
                                 </div>
@@ -3404,12 +3777,12 @@ export function WarehousePortal() {
                   </div>
                 )}
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-2 space-y-1.5">
                 <p className="text-xs text-gray-500">
                   Driver assignment is done in New Trip.
                 </p>
                 <Button
-                  className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                  className="h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
                     void saveRouteDraft()
                   }}
@@ -3425,51 +3798,51 @@ export function WarehousePortal() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 flex flex-col bg-gray-50 p-10 overflow-y-auto min-w-0">
+            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-6">
               <Card>
-                <CardHeader>
-                  <CardTitle>Delivery Locations</CardTitle>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Delivery Locations</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="w-full rounded-xl border bg-gray-50 p-6 flex flex-col items-center">
+                <CardContent className="pt-2">
+                  <div className="flex w-full flex-col items-center rounded-xl border bg-gray-50 p-4">
                     {(() => {
                       const wh = warehouses.find((w) => w.id === routeWarehouseId)
                       if (!wh) return <div className="mb-4 text-gray-400">Select a warehouse to start</div>
                       return (
-                        <div className="w-full max-w-xl mb-4">
-                          <div className="rounded-lg border-2 border-green-400 bg-green-50 p-4 flex flex-col items-start mb-2">
-                            <div className="flex items-center gap-2 mb-1">
+                        <div className="mb-3 w-full max-w-xl">
+                          <div className="mb-1.5 flex flex-col items-start rounded-lg border-2 border-green-400 bg-green-50 p-3">
+                            <div className="mb-1 flex items-center gap-2">
                               <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-green-500 text-white font-bold mr-2">
                                 <svg width="18" height="18" fill="none"><path d="M9 2.25a6.75 6.75 0 1 1 0 13.5a6.75 6.75 0 0 1 0-13.5Zm0 2.25v2.25m0 2.25h.008v.008H9V6.75Z" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                               </span>
                               <span className="font-semibold text-green-900">Warehouse - Starting Point</span>
                             </div>
-                            <div className="text-sm font-medium text-gray-700">{wh.name}</div>
-                            <div className="text-xs text-green-700">{[wh.address, wh.city, wh.province].filter(Boolean).join(', ')}</div>
+                            <div className="text-xs font-semibold text-gray-700">{wh.name}</div>
+                            <div className="text-[11px] text-green-700">{[wh.address, wh.city, wh.province].filter(Boolean).join(', ')}</div>
                             {wh.latitude && wh.longitude && (
-                              <div className="text-xs text-gray-500 mt-1">Coordinates: {wh.latitude}, {wh.longitude}</div>
+                              <div className="mt-1 text-[11px] text-gray-500">Coordinates: {wh.latitude}, {wh.longitude}</div>
                             )}
                           </div>
                         </div>
                       )
                     })()}
-                    <div className="w-full max-w-xl flex flex-col gap-3">
+                    <div className="flex w-full max-w-xl flex-col gap-2">
                       {(() => {
                         if (!routePlans || !selectedRouteCity) return null
                         const group = routePlans.find((g) => g.city === selectedRouteCity)
                         if (!group) return null
                         const selectedOrders = group.orders.filter((order) => selectedRouteOrderIds.includes(order.id))
                         return selectedOrders.map((order, idx) => (
-                          <div key={order.id} className="rounded-lg border bg-white flex items-start gap-3 p-4">
-                            <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-500 text-white font-bold text-lg">{idx + 1}</div>
+                          <div key={order.id} className="flex items-start gap-2 rounded-lg border bg-white p-3">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-sm font-bold text-white">{idx + 1}</div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
-                              <div className="text-xs text-gray-600">{order.address || order.city || ''}</div>
+                              <div className="text-sm font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
+                              <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
                               {order.products && (
-                                <div className="text-xs text-gray-500 mt-1">{order.products}</div>
+                                <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
                               )}
                               {order.latitude && order.longitude && (
-                                <div className="text-xs text-gray-500 mt-1">Coordinates: {order.latitude}, {order.longitude}</div>
+                                <div className="mt-0.5 text-[11px] text-gray-500">Coordinates: {order.latitude}, {order.longitude}</div>
                               )}
                             </div>
                           </div>
@@ -3502,7 +3875,7 @@ export function WarehousePortal() {
                 <option value="">Select route</option>
                 {savedRoutes.map((route) => (
                   <option key={route.id} value={route.id}>
-                    {route.city} • {new Date(route.date).toLocaleDateString()} • {route.orderIds.length} orders
+                    {route.city} | {new Date(route.date).toLocaleDateString()} | {route.orderIds.length} orders
                   </option>
                 ))}
               </select>
@@ -3601,9 +3974,10 @@ export function WarehousePortal() {
                         <div>
                           <p>{item.product?.name || 'Product'} x{item.quantity}</p>
                           {(item as any).spareProducts ? (
-                            <p className="text-xs text-gray-500">
-                              Auto spare products {Number((item as any).spareProducts.recommendedQuantity || 0)} • Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)} • Policy {Number((item as any).spareProducts.minPercent || 0)}-{Number((item as any).spareProducts.maxPercent || 0)}%
-                            </p>
+                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                              <p>Spare products: {Number((item as any).spareProducts.recommendedQuantity || 0)}</p>
+                              <p>Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)} | Policy {Number((item as any).spareProducts.minPercent || 0)}-{Number((item as any).spareProducts.maxPercent || 0)}%</p>
+                            </div>
                           ) : null}
                         </div>
                         <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
@@ -3612,11 +3986,11 @@ export function WarehousePortal() {
                     <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
                   </div>
                 </div>
-                <div className="rounded-md border p-3">
+                <div className="hidden">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="font-medium">Checklist</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${isWarehouseChecklistComplete(selectedOrder) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {isWarehouseChecklistComplete(selectedOrder) ? 'Completed' : 'Pending'}
+                    <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700">
+                      Pending
                     </span>
                   </div>
                   <div className="space-y-2">
@@ -3625,13 +3999,14 @@ export function WarehousePortal() {
                         <div>
                           <p>{item.product?.name || 'Product'} x{item.quantity}</p>
                           {(item as any).spareProducts ? (
-                            <p className="text-xs text-gray-500">
-                              Auto spare products {Number((item as any).spareProducts.recommendedQuantity || 0)} • Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)}
-                            </p>
+                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                              <p>Spare products: {Number((item as any).spareProducts.recommendedQuantity || 0)}</p>
+                              <p>Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)}</p>
+                            </div>
                           ) : null}
                         </div>
-                        <span className={`font-medium ${isWarehouseChecklistComplete(selectedOrder) ? 'text-emerald-700' : 'text-gray-500'}`}>
-                          {isWarehouseChecklistComplete(selectedOrder) ? 'Completed' : 'Pending'}
+                        <span className="font-medium text-gray-500">
+                          Pending
                         </span>
                       </div>
                     ))}
@@ -3929,3 +4304,4 @@ export function WarehousePortal() {
     </div>
   )
 }
+

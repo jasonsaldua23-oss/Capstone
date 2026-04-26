@@ -14,7 +14,7 @@ export function useAuth() {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, portal }),
       })
 
       const rawBody = await response.text()

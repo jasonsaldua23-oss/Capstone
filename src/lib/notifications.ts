@@ -141,29 +141,29 @@ export async function notifyOrderCancelledByCustomer(params: {
 }
 
 export async function notifyReplacementStatusChanged(params: {
-  returnId: string
-  returnNumber: string
+  replacementId: string
+  replacementNumber: string
   customerId: string
   status: string
 }) {
-  const { returnId, returnNumber, customerId, status } = params
+  const { replacementId, replacementNumber, customerId, status } = params
   const normalizedStatus = String(status || '').toUpperCase().replace(/_/g, ' ')
 
   await safeNotify('notifyReplacementStatusChanged', async () => {
     await Promise.all([
       createCustomerNotification(customerId, {
         title: 'Replacement status updated',
-        message: `Replacement ${returnNumber} is now ${normalizedStatus}.`,
+        message: `Replacement ${replacementNumber} is now ${normalizedStatus}.`,
         type: 'return_update',
         referenceType: 'return',
-        referenceId: returnId,
+        referenceId: replacementId,
       }),
       createStaffNotificationsByRoles(['SUPER_ADMIN', 'ADMIN', 'WAREHOUSE_STAFF'], {
         title: 'Replacement updated',
-        message: `Replacement ${returnNumber} moved to ${normalizedStatus}.`,
+        message: `Replacement ${replacementNumber} moved to ${normalizedStatus}.`,
         type: 'return_update',
         referenceType: 'return',
-        referenceId: returnId,
+        referenceId: replacementId,
       }),
     ])
   })

@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -20,6 +21,7 @@ from .models import (
     OrderTimeline,
     OrderStatus,
     Product,
+    Replacement,
     Role,
     SavedRouteDraft,
     SpareStockTransaction,
@@ -319,7 +321,7 @@ class CustomerTrackingApiContractTests(TestCase):
         Order.objects.create(
             order_number="ORD-CONTRACT-OTHER-001",
             customer=self.other_customer,
-            status=OrderStatus.PROCESSING,
+            status=OrderStatus.PREPARING,
             subtotal=80,
             total_amount=85,
         )
@@ -406,7 +408,7 @@ class CustomerOrdersApiContractTests(TestCase):
         own_order = Order.objects.create(
             order_number="ORD-CUST-001",
             customer=self.customer,
-            status=OrderStatus.PROCESSING,
+            status=OrderStatus.PREPARING,
             subtotal=500,
             total_amount=550,
         )
@@ -780,6 +782,147 @@ class CustomerOrdersPostApiContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "items are required")
+
+    def test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided(self) -> None:
+        near_warehouse = Warehouse.objects.create(
+            name="Near Warehouse",
+            code="WH-POST-NEAR-001",
+            address="Near Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            latitude=10.3150,
+            longitude=123.8854,
+            is_active=True,
+        )
+        far_warehouse = Warehouse.objects.create(
+            name="Far Warehouse",
+            code="WH-POST-FAR-001",
+            address="Far Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            latitude=10.1200,
+            longitude=123.7000,
+            is_active=True,
+        )
+
+        near_inventory = Inventory.objects.create(
+            warehouse=near_warehouse,
+            product=self.product,
+            quantity=20,
+            reserved_quantity=0,
+            min_stock=2,
+            max_stock=100,
+            reorder_point=5,
+        )
+        far_inventory = Inventory.objects.create(
+            warehouse=far_warehouse,
+            product=self.product,
+            quantity=20,
+            reserved_quantity=0,
+            min_stock=2,
+            max_stock=100,
+            reorder_point=5,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-POST-NEAR-001",
+            inventory=near_inventory,
+            quantity=20,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-POST-FAR-001",
+            inventory=far_inventory,
+            quantity=20,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "shippingLatitude": 10.3140,
+                "shippingLongitude": 123.8860,
+                "items": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 2,
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["warehouseId"], near_warehouse.id)
+
+    def test_customer_orders_post_leaves_warehouse_unassigned_when_no_single_warehouse_can_fulfill(self) -> None:
+        product_two = Product.objects.create(
+            sku="SKU-POST-002",
+            name="Sparkling Water",
+            unit="case",
+            price=140,
+            is_active=True,
+        )
+
+        warehouse_two = Warehouse.objects.create(
+            name="Secondary Warehouse",
+            code="WH-POST-002",
+            address="Secondary Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+
+        self.inventory.quantity = 5
+        self.inventory.reserved_quantity = 0
+        self.inventory.save(update_fields=["quantity", "reserved_quantity", "updated_at"])
+
+        inventory_two = Inventory.objects.create(
+            warehouse=warehouse_two,
+            product=product_two,
+            quantity=5,
+            reserved_quantity=0,
+            min_stock=1,
+            max_stock=50,
+            reorder_point=2,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-POST-002",
+            inventory=inventory_two,
+            quantity=5,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "items": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 2,
+                    },
+                    {
+                        "productId": product_two.id,
+                        "quantity": 2,
+                    },
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIsNone(payload["order"]["warehouseId"])
 
 
 class DriverProfileApiContractTests(TestCase):
@@ -2599,14 +2742,14 @@ class RoutePlanStructureContractTests(TestCase):
         self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
         self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
         self.admin_user = User.objects.create(
-            email="route.plan.structure.admin@example.com",
+            email="route.plan.structure.admin@route.local",
             password="hashed",
             name="Route Plan Structure Admin",
             role=self.admin_role,
             is_active=True,
         )
         self.driver_user = User.objects.create(
-            email="route.plan.structure.driver@example.com",
+            email="route.plan.structure.driver@route.local",
             password="hashed",
             name="Route Plan Structure Driver",
             role=self.driver_role,
@@ -2626,7 +2769,7 @@ class RoutePlanStructureContractTests(TestCase):
             is_active=True,
         )
         self.customer = Customer.objects.create(
-            email="route.plan.structure.customer@example.com",
+            email="route.plan.structure.customer@route.local",
             password="hashed",
             name="Route Plan Structure Customer",
             latitude=10.31,
@@ -2665,7 +2808,7 @@ class RoutePlanStructureContractTests(TestCase):
         order = Order.objects.create(
             order_number="ORD-ROUTE-STRUCT-001",
             customer=self.customer,
-            status=OrderStatus.PROCESSING,
+            status=OrderStatus.PREPARING,
             subtotal=200,
             total_amount=220,
             warehouse_id=self.warehouse.id,
@@ -2715,6 +2858,149 @@ class RoutePlanStructureContractTests(TestCase):
         self.assertIn("totalDistanceKm", plan)
         self.assertIn("orders", plan)
 
+    def test_route_plan_uses_rescheduled_delivery_date_not_created_date(self) -> None:
+        future_delivery = timezone.now() + timedelta(days=2)
+        order = Order.objects.create(
+            order_number="ORD-ROUTE-RESCHEDULED-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=200,
+            total_amount=220,
+            warehouse_id=self.warehouse.id,
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            quantity=2,
+            unit_price=100,
+            total_price=200,
+        )
+        OrderLogistics.objects.create(
+            order=order,
+            shipping_name="Customer A",
+            shipping_phone="+1-555-0100",
+            shipping_address="123 Structure Street",
+            shipping_city="Bacolod",
+            shipping_province="Negros Occidental",
+            shipping_zip_code="6100",
+            shipping_country="Philippines",
+            shipping_latitude=10.32,
+            shipping_longitude=123.88,
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=future_delivery)
+
+        today_response = self.client.get(
+            "/api/trips/route-plan",
+            data={"warehouseId": self.warehouse.id, "date": timezone.now().date().isoformat()},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(today_response.status_code, 200)
+        today_order_ids = [row["id"] for row in today_response.json()["orders"]]
+        self.assertNotIn(order.id, today_order_ids)
+
+        future_response = self.client.get(
+            "/api/trips/route-plan",
+            data={"warehouseId": self.warehouse.id, "date": future_delivery.date().isoformat()},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(future_response.status_code, 200)
+        future_order_ids = [row["id"] for row in future_response.json()["orders"]]
+        self.assertIn(order.id, future_order_ids)
+
+    def test_route_plan_hides_order_assigned_to_trip_until_trip_deleted(self) -> None:
+        delivery_date = timezone.now() + timedelta(days=1)
+        order = Order.objects.create(
+            order_number="ORD-ROUTE-ASSIGNED-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=200,
+            total_amount=220,
+            warehouse_id=self.warehouse.id,
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            quantity=2,
+            unit_price=100,
+            total_price=200,
+        )
+        OrderLogistics.objects.create(
+            order=order,
+            shipping_name="Customer A",
+            shipping_phone="+1-555-0100",
+            shipping_address="123 Structure Street",
+            shipping_city="Bacolod",
+            shipping_province="Negros Occidental",
+            shipping_zip_code="6100",
+            shipping_country="Philippines",
+            shipping_latitude=10.32,
+            shipping_longitude=123.88,
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=delivery_date)
+        trip = Trip.objects.create(
+            trip_number="TRP-ROUTE-ASSIGNED-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            warehouse_id=self.warehouse.id,
+            status=TripStatus.PLANNED,
+            planned_start_at=delivery_date,
+        )
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=order,
+            sequence=1,
+            status="PENDING",
+            location_name="Customer A",
+            address="123 Structure Street",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
+
+        assigned_response = self.client.get(
+            "/api/trips/route-plan",
+            data={"warehouseId": self.warehouse.id, "date": delivery_date.date().isoformat()},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(assigned_response.status_code, 200)
+        assigned_order_ids = [row["id"] for row in assigned_response.json()["orders"]]
+        self.assertNotIn(order.id, assigned_order_ids)
+
+        delete_response = self.client.delete(
+            f"/api/trips/{trip.id}",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(delete_response.status_code, 200)
+
+        released_response = self.client.get(
+            "/api/trips/route-plan",
+            data={"warehouseId": self.warehouse.id, "date": delivery_date.date().isoformat()},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(released_response.status_code, 200)
+        released_order_ids = [row["id"] for row in released_response.json()["orders"]]
+        self.assertIn(order.id, released_order_ids)
+
+    def test_trip_delete_rejects_non_planned_trip(self) -> None:
+        trip = Trip.objects.create(
+            trip_number="TRP-DELETE-IN-PROGRESS-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            warehouse_id=self.warehouse.id,
+            status=TripStatus.IN_PROGRESS,
+            planned_start_at=timezone.now(),
+            actual_start_at=timezone.now(),
+        )
+
+        response = self.client.delete(
+            f"/api/trips/{trip.id}",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "Only planned trips can be deleted")
+        self.assertTrue(Trip.objects.filter(id=trip.id).exists())
+
 
 class TripsPostCreationContractTests(TestCase):
     def setUp(self) -> None:
@@ -2759,14 +3045,14 @@ class TripsPostCreationContractTests(TestCase):
         self.order_1 = Order.objects.create(
             order_number="ORD-TRIPS-POST-001",
             customer=self.customer,
-            status=OrderStatus.DISPATCHED,
+            status=OrderStatus.OUT_FOR_DELIVERY,
             subtotal=120,
             total_amount=132,
         )
         self.order_2 = Order.objects.create(
             order_number="ORD-TRIPS-POST-002",
             customer=self.customer,
-            status=OrderStatus.DISPATCHED,
+            status=OrderStatus.OUT_FOR_DELIVERY,
             subtotal=140,
             total_amount=154,
         )
@@ -2883,7 +3169,7 @@ class PaginationGuardsContractTests(TestCase):
             is_active=True,
         )
         self.customer = Customer.objects.create(
-            email="pagination.customer@example.com",
+            email="pagination.customer@logitrack.local",
             password="hashed",
             name="Pagination Customer",
             is_active=True,
@@ -2902,7 +3188,7 @@ class PaginationGuardsContractTests(TestCase):
             Order.objects.create(
                 order_number=f"ORD-PAGINATION-{idx + 1:03d}",
                 customer=self.customer,
-                status=OrderStatus.PROCESSING,
+                status=OrderStatus.PREPARING,
                 subtotal=100 + idx,
                 total_amount=110 + idx,
             )
@@ -2945,6 +3231,144 @@ class PaginationGuardsContractTests(TestCase):
         high_payload = high_bound.json()
         self.assertEqual(high_payload["pageSize"], 1000)
         self.assertEqual(len(high_payload["orders"]), 3)
+
+    def test_orders_include_returns_always_exposes_customer_display_name(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-RETURN-CUSTOMER",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+        )
+        OrderLogistics.objects.create(
+            order=order,
+            shipping_name="Fallback Shipping Customer",
+            shipping_phone="555-0100",
+            shipping_address="123 Return Street",
+            shipping_city="Return City",
+            shipping_province="Return Province",
+            shipping_zip_code="5000",
+            shipping_country="Philippines",
+        )
+        self.customer.name = ""
+        self.customer.save(update_fields=["name", "updated_at"])
+        Replacement.objects.create(
+            replacement_number="RET-CUSTOMER-001",
+            order=order,
+            customer_id=self.customer.id,
+            reason="Damaged item",
+            pickup_address="123 Return Street",
+            pickup_city="Return City",
+            pickup_province="Return Province",
+            pickup_zip_code="5000",
+        )
+
+        response = self.client.get(
+            "/api/orders",
+            data={"includeReplacements": "true", "includeOrders": "false", "includeItems": "none", "limit": 10},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        returned = next(row for row in payload["replacements"] if row["replacementNumber"] == "RET-CUSTOMER-001")
+        self.assertEqual(returned["customerName"], "Fallback Shipping Customer")
+        self.assertEqual(returned["order"]["customer"]["id"], self.customer.id)
+
+    def test_orders_include_returns_exposes_replacement_item_quantities(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-RETURN-QUANTITIES",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+        )
+        product = Product.objects.create(sku="RET-COKE-001", name="coke", price=10)
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=7,
+            unit_price=10,
+            total_price=70,
+        )
+        Replacement.objects.create(
+            replacement_number="RET-QUANTITY-001",
+            order=order,
+            customer_id=self.customer.id,
+            reason="Damaged item",
+            status="NEEDS_FOLLOW_UP",
+            original_order_item_id=order_item.id,
+            replacement_product_id=product.id,
+            replacement_quantity=1,
+            pickup_address="123 Return Street",
+            pickup_city="Return City",
+            pickup_province="Return Province",
+            pickup_zip_code="5000",
+            notes='Partial replacement reported by driver\nMeta: {"quantityToReplace": 6, "quantityReplaced": 1}',
+        )
+
+        response = self.client.get(
+            "/api/orders",
+            data={"includeReplacements": "true", "includeOrders": "false", "includeItems": "none", "limit": 10},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        returned = next(row for row in response.json()["replacements"] if row["replacementNumber"] == "RET-QUANTITY-001")
+        self.assertEqual(returned["quantityToReplace"], 6)
+        self.assertEqual(returned["quantityReplaced"], 1)
+        self.assertEqual(returned["remainingQuantity"], 5)
+        self.assertEqual(returned["replacementItems"][0]["quantityToReplace"], 6)
+        self.assertEqual(returned["replacementItems"][0]["quantityReplaced"], 1)
+
+    def test_driver_spare_replacement_accepts_multiple_damaged_products(self) -> None:
+        driver_token = create_token(
+            {
+                "userId": self.driver_user.id,
+                "email": self.driver_user.email,
+                "name": self.driver_user.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        order = Order.objects.create(
+            order_number="ORD-MULTI-DAMAGE",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+        )
+        coke = Product.objects.create(sku="MULTI-COKE-001", name="coke", price=10)
+        sprite = Product.objects.create(sku="MULTI-SPRITE-001", name="sprite", price=12)
+        coke_item = OrderItem.objects.create(order=order, product=coke, quantity=8, unit_price=10, total_price=80)
+        sprite_item = OrderItem.objects.create(order=order, product=sprite, quantity=5, unit_price=12, total_price=60)
+        DriverSpareStock.objects.create(driver=self.driver, product=coke, quantity=10, min_quantity=0)
+        DriverSpareStock.objects.create(driver=self.driver, product=sprite, quantity=10, min_quantity=0)
+
+        response = self.client.post(
+            "/api/driver/replacements/from-spare-products",
+            data=json.dumps({
+                "orderId": order.id,
+                "tripId": "trip-multi-damage",
+                "dropPointId": "drop-multi-damage",
+                "outcome": "PARTIALLY_REPLACED",
+                "reason": "Multiple damaged products",
+                "damagePhotos": ["/uploads/pods/multi-damage.jpg"],
+                "items": [
+                    {"orderItemId": coke_item.id, "quantityToReplace": 6, "quantityReplaced": 1},
+                    {"orderItemId": sprite_item.id, "quantityToReplace": 3, "quantityReplaced": 2},
+                ],
+            }),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["replacements"]), 2)
+        quantities = sorted((row["originalProductName"], row["quantityToReplace"], row["quantityReplaced"]) for row in payload["replacements"])
+        self.assertEqual(quantities, [("coke", 6, 1), ("sprite", 3, 2)])
+        self.assertEqual(Replacement.objects.filter(order=order).count(), 2)
 
     def test_trips_endpoint_uses_expected_pagination_defaults_and_bounds(self) -> None:
         default_response = self.client.get("/api/trips", HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
@@ -3114,20 +3538,14 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         )
         self.assertEqual(completed.status_code, 200)
         self.assertEqual(completed.json()["dropPoint"]["status"], "COMPLETED")
+        self.assertEqual(completed.json()["order"]["status"], OrderStatus.DELIVERED)
 
         trip_db = Trip.objects.get(id=trip_id)
         self.assertEqual(trip_db.status, TripStatus.COMPLETED)
         self.assertEqual(trip_db.completed_drop_points, 1)
         self.assertIsNotNone(trip_db.actual_end_at)
 
-        delivered = self.client.patch(
-            f"/api/orders/{self.order.id}/status",
-            data={"status": "DELIVERED"},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(delivered.status_code, 200)
-        self.assertEqual(delivered.json()["order"]["status"], OrderStatus.DELIVERED)
-
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.DELIVERED)
         order_timeline = OrderTimeline.objects.get(order=self.order)
         self.assertIsNotNone(order_timeline.delivered_at)

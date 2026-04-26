@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Loader2, Route, Truck } from 'lucide-react'
+import { Loader2, Route, Trash2, Truck } from 'lucide-react'
 
 type SavedRouteOrder = {
   id: string
@@ -60,6 +60,7 @@ type WarehouseTripsSectionProps = {
   onOpenCreateRoute: () => void
   onOpenCreateTrip: () => void
   onDeleteSavedRoute: (routeId: string) => void
+  onDeleteTrip: (trip: TripItem) => void
 }
 
 export function WarehouseTripsSection({
@@ -73,6 +74,7 @@ export function WarehouseTripsSection({
   onOpenCreateRoute,
   onOpenCreateTrip,
   onDeleteSavedRoute,
+  onDeleteTrip,
 }: WarehouseTripsSectionProps) {
   const normalizeTripStatus = (status: string | null | undefined) => {
     const value = String(status || '').toUpperCase()
@@ -129,6 +131,8 @@ export function WarehouseTripsSection({
   const getEffectiveTotalDropPoints = (trip: TripItem) => {
     return Math.max(Number(trip.totalDropPoints || 0), Array.isArray(trip.dropPoints) ? trip.dropPoints.length : 0)
   }
+
+  const canDeleteTrip = (trip: TripItem) => getEffectiveTripStatus(trip) === 'PLANNED'
 
   return (
     <div className="space-y-4">
@@ -214,6 +218,7 @@ export function WarehouseTripsSection({
               {scopedTrips.map((trip) => (
                 (() => {
                   const statusKey = getEffectiveTripStatus(trip)
+                  const deleteAllowed = canDeleteTrip(trip)
                   return (
                 <div
                   key={trip.id}
@@ -235,17 +240,33 @@ export function WarehouseTripsSection({
                         Route: {(assignedWarehouseName || 'Warehouse')} {'->'} {(trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination')}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0 h-8 px-3 text-xs"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setSelectedTrip(trip)
-                      }}
-                    >
-                      View Details
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setSelectedTrip(trip)
+                        }}
+                      >
+                        View Details
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs text-red-600 hover:text-red-700"
+                        disabled={!deleteAllowed}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (!deleteAllowed) return
+                          onDeleteTrip(trip)
+                        }}
+                        title={deleteAllowed ? 'Delete trip' : 'Only planned trips can be deleted'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
                   )
@@ -263,11 +284,26 @@ export function WarehouseTripsSection({
               const statusKey = getEffectiveTripStatus(selectedTrip)
               const effectiveCompletedDropPoints = getEffectiveCompletedDropPoints(selectedTrip)
               const effectiveTotalDropPoints = getEffectiveTotalDropPoints(selectedTrip)
+              const deleteAllowed = canDeleteTrip(selectedTrip)
               return (
             <div className="space-y-4">
               <div className="flex items-center gap-3 mb-2">
                 <span className="text-lg font-bold text-gray-900">{selectedTrip.tripNumber}</span>
                 <Badge className={tripStatusColors[statusKey] || 'bg-gray-100'}>{statusKey.replace(/_/g, ' ')}</Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-8 text-red-600 hover:text-red-700"
+                  disabled={!deleteAllowed}
+                  onClick={() => {
+                    if (!deleteAllowed) return
+                    onDeleteTrip(selectedTrip)
+                  }}
+                  title={deleteAllowed ? 'Delete trip' : 'Only planned trips can be deleted'}
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" />
+                  Delete Trip
+                </Button>
               </div>
               <div className="flex flex-wrap gap-6 mb-2 text-sm">
                 <div>

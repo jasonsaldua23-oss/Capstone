@@ -114,25 +114,33 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: var(--border);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--background);
+    color: var(--foreground);
   }
 }
 
 /* Dynamic height/width utilities for charts and bars */
 @layer components {
   .chart-bar {
-    @apply h-full bg-blue-500 transition-all;
+    height: 100%;
+    background-color: var(--color-blue-500, #3b82f6);
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .chart-bar-width {
-    @apply h-full transition-all;
+    height: 100%;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .chart-positive {
-    @apply h-full bg-green-500 transition-all;
+    height: 100%;
+    background-color: var(--color-green-500, #22c55e);
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .chart-negative {
-    @apply h-full bg-red-500 transition-all;
+    height: 100%;
+    background-color: var(--color-red-500, #ef4444);
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 }

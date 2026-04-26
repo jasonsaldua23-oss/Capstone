@@ -7,7 +7,7 @@ export type DataSyncScope =
   | 'warehouses'
   | 'orders'
   | 'trips'
-  | 'returns'
+  | 'replacements'
   | 'drivers'
   | 'vehicles'
 

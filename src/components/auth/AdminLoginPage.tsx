@@ -29,7 +29,7 @@ export function AdminLoginPage() {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 3000)
       try {
-        const response = await fetch('/api/auth/me', { signal: controller.signal })
+        const response = await fetch('/api/auth/me', { signal: controller.signal, cache: 'no-store', credentials: 'include' })
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
@@ -55,8 +55,9 @@ export function AdminLoginPage() {
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, rememberMe }),
+        body: JSON.stringify({ email, password, rememberMe, portal: 'admin' }),
       })
       const rawBody = await response.text()
       let data: any = null

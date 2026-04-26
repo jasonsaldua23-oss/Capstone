@@ -8,7 +8,6 @@ This backend is created in parallel to the existing Next.js API so the current s
 cd backend
 python manage.py makemigrations
 python manage.py migrate
-python manage.py shell -c "from core.views import ensure_demo_accounts; ensure_demo_accounts(); print('demo users ready')"
 python manage.py runserver 0.0.0.0:8000
 ```
 
@@ -64,7 +63,7 @@ python manage.py runserver 0.0.0.0:8000
 
 ## Notes
 
-- Uses `.env` from repo root (`DATABASE_URL`, `JWT_SECRET`) when present.
+- Uses `.env` from repo root (`DATABASE_URL`, `JWT_SECRET`) when present; keep `DJANGO_USE_SQLITE=0` to show only real database data.
 - Domain models are ported from Prisma schema in `prisma/schema.prisma`.
 - Existing Next.js API remains untouched for safe migration.
 - Use Django on a different port during parallel validation, then switch traffic when ready.

@@ -168,7 +168,7 @@ export default function Home() {
 
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/me')
+        const response = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'include' })
         if (response.ok) {
           const data = await response.json()
           if (data.user) {
@@ -192,14 +192,7 @@ export default function Home() {
     }
     checkAuth()
     
-    // Timeout to force loading to end after 3 seconds
-    const timeout = setTimeout(() => {
-      console.warn('Auth check timeout - forcing load completion')
-      setIsLoading(false)
-    }, 3000)
-    
     return () => {
-      clearTimeout(timeout)
       uninstallFetchInterceptor()
     }
   }, [allowedPortals, defaultPortal])

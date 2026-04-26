@@ -1,11 +1,12 @@
-'use client'
+﻿'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Poppins } from 'next/font/google'
 import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/page'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { getTabAuthToken } from '@/lib/client-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import { 
   Truck, 
@@ -55,13 +57,66 @@ import {
   CalendarClock,
   LocateFixed,
   Trophy,
-  RotateCcw
+  RotateCcw,
+  Search
 } from 'lucide-react'
 
 const poppins = Poppins({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700', '800'],
 })
+
+async function fetchJsonWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  retryConfig: number | { retries?: number; timeoutMs?: number } = 5
+) {
+  const retries = typeof retryConfig === 'number' ? retryConfig : (retryConfig.retries ?? 5)
+  const timeoutMs = typeof retryConfig === 'number' ? 10000 : (retryConfig.timeoutMs ?? 10000)
+  let lastResponse: Response | null = null
+  let lastData: any = {}
+  let lastRaw = ''
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const token = getTabAuthToken()
+      const headers = new Headers(init?.headers)
+      if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
+      const response = await fetch(input, {
+        ...(init || {}),
+        headers,
+        credentials: init?.credentials ?? 'include',
+        signal: controller.signal,
+      })
+      const raw = await response.text()
+      const data = raw ? JSON.parse(raw) : {}
+      lastResponse = response
+      lastData = data
+      lastRaw = raw
+      if (response.ok && data?.success !== false) {
+        return { response, data, raw }
+      }
+      if (response.status === 401 || response.status === 403) {
+        return { response, data, raw }
+      }
+    } catch (error) {
+      lastData = { error: error instanceof Error ? error.message : 'Request failed' }
+      lastRaw = ''
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+
+    if (attempt < retries) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)))
+    }
+  }
+
+  return { response: lastResponse, data: lastData, raw: lastRaw }
+}
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -76,6 +131,23 @@ const NEGROS_OCCIDENTAL_BOUNDS = {
 }
 
 const isSecureWebContext = typeof window !== 'undefined' ? window.isSecureContext : true
+const stripPhilippinesFromAddress = (address: string | null | undefined) => {
+  const text = String(address || '').trim()
+  if (!text) return ''
+  const tokens = text
+    .split(',')
+    .map((token) => token.trim())
+    .filter(Boolean)
+  while (tokens.length > 0) {
+    const tail = String(tokens[tokens.length - 1] || '').toLowerCase()
+    if (tail === 'philippines' || tail === 'republic of the philippines') {
+      tokens.pop()
+      continue
+    }
+    break
+  }
+  return tokens.join(', ')
+}
 
 interface Trip {
   id: string
@@ -89,6 +161,10 @@ interface Trip {
   warehouse?: {
     id?: string
     name?: string
+    code?: string
+    address?: string
+    city?: string
+    province?: string
     latitude?: number | null
     longitude?: number | null
   } | null
@@ -102,6 +178,9 @@ interface Trip {
   latestLocation?: {
     latitude?: number | null
     longitude?: number | null
+    accuracy?: number | null
+    heading?: number | null
+    speed?: number | null
     recordedAt?: string | null
   } | null
   driver?: {
@@ -143,6 +222,13 @@ interface DropPoint {
   order: {
     id?: string
     orderNumber: string
+    deliveryDate?: string | null
+    warehouseId?: string | null
+    warehouseName?: string | null
+    warehouseCode?: string | null
+    warehouseAddress?: string | null
+    warehouseCity?: string | null
+    warehouseProvince?: string | null
     totalAmount?: number | null
     warehouseStage?: string | null
     loadedAt?: string | null
@@ -165,7 +251,7 @@ interface DropPoint {
       } | null
       spareProducts?: SpareProductsInfo | null
     }>
-    returns?: Array<{
+    replacements?: Array<{
       id: string
       status: string
       replacementQuantity?: number | null
@@ -187,12 +273,31 @@ type AssignedOrderRow = {
   order: NonNullable<DropPoint['order']>
 }
 
+type SpareReplacementLine = {
+  orderItemId: string
+  quantityToReplace: string
+  quantityReplaced: string
+}
+
 type NativeCameraCheckResult = {
   granted: boolean
   reason?: string
 }
 
 type LocationPermissionState = 'granted' | 'denied' | 'prompt'
+
+type DriverGpsLocation = {
+  lat: number
+  lng: number
+  accuracy?: number | null
+  heading?: number | null
+  speed?: number | null
+  recordedAt?: number
+}
+
+const DRIVER_GPS_GOOD_ACCURACY_METERS = 50
+const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 120
+const DRIVER_GPS_MAX_JUMP_METERS = 250
 
 const isNativeCapacitorApp = () => {
   if (typeof window === 'undefined') return false
@@ -263,7 +368,7 @@ export function DriverPortal() {
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [locationPermission, setLocationPermission] = useState<LocationPermissionState>('prompt')
-  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [currentLocation, setCurrentLocation] = useState<DriverGpsLocation | null>(null)
   const [isTracking, setIsTracking] = useState(false)
   const [isNativeCameraGateOpen, setIsNativeCameraGateOpen] = useState(false)
   const [nativeCameraGateMessage, setNativeCameraGateMessage] = useState('Camera permission is required to use AnnDrive.')
@@ -271,53 +376,57 @@ export function DriverPortal() {
   const [loadingOrderId, setLoadingOrderId] = useState<string | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const isFetchingTripsRef = useRef(false)
+  const latestTripsRef = useRef<Trip[]>([])
+  const latestGpsRef = useRef<DriverGpsLocation | null>(null)
 
   const fetchTrips = useCallback(async (silent = false): Promise<Trip[]> => {
-    if (isFetchingTripsRef.current) return trips
+    if (isFetchingTripsRef.current) return latestTripsRef.current
     isFetchingTripsRef.current = true
     try {
-      const response = await fetch('/api/driver/trips', { cache: 'no-store', credentials: 'include' })
-      const raw = await response.text()
-      let data: any = {}
-      if (raw) {
-        try {
-          data = JSON.parse(raw)
-        } catch {
-          data = {}
-        }
-      }
+      const { response, data, raw } = await fetchJsonWithRetry(
+        '/api/driver/trips',
+        { cache: 'no-store', credentials: 'include' },
+        { retries: 2, timeoutMs: 10000 }
+      )
 
-      if (!response.ok || data?.success === false) {
+      if (!response?.ok || data?.success === false) {
         const rawMessage = typeof data?.error === 'string' ? data.error : ''
+        const status = response?.status || 0
         const fallbackMessage =
-          response.status >= 500
-            ? `Server error (${response.status}).`
-            : `Request failed (${response.status}).`
+          status >= 500
+            ? `Server error (${status}).`
+            : `Request failed (${status}).`
         const detail = !rawMessage && raw ? ` ${raw.slice(0, 180)}` : ''
         throw new Error((rawMessage || fallbackMessage) + detail)
       }
 
       const nextTrips = Array.isArray(data.trips) ? data.trips : []
+      latestTripsRef.current = nextTrips
       setTrips(nextTrips)
       return nextTrips
     } catch (error: any) {
-      if (!silent) {
-        toast.error(error?.message || 'Failed to load assigned trips')
-      }
       console.warn('Failed to fetch trips:', error)
-      return trips
+      return latestTripsRef.current
     } finally {
       isFetchingTripsRef.current = false
       setIsLoading(false)
     }
-  }, [trips])
+  }, [])
+
+  const applyTripUpdate = useCallback((tripId: string, updater: (trip: Trip) => Trip) => {
+    setTrips((previousTrips) => {
+      const nextTrips = previousTrips.map((trip) => (trip.id === tripId ? updater(trip) : trip))
+      latestTripsRef.current = nextTrips
+      return nextTrips
+    })
+  }, [])
 
   // Fetch trips
   useEffect(() => {
     void fetchTrips()
 
     const unsubscribe = subscribeDataSync((message) => {
-      if (message.scopes.includes('orders') || message.scopes.includes('trips') || message.scopes.includes('returns')) {
+      if (message.scopes.includes('orders') || message.scopes.includes('trips') || message.scopes.includes('replacements')) {
         void fetchTrips(true)
       }
     })
@@ -337,7 +446,7 @@ export function DriverPortal() {
       if (document.visibilityState === 'visible') {
         void fetchTrips(true)
       }
-    }, 5000)
+    }, 15000)
 
     return () => {
       unsubscribe()
@@ -369,9 +478,37 @@ export function DriverPortal() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to mark order as loaded')
       }
+      const updatedOrder = payload?.order || {}
+      setTrips((previousTrips) => {
+        const nextTrips = previousTrips.map((trip) => ({
+          ...trip,
+          dropPoints: (trip.dropPoints || []).map((point) => {
+            if (point.order?.id !== orderId) return point
+            return {
+              ...point,
+              order: point.order
+                ? {
+                    ...point.order,
+                    ...updatedOrder,
+                    warehouseStage: updatedOrder.warehouseStage || 'LOADED',
+                    loadedAt: updatedOrder.loadedAt || new Date().toISOString(),
+                    checklistItemsVerified: true,
+                    checklistQuantityVerified: true,
+                    checklistPackagingVerified: true,
+                    checklistSpareProductsVerified: true,
+                    checklistVehicleAssigned: true,
+                    checklistDriverAssigned: true,
+                  }
+                : point.order,
+            }
+          }),
+        }))
+        latestTripsRef.current = nextTrips
+        return nextTrips
+      })
       toast.success(payload?.message || 'Order marked as loaded')
       emitDataSync(['orders', 'trips'])
-      await fetchTrips(true)
+      void fetchTrips(true)
       return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to mark order as loaded')
@@ -437,15 +574,88 @@ export function DriverPortal() {
       navigator.geolocation.getCurrentPosition(resolve, reject, options)
     })
 
-  const sendLocationUpdate = async (lat: number, lng: number, tripId?: string | null) => {
+  const gpsFromPosition = (position: GeolocationPosition): DriverGpsLocation | null => {
+    const lat = Number(position.coords.latitude)
+    const lng = Number(position.coords.longitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return {
+      lat,
+      lng,
+      accuracy: Number.isFinite(Number(position.coords.accuracy)) ? Number(position.coords.accuracy) : null,
+      heading: Number.isFinite(Number(position.coords.heading)) ? Number(position.coords.heading) : null,
+      speed: Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null,
+      recordedAt: Number(position.timestamp || Date.now()),
+    }
+  }
+
+  const distanceMeters = (from: DriverGpsLocation, to: DriverGpsLocation) => {
+    const radiusMeters = 6371000
+    const toRad = (value: number) => (value * Math.PI) / 180
+    const dLat = toRad(to.lat - from.lat)
+    const dLng = toRad(to.lng - from.lng)
+    const lat1 = toRad(from.lat)
+    const lat2 = toRad(to.lat)
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+    return radiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+
+  const shouldUseGpsLocation = (next: DriverGpsLocation, previous: DriverGpsLocation | null) => {
+    const nextAccuracy = Number(next.accuracy ?? Number.POSITIVE_INFINITY)
+    if (!previous) return nextAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS || !Number.isFinite(nextAccuracy)
+
+    const previousAccuracy = Number(previous.accuracy ?? Number.POSITIVE_INFINITY)
+    if (nextAccuracy <= DRIVER_GPS_GOOD_ACCURACY_METERS) return true
+    if (nextAccuracy > DRIVER_GPS_MAX_USABLE_ACCURACY_METERS && previousAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS) {
+      return false
+    }
+
+    const movedMeters = distanceMeters(previous, next)
+    if (movedMeters > DRIVER_GPS_MAX_JUMP_METERS && nextAccuracy > previousAccuracy) {
+      return false
+    }
+    return true
+  }
+
+  const applyGpsLocation = (next: DriverGpsLocation, tripId?: string | null) => {
+    if (!shouldUseGpsLocation(next, latestGpsRef.current)) return false
+    latestGpsRef.current = next
+    setCurrentLocation(next)
+    setLocationPermission('granted')
+    setIsTracking(true)
+    void sendLocationUpdate(next, tripId)
+    return true
+  }
+
+  const getAccurateCurrentPosition = async () => {
+    const first = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 0, timeout: 18000 })
+    let best = gpsFromPosition(first)
+    if (best && Number(best.accuracy ?? Number.POSITIVE_INFINITY) <= DRIVER_GPS_GOOD_ACCURACY_METERS) {
+      return best
+    }
+
+    const second = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }).catch(() => null)
+    const next = second ? gpsFromPosition(second) : null
+    if (!best) return next
+    if (next && Number(next.accuracy ?? Number.POSITIVE_INFINITY) < Number(best.accuracy ?? Number.POSITIVE_INFINITY)) {
+      best = next
+    }
+    return best
+  }
+
+  const sendLocationUpdate = async (location: DriverGpsLocation, tripId?: string | null) => {
     try {
       await fetch('/api/driver/location', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          latitude: lat,
-          longitude: lng,
+          latitude: location.lat,
+          longitude: location.lng,
           tripId: tripId || null,
+          accuracy: location.accuracy ?? null,
+          heading: location.heading ?? null,
+          speed: location.speed ?? null,
         }),
       })
     } catch {
@@ -494,19 +704,12 @@ export function DriverPortal() {
       return false
     }
 
-    if (watchIdRef.current !== null) {
-      setIsTracking(true)
-      return true
-    }
-
     try {
-      const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
-      const lat = position.coords.latitude
-      const lng = position.coords.longitude
-      setCurrentLocation({ lat, lng })
-      setLocationPermission('granted')
-      setIsTracking(true)
-      void sendLocationUpdate(lat, lng, getActiveTripId())
+      const location = await getAccurateCurrentPosition()
+      if (!location) {
+        throw new Error('Location unavailable')
+      }
+      applyGpsLocation(location, getActiveTripId())
     } catch {
       setLocationPermission('denied')
       setIsTracking(false)
@@ -515,21 +718,23 @@ export function DriverPortal() {
       return false
     }
 
+    if (watchIdRef.current !== null) {
+      setIsTracking(true)
+      return true
+    }
+
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        setCurrentLocation({ lat, lng })
-        setLocationPermission('granted')
-        setIsTracking(true)
-        sendLocationUpdate(lat, lng, getActiveTripId())
+        const location = gpsFromPosition(position)
+        if (!location) return
+        applyGpsLocation(location, getActiveTripId())
       },
       () => {
         setLocationPermission('denied')
         setIsTracking(false)
         toast.error('Location permission denied. Please enable location access.')
       },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     )
 
     watchIdRef.current = watchId
@@ -670,6 +875,7 @@ export function DriverPortal() {
               locationPermission={locationPermission}
               onStartTracking={startLocationTracking}
               onRefreshTrips={() => fetchTrips(true)}
+              onApplyTripUpdate={(updater) => applyTripUpdate(selectedTrip.id, updater)}
               isTracking={isTracking}
               currentLocation={currentLocation}
             />
@@ -802,17 +1008,46 @@ function HomeView({
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
   const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
-  const isCancelledTrip = (status: string | null | undefined) => ['CANCELLED', 'CANCELED'].includes(String(status || '').toUpperCase())
+  const isSameLocalDate = (left: Date, right: Date) =>
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  const parseIsoDate = (raw: string | null | undefined) => {
+    if (!raw) return null
+    const parsed = new Date(raw)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+  const getTripDayDate = (trip: Trip) => {
+    return (
+      parseIsoDate(trip.plannedStartAt) ||
+      parseIsoDate(trip.actualStartAt) ||
+      parseIsoDate(trip.createdAt) ||
+      parseIsoDate(trip.updatedAt)
+    )
+  }
+  const getTripScheduledDeliveryDates = (trip: Trip) =>
+    (trip.dropPoints || [])
+      .map((point) => parseIsoDate(point.order?.deliveryDate || null))
+      .filter((value): value is Date => Boolean(value))
+  const isTripForDay = (trip: Trip, day: Date) => {
+    const scheduledDeliveryDates = getTripScheduledDeliveryDates(trip)
+    if (scheduledDeliveryDates.length > 0) {
+      return scheduledDeliveryDates.some((dateValue) => isSameLocalDate(dateValue, day))
+    }
+    const tripDate = getTripDayDate(trip)
+    return tripDate ? isSameLocalDate(tripDate, day) : false
+  }
   const formatWarehouseStage = (stage: string | null | undefined) => String(stage || 'READY_TO_LOAD').toUpperCase().replace(/_/g, ' ')
-  const formatSpareProductDetails = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
+  const getSpareProductInfo = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
     const spareProducts = item.spareProducts
     if (!spareProducts) return null
     const recommendedQuantity = Number(spareProducts.recommendedQuantity || 0)
+    if (recommendedQuantity <= 0) return null
     const totalLoadQuantity = Number(spareProducts.totalLoadQuantity ?? (Number(item.quantity || 0) + recommendedQuantity))
     const recommendedPercent = Number(spareProducts.recommendedPercent || 0)
     const minPercent = Number(spareProducts.minPercent || 0)
     const maxPercent = Number(spareProducts.maxPercent || 0)
-    return `Ordered ${Number(item.quantity || 0)} • Auto spare products ${recommendedQuantity} • Total load ${totalLoadQuantity} • Policy ${minPercent}-${maxPercent}% (default ${recommendedPercent}%)`
+    return { recommendedQuantity, totalLoadQuantity, recommendedPercent, minPercent, maxPercent }
   }
   const isWarehouseChecklistComplete = (order: AssignedOrderRow['order']) =>
     Boolean(
@@ -829,16 +1064,26 @@ function HomeView({
     DISPATCHED: 'bg-sky-100 text-sky-800 border border-sky-200',
   }
 
-  const activeTrip = trips.find((trip) => isInProgressTrip(trip.status)) || null
-  const plannedTrips = trips.filter((trip) => isPlannedTrip(trip.status)).length
-  const completedTrips = trips.filter((trip) => isCompletedTrip(trip.status)).length
+  const today = new Date()
+  const tripsForToday = trips.filter((trip) => isTripForDay(trip, today))
+  const activeTrip = tripsForToday.find((trip) => isInProgressTrip(trip.status)) || null
+  const plannedTrips = tripsForToday.filter((trip) => isPlannedTrip(trip.status)).length
+  const completedTrips = tripsForToday.filter((trip) => isCompletedTrip(trip.status)).length
+  const driverDisplayName = [
+    user?.name,
+    user?.fullName,
+    activeTrip?.driver?.user?.name,
+    activeTrip?.driver?.name,
+  ]
+    .map((value) => String(value || '').trim())
+    .find((value) => value.length > 0) || 'Driver'
   const terminalStopStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
   const pendingStops = activeTrip
     ? (activeTrip.dropPoints || []).filter((point) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
     : 0
   const assignedOrderRows: AssignedOrderRow[] = []
   const seenAssignedOrderIds = new Set<string>()
-  const relevantTrips = [...trips].sort((a, b) => {
+  const relevantTrips = [...tripsForToday].sort((a, b) => {
     const rank = (status: string | null | undefined) => {
       const normalized = String(status || '').toUpperCase()
       if (normalized === 'IN_PROGRESS') return 0
@@ -849,7 +1094,6 @@ function HomeView({
   })
 
   for (const trip of relevantTrips) {
-    if (isCompletedTrip(trip.status) || isCancelledTrip(trip.status)) continue
     for (const dropPoint of [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)) {
       const order = dropPoint.order
       const orderId = String(order?.id || '').trim()
@@ -871,7 +1115,7 @@ function HomeView({
     <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
-        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, Demo Driver</h2>
+        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, {driverDisplayName}</h2>
         <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
       </div>
 
@@ -881,7 +1125,7 @@ function HomeView({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[13px] font-medium text-[#1f4d79]">Total Trips</p>
-                <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{trips.length}</p>
+                <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{tripsForToday.length}</p>
               </div>
               <Route className="h-10 w-10 text-[#0f4f8f]" />
             </div>
@@ -957,7 +1201,7 @@ function HomeView({
             Assigned Orders
           </CardTitle>
           <CardDescription className="text-[#46617f]">
-            Drivers complete the checklist and mark orders as loaded here. Warehouse can view the loaded status only.
+            Drivers complete the checklist and mark orders as loaded here.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -970,29 +1214,54 @@ function HomeView({
               const orderId = String(order.id || '')
               const warehouseStage = String(order.warehouseStage || 'READY_TO_LOAD').toUpperCase()
               const checklistDone = isWarehouseChecklistComplete(order)
+              const pickupWarehouseName =
+                String(order.warehouseName || '').trim() ||
+                String(trip.warehouse?.name || '').trim() ||
+                'N/A'
+              const pickupWarehouseCode =
+                String(order.warehouseCode || '').trim() ||
+                String(trip.warehouse?.code || '').trim()
+              const pickupWarehouseCity =
+                String(order.warehouseCity || '').trim() ||
+                String(trip.warehouse?.city || '').trim() ||
+                ''
+              const pickupWarehouseProvince =
+                String(order.warehouseProvince || '').trim() ||
+                String(trip.warehouse?.province || '').trim() ||
+                ''
+              const pickupWarehouseArea = [pickupWarehouseCity, pickupWarehouseProvince].filter(Boolean).join(', ')
               const defaultChecklist = Object.fromEntries(
-                (order.items || []).map((item) => [String(item.id), checklistDone])
+                (order.items || []).flatMap((item) => {
+                  const itemId = String(item.id)
+                  const entries: [string, boolean][] = [[itemId, checklistDone]]
+                  if (getSpareProductInfo(item)) entries.push([`${itemId}:spare`, checklistDone])
+                  return entries
+                })
               )
               const checklistState = loadChecklistByOrder[orderId] || defaultChecklist
-              const itemChecklistValues = (order.items || []).map((item) => Boolean(checklistState[String(item.id)]))
+              const itemChecklistValues = Object.keys(defaultChecklist).map((key) => Boolean(checklistState[key]))
               const allItemsChecked = itemChecklistValues.length > 0 && itemChecklistValues.every(Boolean)
               const canMarkLoaded = warehouseStage === 'READY_TO_LOAD'
 
               return (
-                <div key={`${trip.id}-${dropPoint.id}-${orderId}`} className="rounded-2xl border border-slate-200 bg-white/92 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+                <div key={`${trip.id}-${dropPoint.id}-${orderId}`} className="rounded-2xl border border-slate-200 bg-white/92 p-3 shadow-[0_8px_20px_rgba(15,23,42,0.08)]">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-bold tracking-tight text-slate-900">{order.orderNumber}</p>
                         <Badge className={stageBadgeStyles[warehouseStage] || 'bg-slate-100 text-slate-700 border border-slate-200'}>
                           {formatWarehouseStage(order.warehouseStage)}
                         </Badge>
                       </div>
-                      <p className="text-sm text-slate-700">Trip: {trip.tripNumber}</p>
-                      <p className="text-sm text-slate-600">{dropPoint.locationName} • {dropPoint.address}</p>
-                      <p className="text-xs text-slate-500">{dropPoint.city}</p>
+                      <p className="text-sm text-slate-700">Trip {trip.tripNumber}</p>
+                      <p className="text-sm text-slate-700">
+                        Pickup {pickupWarehouseName}
+                        {pickupWarehouseCode ? ` (${pickupWarehouseCode})` : ''}
+                      </p>
+                      {pickupWarehouseArea ? <p className="text-xs text-slate-500">{pickupWarehouseArea}</p> : null}
+                      <p className="text-sm text-slate-600">Drop-off {dropPoint.locationName}, {dropPoint.city}</p>
                     </div>
-                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
+                    <div className="rounded-xl bg-slate-50 px-2.5 py-1.5 text-right">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Checklist</p>
                       <p className={`text-sm font-semibold ${checklistDone ? 'text-emerald-700' : 'text-amber-700'}`}>
                         {checklistDone ? 'Completed' : 'Pending'}
@@ -1001,25 +1270,19 @@ function HomeView({
                   </div>
 
                   {(order.items || []).length > 0 ? (
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-2.5 space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Assigned Items</p>
-                      <p className="text-xs text-slate-500">
-                        Automatic spare products are added per ordered item using the unit policy: case = 8-12% with 10% default, pack(bundle) = 3-5% with 4% default.
-                      </p>
                       {(order.items || []).map((item) => {
                         const itemId = String(item.id)
+                        const spareItemId = `${itemId}:spare`
                         const checked = Boolean(checklistState[itemId])
-                        const spareProductDetails = formatSpareProductDetails(item)
+                        const spareProductInfo = getSpareProductInfo(item)
                         return (
-                          <label key={itemId} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
+                          <div key={itemId} className="space-y-2">
+                          <label className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                             <div>
                               <p className="font-medium text-slate-900">{item.product?.name || 'Product'}</p>
-                              <p className="text-xs text-slate-500">SKU: {item.product?.sku || 'N/A'} • Unit {item.product?.unit || 'N/A'}</p>
-                              {spareProductDetails ? (
-                                <p className="text-xs text-slate-500">{spareProductDetails}</p>
-                              ) : (
-                                <p className="text-xs text-slate-500">Ordered Qty {Number(item.quantity || 0)}</p>
-                              )}
+                              <p className="text-xs text-slate-500">Qty {Number(item.quantity || 0)}</p>
                             </div>
                             <input
                               type="checkbox"
@@ -1037,6 +1300,30 @@ function HomeView({
                               }}
                             />
                           </label>
+                          {spareProductInfo ? (
+                            <label className={`ml-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checklistState[spareItemId] ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
+                              <div>
+                                <p className="font-medium text-slate-900">Spare products for {item.product?.name || 'Product'}</p>
+                                <p className="text-xs text-slate-500">Qty {spareProductInfo.recommendedQuantity} | Total {spareProductInfo.totalLoadQuantity}</p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(checklistState[spareItemId])}
+                                disabled={!canMarkLoaded || loadingOrderId === orderId}
+                                onChange={(event) => {
+                                  const nextChecked = event.target.checked
+                                  setLoadChecklistByOrder((prev) => ({
+                                    ...prev,
+                                    [orderId]: {
+                                      ...(prev[orderId] || defaultChecklist),
+                                      [spareItemId]: nextChecked,
+                                    },
+                                  }))
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                          </div>
                         )
                       })}
                     </div>
@@ -1050,7 +1337,7 @@ function HomeView({
                     <div className="text-xs text-slate-500">
                       {warehouseStage === 'LOADED' || warehouseStage === 'DISPATCHED'
                         ? `Loaded status recorded${order.loadedAt ? ` on ${new Date(order.loadedAt).toLocaleString()}` : ''}.`
-                        : 'Complete every assigned item, including the automatic spare products, before marking this order as loaded.'}
+                        : 'Check all items before marking as loaded.'}
                     </div>
                     <Button
                       className="bg-amber-600 text-white hover:bg-amber-700"
@@ -1065,13 +1352,13 @@ function HomeView({
                         if (done) {
                           setLoadChecklistByOrder((prev) => ({
                             ...prev,
-                            [orderId]: Object.fromEntries((order.items || []).map((item) => [String(item.id), true])),
+                            [orderId]: Object.fromEntries(Object.keys(defaultChecklist).map((key) => [key, true])),
                           }))
                         }
                       }}
                     >
                       {loadingOrderId === orderId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      {warehouseStage === 'LOADED' || warehouseStage === 'DISPATCHED' ? 'Loaded' : 'Mark as Loaded'}
+                      {warehouseStage === 'LOADED' || warehouseStage === 'DISPATCHED' ? 'Loaded' : 'Mark Loaded'}
                     </Button>
                   </div>
                 </div>
@@ -1100,6 +1387,27 @@ function TripsListView({
     COMPLETED: 'bg-teal-100 text-teal-800 border border-teal-200',
     CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
   }
+  const [deliverySearch, setDeliverySearch] = useState('')
+  const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
+  const activeDeliveryTrips = trips.filter((trip) => !isCompletedTrip(trip.status))
+  const filteredDeliveryTrips = activeDeliveryTrips.filter((trip) => {
+    const query = deliverySearch.trim().toLowerCase()
+    if (!query) return true
+
+    const searchableText = [
+      trip.tripNumber,
+      trip.status,
+      trip.vehicle?.licensePlate,
+      trip.driver?.user?.name,
+      trip.driver?.name,
+      ...(Array.isArray(trip.dropPoints) ? trip.dropPoints.map((point) => point.locationName) : []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+
+    return searchableText.includes(query)
+  })
 
   if (isLoading) {
     return (
@@ -1112,19 +1420,46 @@ function TripsListView({
   return (
     <div className="p-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned Routes</p>
-      <h2 className="mb-4 mt-0 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <h2 className="mt-0 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={deliverySearch}
+            onChange={(event) => setDeliverySearch(event.target.value)}
+            placeholder="Search deliveries"
+            className="h-10 rounded-xl border-sky-100 bg-white/90 pl-9 text-sm shadow-[0_8px_18px_rgba(2,132,199,0.08)]"
+          />
+        </div>
+      </div>
 
       {trips.length === 0 ? (
         <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
           <CardContent className="py-12 text-center">
             <Truck className="mx-auto mb-4 h-12 w-12 text-sky-300" />
-            <p className="font-semibold text-slate-700">No assigned trips</p>
-            <p className="mt-1 text-sm text-slate-500">New deliveries will appear here</p>
+            <p className="font-semibold text-slate-700">No trips assigned yet</p>
+            <p className="mt-1 text-sm text-slate-500">Ask admin/warehouse to assign a trip to this driver account.</p>
+          </CardContent>
+        </Card>
+      ) : activeDeliveryTrips.length === 0 ? (
+        <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
+          <CardContent className="py-12 text-center">
+            <Truck className="mx-auto mb-4 h-12 w-12 text-sky-300" />
+            <p className="font-semibold text-slate-700">No active deliveries</p>
+            <p className="mt-1 text-sm text-slate-500">Completed trips are available in History</p>
+          </CardContent>
+        </Card>
+      ) : filteredDeliveryTrips.length === 0 ? (
+        <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
+          <CardContent className="py-12 text-center">
+            <Search className="mx-auto mb-4 h-10 w-10 text-sky-300" />
+            <p className="font-semibold text-slate-700">No deliveries found</p>
+            <p className="mt-1 text-sm text-slate-500">Try another trip, vehicle, driver, or location.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {trips.map((trip) => (
+          {filteredDeliveryTrips.map((trip) => (
             <Card key={trip.id} className="cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onSelectTrip(trip)}>
               <CardContent className="p-3.5">
                 <div className="flex items-start justify-between gap-3">
@@ -1135,7 +1470,7 @@ function TripsListView({
                         {trip.status.replace(/_/g, ' ')}
                       </Badge>
                     </div>
-                    <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} • Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
+                    <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
                     <p className="text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
                   </div>
                   <Button
@@ -1166,6 +1501,7 @@ function TripDetailView({
   locationPermission,
   onStartTracking,
   onRefreshTrips,
+  onApplyTripUpdate,
   isTracking,
   currentLocation,
 }: {
@@ -1174,8 +1510,9 @@ function TripDetailView({
   locationPermission: 'granted' | 'denied' | 'prompt'
   onStartTracking: () => Promise<boolean>
   onRefreshTrips: () => Promise<Trip[]>
+  onApplyTripUpdate: (updater: (trip: Trip) => Trip) => void
   isTracking: boolean
-  currentLocation: { lat: number; lng: number } | null
+  currentLocation: DriverGpsLocation | null
 }) {
   const [activeDropPoint, setActiveDropPoint] = useState<DropPoint | null>(null)
   const [deliveryNote, setDeliveryNote] = useState('')
@@ -1190,11 +1527,13 @@ function TripDetailView({
   const [isSpareReplaceOpen, setIsSpareReplaceOpen] = useState(false)
   const [spareTargetDropPointId, setSpareTargetDropPointId] = useState<string | null>(null)
   const [spareOrderItemId, setSpareOrderItemId] = useState('')
-  const [spareQuantity, setSpareQuantity] = useState(1)
+  const [spareQuantity, setSpareQuantity] = useState('1')
+  const [spareReplacementLines, setSpareReplacementLines] = useState<SpareReplacementLine[]>([])
   const [spareOutcome, setSpareOutcome] = useState<'RESOLVED' | 'PARTIALLY_REPLACED'>('RESOLVED')
   const [sparePartiallyReplacedQuantity, setSparePartiallyReplacedQuantity] = useState(0)
   const [spareFollowUpReturnId, setSpareFollowUpReturnId] = useState<string | null>(null)
-  const [spareReason, setSpareReason] = useState('')
+  const [spareDamageReason, setSpareDamageReason] = useState('Broken bottles')
+  const [spareOtherDamageReason, setSpareOtherDamageReason] = useState('')
   const [spareDamagePhotoFiles, setSpareDamagePhotoFiles] = useState<File[]>([])
   const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
   const [isSpareReplacing, setIsSpareReplacing] = useState(false)
@@ -1211,15 +1550,23 @@ function TripDetailView({
   const [mobileMapRecenterCenter, setMobileMapRecenterCenter] = useState<[number, number] | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
   const [roadRoutePoints, setRoadRoutePoints] = useState<[number, number][]>([])
-  const [previewDriverLocation, setPreviewDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [previewDriverLocation, setPreviewDriverLocation] = useState<DriverGpsLocation | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [cameraCaptureTarget, setCameraCaptureTarget] = useState<'pod' | 'spare'>('pod')
+  const isMobileViewport = useIsMobile()
   const MAX_SPARE_DAMAGE_PHOTOS = 2
-  const sortedDropPoints = [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)
-  const terminalDropPointStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
+  const SPARE_DAMAGE_REASON_OPTIONS = ['Broken bottles', 'Cracked containers', 'Leakages', 'Spoilage', 'Others'] as const
+  const sortedDropPoints = useMemo(
+    () => [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence),
+    [trip.dropPoints]
+  )
+  const terminalDropPointStatuses = useMemo(
+    () => new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED']),
+    []
+  )
   const effectiveCompletedDropPoints = Math.max(
     Number(trip.completedDropPoints || 0),
     sortedDropPoints.filter((point) => terminalDropPointStatuses.has(String(point.status || '').toUpperCase())).length
@@ -1232,6 +1579,54 @@ function TripDetailView({
     isSpareReplaceOpen ||
     isFailedDeliveryChoiceOpen ||
     isFailedDeliveryRescheduleOpen
+
+  const mergeDropPointIntoTrip = (
+    currentTrip: Trip,
+    dropPointId: string,
+    dropPointPatch: Partial<DropPoint>
+  ): Trip => {
+    const nextDropPoints = (currentTrip.dropPoints || []).map((point) => {
+      if (point.id !== dropPointId) return point
+      return {
+        ...point,
+        ...dropPointPatch,
+        order: dropPointPatch.order === undefined ? point.order : dropPointPatch.order,
+      }
+    })
+    const terminalStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
+    const completedCount = nextDropPoints.filter((point) =>
+      terminalStatuses.has(String(point.status || '').toUpperCase())
+    ).length
+    const totalCount = Math.max(Number(currentTrip.totalDropPoints || 0), nextDropPoints.length)
+    return {
+      ...currentTrip,
+      dropPoints: nextDropPoints,
+      completedDropPoints: completedCount,
+      totalDropPoints: totalCount,
+      status:
+        totalCount > 0 && completedCount >= totalCount
+          ? 'COMPLETED'
+          : currentTrip.status === 'PLANNED' && currentTrip.actualStartAt
+            ? 'IN_PROGRESS'
+            : currentTrip.status,
+    }
+  }
+
+  const refreshTripsInBackground = () => {
+    window.setTimeout(() => {
+      void onRefreshTrips().catch(() => {
+        // The optimistic update keeps the driver flow responsive; the next poll will reconcile.
+      })
+    }, 1200)
+  }
+
+  useEffect(() => {
+    if (!activeDropPoint) return
+    const nextActiveDropPoint = (trip.dropPoints || []).find((point) => point.id === activeDropPoint.id) || null
+    if (nextActiveDropPoint && nextActiveDropPoint !== activeDropPoint) {
+      setActiveDropPoint(nextActiveDropPoint)
+    }
+  }, [activeDropPoint, trip.dropPoints])
 
   useEffect(() => {
     if (mobileSheetPeekTimeoutRef.current) {
@@ -1335,8 +1730,8 @@ function TripDetailView({
   }
 
   const getDropPointOpenReplacement = (dropPoint: DropPoint | null) => {
-    const returns = dropPoint?.order?.returns || []
-    return returns.find((entry) => !entry.isClosed) || null
+    const replacements = dropPoint?.order?.replacements || []
+    return replacements.find((entry) => !entry.isClosed) || null
   }
 
   const getReplacementProgress = (dropPoint: DropPoint | null) => {
@@ -1381,12 +1776,11 @@ function TripDetailView({
   }
 
   const handleStartTrip = async () => {
-    const refreshedTrips = await onRefreshTrips()
-    const latestTrip = refreshedTrips.find((entry) => entry.id === trip.id) || trip
+    const latestTrip = trip
     const currentStatus = String(latestTrip.status || '').toUpperCase()
     if (currentStatus !== 'PLANNED') {
       toast.error(`Trip cannot be started because status is ${currentStatus.replace(/_/g, ' ')}`)
-      await onRefreshTrips()
+      refreshTripsInBackground()
       return
     }
 
@@ -1397,7 +1791,7 @@ function TripDetailView({
 
     if (notLoadedOrders.length > 0) {
       toast.error(`Trip cannot start. Orders not loaded: ${notLoadedOrders.slice(0, 3).join(', ')}`)
-      await onRefreshTrips()
+      refreshTripsInBackground()
       return
     }
 
@@ -1418,14 +1812,37 @@ function TripDetailView({
       })
       const payload = await response.json().catch(() => ({}))
       if (response.ok && payload?.success !== false) {
+        const startedAt = payload?.trip?.actualStartAt || new Date().toISOString()
+        onApplyTripUpdate((currentTrip) => ({
+          ...currentTrip,
+          ...payload?.trip,
+          status: 'IN_PROGRESS',
+          actualStartAt: startedAt,
+          dropPoints: (currentTrip.dropPoints || []).map((point) => ({
+            ...point,
+            order: point.order
+              ? {
+                  ...point.order,
+                  warehouseStage: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
+                    ? 'DISPATCHED'
+                    : point.order.warehouseStage,
+                  status: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
+                    ? 'OUT_FOR_DELIVERY'
+                    : (point.order as any).status,
+                }
+              : point.order,
+          })),
+        }))
         toast.success(payload?.message || 'Trip started')
-        await onRefreshTrips()
+        emitDataSync(['orders', 'trips'])
+        refreshTripsInBackground()
       } else {
         toast.error(payload?.error || 'Failed to start trip')
-        await onRefreshTrips()
+        refreshTripsInBackground()
       }
     } catch (error) {
       toast.error('An error occurred')
+      refreshTripsInBackground()
     } finally {
       setIsUpdating(false)
     }
@@ -1463,20 +1880,34 @@ function TripDetailView({
       if (response.ok && payload?.success !== false) {
         const actualStatus = String(payload?.dropPoint?.status || status).toUpperCase()
         const deferredLaterToday = status === 'FAILED' && options?.rescheduleWindow === 'today' && actualStatus === 'PENDING'
+        const dropPointPatch: Partial<DropPoint> = {
+          ...(payload?.dropPoint || {}),
+          id: dropPointId,
+          status: actualStatus,
+          deliveryPhoto: pod?.deliveryPhoto ?? payload?.dropPoint?.deliveryPhoto,
+          order:
+            payload?.order && (trip.dropPoints || []).find((point) => point.id === dropPointId)?.order
+              ? {
+                  ...(trip.dropPoints || []).find((point) => point.id === dropPointId)!.order!,
+                  ...payload.order,
+                }
+              : undefined,
+        }
+        onApplyTripUpdate((currentTrip) => mergeDropPointIntoTrip(currentTrip, dropPointId, dropPointPatch))
         if (deferredLaterToday) {
           toast.success('Order moved to the end of this route for later today')
         } else {
           toast.success(`Drop point marked as ${actualStatus.toLowerCase()}`)
         }
         emitDataSync(['orders', 'trips'])
-        await onRefreshTrips()
+        refreshTripsInBackground()
       } else {
         toast.error(payload?.error || 'Failed to update drop point')
-        await onRefreshTrips()
+        refreshTripsInBackground()
       }
     } catch (error) {
       toast.error('An error occurred')
-      await onRefreshTrips()
+      refreshTripsInBackground()
     } finally {
       setIsUpdating(false)
     }
@@ -1609,10 +2040,17 @@ function TripDetailView({
         : 0
     setSpareTargetDropPointId(dropPoint.id)
     setSpareOrderItemId(selectedItemId)
-    setSpareQuantity(openReplacement ? remainingQuantity : items.length ? 1 : 0)
+    setSpareQuantity(String(openReplacement ? remainingQuantity : items.length ? 1 : 0))
+    setSpareReplacementLines(openReplacement
+      ? []
+      : selectedItemId
+        ? [{ orderItemId: selectedItemId, quantityToReplace: '1', quantityReplaced: '1' }]
+        : []
+    )
     setSpareOutcome('RESOLVED')
     setSpareFollowUpReturnId(openReplacement?.id || null)
-    setSpareReason('')
+    setSpareDamageReason('Broken bottles')
+    setSpareOtherDamageReason('')
     setSpareDamagePhotoFiles([])
     setSpareDamagePhotoPreviews((previous) => {
       previous.forEach((url) => URL.revokeObjectURL(url))
@@ -1683,11 +2121,13 @@ function TripDetailView({
     setIsSpareReplaceOpen(false)
     setSpareTargetDropPointId(null)
     setSpareOrderItemId('')
-    setSpareQuantity(1)
+    setSpareQuantity('1')
+    setSpareReplacementLines([])
     setSpareOutcome('RESOLVED')
     setSparePartiallyReplacedQuantity(0)
     setSpareFollowUpReturnId(null)
-    setSpareReason('')
+    setSpareDamageReason('Broken bottles')
+    setSpareOtherDamageReason('')
     setSpareDamagePhotoFiles([])
     setSpareDamagePhotoPreviews((previous) => {
       previous.forEach((url) => URL.revokeObjectURL(url))
@@ -1713,23 +2153,59 @@ function TripDetailView({
       return
     }
     const selectedItem = (targetDropPoint.order?.items || []).find((item) => item.id === spareOrderItemId) || null
-    if (spareOutcome === 'RESOLVED' && !selectedItem) {
+    const replacementLines = spareFollowUpReturnId
+      ? []
+      : spareReplacementLines
+          .map((line) => {
+            const item = (targetDropPoint.order?.items || []).find((candidate) => candidate.id === line.orderItemId) || null
+            return {
+              item,
+              orderItemId: line.orderItemId,
+              quantityToReplace: Number(line.quantityToReplace),
+              quantityReplaced: spareOutcome === 'RESOLVED' ? Number(line.quantityToReplace) : Number(line.quantityReplaced),
+            }
+          })
+          .filter((line) => line.item && Number(line.quantityToReplace) > 0)
+    if (spareFollowUpReturnId && spareOutcome === 'RESOLVED' && !selectedItem) {
       toast.error('Select an item to replace')
       return
     }
-    if (!Number.isFinite(spareQuantity) || spareQuantity < 0 || !Number.isInteger(spareQuantity)) {
+    if (!spareFollowUpReturnId && replacementLines.length === 0) {
+      toast.error('Select at least one damaged product')
+      return
+    }
+    for (const line of replacementLines) {
+      if (!Number.isFinite(line.quantityToReplace) || line.quantityToReplace <= 0 || !Number.isInteger(line.quantityToReplace)) {
+        toast.error('Each damaged product needs a whole quantity to replace')
+        return
+      }
+      if (!Number.isFinite(line.quantityReplaced) || line.quantityReplaced < 0 || !Number.isInteger(line.quantityReplaced)) {
+        toast.error('Each replacement quantity must be a whole number')
+        return
+      }
+      if (line.quantityReplaced > line.quantityToReplace) {
+        toast.error('Quantity replaced cannot exceed quantity to replace')
+        return
+      }
+      if (line.item && line.quantityToReplace > Number(line.item.quantity || 0)) {
+        toast.error(`${line.item.product?.name || 'Product'} quantity exceeds ordered quantity`)
+        return
+      }
+    }
+    const replacementQuantity = Number(spareQuantity)
+    if (spareFollowUpReturnId && (!Number.isFinite(replacementQuantity) || replacementQuantity < 0 || !Number.isInteger(replacementQuantity))) {
       toast.error('Quantity must be a whole number (0 or higher)')
       return
     }
-    if (spareOutcome === 'RESOLVED' && spareQuantity <= 0) {
+    if (spareFollowUpReturnId && spareOutcome === 'RESOLVED' && replacementQuantity <= 0) {
       toast.error('Resolved outcome requires replacement quantity greater than zero')
       return
     }
-    if (spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity <= 0) {
+    if (spareFollowUpReturnId && spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity <= 0) {
       toast.error('Partially Replaced requires specifying how many items were replaced')
       return
     }
-    if (spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity > spareQuantity) {
+    if (spareFollowUpReturnId && spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity > replacementQuantity) {
       toast.error('Partially replaced quantity cannot exceed damaged quantity')
       return
     }
@@ -1743,16 +2219,17 @@ function TripDetailView({
     }
     if (spareFollowUpReturnId && selectedItem) {
       const remainingQty = Number(openReplacement?.remainingQuantity ?? Math.max(Number(selectedItem.quantity || 0) - Number(openReplacement?.replacementQuantity || 0), 0))
-      if (spareQuantity !== remainingQty) {
+      if (replacementQuantity !== remainingQty) {
         toast.error(`Follow-up replacement must use the remaining quantity of ${remainingQty}`)
         return
       }
     }
-    if (selectedItem && spareQuantity > Number(selectedItem.quantity || 0)) {
+    if (spareFollowUpReturnId && selectedItem && replacementQuantity > Number(selectedItem.quantity || 0)) {
       toast.error('Replacement quantity exceeds ordered quantity')
       return
     }
-    if (!spareReason.trim()) {
+    const spareReason = (spareDamageReason === 'Others' ? spareOtherDamageReason : spareDamageReason).trim()
+    if (!spareReason) {
       toast.error('Replacement reason is required')
       return
     }
@@ -1773,15 +2250,22 @@ function TripDetailView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
-          productId: selectedItem?.productId,
+          productId: spareFollowUpReturnId ? selectedItem?.productId : undefined,
           tripId: trip.id,
           dropPointId: targetDropPoint.id,
-          orderItemId: selectedItem?.id || '',
+          orderItemId: spareFollowUpReturnId ? selectedItem?.id || '' : undefined,
           followUpReturnId: spareFollowUpReturnId || undefined,
-          quantity: spareQuantity,
+          quantity: spareFollowUpReturnId ? replacementQuantity : undefined,
+          items: spareFollowUpReturnId
+            ? undefined
+            : replacementLines.map((line) => ({
+                orderItemId: line.orderItemId,
+                quantityToReplace: line.quantityToReplace,
+                quantityReplaced: line.quantityReplaced,
+              })),
           outcome: spareOutcome,
           partiallyReplacedQuantity: spareOutcome === 'PARTIALLY_REPLACED' ? sparePartiallyReplacedQuantity : undefined,
-          reason: spareReason.trim(),
+          reason: spareReason,
           damagePhoto: damagePhotos[0],
           damagePhotos,
         }),
@@ -1796,9 +2280,37 @@ function TripDetailView({
           ? `Damage reported and resolved on delivery. Remaining spare products: ${remainingSpareProducts}`
           : `Damage reported as partially replaced. Follow-up required. Remaining spare products: ${remainingSpareProducts}`
       )
+      const returnedReplacements = Array.isArray(payload?.replacements)
+        ? payload.replacements
+        : payload?.replacement
+          ? [payload.replacement]
+          : []
+      if (returnedReplacements.length && targetDropPoint.order) {
+        const nextReplacements = returnedReplacements.map((replacement: any) => ({
+          ...replacement,
+          remainingQuantity: Number(replacement?.remainingQuantity ?? payload?.remainingReplacementQty ?? 0),
+          isClosed: spareOutcome === 'RESOLVED',
+          originalOrderItemId: replacement.originalOrderItemId || (spareFollowUpReturnId ? selectedItem?.id : null) || null,
+          dropPointId: replacement.dropPointId || targetDropPoint.id,
+        }))
+        const existingReplacements = targetDropPoint.order.replacements || []
+        const nextReturns = [
+          ...existingReplacements.filter((entry) => !nextReplacements.some((replacement: any) => replacement.id === entry.id)),
+          ...nextReplacements,
+        ]
+        onApplyTripUpdate((currentTrip) =>
+          mergeDropPointIntoTrip(currentTrip, targetDropPoint.id, {
+            order: {
+              ...targetDropPoint.order!,
+              replacements: nextReturns,
+            },
+          })
+        )
+      }
       setSparePartiallyReplacedQuantity(0)
       closeSpareReplacement()
-      await onRefreshTrips()
+      emitDataSync(['orders', 'trips', 'replacements'])
+      refreshTripsInBackground()
     } catch (error: any) {
       toast.error(error?.message || 'Failed to process on-delivery replacement')
     } finally {
@@ -2055,13 +2567,20 @@ function TripDetailView({
         const lat = Number(position.coords.latitude)
         const lng = Number(position.coords.longitude)
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          setPreviewDriverLocation({ lat, lng })
+          setPreviewDriverLocation({
+            lat,
+            lng,
+            accuracy: Number.isFinite(Number(position.coords.accuracy)) ? Number(position.coords.accuracy) : null,
+            heading: Number.isFinite(Number(position.coords.heading)) ? Number(position.coords.heading) : null,
+            speed: Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null,
+            recordedAt: Number(position.timestamp || Date.now()),
+          })
         }
       },
       () => {
         // Best effort only for map preview marker.
       },
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
     )
 
     return () => {
@@ -2108,13 +2627,29 @@ function TripDetailView({
   })()
   const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
   const effectiveDriverLocation = (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
-      ? { lat: Number(currentLocation.lat), lng: Number(currentLocation.lng) }
+      ? currentLocation
       : null) ||
     (previewDriverLocation && Number.isFinite(Number(previewDriverLocation.lat)) && Number.isFinite(Number(previewDriverLocation.lng))
-      ? { lat: Number(previewDriverLocation.lat), lng: Number(previewDriverLocation.lng) }
+      ? previewDriverLocation
       : null) ||
     (trip.latestLocation && Number.isFinite(Number(trip.latestLocation.latitude)) && Number.isFinite(Number(trip.latestLocation.longitude))
-      ? { lat: Number(trip.latestLocation.latitude), lng: Number(trip.latestLocation.longitude) }
+      ? {
+          lat: Number(trip.latestLocation.latitude),
+          lng: Number(trip.latestLocation.longitude),
+          accuracy: toCoordinate(trip.latestLocation.accuracy),
+          heading: toCoordinate(trip.latestLocation.heading),
+          speed: toCoordinate(trip.latestLocation.speed),
+        }
+      : null) ||
+    (String(trip.status || '').toUpperCase() === 'IN_PROGRESS' && completedDropPoints.length > 0
+      ? {
+          lat: Number(completedDropPoints[completedDropPoints.length - 1].latitude),
+          lng: Number(completedDropPoints[completedDropPoints.length - 1].longitude),
+          accuracy: null,
+        }
+      : null) ||
+    (String(trip.status || '').toUpperCase() === 'IN_PROGRESS' && warehouseRouteStart
+      ? { ...warehouseRouteStart, accuracy: null }
       : null)
   const driverMarkerHeading =
     nextDropPoint &&
@@ -2139,6 +2674,7 @@ function TripDetailView({
       : null
 
   const driverLocationMarker = (() => {
+    if (!effectiveDriverLocation) return null
     const lat = toCoordinate(effectiveDriverLocation?.lat)
     const lng = toCoordinate(effectiveDriverLocation?.lng)
     if (lat === null || lng === null) return null
@@ -2149,10 +2685,15 @@ function TripDetailView({
       lat,
       lng,
       status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
-      markerLabel: 'Current location',
+      markerLabel: Number.isFinite(Number(effectiveDriverLocation.accuracy))
+        ? `Current location +- ${Math.round(Number(effectiveDriverLocation.accuracy))} m`
+        : 'Current location',
       markerType: 'truck' as const,
       markerHeading: driverMarkerHeading ?? undefined,
       markerColor: '#1d4ed8',
+      accuracyMeters: Number.isFinite(Number(effectiveDriverLocation.accuracy))
+        ? Number(effectiveDriverLocation.accuracy)
+        : undefined,
     }
   })()
 
@@ -2188,7 +2729,7 @@ function TripDetailView({
       lat: point.latitude as number,
       lng: point.longitude as number,
       status: point.status || 'PENDING',
-      markerLabel: `${point.sequence}. ${point.address || point.city || 'Drop Point'}`,
+      markerLabel: `${point.sequence}. ${stripPhilippinesFromAddress(point.address) || point.city || 'Drop Point'}`,
       markerType: 'pin' as const,
       markerColor: '#2563eb',
       markerNumber: point.sequence,
@@ -2473,26 +3014,30 @@ function TripDetailView({
           )}
 
           {/* Route Map */}
-          <div className="hidden rounded-2xl border border-sky-200/60 bg-white/90 p-4 pt-0 shadow-[0_14px_30px_rgba(15,23,42,0.12)] backdrop-blur md:block md:rounded-2xl md:border md:border-sky-200/60 md:bg-white/90 md:shadow-[0_14px_30px_rgba(15,23,42,0.12)] md:backdrop-blur">
-            <h3 className="font-semibold text-slate-900">Route Map</h3>
-            {mapLocations.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
-                No map data for this trip yet. Add delivery coordinates to order shipping addresses.
-              </div>
-            ) : (
-              <LiveTrackingMap
-                locations={mapLocations}
-                routeLines={mapRouteLines}
-                center={mapCenter}
-                zoom={13}
-                navigationPerspective
-                restrictToNegrosOccidental
-                showZoomControls={false}
-                className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[350px]"
-              />
-            )}
-          </div>
+          {!isMobileViewport ? (
+            <div className="hidden rounded-2xl border border-sky-200/60 bg-white/90 p-4 pt-0 shadow-[0_14px_30px_rgba(15,23,42,0.12)] backdrop-blur md:block md:rounded-2xl md:border md:border-sky-200/60 md:bg-white/90 md:shadow-[0_14px_30px_rgba(15,23,42,0.12)] md:backdrop-blur">
+              <h3 className="font-semibold text-slate-900">Route Map</h3>
+              {mapLocations.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
+                  No map data for this trip yet. Add delivery coordinates to order shipping addresses.
+                </div>
+              ) : (
+                <LiveTrackingMap
+                  locations={mapLocations}
+                  routeLines={mapRouteLines}
+                  center={mapCenter}
+                  zoom={13}
+                  navigationPerspective
+                  restrictToNegrosOccidental
+                  showDriverSelfBadge
+                  showZoomControls={false}
+                  className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[350px]"
+                />
+              )}
+            </div>
+          ) : null}
 
+          {isMobileViewport ? (
           <div className="relative -mx-4 overflow-hidden md:hidden">
             <div className="relative h-[calc(100dvh-12rem)] min-h-[540px] w-full overflow-hidden bg-[#dff0ea]">
               {mapLocations.length === 0 ? (
@@ -2507,6 +3052,7 @@ function TripDetailView({
                   zoom={13}
                   navigationPerspective
                   restrictToNegrosOccidental
+                  showDriverSelfBadge
                   recenterSignal={mobileMapRecenterSignal}
                   showZoomControls={false}
                   className="h-full w-full overflow-hidden rounded-none border-0 shadow-none"
@@ -2558,7 +3104,7 @@ function TripDetailView({
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
                         <h3 className="text-xl font-black tracking-[-0.02em] text-slate-900">{highlightedDropPoint?.locationName || 'Trip overview'}</h3>
                         <p className="text-sm text-slate-500">
-                          {highlightedDropPoint ? `${highlightedDropPoint.sequence}/${trip.totalDropPoints} • ${highlightedDropPoint.status}` : `${effectiveCompletedDropPoints}/${trip.totalDropPoints} Completed`}
+                          {highlightedDropPoint ? `${highlightedDropPoint.sequence}/${trip.totalDropPoints} | ${highlightedDropPoint.status}` : `${effectiveCompletedDropPoints}/${trip.totalDropPoints} Completed`}
                         </p>
                       </div>
                       {highlightedDropPoint ? (
@@ -2588,7 +3134,7 @@ function TripDetailView({
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
                                     <p className="font-medium text-slate-900">{dropPoint.locationName}</p>
-                                    <p className="text-sm text-slate-500">{dropPoint.address}</p>
+                                    <p className="text-sm text-slate-500">{stripPhilippinesFromAddress(dropPoint.address)}</p>
                                     {dropPoint.order ? (
                                       <>
                                         <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
@@ -2667,7 +3213,7 @@ function TripDetailView({
                                           }}
                                           disabled={isUpdating || isSpareReplacing}
                                         >
-                                          {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Damage'}
+                                          {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Replacement'}
                                         </Button>
                                       ) : null}
                                       <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
@@ -2768,6 +3314,7 @@ function TripDetailView({
               ) : null}
             </AnimatePresence>
           </div>
+          ) : null}
 
           {/* Drop Points List */}
           <div className="hidden md:block">
@@ -2792,7 +3339,7 @@ function TripDetailView({
                         <div className="flex items-start justify-between">
                           <div>
                             <p className="font-medium">{dropPoint.locationName}</p>
-                            <p className="text-sm text-slate-500">{dropPoint.address}</p>
+                            <p className="text-sm text-slate-500">{stripPhilippinesFromAddress(dropPoint.address)}</p>
                             {dropPoint.order && (
                               <>
                                 <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
@@ -2820,9 +3367,10 @@ function TripDetailView({
                                         <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600">
                                           <p>{item.product?.name || 'Item'} x{Number(item.quantity || 0)}</p>
                                           {Number(item.spareProducts?.recommendedQuantity || 0) > 0 ? (
-                                            <p className="text-[10px] text-slate-500">
-                                              Auto spare products {Number(item.spareProducts?.recommendedQuantity || 0)} • Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}
-                                            </p>
+                                            <div className="mt-1 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700">
+                                              <p>Spare products: {Number(item.spareProducts?.recommendedQuantity || 0)}</p>
+                                              <p>Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}</p>
+                                            </div>
                                           ) : null}
                                         </div>
                                       ))}
@@ -2899,7 +3447,7 @@ function TripDetailView({
                                   }}
                                   disabled={isUpdating || isSpareReplacing}
                                 >
-                                  {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Damage'}
+                                  {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Replacement'}
                                 </Button>
                               ) : null}
                               <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
@@ -3094,10 +3642,6 @@ function TripDetailView({
             const targetOpenReplacement = getDropPointOpenReplacement(targetDropPoint)
             const targetReplacementProgress = getReplacementProgress(targetDropPoint)
             const followUpMode = Boolean(targetOpenReplacement)
-            const selectedSpareItem = targetItems.find((item) => item.id === spareOrderItemId) || null
-            const maxReplaceQuantity = followUpMode
-              ? Math.max(Number(targetReplacementProgress.remainingQuantity || 0), 0)
-              : Math.max(Number(selectedSpareItem?.quantity || 0), 0)
 
             return (
               <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
@@ -3106,54 +3650,112 @@ function TripDetailView({
                     Follow-up replacement in progress: {targetReplacementProgress.replacedQuantity} replaced, {targetReplacementProgress.remainingQuantity} still need to be replaced.
                   </div>
                 ) : null}
-                <div className="space-y-2">
-                  <Label htmlFor="spare-order-item">Damaged Item</Label>
-                  <Select
-                    value={spareOrderItemId}
-                    onValueChange={(value) => {
-                      setSpareOrderItemId(value)
-                      if (followUpMode) return
-                      const nextItem = targetItems.find((item) => item.id === value) || null
-                      const itemMaxQuantity = Math.max(Number(nextItem?.quantity || 0), 0)
-                      setSpareQuantity((previous) => {
-                        if (!Number.isFinite(previous)) return itemMaxQuantity
-                        return Math.min(Math.max(previous, 0), itemMaxQuantity)
-                      })
-                    }}
-                    disabled={targetItems.length === 0 || followUpMode}
-                  >
-                    <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
-                      <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
-                    </SelectTrigger>
-                    <SelectContent className="border-sky-200 bg-white text-slate-900">
-                      {targetItems.map((item) => (
-                        <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
-                          {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {Number(item.quantity || 0)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="spare-qty">Quantity to Replace</Label>
-                  <Input
-                    id="spare-qty"
-                    type="number"
-                    min={followUpMode ? targetReplacementProgress.remainingQuantity : 0}
-                    max={maxReplaceQuantity}
-                    value={spareQuantity}
-                    onChange={(e) => {
-                      if (followUpMode) return
-                      const parsed = Number(e.target.value || 0)
-                      const clamped = Math.min(Math.max(parsed, 0), maxReplaceQuantity)
-                      setSpareQuantity(clamped)
-                    }}
-                    disabled={followUpMode}
-                  />
-                  {followUpMode ? (
-                    <p className="text-xs text-emerald-700">Follow-up cases use the remaining quantity only, tied to the original damaged item.</p>
-                  ) : null}
-                </div>
+                {followUpMode ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="spare-order-item">Damaged Item</Label>
+                      <Select value={spareOrderItemId} onValueChange={setSpareOrderItemId} disabled>
+                        <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
+                          <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
+                        </SelectTrigger>
+                        <SelectContent className="border-sky-200 bg-white text-slate-900">
+                          {targetItems.map((item) => (
+                            <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
+                              {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {Number(item.quantity || 0)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="spare-qty">Quantity to Replace</Label>
+                      <Input id="spare-qty" type="text" inputMode="numeric" pattern="[0-9]*" value={spareQuantity} disabled />
+                      <p className="text-xs text-emerald-700">Follow-up cases use the remaining quantity only, tied to the original damaged item.</p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Damaged Products</Label>
+                    <div className="space-y-2 rounded-md border bg-white p-2">
+                      {targetItems.length === 0 ? (
+                        <p className="px-2 py-3 text-sm text-slate-500">No item details available</p>
+                      ) : targetItems.map((item) => {
+                        const line = spareReplacementLines.find((entry) => entry.orderItemId === item.id) || null
+                        const checked = Boolean(line)
+                        const maxQty = Math.max(Number(item.quantity || 0), 0)
+                        const setLine = (patch: Partial<SpareReplacementLine>) => {
+                          setSpareReplacementLines((previous) =>
+                            previous.map((entry) => entry.orderItemId === item.id ? { ...entry, ...patch } : entry)
+                          )
+                        }
+                        return (
+                          <div key={item.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                            <label className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4 rounded border-slate-300"
+                                checked={checked}
+                                onChange={(event) => {
+                                  if (event.target.checked) {
+                                    setSpareReplacementLines((previous) => [
+                                      ...previous.filter((entry) => entry.orderItemId !== item.id),
+                                      { orderItemId: item.id, quantityToReplace: '1', quantityReplaced: spareOutcome === 'RESOLVED' ? '1' : '0' },
+                                    ])
+                                  } else {
+                                    setSpareReplacementLines((previous) => previous.filter((entry) => entry.orderItemId !== item.id))
+                                  }
+                                }}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-semibold text-slate-900">{item.product?.name || 'Item'}</span>
+                                <span className="block text-xs text-slate-500">{item.product?.sku || 'N/A'} | Ordered Qty {maxQty}</span>
+                              </span>
+                            </label>
+                            {checked ? (
+                              <div className={`mt-2 grid gap-2 ${spareOutcome === 'PARTIALLY_REPLACED' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Quantity to Replace</Label>
+                                  <Input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={line?.quantityToReplace || ''}
+                                    onChange={(event) => {
+                                      const nextValue = event.target.value.replace(/[^\d]/g, '')
+                                      setLine({ quantityToReplace: nextValue, quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0' })
+                                    }}
+                                    onBlur={() => {
+                                      const parsed = Number(line?.quantityToReplace || 0)
+                                      const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxQty))
+                                      setLine({ quantityToReplace: clamped, quantityReplaced: spareOutcome === 'RESOLVED' ? clamped : line?.quantityReplaced || '0' })
+                                    }}
+                                  />
+                                </div>
+                                {spareOutcome === 'PARTIALLY_REPLACED' ? (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Quantity Replaced</Label>
+                                    <Input
+                                      type="text"
+                                      inputMode="numeric"
+                                      pattern="[0-9]*"
+                                      value={line?.quantityReplaced || ''}
+                                      onChange={(event) => setLine({ quantityReplaced: event.target.value.replace(/[^\d]/g, '') })}
+                                      onBlur={() => {
+                                        const maxReplace = Number(line?.quantityToReplace || 0)
+                                        const parsed = Number(line?.quantityReplaced || 0)
+                                        setLine({ quantityReplaced: String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxReplace)) })
+                                      }}
+                                    />
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Resolution</Label>
                   {followUpMode ? (
@@ -3192,7 +3794,7 @@ function TripDetailView({
                   )}
                 </div>
                 <AnimatePresence mode="wait">
-                  {spareOutcome === 'PARTIALLY_REPLACED' ? (
+                  {spareOutcome === 'PARTIALLY_REPLACED' && followUpMode ? (
                     <motion.div
                       key="partial-qty-field"
                       initial={{ opacity: 0, height: 0, marginTop: 0 }}
@@ -3206,7 +3808,7 @@ function TripDetailView({
                         id="spare-partial-qty"
                         type="number"
                         min="1"
-                        max={spareQuantity}
+                        max={Number(spareQuantity || 0)}
                         value={sparePartiallyReplacedQuantity}
                         onChange={(e) => setSparePartiallyReplacedQuantity(Number(e.target.value || 0))}
                         disabled={isSpareReplacing}
@@ -3220,12 +3822,27 @@ function TripDetailView({
                 </AnimatePresence>
                 <div className="space-y-2">
                   <Label htmlFor="spare-reason">Damage Details</Label>
-                  <Textarea
-                    id="spare-reason"
-                    placeholder="Describe damage observed by driver..."
-                    value={spareReason}
-                    onChange={(e) => setSpareReason(e.target.value)}
-                  />
+                  <Select value={spareDamageReason} onValueChange={setSpareDamageReason} disabled={isSpareReplacing}>
+                    <SelectTrigger id="spare-reason" className="h-10 rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
+                      <SelectValue placeholder="Select damage reason" />
+                    </SelectTrigger>
+                    <SelectContent className="border-sky-200 bg-white text-slate-900">
+                      {SPARE_DAMAGE_REASON_OPTIONS.map((reason) => (
+                        <SelectItem key={reason} value={reason} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
+                          {reason}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {spareDamageReason === 'Others' ? (
+                    <Textarea
+                      id="spare-other-reason"
+                      value={spareOtherDamageReason}
+                      onChange={(event) => setSpareOtherDamageReason(event.target.value)}
+                      placeholder="Type specific damage reason..."
+                      disabled={isSpareReplacing}
+                    />
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="spare-photo">Damage Photo</Label>
@@ -3584,7 +4201,7 @@ function HistoryView({
                               {stop.status}
                             </Badge>
                           </div>
-                          <p className="text-slate-500">{stop.address}, {stop.city}</p>
+                          <p className="text-slate-500">{[stripPhilippinesFromAddress(stop.address), stop.city].filter(Boolean).join(', ')}</p>
                           <p className="text-slate-500">Order: {stop.order?.orderNumber || 'N/A'}</p>
                         </div>
                       ))}
@@ -3639,9 +4256,8 @@ function ProfileView({ user }: { user: any }) {
   useEffect(() => {
     async function fetchProfile() {
       try {
-        const response = await fetch('/api/driver/profile', { credentials: 'include' })
-        if (!response.ok) throw new Error('Failed to load profile')
-        const payload = await response.json()
+        const { response, data: payload } = await fetchJsonWithRetry('/api/driver/profile', { credentials: 'include' })
+        if (!response?.ok) throw new Error('Failed to load profile')
         const profile = payload?.driver || payload?.profile || {}
         setForm({
           name: profile?.user?.name || user?.name || '',
@@ -3653,7 +4269,7 @@ function ProfileView({ user }: { user: any }) {
           licensePhoto: profile?.licensePhoto || '',
         })
       } catch (error) {
-        toast.error('Failed to load profile')
+        console.warn('Failed to load profile:', error)
       } finally {
         setIsLoading(false)
       }
