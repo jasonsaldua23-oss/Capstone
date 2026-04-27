@@ -49,6 +49,7 @@ urlpatterns = [
     path("uploads/driver-license", v.upload_driver_license),
     path("customer/orders", v.customer_orders),
     path("customer/orders/<str:order_id>/cancel", v.customer_order_cancel),
+    path("payments/paymongo/webhook", v.paymongo_webhook),
     path("customer/replacements", v.customer_replacements),
     path("customer/tracking", v.customer_tracking),
     path("driver/location", v.driver_location),

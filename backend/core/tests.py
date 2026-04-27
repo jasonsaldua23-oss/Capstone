@@ -1,8 +1,11 @@
+import hashlib
+import hmac
 import json
 from datetime import timedelta
+from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .auth import create_token
@@ -20,6 +23,7 @@ from .models import (
     OrderLogistics,
     OrderTimeline,
     OrderStatus,
+    PaymentCheckoutDraft,
     Product,
     Replacement,
     Role,
@@ -524,6 +528,233 @@ class CustomerOrdersApiContractTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["order"]["status"], OrderStatus.PENDING)
+
+    @override_settings(PAYMONGO_ENABLE_CHECKOUT=True, PAYMONGO_SECRET_KEY="sk_test_mock")
+    def test_customer_online_payment_creates_checkout_draft_until_paid_webhook(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Payment Warehouse",
+            code="WH-PAY-001",
+            address="Warehouse Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        product = Product.objects.create(
+            sku="SKU-PAY-001",
+            name="Payment Product",
+            unit="piece",
+            price=25,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=0,
+            min_stock=1,
+            max_stock=20,
+            reorder_point=2,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-PAY-001",
+            inventory=inventory,
+            quantity=10,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"data":{"id":"cs_test_123","attributes":{"checkout_url":"https://paymongo.example/checkout/cs_test_123"}}}'
+        mock_response.json.return_value = {
+            "data": {
+                "id": "cs_test_123",
+                "attributes": {"checkout_url": "https://paymongo.example/checkout/cs_test_123"},
+            }
+        }
+
+        with patch("core.views_api.requests.post", return_value=mock_response):
+            response = self.client.post(
+                "/api/customer/orders",
+                data={
+                    "warehouseId": warehouse.id,
+                    "paymentMethod": "GCASH",
+                    "shippingLatitude": 10.67,
+                    "shippingLongitude": 122.95,
+                    "shippingProvince": "Negros Occidental",
+                    "items": [
+                        {
+                            "productId": product.id,
+                            "quantity": 1,
+                        }
+                    ],
+                },
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["pendingPayment"])
+        self.assertEqual(payload["paymentMethod"], "GCASH")
+        self.assertIn("checkoutUrl", payload)
+        self.assertEqual(Order.objects.count(), 0)
+
+        draft = PaymentCheckoutDraft.objects.get(id=payload["draftId"])
+        self.assertEqual(draft.payment_method, "GCASH")
+        self.assertEqual(float(draft.tax), 0.0)
+        self.assertEqual(float(draft.subtotal), 25.0)
+        self.assertEqual(float(draft.total_amount), 25.0)
+        self.assertEqual(draft.status, "PENDING")
+
+    @override_settings(PAYMONGO_WEBHOOK_SECRET="")
+    def test_paymongo_webhook_marks_order_paid(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Webhook Warehouse",
+            code="WH-WEBHOOK-001",
+            address="Warehouse Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        product = Product.objects.create(
+            sku="SKU-WEBHOOK-001",
+            name="Webhook Product",
+            unit="piece",
+            price=100,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=0,
+            min_stock=1,
+            max_stock=20,
+            reorder_point=2,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-WEBHOOK-001",
+            inventory=inventory,
+            quantity=10,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+
+        draft = PaymentCheckoutDraft.objects.create(
+            customer=self.customer,
+            payment_method="MAYA",
+            payload={
+                "customerId": self.customer.id,
+                "warehouseId": warehouse.id,
+                "paymentMethod": "MAYA",
+                "shippingName": self.customer.name,
+                "shippingPhone": self.customer.phone,
+                "shippingAddress": self.customer.address,
+                "shippingCity": self.customer.city,
+                "shippingProvince": self.customer.province,
+                "shippingZipCode": self.customer.zip_code,
+                "shippingLatitude": self.customer.latitude,
+                "shippingLongitude": self.customer.longitude,
+                "items": [
+                    {
+                        "productId": product.id,
+                        "quantity": 1,
+                        "unitPrice": 100,
+                        "totalPrice": 100,
+                    }
+                ],
+            },
+            subtotal=100,
+            tax=0,
+            shipping_cost=0,
+            discount=0,
+            total_amount=100,
+            status="PENDING",
+        )
+
+        response = self.client.post(
+            "/api/payments/paymongo/webhook",
+            data={
+                "data": {
+                    "attributes": {
+                        "type": "checkout_session.payment.paid",
+                        "data": {
+                            "attributes": {
+                                "metadata": {
+                                    "draft_id": draft.id,
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+
+        order = Order.objects.get(id=payload["orderId"])
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.payment_method, "MAYA")
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, "COMPLETED")
+        self.assertEqual(draft.order_id, order.id)
+
+    @override_settings(PAYMONGO_WEBHOOK_SECRET="whsk_test_secret")
+    def test_paymongo_webhook_rejects_invalid_signature(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-PAYMONGO-WEBHOOK-002",
+            customer=self.customer,
+            status=OrderStatus.PENDING,
+            subtotal=100,
+            tax=0,
+            shipping_cost=0,
+            discount=0,
+            total_amount=100,
+            payment_status="pending",
+            payment_method="GCASH",
+        )
+
+        payload = {
+            "data": {
+                "attributes": {
+                    "type": "checkout_session.payment.paid",
+                    "data": {
+                        "attributes": {
+                            "metadata": {
+                                "order_id": order.id,
+                                "order_number": order.order_number,
+                            }
+                        }
+                    },
+                }
+            }
+        }
+        raw = json.dumps(payload).encode("utf-8")
+        timestamp = "1712123456"
+        invalid_sig = hmac.new(
+            b"whsk_wrong_secret",
+            f"{timestamp}.".encode("utf-8") + raw,
+            hashlib.sha256,
+        ).hexdigest()
+
+        response = self.client.post(
+            "/api/payments/paymongo/webhook",
+            data=raw,
+            content_type="application/json",
+            HTTP_PAYMONGO_SIGNATURE=f"t={timestamp},te={invalid_sig},li=",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "pending")
 
 
 class DriverTripsApiContractTests(TestCase):
@@ -1095,12 +1326,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
     def test_dispatched_status_is_automatic_when_trip_starts(self) -> None:
         order = self._create_order(
             warehouse_stage=WarehouseStage.READY_TO_LOAD,
-            checklist_items_verified=True,
             checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_spare_products_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
             dispatch_signed_off_by="Warehouse Lead",
             dispatch_signed_off_at=timezone.now(),
         )
@@ -1276,7 +1502,7 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Checklist must be completed before LOADED")
+        self.assertEqual(payload["error"], "Quantity checklist must be completed before LOADED")
 
     def test_loaded_stage_keeps_order_status_preparing(self) -> None:
         order = self._create_order(status=OrderStatus.PREPARING)
@@ -1341,7 +1567,7 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
-        self.assertTrue(order.checklist_spare_products_verified)
+        self.assertTrue(order.checklist_quantity_verified)
 
         spare_products = DriverSpareStock.objects.get(driver=self.driver, product=product)
         self.assertEqual(spare_products.quantity, 3)
@@ -1611,12 +1837,7 @@ class TripExecutionApiContractTests(TestCase):
             warehouse_stage=WarehouseStage.LOADED,
             subtotal=100,
             total_amount=110,
-            checklist_items_verified=True,
             checklist_quantity_verified=True,
-            checklist_packaging_verified=True,
-            checklist_spare_products_verified=True,
-            checklist_vehicle_assigned=True,
-            checklist_driver_assigned=True,
         )
         self.dp_1.order = order
         self.dp_1.save(update_fields=["order", "updated_at"])
@@ -3549,3 +3770,236 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         self.assertEqual(self.order.status, OrderStatus.DELIVERED)
         order_timeline = OrderTimeline.objects.get(order=self.order)
         self.assertIsNotNone(order_timeline.delivered_at)
+
+
+class WarehouseStaffInventoryScopeContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+
+        self.warehouse_user = User.objects.create(
+            email="warehouse.scope@example.com",
+            password="hashed",
+            name="Warehouse Scope User",
+            role=self.warehouse_role,
+            is_active=True,
+        )
+        self.other_warehouse_user = User.objects.create(
+            email="warehouse.scope.other@example.com",
+            password="hashed",
+            name="Warehouse Scope Other User",
+            role=self.warehouse_role,
+            is_active=True,
+        )
+        self.admin_user = User.objects.create(
+            email="warehouse.scope.admin@example.com",
+            password="hashed",
+            name="Warehouse Scope Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+
+        self.primary_warehouse = Warehouse.objects.create(
+            name="Scope Warehouse A",
+            code="WH-SCOPE-A",
+            address="Address A",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            manager_id=self.warehouse_user.id,
+            is_active=True,
+        )
+        self.other_warehouse = Warehouse.objects.create(
+            name="Scope Warehouse B",
+            code="WH-SCOPE-B",
+            address="Address B",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            manager_id=self.other_warehouse_user.id,
+            is_active=True,
+        )
+
+        self.product_a = Product.objects.create(sku="SKU-SCOPE-A", name="Scope Product A", price=10)
+        self.product_b = Product.objects.create(sku="SKU-SCOPE-B", name="Scope Product B", price=20)
+        Inventory.objects.create(
+            warehouse=self.primary_warehouse,
+            product=self.product_a,
+            quantity=10,
+            reserved_quantity=1,
+            min_stock=1,
+            max_stock=100,
+            reorder_point=2,
+        )
+        Inventory.objects.create(
+            warehouse=self.other_warehouse,
+            product=self.product_b,
+            quantity=20,
+            reserved_quantity=2,
+            min_stock=1,
+            max_stock=100,
+            reorder_point=2,
+        )
+
+        self.warehouse_token = create_token(
+            {
+                "userId": self.warehouse_user.id,
+                "email": self.warehouse_user.email,
+                "name": self.warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_warehouses_endpoint_for_warehouse_staff_returns_only_assigned_warehouse(self) -> None:
+        response = self.client.get(
+            "/api/warehouses",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(len(payload["warehouses"]), 1)
+        self.assertEqual(payload["warehouses"][0]["id"], self.primary_warehouse.id)
+
+    def test_inventory_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_products(self) -> None:
+        response = self.client.get(
+            "/api/inventory",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(len(payload["inventory"]), 1)
+        self.assertEqual(payload["inventory"][0]["warehouse"]["id"], self.primary_warehouse.id)
+        self.assertEqual(payload["inventory"][0]["product"]["id"], self.product_a.id)
+
+    def test_inventory_endpoint_for_warehouse_staff_rejects_other_warehouse_filter(self) -> None:
+        response = self.client.get(
+            f"/api/inventory?warehouseId={self.other_warehouse.id}",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+
+    def test_inventory_endpoint_for_admin_can_see_all_warehouses(self) -> None:
+        response = self.client.get(
+            "/api/inventory",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 2)
+
+
+class PasswordPolicyContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
+        self.admin_user = User.objects.create(
+            email="password.policy.admin@gmail.com",
+            password="hashed",
+            name="Password Policy Admin",
+            role=self.admin_role,
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": self.admin_role.name,
+                "type": "staff",
+            }
+        )
+        self.customer = Customer.objects.create(
+            email="password.policy.customer@gmail.com",
+            password="hashed",
+            name="Password Policy Customer",
+            is_active=True,
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+    def test_auth_register_rejects_weak_password(self) -> None:
+        response = self.client.post(
+            "/api/auth/register",
+            data={
+                "name": "Weak Password Customer",
+                "email": "weak.register@gmail.com",
+                "password": "weakpass",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("Password must be at least 8 characters", payload["error"])
+
+    def test_users_collection_rejects_weak_password(self) -> None:
+        response = self.client.post(
+            "/api/users",
+            data={
+                "name": "Weak Staff",
+                "email": "weak.staff@gmail.com",
+                "password": "weakpass",
+                "roleId": self.driver_role.id,
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("Password must be at least 8 characters", payload["error"])
+
+    def test_customer_update_rejects_weak_password(self) -> None:
+        response = self.client.put(
+            f"/api/customers/{self.customer.id}",
+            data={"password": "weakpass"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("Password must be at least 8 characters", payload["error"])
+
+    def test_password_reset_rejects_weak_password_before_otp_validation(self) -> None:
+        response = self.client.post(
+            "/api/auth/password-reset/reset",
+            data={
+                "email": "password.policy.admin@gmail.com",
+                "accountType": "staff",
+                "otp": "123456",
+                "newPassword": "weakpass",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("Password must be at least 8 characters", payload["error"])

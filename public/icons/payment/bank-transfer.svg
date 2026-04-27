@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Bank transfer">
+  <rect width="120" height="120" rx="18" fill="#f8fafc"/>
+  <polygon points="60,16 24,44 96,44" fill="#193548"/>
+  <rect x="30" y="48" width="9" height="35" rx="2" fill="#193548"/>
+  <rect x="45" y="48" width="9" height="35" rx="2" fill="#193548"/>
+  <rect x="60" y="48" width="9" height="35" rx="2" fill="#193548"/>
+  <rect x="75" y="48" width="9" height="35" rx="2" fill="#193548"/>
+  <rect x="24" y="84" width="60" height="6" rx="3" fill="#193548"/>
+  <circle cx="60" cy="40" r="11" fill="#193548"/>
+  <text x="60" y="44" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#ffffff">$</text>
+  <circle cx="84" cy="77" r="19" fill="#193548"/>
+  <path d="M73 71h20l-5-5m5 5-5 5M95 83H75l5-5m-5 5 5 5" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,2 +1,0 @@
-id,userId,action,entityType,entityId,oldValue,newValue,ipAddress,userAgent,createdAt
-cmnd79t0m001lf85429yt2vxh,cmnd79stw0005f854m86615qp,CREATE,ORDER,cmnd79szc0011f854lkzqymxa,,"{""orderNumber"":""ORD-2024-0001""}",,,2026-03-30T13:04:38.950Z

@@ -1,2 +1,0 @@
-id,name,code,address,city,state,zipCode,country,latitude,longitude,capacity,managerId,isActive,createdAt,updatedAt
-cmnd79svx000ef854zezvp9zj,Main Distribution Center,WH-MAIN,1000 Industrial Blvd,Newark,NJ,07102,USA,40.7328,-74.1745,10000,cmnd79sup0009f854u2mfz7xy,true,2026-03-30T13:04:38.781Z,2026-04-02T11:04:28.272Z

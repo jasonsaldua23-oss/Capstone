@@ -1,2 +1,0 @@
-id,licensePlate,type,make,model,year,color,capacity,volume,status,fuelType,mileage,lastMaintenance,nextMaintenance,isActive,createdAt,updatedAt
-cmnlvtway000gf87s0s1olmt0,qbc-123,TRUCK,FORD,SHWS,2024,,800,,IN_USE,Diesel,0,,,true,2026-04-05T14:54:16.523Z,2026-04-05T14:54:16.523Z

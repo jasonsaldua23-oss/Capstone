@@ -1,6 +1,0 @@
-id,email,password,name,phone,avatar,roleId,isActive,lastLoginAt,createdAt,updatedAt
-cmnd79stw0005f854m86615qp,admin@logistics.com,$2b$12$W1dHTcx32yMpQgR4AgYibuHQYj5bB1Rgmdix2S0cXHDlbsXsUWd56,Admin User,+1-555-0100,,cmnd79rti0000f854p3tg9jw0,true,2026-04-06T03:21:25.474Z,2026-03-30T13:04:38.708Z,2026-04-06T03:21:25.477Z
-cmnd79su90007f85419c8xzgr,staff@logistics.com,$2b$12$W1dHTcx32yMpQgR4AgYibuHQYj5bB1Rgmdix2S0cXHDlbsXsUWd56,Staff Member,+1-555-0101,,cmnd79rtj0001f854g6vvppnb,false,,2026-03-30T13:04:38.721Z,2026-03-30T14:15:52.993Z
-cmnd79sup0009f854u2mfz7xy,warehouse@logistics.com,$2b$12$W1dHTcx32yMpQgR4AgYibuHQYj5bB1Rgmdix2S0cXHDlbsXsUWd56,Nathaniel Alvarez,+1-555-0102,,cmnd79rtj0002f8546ytwp8sh,true,2026-04-06T03:20:54.229Z,2026-03-30T13:04:38.737Z,2026-04-06T03:20:54.235Z
-cmnd79sv1000bf854bj1bchiv,jason.saldua@chmsu.edu.ph,$2b$12$yJqH/YrB12z8oHJgPSD0s.J058fKt5tj3j4tNOOsac2Iwzr2vmuci,Jason Saldua,09460056944,,cmnd79rtj0003f854rmha29tf,false,2026-04-01T17:16:22.405Z,2026-03-30T13:04:38.749Z,2026-04-05T11:07:32.333Z
-cmnicdvgq0002f8golecf7ypi,driver@logistics.com,$2b$12$hV/SSsT63dL5bjTe/Q2cV.9NqLUgubmtUK.XQR.tce2cI1I6aOJuy,BISLOT,09637933499,,cmnd79rtj0003f854rmha29tf,true,2026-04-06T03:21:05.485Z,2026-04-03T03:26:37.707Z,2026-04-06T03:21:05.487Z

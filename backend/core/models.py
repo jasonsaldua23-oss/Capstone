@@ -268,12 +268,7 @@ class Order(models.Model):
     loaded_at = models.DateTimeField(blank=True, null=True)
     warehouse_dispatched_at = models.DateTimeField(blank=True, null=True)
 
-    checklist_items_verified = models.BooleanField(default=False)
     checklist_quantity_verified = models.BooleanField(default=False)
-    checklist_packaging_verified = models.BooleanField(default=False)
-    checklist_spare_products_verified = models.BooleanField(default=False)
-    checklist_vehicle_assigned = models.BooleanField(default=False)
-    checklist_driver_assigned = models.BooleanField(default=False)
 
     dispatch_signed_off_by = models.CharField(max_length=255, blank=True, null=True)
     dispatch_signed_off_user_id = models.CharField(max_length=100, blank=True, null=True)
@@ -289,6 +284,46 @@ class Order(models.Model):
 
     class Meta:
         db_table = "Order"
+
+    @property
+    def checklist_items_verified(self) -> bool:
+        return bool(self.checklist_quantity_verified)
+
+    @checklist_items_verified.setter
+    def checklist_items_verified(self, value: bool) -> None:
+        self.checklist_quantity_verified = bool(value)
+
+    @property
+    def checklist_packaging_verified(self) -> bool:
+        return bool(self.checklist_quantity_verified)
+
+    @checklist_packaging_verified.setter
+    def checklist_packaging_verified(self, value: bool) -> None:
+        self.checklist_quantity_verified = bool(value)
+
+    @property
+    def checklist_spare_products_verified(self) -> bool:
+        return bool(self.checklist_quantity_verified)
+
+    @checklist_spare_products_verified.setter
+    def checklist_spare_products_verified(self, value: bool) -> None:
+        self.checklist_quantity_verified = bool(value)
+
+    @property
+    def checklist_vehicle_assigned(self) -> bool:
+        return bool(self.checklist_quantity_verified)
+
+    @checklist_vehicle_assigned.setter
+    def checklist_vehicle_assigned(self, value: bool) -> None:
+        self.checklist_quantity_verified = bool(value)
+
+    @property
+    def checklist_driver_assigned(self) -> bool:
+        return bool(self.checklist_quantity_verified)
+
+    @checklist_driver_assigned.setter
+    def checklist_driver_assigned(self, value: bool) -> None:
+        self.checklist_quantity_verified = bool(value)
 
 
 class OrderLogistics(models.Model):
@@ -340,6 +375,28 @@ class OrderItem(models.Model):
 
     class Meta:
         db_table = "OrderItem"
+
+
+class PaymentCheckoutDraft(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="payment_checkout_drafts")
+    payment_method = models.CharField(max_length=100)
+    payload = models.JSONField(default=dict)
+    subtotal = models.FloatField(default=0)
+    tax = models.FloatField(default=0)
+    shipping_cost = models.FloatField(default=0)
+    discount = models.FloatField(default=0)
+    total_amount = models.FloatField(default=0)
+    status = models.CharField(max_length=30, default="PENDING")
+    checkout_url = models.TextField(blank=True, null=True)
+    paymongo_checkout_id = models.CharField(max_length=120, blank=True, null=True)
+    order = models.OneToOneField(Order, on_delete=models.SET_NULL, blank=True, null=True, related_name="checkout_draft")
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "PaymentCheckoutDraft"
 
 
 class Vehicle(models.Model):

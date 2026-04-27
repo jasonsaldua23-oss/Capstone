@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { setTabAuthToken } from '@/lib/client-auth'
+import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -51,7 +52,7 @@ export function CustomerLoginPage() {
         </div>
       </div>
       <div className="flex justify-center w-full">
-        <div ref={googleButtonRef} className="flex w-full max-w-xs items-center justify-center" style={{ minWidth: '0' }} />
+        <div ref={googleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
       </div>
     </div>
   ) : (
@@ -210,6 +211,11 @@ export function CustomerLoginPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    const passwordError = validatePasswordPolicy(password)
+    if (passwordError) {
+      toast.error(passwordError)
+      return
+    }
     if (password !== confirmPassword) {
       toast.error('Passwords do not match.')
       return
@@ -354,6 +360,7 @@ export function CustomerLoginPage() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  <p className="text-[11px] text-slate-500 sm:text-xs">{PASSWORD_POLICY_MESSAGE}</p>
                 </div>
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="reg-confirm-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Confirm Password</Label>

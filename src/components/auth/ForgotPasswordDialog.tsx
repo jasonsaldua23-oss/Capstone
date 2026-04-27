@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
 
 type ForgotPasswordDialogProps = {
   accountType: 'staff' | 'customer'
@@ -80,8 +81,9 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
       toast.error('Please enter a new password.')
       return
     }
-    if (newPassword.length < 8) {
-      toast.error('Password must be at least 8 characters.')
+    const passwordError = validatePasswordPolicy(newPassword)
+    if (passwordError) {
+      toast.error(passwordError)
       return
     }
     if (newPassword !== confirmPassword) {
@@ -165,8 +167,9 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Minimum 8 characters"
+                  placeholder="Enter new password"
                 />
+                <p className="text-xs text-slate-500">{PASSWORD_POLICY_MESSAGE}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="forgot-password-confirm-password">Confirm new password</Label>

@@ -1,11 +1,15 @@
+import hashlib
+import hmac
 import json
 import logging
 import math
+import re
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import requests
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
@@ -36,6 +40,7 @@ from .models import (
     OrderItem,
     OrderLogistics,
     OrderStatus,
+    PaymentCheckoutDraft,
     PasswordResetOTP,
     OrderTimeline,
     WarehouseStage,
@@ -81,6 +86,7 @@ SPARE_PRODUCT_POLICY_BY_UNIT = {
 
 HIDDEN_SAMPLE_WORDS = ("test", "demo", "sample", "dummy", "placeholder", "fake")
 HIDDEN_SAMPLE_EMAIL_DOMAINS = ("@example.com", "@test.com", "@demo.com")
+PASSWORD_POLICY_ERROR = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces."
 
 
 def _hide_sample_data() -> bool:
@@ -248,6 +254,352 @@ def _to_float_or_none(value: Any) -> float | None:
     if not math.isfinite(number):
         return None
     return number
+
+
+def _validate_password_strength(password: str) -> str | None:
+    if len(password) < 8:
+        return PASSWORD_POLICY_ERROR
+    if any(char.isspace() for char in password):
+        return PASSWORD_POLICY_ERROR
+    if not re.search(r"[A-Z]", password):
+        return PASSWORD_POLICY_ERROR
+    if not re.search(r"[a-z]", password):
+        return PASSWORD_POLICY_ERROR
+    if not re.search(r"\d", password):
+        return PASSWORD_POLICY_ERROR
+    if not re.search(r"[^A-Za-z0-9]", password):
+        return PASSWORD_POLICY_ERROR
+    return None
+
+
+def _normalize_payment_method(value: Any) -> str:
+    raw = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if raw in {"GCASH", "MAYA", "CARD"}:
+        return raw
+    if raw in {"BANK_TRANSFER", "ONLINE_PAYMENT"}:
+        return "CARD"
+    if raw == "PAYMONGO":
+        return "CARD"
+    if raw == "COD":
+        return "COD"
+    return "COD"
+
+
+def _is_paymongo_payment_method(value: Any) -> bool:
+    return _normalize_payment_method(value) in {"CARD", "GCASH", "MAYA"}
+
+
+def _is_truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_order_items_for_checkout(raw_items: Any) -> tuple[list[dict[str, Any]], float]:
+    if not isinstance(raw_items, list) or not raw_items:
+        raise ValueError("items are required")
+
+    normalized_items: list[dict[str, Any]] = []
+    subtotal = 0.0
+    for item in raw_items:
+        pid = str((item or {}).get("productId") or "").strip()
+        if not pid:
+            continue
+        prod = Product.objects.filter(id=pid).first()
+        if not prod:
+            raise ValueError(f"Product not found: {pid}")
+
+        qty = _int((item or {}).get("quantity"), 0)
+        if qty <= 0:
+            raise ValueError(f"Quantity must be greater than zero for product {prod.sku}")
+
+        unit = float((item or {}).get("unitPrice") or prod.price)
+        line_total = float((item or {}).get("totalPrice") or unit * qty)
+        subtotal += unit * qty
+        normalized_items.append(
+            {
+                "productId": pid,
+                "quantity": qty,
+                "unitPrice": unit,
+                "totalPrice": line_total,
+                "notes": (item or {}).get("notes"),
+            }
+        )
+
+    if not normalized_items:
+        raise ValueError("items are required")
+    return normalized_items, subtotal
+
+
+def _compute_order_totals(body: dict[str, Any], subtotal: float) -> tuple[float, float, float, float]:
+    shipping_cost = float(body.get("shippingCost") or 0)
+    discount = float(body.get("discount") or 0)
+    tax = float(body.get("tax") if body.get("tax") is not None else 0)
+    total = float(body.get("totalAmount") if body.get("totalAmount") is not None else subtotal + tax + shipping_cost - discount)
+    return tax, shipping_cost, discount, total
+
+
+def _create_order_from_checkout_payload(
+    *,
+    customer: Customer,
+    body: dict[str, Any],
+    normalized_items: list[dict[str, Any]],
+    subtotal: float,
+    tax: float,
+    shipping_cost: float,
+    discount: float,
+    total_amount: float,
+    normalized_payment_method: str,
+    selected_warehouse_id: str | None,
+    shipping_latitude: Any,
+    shipping_longitude: Any,
+    payment_status: str,
+    performed_by: str | None,
+) -> Order:
+    count = Order.objects.count() + 1
+    order = Order.objects.create(
+        order_number=f"ORD-{timezone.now().year}-{str(count).zfill(4)}",
+        customer=customer,
+        status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
+        priority=body.get("priority") or "normal",
+        subtotal=0,
+        tax=0,
+        shipping_cost=shipping_cost,
+        discount=discount,
+        total_amount=0,
+        payment_status=payment_status,
+        payment_method=normalized_payment_method,
+        warehouse_id=selected_warehouse_id,
+    )
+
+    allocation_policy = _resolve_allocation_policy(body)
+    for item in normalized_items:
+        pid = str(item.get("productId") or "").strip()
+        prod = Product.objects.filter(id=pid).first()
+        if not prod:
+            raise ValueError(f"Product not found: {pid}")
+
+        qty = _int(item.get("quantity"), 0)
+        unit = float(item.get("unitPrice") or prod.price)
+        line_total = float(item.get("totalPrice") or unit * qty)
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=prod,
+            quantity=qty,
+            unit_price=unit,
+            total_price=line_total,
+            notes=item.get("notes"),
+        )
+
+        allocations = _reserve_inventory_for_order_item(
+            product=prod,
+            requested_qty=qty,
+            order=order,
+            order_item=order_item,
+            warehouse_id=str(order.warehouse_id or "").strip() or None,
+            allocation_policy=allocation_policy,
+            performed_by=performed_by,
+        )
+        allocation_note = f"Reserved using {allocation_policy}: " + ", ".join([f"{row['batchNumber']} x{row['quantity']}" for row in allocations])
+        policy_note = f"AllocationPolicy={allocation_policy}"
+        order_item.notes = f"{order_item.notes or ''}\n{policy_note}\n{allocation_note}".strip()
+        order_item.save(update_fields=["notes"])
+
+    order.subtotal = subtotal
+    order.tax = tax
+    order.total_amount = total_amount
+    order.save(update_fields=["subtotal", "tax", "total_amount", "updated_at"])
+    OrderLogistics.objects.create(
+        order=order,
+        shipping_name=body.get("shippingName") or customer.name,
+        shipping_phone=body.get("shippingPhone") or customer.phone or "",
+        shipping_address=_strip_default_country_suffix(body.get("shippingAddress") or customer.address or ""),
+        shipping_city=body.get("shippingCity") or customer.city or "",
+        shipping_province=body.get("shippingProvince") or customer.province or "",
+        shipping_zip_code=body.get("shippingZipCode") or customer.zip_code or "",
+        shipping_country=DEFAULT_COUNTRY,
+        shipping_latitude=shipping_latitude,
+        shipping_longitude=shipping_longitude,
+        notes=body.get("notes"),
+        special_instructions=body.get("specialInstructions"),
+    )
+    OrderTimeline.objects.create(order=order, delivery_date=datetime.fromisoformat(body["deliveryDate"]) if body.get("deliveryDate") else None)
+    return order
+
+
+def _create_paymongo_checkout_session(
+    order: Order,
+    request: HttpRequest,
+    selected_method: str | None = None,
+    *,
+    metadata_override: dict[str, Any] | None = None,
+    redirect_reference_id: str | None = None,
+) -> str:
+    secret_key = str(getattr(settings, "PAYMONGO_SECRET_KEY", "") or "").strip()
+    if not secret_key:
+        raise ValueError("PAYMONGO_SECRET_KEY is not configured")
+
+    origin = str(request.headers.get("origin") or "").strip()
+    if not origin:
+        referer = str(request.headers.get("referer") or "").strip()
+        if referer:
+            try:
+                from urllib.parse import urlsplit
+
+                parsed = urlsplit(referer)
+                if parsed.scheme and parsed.netloc:
+                    origin = f"{parsed.scheme}://{parsed.netloc}"
+            except Exception:
+                origin = ""
+
+    success_url = str(getattr(settings, "PAYMONGO_SUCCESS_URL", "") or "").strip()
+    cancel_url = str(getattr(settings, "PAYMONGO_CANCEL_URL", "") or "").strip()
+    reference_id = str(redirect_reference_id or order.id or "").strip()
+    if not success_url:
+        base = origin or "http://localhost:3000"
+        success_url = f"{base}/?payment=success&orderId={reference_id}"
+    if not cancel_url:
+        base = origin or "http://localhost:3000"
+        cancel_url = f"{base}/?payment=cancelled&orderId={reference_id}"
+
+    requested = _normalize_payment_method(selected_method)
+    method_map = {"CARD": ["card"], "GCASH": ["gcash"], "MAYA": ["paymaya"]}
+    payment_method_types: list[str]
+    if requested in method_map:
+        payment_method_types = method_map[requested]
+    else:
+        configured_types = str(getattr(settings, "PAYMONGO_PAYMENT_METHOD_TYPES", "") or "").strip()
+        if configured_types:
+            allowed = {"card", "gcash", "paymaya"}
+            payment_method_types = [item.strip().lower() for item in configured_types.split(",") if item.strip().lower() in allowed]
+            if not payment_method_types:
+                payment_method_types = ["gcash", "paymaya", "card"]
+        else:
+            payment_method_types = ["gcash", "paymaya", "card"]
+
+    amount_centavos = max(100, int(round(float(order.total_amount or 0) * 100)))
+    customer = getattr(order, "customer", None)
+    try:
+        logistics = getattr(order, "logistics", None)
+    except Exception:
+        logistics = None
+    billing_name = str(
+        (getattr(logistics, "shipping_name", "") if logistics else "")
+        or (getattr(customer, "name", "") if customer else "")
+        or ""
+    ).strip()
+    billing_email = str((getattr(customer, "email", "") if customer else "") or "").strip()
+    billing_phone = str(
+        (getattr(logistics, "shipping_phone", "") if logistics else "")
+        or (getattr(customer, "phone", "") if customer else "")
+        or ""
+    ).strip()
+    billing: dict[str, Any] | None = None
+    if billing_name or billing_email or billing_phone:
+        billing = {
+            "name": billing_name or None,
+            "email": billing_email or None,
+            "phone": billing_phone or None,
+        }
+
+    payload = {
+        "data": {
+            "attributes": {
+                "billing": billing,
+                "send_email_receipt": False,
+                "show_description": True,
+                "show_line_items": True,
+                "description": f"Payment for order {order.order_number}",
+                "line_items": [
+                    {
+                        "currency": "PHP",
+                        "amount": amount_centavos,
+                        "name": f"Order {order.order_number}",
+                        "quantity": 1,
+                    }
+                ],
+                "payment_method_types": payment_method_types,
+                "success_url": success_url,
+                "cancel_url": cancel_url,
+                "metadata": metadata_override
+                or {
+                    "order_id": order.id,
+                    "order_number": order.order_number,
+                    "customer_id": order.customer_id,
+                },
+            }
+        }
+    }
+
+    response = requests.post(
+        "https://api.paymongo.com/v1/checkout_sessions",
+        auth=(secret_key, ""),
+        json=payload,
+        timeout=20,
+    )
+    data = response.json() if response.content else {}
+    if response.status_code >= 400:
+        detail = data.get("errors") if isinstance(data, dict) else None
+        raise ValueError(f"Unable to initialize PayMongo checkout: {detail or response.text}")
+
+    checkout_url = (
+        ((data or {}).get("data") or {}).get("attributes", {}).get("checkout_url")
+        if isinstance(data, dict)
+        else None
+    )
+    if not checkout_url:
+        raise ValueError("Unable to initialize PayMongo checkout: missing checkout URL")
+    return str(checkout_url)
+
+
+def _extract_paymongo_metadata(payload: Any) -> dict[str, Any]:
+    queue: list[Any] = [payload]
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            metadata = current.get("metadata")
+            if isinstance(metadata, dict) and (
+                metadata.get("order_id")
+                or metadata.get("orderId")
+                or metadata.get("order_number")
+                or metadata.get("draft_id")
+                or metadata.get("draftId")
+            ):
+                return metadata
+            queue.extend(current.values())
+        elif isinstance(current, list):
+            queue.extend(current)
+    return {}
+
+
+def _parse_paymongo_signature_header(value: Any) -> dict[str, str]:
+    parts: dict[str, str] = {}
+    for chunk in str(value or "").split(","):
+        item = chunk.strip()
+        if not item or "=" not in item:
+            continue
+        key, raw = item.split("=", 1)
+        parts[key.strip().lower()] = raw.strip()
+    return parts
+
+
+def _verify_paymongo_webhook_signature(request: HttpRequest) -> bool:
+    secret = str(getattr(settings, "PAYMONGO_WEBHOOK_SECRET", "") or "").strip()
+    # Keep local/dev setups working when the webhook secret is not configured.
+    if not secret:
+        return True
+
+    signature_header = request.headers.get("Paymongo-Signature", "")
+    parsed = _parse_paymongo_signature_header(signature_header)
+    timestamp = parsed.get("t", "")
+    if not timestamp:
+        return False
+
+    expected_signatures = [sig for sig in (parsed.get("te", ""), parsed.get("li", "")) if sig]
+    if not expected_signatures:
+        return False
+
+    signed_payload = timestamp.encode("utf-8") + b"." + bytes(request.body or b"")
+    computed = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(computed, expected) for expected in expected_signatures)
 
 
 NEGROS_OCCIDENTAL_BOUNDS = {
@@ -454,6 +806,36 @@ def _serialize_model(obj: Any, include: dict[str, Any] | None = None, exclude: s
     return out
 
 
+def _trip_status_rank(value: Any) -> int:
+    normalized = str(value or "").strip().upper()
+    if normalized == TripStatus.IN_PROGRESS:
+        return 0
+    if normalized == TripStatus.PLANNED:
+        return 1
+    if normalized == TripStatus.COMPLETED:
+        return 2
+    return 3
+
+
+def _select_trip_for_order(order_id: str, require_driver: bool = False) -> Trip | None:
+    trip_qs = _real_trips(
+        Trip.objects.filter(drop_points__order_id=order_id).select_related("driver__user", "vehicle").order_by("-updated_at")
+    )
+    if require_driver:
+        trip_qs = trip_qs.filter(driver__isnull=False)
+
+    best_trip: Trip | None = None
+    best_rank = 99
+    for candidate in trip_qs:
+        candidate_rank = _trip_status_rank(getattr(candidate, "status", ""))
+        if best_trip is None or candidate_rank < best_rank:
+            best_trip = candidate
+            best_rank = candidate_rank
+            if best_rank == 0:
+                break
+    return best_trip
+
+
 def _payload(request: HttpRequest) -> dict[str, Any] | None:
     token = extract_token(request)
     if not token:
@@ -511,6 +893,14 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
 def _serialize_order(order: Order, include_items: bool = True, include_progress: bool = False) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
+    checklist_quantity_verified = bool(getattr(order, "checklist_quantity_verified", False))
+    data["checklistQuantityVerified"] = checklist_quantity_verified
+    # Backward-compatible fields kept for older clients; all mirror quantity checklist.
+    data["checklistItemsVerified"] = checklist_quantity_verified
+    data["checklistPackagingVerified"] = checklist_quantity_verified
+    data["checklistSpareProductsVerified"] = checklist_quantity_verified
+    data["checklistVehicleAssigned"] = checklist_quantity_verified
+    data["checklistDriverAssigned"] = checklist_quantity_verified
     data["customer"] = _serialize_model(order.customer, exclude={"password"})
     warehouse = None
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
@@ -563,12 +953,7 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
             items.append(row)
         data["items"] = items
 
-    assigned_trip = (
-        Trip.objects.filter(drop_points__order_id=order.id, driver__isnull=False)
-        .select_related("driver__user", "vehicle")
-        .order_by("-updated_at")
-        .first()
-    )
+    assigned_trip = _select_trip_for_order(order.id, require_driver=True)
     assigned_driver = getattr(assigned_trip, "driver", None)
     assigned_driver_name = ""
     if assigned_driver:
@@ -577,13 +962,9 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
     data["assignedDriverName"] = assigned_driver_name or None
     data["assignedTripId"] = getattr(assigned_trip, "id", None)
     if include_progress:
-        progress_trip = (
-            Trip.objects.filter(drop_points__order_id=order.id)
-            .select_related("driver__user", "vehicle")
-            .prefetch_related("drop_points__order")
-            .order_by("-updated_at")
-            .first()
-        )
+        progress_trip = _select_trip_for_order(order.id, require_driver=False)
+        if progress_trip:
+            progress_trip = Trip.objects.select_related("driver__user", "vehicle").prefetch_related("drop_points__order").filter(id=progress_trip.id).first()
         progress_drop_point = None
         if progress_trip:
             progress_drop_point = next(
@@ -769,12 +1150,13 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                     "warehouseStage": str(dp.order.warehouse_stage or WarehouseStage.READY_TO_LOAD),
                     "loadedAt": dp.order.loaded_at.isoformat() if dp.order.loaded_at else None,
                     "status": _normalize_order_status(dp.order.status),
-                    "checklistItemsVerified": bool(dp.order.checklist_items_verified),
                     "checklistQuantityVerified": bool(dp.order.checklist_quantity_verified),
-                    "checklistPackagingVerified": bool(dp.order.checklist_packaging_verified),
-                    "checklistSpareProductsVerified": bool(dp.order.checklist_spare_products_verified),
-                    "checklistVehicleAssigned": bool(dp.order.checklist_vehicle_assigned),
-                    "checklistDriverAssigned": bool(dp.order.checklist_driver_assigned),
+                    # Backward-compatible mirrors for older portal clients.
+                    "checklistItemsVerified": bool(dp.order.checklist_quantity_verified),
+                    "checklistPackagingVerified": bool(dp.order.checklist_quantity_verified),
+                    "checklistSpareProductsVerified": bool(dp.order.checklist_quantity_verified),
+                    "checklistVehicleAssigned": bool(dp.order.checklist_quantity_verified),
+                    "checklistDriverAssigned": bool(dp.order.checklist_quantity_verified),
                     "isDriverAssigned": bool(trip.driver_id),
                     "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
@@ -836,14 +1218,24 @@ def _serialize_saved_route(route: SavedRouteDraft) -> dict[str, Any]:
 
 
 def _warehouse_checklist_complete(order: Order) -> bool:
-    return bool(
-        order.checklist_items_verified
-        and order.checklist_quantity_verified
-        and order.checklist_packaging_verified
-        and order.checklist_spare_products_verified
-        and order.checklist_vehicle_assigned
-        and order.checklist_driver_assigned
+    return bool(order.checklist_quantity_verified)
+
+
+def _resolve_quantity_checklist(checklist: dict[str, Any]) -> bool | None:
+    if "quantityVerified" in checklist:
+        return bool(checklist.get("quantityVerified"))
+
+    legacy_keys = (
+        "itemsVerified",
+        "packagingVerified",
+        "spareProductsVerified",
+        "vehicleAssigned",
+        "driverAssigned",
     )
+    provided_values = [bool(checklist.get(key)) for key in legacy_keys if key in checklist]
+    if provided_values:
+        return all(provided_values)
+    return None
 
 
 def _normalize_allocation_policy(raw: Any) -> str:
@@ -2036,6 +2428,9 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     password = str(body.get("password", ""))
     if not name or not email or not password:
         return _err("Name, email and password are required")
+    password_error = _validate_password_strength(password)
+    if password_error:
+        return _err(password_error)
     if not _is_gmail_email(email):
         return _err("Only Gmail addresses are allowed (example@gmail.com)")
     if Customer.objects.filter(email=email).exists():
@@ -2143,8 +2538,9 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
         return _err("accountType must be 'staff' or 'customer'")
     if not otp_code:
         return _err("OTP is required")
-    if len(new_password) < 8:
-        return _err("New password must be at least 8 characters")
+    password_error = _validate_password_strength(new_password)
+    if password_error:
+        return _err(password_error)
 
     now = timezone.now()
     otp = (
@@ -2216,6 +2612,9 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     role_id = str(body.get("roleId", "")).strip()
     if not email or not name or not password or not role_id:
         return _err("name, email, password and roleId are required")
+    password_error = _validate_password_strength(password)
+    if password_error:
+        return _err(password_error)
     if not _is_gmail_email(email):
         return _err("Only Gmail addresses are allowed for staff/driver accounts")
     try:
@@ -2261,6 +2660,9 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     if "isActive" in body:
         user.is_active = bool(body.get("isActive"))
     if body.get("password"):
+        password_error = _validate_password_strength(str(body["password"]))
+        if password_error:
+            return _err(password_error)
         user.password = hash_password(str(body["password"]))
     if body.get("roleId"):
         try:
@@ -2298,6 +2700,9 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     password = str(body.get("password", "")).strip()
     if not email or not name or not password:
         return _err("name, email and password are required")
+    password_error = _validate_password_strength(password)
+    if password_error:
+        return _err(password_error)
     if not _is_gmail_email(email):
         return _err("Only Gmail addresses are allowed for customer accounts")
     if Customer.objects.filter(email=email).exists():
@@ -2368,6 +2773,9 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
     if "isActive" in body and p.get("type") == "staff":
         c.is_active = bool(body.get("isActive"))
     if body.get("password"):
+        password_error = _validate_password_strength(str(body["password"]))
+        if password_error:
+            return _err(password_error)
         c.password = hash_password(str(body["password"]))
     c.save()
     return _ok({"success": True, "customer": _serialize_model(c, exclude={"password"})})
@@ -2385,12 +2793,16 @@ def categories_list(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def warehouses_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
         qs = _real_warehouses(Warehouse.objects.all()).order_by("name")
+        role = str(staff.get("role") or "").strip().upper()
+        user_id = str(staff.get("userId") or "").strip()
+        if role == "WAREHOUSE_STAFF" and user_id:
+            qs = qs.filter(manager_id=user_id)
         total = qs.count()
         rows = list(qs[off : off + size])
         return _ok({"success": True, "warehouses": [_serialize_model(x) for x in rows], "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
@@ -2591,7 +3003,7 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def inventory_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
@@ -2602,8 +3014,32 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
             .order_by("-updated_at")
         )
-        if request.GET.get("warehouseId"):
-            qs = qs.filter(warehouse_id=request.GET.get("warehouseId"))
+
+        staff_role = str(staff.get("role") or "").strip().upper()
+        staff_user_id = str(staff.get("userId") or "").strip()
+        allowed_warehouse_ids: set[str] | None = None
+        if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+            allowed_warehouse_ids = set(
+                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+            )
+            if not allowed_warehouse_ids:
+                return _ok(
+                    {
+                        "success": True,
+                        "inventory": [],
+                        "total": 0,
+                        "page": page,
+                        "pageSize": size,
+                        "totalPages": 0,
+                    }
+                )
+            qs = qs.filter(warehouse_id__in=list(allowed_warehouse_ids))
+
+        requested_warehouse_id = str(request.GET.get("warehouseId") or "").strip()
+        if requested_warehouse_id:
+            if allowed_warehouse_ids is not None and requested_warehouse_id not in allowed_warehouse_ids:
+                return _err("Forbidden", 403)
+            qs = qs.filter(warehouse_id=requested_warehouse_id)
         total = qs.count()
         rows = list(qs[off : off + size])
         data = [_serialize_model(x, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)}) for x in rows]
@@ -3027,16 +3463,61 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     )
     customers = _real_customers(Customer.objects.all())
     drivers = _real_drivers(Driver.objects.select_related("user").all())
+    feedback_qs = Feedback.objects.filter(customer__in=customers)
+    ratings_qs = feedback_qs.exclude(rating__isnull=True)
+    avg_rating = float(ratings_qs.aggregate(avg=Sum("rating")).get("avg") or 0)
+    rating_count = ratings_qs.count()
+    if rating_count > 0:
+        avg_rating = avg_rating / rating_count
+
+    pending_replacements = Replacement.objects.filter(
+        status__in=[
+            ReplacementStatus.REPORTED,
+            ReplacementStatus.IN_PROGRESS,
+            ReplacementStatus.NEEDS_FOLLOW_UP,
+        ]
+    ).count()
+
+    pending_orders = orders.filter(status=OrderStatus.PENDING).count()
+    processing_orders = orders.filter(status=OrderStatus.PREPARING).count()
+    in_transit_orders = orders.filter(status=OrderStatus.OUT_FOR_DELIVERY).count()
+    delivered_orders = orders.filter(status=OrderStatus.DELIVERED).count()
+    cancelled_orders = orders.filter(status=OrderStatus.CANCELLED).count()
+    loaded_orders = orders.filter(warehouse_stage=WarehouseStage.LOADED).count()
+    total_orders = orders.count()
+    total_revenue = float(orders.filter(status=OrderStatus.DELIVERED).aggregate(total=Sum("total_amount")).get("total") or 0)
+    active_drivers = drivers.filter(is_active=True, user__is_active=True).count()
+    available_drivers = active_drivers
+    low_stock_items = inventory.filter(quantity__lte=10).count()
+    total_customers = customers.count()
+    total_vehicles = Vehicle.objects.count()
+
     stats = {
-        "ordersTotal": orders.count(),
-        "ordersToday": orders.filter(created_at__date=today).count(),
-        "pendingOrders": orders.filter(status__in=[OrderStatus.PENDING, OrderStatus.PREPARING]).count(),
-        "deliveredOrders": orders.filter(status=OrderStatus.DELIVERED).count(),
+        # Current frontend contract
+        "totalOrders": total_orders,
+        "pendingOrders": pending_orders,
+        "processingOrders": processing_orders,
+        "loadedOrders": loaded_orders,
+        "inTransitOrders": in_transit_orders,
+        "deliveredOrders": delivered_orders,
+        "failedOrders": cancelled_orders,
+        "completedOrders": delivered_orders,
+        "totalRevenue": total_revenue,
+        "totalCustomers": total_customers,
+        "activeDrivers": active_drivers,
+        "availableDrivers": available_drivers,
         "activeTrips": trips.filter(status=TripStatus.IN_PROGRESS).count(),
-        "lowStockCount": inventory.filter(quantity__lte=10).count(),
-        "customersTotal": customers.count(),
+        "totalVehicles": total_vehicles,
+        "lowStockItems": low_stock_items,
+        "pendingReturns": pending_replacements,
+        "avgRating": round(avg_rating, 2),
+        # Backward-compatible aliases
+        "ordersTotal": total_orders,
+        "ordersToday": orders.filter(created_at__date=today).count(),
+        "lowStockCount": low_stock_items,
+        "customersTotal": total_customers,
         "driversTotal": drivers.count(),
-        "revenueTotal": float(orders.filter(status=OrderStatus.DELIVERED).aggregate(total=Sum("total_amount")).get("total") or 0),
+        "revenueTotal": total_revenue,
     }
     return _ok({"success": True, "stats": stats})
 
@@ -3228,90 +3709,104 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         if address_error:
             return _err(address_error, 400)
         try:
-            with transaction.atomic():
-                count = Order.objects.count() + 1
-                order = Order.objects.create(
-                    order_number=f"ORD-{timezone.now().year}-{str(count).zfill(4)}",
-                    customer=customer,
-                    status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
-                    priority=body.get("priority") or "normal",
-                    subtotal=0,
-                    tax=0,
-                    shipping_cost=float(body.get("shippingCost") or 0),
-                    discount=float(body.get("discount") or 0),
-                    total_amount=0,
-                    payment_status=body.get("paymentStatus") or "pending",
-                    payment_method=body.get("paymentMethod"),
-                    warehouse_id=selected_warehouse_id,
+            checkout_url: str | None = None
+            normalized_payment_method = _normalize_payment_method(body.get("paymentMethod"))
+            normalized_items, subtotal = _normalize_order_items_for_checkout(items)
+            tax, shipping_cost, discount, total = _compute_order_totals(body, subtotal)
+
+            if _is_paymongo_payment_method(normalized_payment_method):
+                if not _is_truthy(getattr(settings, "PAYMONGO_ENABLE_CHECKOUT", "")):
+                    return _err("Online payment is not available right now", 400)
+
+                draft_payload = dict(body)
+                draft_payload["customerId"] = customer.id
+                draft_payload["warehouseId"] = selected_warehouse_id
+                draft_payload["items"] = normalized_items
+                draft_payload["shippingLatitude"] = shipping_latitude
+                draft_payload["shippingLongitude"] = shipping_longitude
+                draft_payload["paymentMethod"] = normalized_payment_method
+                draft_payload["tax"] = tax
+                draft_payload["shippingCost"] = shipping_cost
+                draft_payload["discount"] = discount
+                draft_payload["totalAmount"] = total
+
+                with transaction.atomic():
+                    draft = PaymentCheckoutDraft.objects.create(
+                        customer=customer,
+                        payment_method=normalized_payment_method,
+                        payload=draft_payload,
+                        subtotal=subtotal,
+                        tax=tax,
+                        shipping_cost=shipping_cost,
+                        discount=discount,
+                        total_amount=total,
+                        status="PENDING",
+                    )
+
+                    checkout_order = Order(
+                        id=draft.id,
+                        order_number=f"ORD-PENDING-{str(draft.id)[-8:].upper()}",
+                        customer=customer,
+                        subtotal=subtotal,
+                        tax=tax,
+                        shipping_cost=shipping_cost,
+                        discount=discount,
+                        total_amount=total,
+                        payment_method=normalized_payment_method,
+                    )
+                    checkout_url = _create_paymongo_checkout_session(
+                        checkout_order,
+                        request,
+                        normalized_payment_method,
+                        metadata_override={
+                            "draft_id": draft.id,
+                            "customer_id": customer.id,
+                            "payment_method": normalized_payment_method,
+                        },
+                        redirect_reference_id=draft.id,
+                    )
+                    draft.checkout_url = checkout_url
+                    draft.save(update_fields=["checkout_url", "updated_at"])
+
+                return _ok(
+                    {
+                        "success": True,
+                        "pendingPayment": True,
+                        "paymentMethod": normalized_payment_method,
+                        "checkoutUrl": checkout_url,
+                        "paymentGateway": "PAYMONGO",
+                        "draftId": draft.id,
+                    },
+                    201,
                 )
-                subtotal = 0.0
-                allocation_policy = _resolve_allocation_policy(body)
-                performed_by = (p or {}).get("userId")
 
-                for item in items:
-                    pid = str(item.get("productId") or "").strip()
-                    if not pid:
-                        continue
-                    prod = Product.objects.filter(id=pid).first()
-                    if not prod:
-                        raise ValueError(f"Product not found: {pid}")
-
-                    qty = _int(item.get("quantity"), 0)
-                    if qty <= 0:
-                        raise ValueError(f"Quantity must be greater than zero for product {prod.sku}")
-
-                    unit = float(item.get("unitPrice") or prod.price)
-                    subtotal += unit * qty
-                    order_item = OrderItem.objects.create(
-                        order=order,
-                        product=prod,
-                        quantity=qty,
-                        unit_price=unit,
-                        total_price=float(item.get("totalPrice") or unit * qty),
-                        notes=item.get("notes"),
-                    )
-
-                    allocations = _reserve_inventory_for_order_item(
-                        product=prod,
-                        requested_qty=qty,
-                        order=order,
-                        order_item=order_item,
-                        warehouse_id=str(order.warehouse_id or "").strip() or None,
-                        allocation_policy=allocation_policy,
-                        performed_by=performed_by,
-                    )
-                    allocation_note = f"Reserved using {allocation_policy}: " + ", ".join(
-                        [f"{row['batchNumber']} x{row['quantity']}" for row in allocations]
-                    )
-                    policy_note = f"AllocationPolicy={allocation_policy}"
-                    order_item.notes = f"{order_item.notes or ''}\n{policy_note}\n{allocation_note}".strip()
-                    order_item.save(update_fields=["notes"])
-
-                tax = float(body.get("tax") if body.get("tax") is not None else subtotal * 0.08)
-                total = float(body.get("totalAmount") if body.get("totalAmount") is not None else subtotal + tax + order.shipping_cost - order.discount)
-                order.subtotal = subtotal
-                order.tax = tax
-                order.total_amount = total
-                order.save(update_fields=["subtotal", "tax", "total_amount", "updated_at"])
-                OrderLogistics.objects.create(
-                    order=order,
-                    shipping_name=body.get("shippingName") or customer.name,
-                    shipping_phone=body.get("shippingPhone") or customer.phone or "",
-                    shipping_address=_strip_default_country_suffix(body.get("shippingAddress") or customer.address or ""),
-                    shipping_city=body.get("shippingCity") or customer.city or "",
-                    shipping_province=body.get("shippingProvince") or customer.province or "",
-                    shipping_zip_code=body.get("shippingZipCode") or customer.zip_code or "",
-                    shipping_country=DEFAULT_COUNTRY,
+            with transaction.atomic():
+                order = _create_order_from_checkout_payload(
+                    customer=customer,
+                    body=body,
+                    normalized_items=normalized_items,
+                    subtotal=subtotal,
+                    tax=tax,
+                    shipping_cost=shipping_cost,
+                    discount=discount,
+                    total_amount=total,
+                    normalized_payment_method=normalized_payment_method,
+                    selected_warehouse_id=selected_warehouse_id,
                     shipping_latitude=shipping_latitude,
                     shipping_longitude=shipping_longitude,
-                    notes=body.get("notes"),
-                    special_instructions=body.get("specialInstructions"),
+                    payment_status=body.get("paymentStatus") or "pending",
+                    performed_by=(p or {}).get("userId"),
                 )
-                OrderTimeline.objects.create(order=order, delivery_date=datetime.fromisoformat(body["deliveryDate"]) if body.get("deliveryDate") else None)
         except ValueError as e:
             return _err(str(e), 400)
+        except requests.RequestException:
+            return _err("Unable to connect to PayMongo right now", 502)
         order = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order.id)
-        return _ok({"success": True, "order": _serialize_order(order)}, 201)
+        response_payload: dict[str, Any] = {"success": True, "order": _serialize_order(order)}
+        if checkout_url:
+            response_payload["checkoutUrl"] = checkout_url
+            response_payload["paymentGateway"] = "PAYMONGO"
+        return _ok(response_payload, 201)
     staff, err = _require_staff(request)
     if err:
         return err
@@ -3490,18 +3985,9 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         return _err("DISPATCHED is set automatically when the trip starts", 400)
 
     checklist = body.get("checklist") if isinstance(body.get("checklist"), dict) else {}
-    if "itemsVerified" in checklist:
-        order.checklist_items_verified = bool(checklist.get("itemsVerified"))
-    if "quantityVerified" in checklist:
-        order.checklist_quantity_verified = bool(checklist.get("quantityVerified"))
-    if "packagingVerified" in checklist:
-        order.checklist_packaging_verified = bool(checklist.get("packagingVerified"))
-    if "spareProductsVerified" in checklist:
-        order.checklist_spare_products_verified = bool(checklist.get("spareProductsVerified"))
-    if "vehicleAssigned" in checklist:
-        order.checklist_vehicle_assigned = bool(checklist.get("vehicleAssigned"))
-    if "driverAssigned" in checklist:
-        order.checklist_driver_assigned = bool(checklist.get("driverAssigned"))
+    resolved_checklist = _resolve_quantity_checklist(checklist)
+    if resolved_checklist is not None:
+        order.checklist_quantity_verified = resolved_checklist
 
     if "shortLoadQty" in body:
         order.exception_short_load_qty = max(0, _int(body.get("shortLoadQty"), 0))
@@ -3525,11 +4011,11 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         if not assigned_trip_for_loaded_stage:
             return _err("Order must be assigned to a driver before LOADED", 400)
         if not _warehouse_checklist_complete(order):
-            return _err("Checklist must be completed before LOADED", 400)
+            return _err("Quantity checklist must be completed before LOADED", 400)
 
     if stage == WarehouseStage.DISPATCHED:
         if not _warehouse_checklist_complete(order):
-            return _err("All dispatch checklist items are required before DISPATCHED", 400)
+            return _err("Quantity checklist is required before DISPATCHED", 400)
         if str(order.exception_hold_reason or "").strip():
             return _err("Order has hold reason and cannot be dispatched", 400)
         if not signoff_name and not str(order.dispatch_signed_off_by or "").strip():
@@ -3796,6 +4282,93 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def paymongo_webhook(request: HttpRequest) -> JsonResponse:
+    if not _verify_paymongo_webhook_signature(request):
+        return _err("Invalid PayMongo webhook signature", 401)
+
+    body = _json_body(request)
+    event_type = str((((body or {}).get("data") or {}).get("attributes") or {}).get("type") or "").strip().lower()
+    paid_events = {
+        "checkout_session.payment.paid",
+        "payment.paid",
+        "source.chargeable",
+        "source.paid",
+    }
+    if event_type and event_type not in paid_events:
+        return _ok({"success": True, "ignored": True})
+
+    metadata = _extract_paymongo_metadata(body)
+    order_id = str(metadata.get("order_id") or metadata.get("orderId") or "").strip()
+    order_number = str(metadata.get("order_number") or metadata.get("orderNumber") or "").strip()
+    draft_id = str(metadata.get("draft_id") or metadata.get("draftId") or "").strip()
+
+    if draft_id:
+        with transaction.atomic():
+            draft = PaymentCheckoutDraft.objects.select_for_update().select_related("customer").filter(id=draft_id).first()
+            if not draft:
+                return _err("Checkout draft not found for webhook metadata", 404)
+
+            if str(draft.status or "").upper() == "COMPLETED" and draft.order_id:
+                return _ok({"success": True, "orderId": draft.order_id, "duplicate": True})
+
+            try:
+                draft_payload = dict(draft.payload or {})
+                normalized_payment_method = _normalize_payment_method(draft.payment_method or draft_payload.get("paymentMethod"))
+                items = draft_payload.get("items") or []
+                normalized_items, subtotal = _normalize_order_items_for_checkout(items)
+                tax, shipping_cost, discount, total = _compute_order_totals(draft_payload, subtotal)
+                selected_warehouse_id = str(draft_payload.get("warehouseId") or "").strip() or None
+                shipping_latitude = (
+                    draft_payload.get("shippingLatitude")
+                    if draft_payload.get("shippingLatitude") is not None
+                    else draft.customer.latitude
+                )
+                shipping_longitude = (
+                    draft_payload.get("shippingLongitude")
+                    if draft_payload.get("shippingLongitude") is not None
+                    else draft.customer.longitude
+                )
+                order = _create_order_from_checkout_payload(
+                    customer=draft.customer,
+                    body=draft_payload,
+                    normalized_items=normalized_items,
+                    subtotal=subtotal,
+                    tax=tax,
+                    shipping_cost=shipping_cost,
+                    discount=discount,
+                    total_amount=total,
+                    normalized_payment_method=normalized_payment_method,
+                    selected_warehouse_id=selected_warehouse_id,
+                    shipping_latitude=shipping_latitude,
+                    shipping_longitude=shipping_longitude,
+                    payment_status="paid",
+                    performed_by="paymongo_webhook",
+                )
+            except ValueError as exc:
+                return _err(str(exc), 400)
+
+            draft.status = "COMPLETED"
+            draft.order = order
+            draft.completed_at = timezone.now()
+            draft.save(update_fields=["status", "order", "completed_at", "updated_at"])
+            return _ok({"success": True, "orderId": order.id})
+
+    order = None
+    if order_id:
+        order = Order.objects.filter(id=order_id).first()
+    if not order and order_number:
+        order = Order.objects.filter(order_number=order_number).first()
+    if not order:
+        return _err("Order not found for webhook metadata", 404)
+
+    update_fields = ["payment_status", "updated_at"]
+    order.payment_status = "paid"
+    order.save(update_fields=update_fields)
+    return _ok({"success": True})
+
+
+@csrf_exempt
 @require_http_methods(["PATCH"])
 def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
     p = _require_auth(request)
@@ -3923,6 +4496,7 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
         drop_point = latest_drop_point_by_order.get(o.id)
         trip = drop_point.trip if drop_point else None
         latest_log = latest_log_by_trip.get(trip.id) if trip else None
+        normalized_order_status = _normalize_order_status(o.status)
 
         driver_lat = _to_float_or_none(getattr(latest_log, "latitude", None))
         driver_lng = _to_float_or_none(getattr(latest_log, "longitude", None))
@@ -3966,19 +4540,40 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
 
         driver_name = None
         driver_phone = None
+        driver_avatar = None
         trip_number = None
         if trip:
             trip_number = trip.trip_number
             if getattr(trip, "driver", None):
                 driver_name = getattr(trip.driver, "name", None) or getattr(getattr(trip.driver, "user", None), "name", None)
                 driver_phone = getattr(trip.driver, "phone", None) or getattr(getattr(trip.driver, "user", None), "phone", None)
+                driver_avatar = getattr(getattr(trip.driver, "user", None), "avatar", None)
+
+        eta_minutes: int | None = None
+        eta_arrival_at: str | None = None
+        destination_lat = drop_lat if drop_lat is not None else shipping_lat
+        destination_lng = drop_lng if drop_lng is not None else shipping_lng
+        if (
+            normalized_order_status == OrderStatus.OUT_FOR_DELIVERY
+            and driver_lat is not None
+            and driver_lng is not None
+            and destination_lat is not None
+            and destination_lng is not None
+        ):
+            remaining_distance_km = _haversine_km(float(driver_lat), float(driver_lng), float(destination_lat), float(destination_lng))
+            raw_speed_mps = _to_float_or_none(getattr(latest_log, "speed", None)) if latest_log else None
+            speed_kph = (raw_speed_mps * 3.6) if raw_speed_mps and raw_speed_mps > 0 else 24.0
+            speed_kph = min(max(float(speed_kph), 10.0), 70.0)
+            computed_eta = int(math.ceil((remaining_distance_km / speed_kph) * 60)) if remaining_distance_km > 0 else 1
+            eta_minutes = max(1, computed_eta)
+            eta_arrival_at = (timezone.now() + timedelta(minutes=eta_minutes)).isoformat()
 
         tracking.append(
             {
                 "orderId": o.id,
                 "orderNumber": o.order_number,
-                "status": _normalize_order_status(o.status),
-                "orderStatus": _normalize_order_status(o.status),
+                "status": normalized_order_status,
+                "orderStatus": normalized_order_status,
                 "updatedAt": (
                     latest_log.recorded_at.isoformat()
                     if latest_log and latest_log.recorded_at
@@ -3987,14 +4582,17 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
                 "tripNumber": trip_number,
                 "driverName": driver_name,
                 "driverPhone": driver_phone,
+                "driverAvatar": driver_avatar,
                 "latitude": latitude,
                 "longitude": longitude,
                 "source": source,
                 "destinationLatitude": drop_lat if drop_lat is not None else shipping_lat,
                 "destinationLongitude": drop_lng if drop_lng is not None else shipping_lng,
+                "etaMinutes": eta_minutes,
+                "etaArrivalAt": eta_arrival_at,
                 "recipientName": getattr(drop_point, "recipient_name", None),
                 "deliveryPhoto": getattr(drop_point, "delivery_photo", None),
-                "deliveredMessage": "Your order has been delivered." if _normalize_order_status(o.status) == OrderStatus.DELIVERED else None,
+                "deliveredMessage": "Your order has been delivered." if normalized_order_status == OrderStatus.DELIVERED else None,
                 "routePoints": route_points,
                 "trip": _serialize_trip(trip, include_points=False) if trip else None,
             }

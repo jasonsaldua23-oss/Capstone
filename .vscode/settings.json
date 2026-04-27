@@ -1,4 +1,0 @@
-{
-    "prisma.pinToPrisma6": true,
-    "python-envs.defaultEnvManager": "ms-python.python:system"
-}

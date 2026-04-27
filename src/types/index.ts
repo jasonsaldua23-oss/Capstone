@@ -222,6 +222,7 @@ export interface DashboardStats {
   deliveredOrders: number
   failedOrders: number
   processingOrders: number
+  loadedOrders: number
   availableDrivers: number
   avgRating: number
 }

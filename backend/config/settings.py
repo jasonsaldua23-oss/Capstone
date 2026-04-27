@@ -156,3 +156,12 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Google OAuth (customer registration/login)
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+
+# PayMongo (test/sandbox or live, depending on keys)
+PAYMONGO_ENABLE_CHECKOUT = _bool("PAYMONGO_ENABLE_CHECKOUT", False)
+PAYMONGO_SECRET_KEY = os.getenv("PAYMONGO_SECRET_KEY", "").strip()
+PAYMONGO_PUBLIC_KEY = os.getenv("PAYMONGO_PUBLIC_KEY", "").strip()
+PAYMONGO_PAYMENT_METHOD_TYPES = os.getenv("PAYMONGO_PAYMENT_METHOD_TYPES", "gcash,paymaya,card").strip()
+PAYMONGO_SUCCESS_URL = os.getenv("PAYMONGO_SUCCESS_URL", "").strip()
+PAYMONGO_CANCEL_URL = os.getenv("PAYMONGO_CANCEL_URL", "").strip()
+PAYMONGO_WEBHOOK_SECRET = os.getenv("PAYMONGO_WEBHOOK_SECRET", "").strip()

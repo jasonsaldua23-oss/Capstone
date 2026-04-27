@@ -1,6 +1,0 @@
-- [x] Update Create Route dialog layout in `src/components/portals/WarehousePortal.tsx` to be responsive and prevent clipping/overflow
-- [x] Adjust dialog content container sizing/scroll behavior for smaller viewports
-- [x] Adjust filter and preview panels to stack on small screens and align in columns on large screens
-- [x] Verify sticky action footer and internal scroll areas still work correctly
-- [ ] Run lint check for updated file
-- [ ] Add accessibility titles to `<select>` elements flagged by Edge Tools
