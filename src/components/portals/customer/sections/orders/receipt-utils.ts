@@ -18,15 +18,30 @@ export async function downloadOrderReceipt(order: Order) {
     const total = Number(order.totalAmount ?? subtotal + tax + shippingCost - discount)
     const issuedAt = new Date(order.deliveredAt || order.deliveryDate || order.createdAt)
     const receiptNumber = `RCT-${String(order.orderNumber || order.id)}`
-    const fullAddress = [
-      order.shippingAddress,
+    const normalizeToken = (value: string) =>
+      String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+    const addressTokens = String(order.shippingAddress || '')
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean)
+    const tokenSet = new Set(addressTokens.map((token) => normalizeToken(token)))
+    const extras = [
       order.shippingCity,
       order.shippingProvince,
       order.shippingZipCode,
       order.shippingCountry || 'Philippines',
     ]
+      .map((part) => String(part || '').trim())
       .filter(Boolean)
-      .join(', ')
+      .filter((part) => {
+        const key = normalizeToken(part)
+        if (!key || tokenSet.has(key)) return false
+        tokenSet.add(key)
+        return true
+      })
+    const fullAddress = [...addressTokens, ...extras].join(', ')
 
     const fileName = `Receipt-${order.orderNumber}.pdf`
     const pdf = await PDFDocument.create()
@@ -71,10 +86,30 @@ export async function downloadOrderReceipt(order: Order) {
       })
     }
 
-    drawText('AnnShop', margin, y, 14, true, rgb(0.06, 0.09, 0.16))
+    let logoWidth = 0
+    try {
+      const response = await fetch('/ann-anns-logo.png', { cache: 'no-store' })
+      if (response.ok) {
+        const logoBytes = await response.arrayBuffer()
+        const logoImage = await pdf.embedPng(logoBytes)
+        const logoHeight = 24
+        logoWidth = (logoImage.width / logoImage.height) * logoHeight
+        page.drawImage(logoImage, {
+          x: margin,
+          y: y - 13,
+          width: logoWidth,
+          height: logoHeight,
+        })
+      }
+    } catch {
+      logoWidth = 0
+    }
+
+    const titleX = margin + (logoWidth > 0 ? logoWidth + 8 : 0)
+    drawText("Ann Ann's Beverages Trading", titleX, y, 13, true, rgb(0.06, 0.09, 0.16))
     drawText('Order Receipt', page.getWidth() - margin - fontBold.widthOfTextAtSize('Order Receipt', 10), y + 1, 10, true)
     y -= 16
-    drawText('Official Delivery Receipt', margin, y, 9, false, rgb(0.39, 0.45, 0.55))
+    drawText('Official Delivery Receipt', titleX, y, 9, false, rgb(0.39, 0.45, 0.55))
     y -= 14
 
     const badgeText = `Receipt No: ${receiptNumber} | Order No: ${order.orderNumber}`
@@ -98,12 +133,15 @@ export async function downloadOrderReceipt(order: Order) {
     y -= 11
 
     const addressLines = wrapText(fullAddress || '-', colW, 8.5, fontRegular)
-    const orderDetails = [new Date(order.createdAt).toLocaleDateString(), issuedAt.toLocaleDateString()]
+    const orderDetails = [
+      `Ordered: ${new Date(order.createdAt).toLocaleDateString()}`,
+      `Delivered: ${issuedAt.toLocaleDateString()}`,
+    ]
     const maxRows = Math.max(addressLines.length, 1, orderDetails.length)
     ensureSpace(maxRows * 11)
     for (let i = 0; i < maxRows; i++) {
       if (addressLines[i]) drawText(addressLines[i], margin, y - i * 10, 8.5, false)
-      if (i === 0) drawText('AnnShop', margin + colW + colGap, y, 8.5, false)
+      if (i === 0) drawText("Ann Ann's Beverages Trading", margin + colW + colGap, y, 8.5, false)
       if (orderDetails[i]) drawText(orderDetails[i], margin + (colW + colGap) * 2, y - i * 10, 8.5, false)
     }
     y -= maxRows * 10 + 12
@@ -121,7 +159,7 @@ export async function downloadOrderReceipt(order: Order) {
     y -= 10
 
     for (const item of order.items || []) {
-      const lineText = `${item.product?.name || 'Item'} (${item.product?.sku || '-'}) - ${formatPdfMoney(Number(item.unitPrice || 0))}`
+      const lineText = `${item.product?.name || 'Item'} (${(item.product as any)?.unit || 'unit'}) - ${formatPdfMoney(Number(item.unitPrice || 0))}`
       const lines = wrapText(lineText, contentWidth - 42, 8.5, fontRegular)
       const blockHeight = Math.max(lines.length * 10, 10)
       ensureSpace(blockHeight + 6)
@@ -196,14 +234,7 @@ export async function downloadOrderReceipt(order: Order) {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-
-        window.setTimeout(() => {
-          const opened = window.open(url, '_blank')
-          if (!opened) {
-            window.location.href = url
-          }
-          window.setTimeout(() => URL.revokeObjectURL(url), 30000)
-        }, 250)
+        window.setTimeout(() => URL.revokeObjectURL(url), 30000)
       }
     }
     toast.success('Receipt downloaded')

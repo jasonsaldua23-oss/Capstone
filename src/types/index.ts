@@ -140,6 +140,7 @@ export interface TripWithDetails {
   plannedEndAt: Date | null
   actualStartAt: Date | null
   actualEndAt: Date | null
+  tripSchedule?: string | null
   totalDropPoints: number
   completedDropPoints: number
   notes: string | null

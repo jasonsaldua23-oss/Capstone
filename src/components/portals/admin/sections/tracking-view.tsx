@@ -41,6 +41,7 @@ import {
   withinRange,
   getWarehouseIdFromRow,
   formatRoleLabel,
+  fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
 
@@ -106,7 +107,12 @@ export function TrackingView() {
       if (trackingDate) query.set('trackingDate', trackingDate)
       const [tripsResponse, ordersResponse] = await Promise.all([
         safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
-        safeFetchJson('/api/orders?limit=300&includeItems=none', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+        fetchAllPaginatedCollection<any>(
+          '/api/orders?includeItems=none',
+          'orders',
+          { cache: 'no-store' },
+          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+        ),
       ])
 
       setTrips(tripsResponse.ok ? getCollection(tripsResponse.data, ['trips']) : [])

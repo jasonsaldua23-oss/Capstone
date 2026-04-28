@@ -41,6 +41,7 @@ import {
   withinRange,
   getWarehouseIdFromRow,
   formatRoleLabel,
+  fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
 
@@ -65,18 +66,22 @@ export function CustomersView() {
   const fetchCustomers = async () => {
     setIsLoading(true)
     try {
-      const [customersResponse, ordersResponse, feedbackResponse] = await Promise.all([
+      const [customersResponse, ordersResult, feedbackResponse] = await Promise.all([
         fetch('/api/customers?page=1&pageSize=500'),
-        fetch('/api/orders?limit=1000&includeItems=none'),
+        fetchAllPaginatedCollection<any>(
+          '/api/orders?includeItems=none',
+          'orders',
+          { cache: 'no-store' },
+          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+        ),
         fetch('/api/feedback?page=1&pageSize=1000'),
       ])
 
       const customersData = customersResponse.ok ? await customersResponse.json().catch(() => ({})) : {}
-      const ordersData = ordersResponse.ok ? await ordersResponse.json().catch(() => ({})) : {}
       const feedbackData = feedbackResponse.ok ? await feedbackResponse.json().catch(() => ({})) : {}
 
       setCustomers(toArray<any>(customersData?.data ?? customersData?.customers ?? customersData))
-      setOrders(getCollection<any>(ordersData, ['orders']))
+      setOrders(ordersResult.ok ? getCollection<any>(ordersResult.data, ['orders']) : [])
       setFeedback(getCollection<any>(feedbackData, ['feedbacks']))
     } catch (error) {
       console.error('Failed to fetch customers:', error)
@@ -94,6 +99,8 @@ export function CustomersView() {
     const ratingByCustomer = new Map<string, { sum: number; count: number }>()
 
     for (const order of orders) {
+      const normalizedStatus = String(order?.status || '').toUpperCase()
+      if (normalizedStatus !== 'DELIVERED') continue
       const customerId = String(order?.customerId || '')
       if (!customerId) continue
       const prev = statsByCustomer.get(customerId) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
@@ -131,7 +138,7 @@ export function CustomersView() {
         rating,
         ratingCount: feedbackStats.count,
       }
-    })
+    }).filter((row) => Number(row.orderCount || 0) > 0)
   }, [customers, orders, feedback])
 
   const filteredRows = useMemo(() => {

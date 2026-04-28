@@ -157,6 +157,7 @@ const PRODUCT_UNIT_OPTIONS = [
 interface WarehouseOrderItem {
   id: string
   orderNumber: string
+  updatedAt?: string
   warehouseId?: string
   status: string
   paymentStatus?: string | null
@@ -494,6 +495,7 @@ export function WarehousePortal() {
   const [newProductImageFile, setNewProductImageFile] = useState<File | null>(null)
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
+  const latestOrderUpdatedAtRef = useRef<string>('')
   const isRefreshingAllRef = useRef(false)
   const hasAssignedWarehouse = warehouses.length > 0
   const hasWarehouseFetchFailure = !hasAssignedWarehouse && Boolean(warehouseLoadError)
@@ -1497,12 +1499,80 @@ export function WarehousePortal() {
   }
 
   const fetchOrderMarker = async () => {
-    const result = await safeFetchJson('/api/orders?limit=1&includeItems=none', { cache: 'no-store', credentials: 'include' })
+    const result = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&sort=updated_at', { cache: 'no-store', credentials: 'include' })
     if (!result.ok) {
       throw new Error(result.error || 'Failed orders fetch')
     }
     const topOrder = getCollection<WarehouseOrderItem>(result.data, ['orders'])[0]
-    return `${Number((result.data as any)?.total || 0)}::${topOrder?.id || ''}`
+    return `${Number((result.data as any)?.total || 0)}::${topOrder?.updatedAt || topOrder?.createdAt || ''}`
+  }
+
+  const getMaxOrderUpdatedAt = (rows: WarehouseOrderItem[]) =>
+    rows.reduce((latest, row) => {
+      const candidate = String((row as any)?.updatedAt || row?.createdAt || '')
+      if (!candidate) return latest
+      if (!latest) return candidate
+      const candidateMs = new Date(candidate).getTime()
+      const latestMs = new Date(latest).getTime()
+      if (Number.isNaN(candidateMs)) return latest
+      if (Number.isNaN(latestMs) || candidateMs > latestMs) return candidate
+      return latest
+    }, '')
+
+  const mergeWarehouseOrders = (current: WarehouseOrderItem[], incoming: WarehouseOrderItem[]) => {
+    const byId = new Map<string, WarehouseOrderItem>()
+    current.forEach((row) => {
+      if (!row?.id) return
+      byId.set(String(row.id), row)
+    })
+    incoming.forEach((row) => {
+      if (!row?.id) return
+      const key = String(row.id)
+      byId.set(key, { ...(byId.get(key) || {}), ...row })
+    })
+    return Array.from(byId.values()).sort((a, b) => {
+      const left = new Date(String((a as any)?.createdAt || 0)).getTime()
+      const right = new Date(String((b as any)?.createdAt || 0)).getTime()
+      return (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left)
+    })
+  }
+
+  const fetchAllWarehouseOrders = async () => {
+    const pageSize = 200
+    const maxPages = 100
+    const fetchPage = (page: number) =>
+      safeFetchJson(
+        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none`,
+        { cache: 'no-store', credentials: 'include' }
+      )
+
+    let first = await fetchPage(1)
+    if (first.status === 401 || first.status === 403) {
+      clearTabAuthToken()
+      first = await fetchPage(1)
+    }
+    if (!first.ok) {
+      throw new Error(first.error || 'Failed orders fetch')
+    }
+
+    const merged = getCollection<WarehouseOrderItem>(first.data, ['orders'])
+    const totalPages = Math.min(Math.max(1, Number((first.data as any)?.totalPages || 1)), maxPages)
+
+    for (let page = 2; page <= totalPages; page += 1) {
+      const next = await fetchPage(page)
+      if (!next.ok) {
+        throw new Error(next.error || `Failed orders fetch (page ${page})`)
+      }
+      merged.push(...getCollection<WarehouseOrderItem>(next.data, ['orders']))
+    }
+
+    return {
+      data: {
+        ...(first.data as any),
+        orders: merged,
+        totalPages,
+      },
+    }
   }
 
   const fetchOrdersData = async (options?: { showLoading?: boolean; onlyIfNew?: boolean; silent?: boolean }) => {
@@ -1516,25 +1586,36 @@ export function WarehousePortal() {
         if (incomingMarker === latestOrderMarkerRef.current) {
           return
         }
+        if (latestOrderUpdatedAtRef.current) {
+          const deltaParams = new URLSearchParams({
+            includeItems: 'none',
+            sort: 'updated_at',
+            page: '1',
+            pageSize: '200',
+            updatedAfter: latestOrderUpdatedAtRef.current,
+          })
+          const deltaResult = await safeFetchJson(`/api/orders?${deltaParams.toString()}`, { cache: 'no-store', credentials: 'include' })
+          if (deltaResult.ok) {
+            const deltaOrders = getCollection<WarehouseOrderItem>(deltaResult.data, ['orders'])
+            if (deltaOrders.length > 0) {
+              setOrders((prev) => {
+                const merged = mergeWarehouseOrders(prev, deltaOrders)
+                latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(merged)
+                return merged
+              })
+            }
+            latestOrderMarkerRef.current = incomingMarker
+            return
+          }
+        }
       }
 
-      const requestOrders = () =>
-        safeFetchJson('/api/orders?limit=300&includeItems=none', { cache: 'no-store', credentials: 'include' })
-
-      let result = await requestOrders()
-
-      if (result.status === 401 || result.status === 403) {
-        clearTabAuthToken()
-        result = await requestOrders()
-      }
-
-      if (!result.ok) {
-        throw new Error(result.error || 'Failed orders fetch')
-      }
+      const result = await fetchAllWarehouseOrders()
 
       const list = getCollection<WarehouseOrderItem>(result.data, ['orders'])
       setOrders(list)
-      latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${list[0]?.id || ''}`
+      latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(list)
+      latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${latestOrderUpdatedAtRef.current || ''}`
     } catch (error: any) {
       console.warn('Failed to load orders:', error)
     } finally {
@@ -1816,52 +1897,65 @@ export function WarehousePortal() {
     }
   }
 
-  const saveRouteDraft = async () => {
+  const createTripFromCurrentRoutePlan = async () => {
     if (!routeDate || !routeWarehouseId || !selectedRouteCity || selectedRouteOrderIds.length === 0) {
       toast.error('Select date, warehouse, city and at least one order')
       return
     }
+    if (!selectedRouteDriverId) {
+      toast.error('Select a driver')
+      return
+    }
+    if (!selectedDriverAssignedVehicle?.id) {
+      toast.error('Selected driver has no assigned vehicle')
+      return
+    }
 
-    const warehouse = warehouses.find((w) => w.id === routeWarehouseId)
     const group = routePlans.find((g) => g.city === selectedRouteCity)
     const selectedOrders = (group?.orders || []).filter((order) => selectedRouteOrderIds.includes(order.id))
-
     if (!group || selectedOrders.length === 0) {
       toast.error('No orders selected for this route')
       return
     }
 
+    setCreatingTripFromRoute(true)
     try {
-      const response = await fetch('/api/trips/saved-routes', {
+      const response = await fetch('/api/trips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: routeDate,
+          plannedStartAt: routeDate,
+          status: 'PLANNED',
           warehouseId: routeWarehouseId,
-          warehouseName: warehouse?.name || 'Unknown Warehouse',
-          city: selectedRouteCity,
-          totalDistanceKm: Number(group.totalDistanceKm || 0),
+          driverId: selectedRouteDriverId,
+          vehicleId: selectedDriverAssignedVehicle.id,
           orderIds: selectedRouteOrderIds,
-          orders: selectedOrders,
         }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to save route')
+        throw new Error(data?.error || 'Failed to create trip')
       }
 
-      const savedRoute = data?.savedRoute
-      if (savedRoute?.id) {
-        setSavedRoutes((prev) => [savedRoute, ...prev.filter((route) => route.id !== savedRoute.id)])
-        setSelectedSavedRouteId(savedRoute.id)
-      } else {
-        await fetchSavedRoutesData()
+      const createdTrip = data?.trip
+      if (createdTrip) {
+        setTrips((prev) => [createdTrip, ...prev.filter((trip) => trip.id !== createdTrip.id)])
       }
 
       setCreateRouteOpen(false)
-      toast.success('Route saved. Assign driver later in New Trip.')
+      setSelectedRouteCity('')
+      setSelectedRouteOrderIds([])
+      setRoutePlans([])
+      emitDataSync(['trips', 'orders'])
+      void Promise.all([
+        fetchTripsData({ showLoading: false }),
+        fetchOrdersData({ showLoading: false, silent: true }),
+      ])
+      toast.success('Trip created and assigned successfully')
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to save route')
+      toast.error(error?.message || 'Failed to create trip')
+    } finally {
+      setCreatingTripFromRoute(false)
     }
   }
 
@@ -2593,18 +2687,13 @@ export function WarehousePortal() {
 
           {activeView === 'trips' && (
             <WarehouseTripsSection
-              savedRoutes={savedRoutes}
               loadingTrips={loadingTrips}
               scopedTrips={scopedTrips}
               assignedWarehouseName={assignedWarehouse?.name}
               tripStatusColors={tripStatusColors}
               selectedTrip={selectedTrip}
               setSelectedTrip={setSelectedTrip}
-              onOpenCreateRoute={() => setCreateRouteOpen(true)}
-              onOpenCreateTrip={() => setCreateTripOpen(true)}
-              onDeleteSavedRoute={(routeId) => {
-                void removeSavedRoute(routeId)
-              }}
+              onOpenCreateTripFlow={() => setCreateRouteOpen(true)}
               onDeleteTrip={(trip) => {
                 void deleteTrip(trip)
               }}
@@ -2700,11 +2789,11 @@ export function WarehousePortal() {
       >
         <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
           <DialogHeader>
-            <DialogTitle className="sr-only">Create Delivery Route</DialogTitle>
+            <DialogTitle className="sr-only">Create Trip</DialogTitle>
           </DialogHeader>
           <div className="flex flex-row w-full h-full">
             <div className="flex flex-col bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
-              <h2 className="mb-2 text-lg font-bold">Create Delivery Route</h2>
+              <h2 className="mb-2 text-lg font-bold">Create Trip</h2>
               <div className="mb-2">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">Delivery Date</label>
                 <Input
@@ -2812,23 +2901,46 @@ export function WarehousePortal() {
                 )}
               </div>
               <div className="mt-1 space-y-1">
-                <p className="hidden text-[11px] text-gray-500 sm:block">
-                  Driver assignment is done in New Trip.
-                </p>
+                <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
+                <select
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  title="Assign Driver"
+                  value={selectedRouteDriverId}
+                  onChange={(e) => setSelectedRouteDriverId(e.target.value)}
+                >
+                  <option value="">Select driver</option>
+                  {drivers.map((driver) => (
+                    <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
+                      {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  readOnly
+                  className="h-8 text-xs"
+                  value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
+                />
+                {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
+                  <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                ) : null}
                 <Button
                   className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
-                    void saveRouteDraft()
+                    void createTripFromCurrentRoutePlan()
                   }}
                   disabled={
+                    creatingTripFromRoute ||
                     loadingRoutePlans ||
                     !routeDate ||
                     !routeWarehouseId ||
                     !selectedRouteCity ||
-                    selectedRouteOrderIds.length === 0
+                    selectedRouteOrderIds.length === 0 ||
+                    !selectedRouteDriverId ||
+                    !selectedDriverAssignedVehicle?.id
                   }
                 >
-                  Save Route
+                  {creatingTripFromRoute ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Create Trip
                 </Button>
               </div>
             </div>
@@ -2894,7 +3006,7 @@ export function WarehousePortal() {
       <Dialog open={createTripOpen} onOpenChange={setCreateTripOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Create New Trip</DialogTitle>
+            <DialogTitle>Create Trip</DialogTitle>
             <DialogDescription>Select a saved route and assign an available driver.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

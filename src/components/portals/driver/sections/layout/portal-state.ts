@@ -10,6 +10,7 @@ interface Trip {
   id: string
   tripNumber: string
   status: string
+  tripSchedule?: string | null
   warehouseId?: string | null
   warehouseLatitude?: number | null
   warehouseLongitude?: number | null

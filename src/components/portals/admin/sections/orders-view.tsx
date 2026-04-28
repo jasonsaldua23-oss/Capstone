@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
+import { clearTabAuthToken } from '@/lib/client-auth'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -40,6 +41,7 @@ import {
   withinRange,
   getWarehouseIdFromRow,
   formatRoleLabel,
+  fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
 
@@ -68,19 +70,66 @@ export function OrdersView() {
   const [orderCustomDateFilter, setOrderCustomDateFilter] = useState('')
   const [orderMinPriceFilter, setOrderMinPriceFilter] = useState('')
   const [orderMaxPriceFilter, setOrderMaxPriceFilter] = useState('')
+  const latestOrderMarkerRef = useRef('')
+  const latestOrderUpdatedAtRef = useRef('')
 
   useEffect(() => {
     let isMounted = true
     let isFetchingOrders = false
 
-    async function fetchOrders(silent = false) {
+    const getMaxUpdatedAt = (rows: any[]) =>
+      rows.reduce((latest, row) => {
+        const candidate = String(row?.updatedAt || row?.createdAt || '')
+        if (!candidate) return latest
+        if (!latest) return candidate
+        const candidateMs = new Date(candidate).getTime()
+        const latestMs = new Date(latest).getTime()
+        if (Number.isNaN(candidateMs)) return latest
+        if (Number.isNaN(latestMs) || candidateMs > latestMs) return candidate
+        return latest
+      }, '')
+
+    const mergeOrders = (current: any[], incoming: any[]) => {
+      const byId = new Map<string, any>()
+      current.forEach((row) => {
+        if (!row?.id) return
+        byId.set(String(row.id), row)
+      })
+      incoming.forEach((row) => {
+        if (!row?.id) return
+        const key = String(row.id)
+        byId.set(key, { ...(byId.get(key) || {}), ...row })
+      })
+      return Array.from(byId.values()).sort((a, b) => {
+        const left = new Date(String(a?.createdAt || 0)).getTime()
+        const right = new Date(String(b?.createdAt || 0)).getTime()
+        return (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left)
+      })
+    }
+
+    const fetchOrderMarker = async () => {
+      const markerResult = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&sort=updated_at', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+      if (!markerResult.ok) {
+        if (markerResult.status === 401 || markerResult.status === 403) {
+          clearTabAuthToken()
+        }
+        throw new Error('Failed to fetch order marker')
+      }
+      const markerList = getCollection<any>(markerResult.data, ['orders'])
+      const top = markerList[0]
+      const marker = `${Number((markerResult.data as any)?.total || 0)}::${top?.id || ''}::${top?.updatedAt || ''}`
+      return marker
+    }
+
+    async function fetchOrdersFull(silent = false) {
       if (isFetchingOrders) return
       isFetchingOrders = true
       try {
-        const result = await safeFetchJson(
-          '/api/orders?limit=100&includeItems=preview',
+        const result = await fetchAllPaginatedCollection<any>(
+          '/api/orders?includeItems=preview',
+          'orders',
           { cache: 'no-store' },
-          { retries: 3, timeoutMs: 15000 }
+          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
         )
 
         if (!result.ok) {
@@ -91,13 +140,15 @@ export function OrdersView() {
             setOrders([])
           }
           if (!silent) {
-            console.error('Failed to fetch orders:', result.error || 'Request failed')
+            console.error('Failed to fetch orders:', result.data?.error || 'Request failed')
           }
           return
         }
 
         if (isMounted) {
-          setOrders(getCollection<any>(result.data, ['orders']))
+          const fullOrders = getCollection<any>(result.data, ['orders'])
+          setOrders(fullOrders)
+          latestOrderUpdatedAtRef.current = getMaxUpdatedAt(fullOrders)
         }
       } catch (error) {
         if (!silent) {
@@ -111,37 +162,96 @@ export function OrdersView() {
       }
     }
 
-    fetchOrders()
+    async function fetchOrdersDeltaIfChanged(silent = true) {
+      if (isFetchingOrders) return
+      isFetchingOrders = true
+      try {
+        const marker = await fetchOrderMarker()
+        if (latestOrderMarkerRef.current && marker === latestOrderMarkerRef.current) {
+          return
+        }
+
+        const updatedAfter = latestOrderUpdatedAtRef.current
+        if (!updatedAfter) {
+          isFetchingOrders = false
+          await fetchOrdersFull(silent)
+          return
+        }
+
+        const params = new URLSearchParams({
+          includeItems: 'preview',
+          sort: 'updated_at',
+          page: '1',
+          pageSize: '200',
+          updatedAfter,
+        })
+        const deltaResult = await safeFetchJson(`/api/orders?${params.toString()}`, { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+        if (!deltaResult.ok) {
+          isFetchingOrders = false
+          await fetchOrdersFull(silent)
+          return
+        }
+
+        if (isMounted) {
+          const incoming = getCollection<any>(deltaResult.data, ['orders'])
+          if (incoming.length > 0) {
+            setOrders((prev) => {
+              const merged = mergeOrders(prev, incoming)
+              latestOrderUpdatedAtRef.current = getMaxUpdatedAt(merged)
+              return merged
+            })
+          }
+          latestOrderMarkerRef.current = marker
+        }
+      } catch (error) {
+        if (!silent) {
+          console.error('Failed to refresh orders:', error)
+        }
+      } finally {
+        isFetchingOrders = false
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void fetchOrdersFull()
 
     const unsubscribe = subscribeDataSync((message) => {
       if (message.scopes.includes('orders') || message.scopes.includes('trips')) {
-        void fetchOrders(true)
+        void fetchOrdersDeltaIfChanged(true)
       }
     })
 
     const onFocus = () => {
-      void fetchOrders(true)
+      void fetchOrdersFull(true)
     }
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void fetchOrders(true)
+        void fetchOrdersFull(true)
       }
     }
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const intervalId = window.setInterval(() => {
+    const quickIntervalId = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        void fetchOrders(true)
+        void fetchOrdersDeltaIfChanged(true)
       }
     }, 5000)
+    const fullIntervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchOrdersFull(true)
+      }
+    }, 30000)
 
     return () => {
       isMounted = false
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(intervalId)
+      window.clearInterval(quickIntervalId)
+      window.clearInterval(fullIntervalId)
     }
   }, [])
 
@@ -500,7 +610,6 @@ export function OrdersView() {
             <div className="text-center py-12">
               {/* <Package className="h-12 w-12 text-gray-300 mx-auto mb-4" /> */}
               <p className="text-gray-500">No orders found</p>
-              <Button className="mt-4">Create First Order</Button>
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="text-center py-12">

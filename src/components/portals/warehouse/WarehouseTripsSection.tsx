@@ -5,24 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Loader2, Route, Trash2, Truck } from 'lucide-react'
-
-type SavedRouteOrder = {
-  id: string
-  orderNumber?: string
-  customerName?: string
-  distanceKm: number | null
-}
-
-type SavedRouteItem = {
-  id: string
-  city: string
-  totalDistanceKm?: number
-  orderIds: string[]
-  warehouseName: string
-  date: string
-  orders: SavedRouteOrder[]
-}
+import { Loader2, Trash2, Truck } from 'lucide-react'
 
 type TripDropPointItem = {
   id: string
@@ -36,6 +19,7 @@ type TripItem = {
   id: string
   tripNumber: string
   status: string
+  tripSchedule?: string | null
   totalDropPoints?: number
   completedDropPoints?: number
   driver?: {
@@ -50,32 +34,38 @@ type TripItem = {
 }
 
 type WarehouseTripsSectionProps = {
-  savedRoutes: SavedRouteItem[]
   loadingTrips: boolean
   scopedTrips: TripItem[]
   assignedWarehouseName?: string
   tripStatusColors: Record<string, string>
   selectedTrip: TripItem | null
   setSelectedTrip: Dispatch<SetStateAction<TripItem | null>>
-  onOpenCreateRoute: () => void
-  onOpenCreateTrip: () => void
-  onDeleteSavedRoute: (routeId: string) => void
+  onOpenCreateTripFlow: () => void
   onDeleteTrip: (trip: TripItem) => void
 }
 
 export function WarehouseTripsSection({
-  savedRoutes,
   loadingTrips,
   scopedTrips,
   assignedWarehouseName,
   tripStatusColors,
   selectedTrip,
   setSelectedTrip,
-  onOpenCreateRoute,
-  onOpenCreateTrip,
-  onDeleteSavedRoute,
+  onOpenCreateTripFlow,
   onDeleteTrip,
 }: WarehouseTripsSectionProps) {
+  const formatTripSchedule = (value: string | null | undefined) => {
+    const raw = String(value || '').trim()
+    if (!raw) return 'Not set'
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+
   const normalizeTripStatus = (status: string | null | undefined) => {
     const value = String(status || '').toUpperCase()
     return value === 'IN_TRANSIT' ? 'IN_PROGRESS' : value
@@ -137,69 +127,11 @@ export function WarehouseTripsSection({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
-        <Button onClick={onOpenCreateRoute} className="bg-black text-white hover:bg-black/90 rounded-xl px-4">
-          <Route className="h-4 w-4 mr-2" />
-          Create Route
-        </Button>
-        <Button
-          onClick={onOpenCreateTrip}
-          className="bg-black text-white hover:bg-black/90 rounded-xl px-4"
-          disabled={savedRoutes.length === 0}
-        >
+        <Button onClick={onOpenCreateTripFlow} className="bg-black text-white hover:bg-black/90 rounded-xl px-4">
           <Truck className="h-4 w-4 mr-2" />
-          New Trip
+          Create Trip
         </Button>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">Saved Routes</CardTitle>
-          <CardDescription>Routes created ahead of time. Use New Trip to assign driver and dispatch.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {savedRoutes.length === 0 ? (
-            <div className="h-44 rounded-md border bg-gray-50 flex flex-col items-center justify-center text-center px-4">
-              <p className="text-gray-600">No saved routes yet</p>
-              <p className="text-sm text-gray-500">Click "Create Route" to save routes for later dispatch</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {savedRoutes.map((route) => (
-                <div key={route.id} className="rounded-md border">
-                  <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b">
-                    <p className="font-medium">{route.city}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-600">{route.orderIds.length} orders • {Number(route.totalDistanceKm || 0).toFixed(2)} km total</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                        onClick={() => onDeleteSavedRoute(route.id)}
-                      >
-                        Delete Route
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="p-3 space-y-2">
-                    <p className="text-xs text-gray-500">
-                      {route.warehouseName} • {new Date(route.date).toLocaleDateString()}
-                    </p>
-                    {route.orders.map((order) => (
-                      <div key={order.id} className="flex items-center justify-between text-sm">
-                        <p>
-                          <span className="font-medium">{order.orderNumber}</span> - {order.customerName}
-                        </p>
-                        <p className="text-gray-600">{order.distanceKm !== null ? `${Number(order.distanceKm).toFixed(2)} km` : 'No geo data'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -234,10 +166,13 @@ export function WarehouseTripsSection({
                         </Badge>
                       </div>
                       <p className="text-[13px] text-gray-700">
-                        Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} • Driver: {trip.driver?.user?.name || 'Unassigned'}
+                        Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.user?.name || 'Unassigned'}
                       </p>
                       <p className="text-[13px] text-gray-600">
                         Route: {(assignedWarehouseName || 'Warehouse')} {'->'} {(trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination')}
+                      </p>
+                      <p className="text-[13px] text-gray-600">
+                        Schedule: {formatTripSchedule(trip.tripSchedule)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -319,6 +254,9 @@ export function WarehouseTripsSection({
                 </div>
                 <div>
                   <span className="font-semibold">Drop points:</span> {selectedTrip.dropPoints?.length ?? 0}
+                </div>
+                <div>
+                  <span className="font-semibold">Schedule:</span> {formatTripSchedule(selectedTrip.tripSchedule)}
                 </div>
               </div>
 

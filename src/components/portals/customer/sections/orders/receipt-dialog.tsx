@@ -14,6 +14,30 @@ export function CustomerReceiptDialog(props: any) {
     formatPeso,
     downloadReceipt,
   } = props
+  const normalizeToken = (value: string) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+  const addressTokens = String(selectedOrder?.shippingAddress || '')
+    .split(',')
+    .map((token: string) => token.trim())
+    .filter(Boolean)
+  const tokenSet = new Set(addressTokens.map((token: string) => normalizeToken(token)))
+  const extras = [
+    selectedOrder?.shippingCity,
+    selectedOrder?.shippingProvince,
+    selectedOrder?.shippingZipCode,
+    selectedOrder?.shippingCountry || 'Philippines',
+  ]
+    .map((part: any) => String(part || '').trim())
+    .filter(Boolean)
+    .filter((part: string) => {
+      const key = normalizeToken(part)
+      if (!key || tokenSet.has(key)) return false
+      tokenSet.add(key)
+      return true
+    })
+  const deliveryLines = [...addressTokens, ...extras]
 
   return (
     <Dialog open={Boolean(selectedOrder) && isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
@@ -36,9 +60,16 @@ export function CustomerReceiptDialog(props: any) {
             <div className="flex-1 overflow-y-auto p-4">
               <div className="mx-auto max-w-[320px] rounded-lg border border-slate-200/50 bg-white/95 p-4 text-[11px] shadow-sm shadow-slate-200/30">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-bold text-slate-900">AnnShop</p>
+                  <div className="flex items-start gap-2">
+                    <img
+                      src="/ann-anns-logo.png"
+                      alt="Ann Ann's Beverages Trading"
+                      className="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white"
+                    />
+                    <div>
+                    <p className="font-bold text-slate-900 leading-tight">Ann Ann&apos;s Beverages Trading</p>
                     <p className="text-[10px] text-slate-500">Official Delivery Receipt</p>
+                    </div>
                   </div>
                   <p className="text-[10px] font-semibold text-slate-700">Order Receipt</p>
                 </div>
@@ -50,26 +81,22 @@ export function CustomerReceiptDialog(props: any) {
                 <div className="mt-3 grid grid-cols-3 gap-2 text-[10px]">
                   <div>
                     <p className="font-semibold text-slate-500">Delivery Details</p>
-                    <p className="mt-1 leading-4 text-slate-700 break-words">
-                      {[
-                        selectedOrder.shippingAddress,
-                        selectedOrder.shippingCity,
-                        selectedOrder.shippingProvince,
-                        selectedOrder.shippingZipCode,
-                        selectedOrder.shippingCountry || 'Philippines',
-                      ]
-                        .filter(Boolean)
-                        .join(', ') || '-'}
-                    </p>
+                    <p className="mt-1 leading-4 text-slate-700 break-words">{deliveryLines.join(', ') || '-'}</p>
+                    {selectedOrder.shippingName ? (
+                      <p className="mt-1 text-slate-700">Recipient: {selectedOrder.shippingName}</p>
+                    ) : null}
+                    {selectedOrder.shippingPhone ? (
+                      <p className="text-slate-700">Phone: {selectedOrder.shippingPhone}</p>
+                    ) : null}
                   </div>
                   <div>
                     <p className="font-semibold text-slate-500">Sold By</p>
-                    <p className="mt-1 leading-4 text-slate-700">AnnShop</p>
+                    <p className="mt-1 leading-4 text-slate-700">Ann Ann&apos;s Beverages Trading</p>
                   </div>
                   <div>
                     <p className="font-semibold text-slate-500">Order Details</p>
-                    <p className="mt-1 text-slate-700">{new Date(selectedOrder.createdAt).toLocaleDateString()}</p>
-                    <p className="text-slate-700">{new Date(selectedOrder.deliveredAt || selectedOrder.deliveryDate || selectedOrder.createdAt).toLocaleDateString()}</p>
+                    <p className="mt-1 text-slate-700">Ordered: {new Date(selectedOrder.createdAt).toLocaleDateString()}</p>
+                    <p className="text-slate-700">Delivered: {new Date(selectedOrder.deliveredAt || selectedOrder.deliveryDate || selectedOrder.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
 
@@ -82,7 +109,7 @@ export function CustomerReceiptDialog(props: any) {
                     {selectedOrder.items?.map((item: any) => (
                       <div key={`receipt-mobile-${item.id}`} className="grid grid-cols-[1fr_auto] gap-2 text-[10px] text-slate-700">
                         <p className="leading-4 break-words">
-                          {item.product?.name || 'Item'} ({item.product?.sku || '-'}) - {formatPeso(item.unitPrice)}
+                          {item.product?.name || 'Item'} ({item.product?.unit || 'unit'}) - {formatPeso(item.unitPrice)}
                         </p>
                         <p>{item.quantity}</p>
                       </div>

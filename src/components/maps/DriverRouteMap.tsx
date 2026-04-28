@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet'
+import { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
 
@@ -10,20 +10,193 @@ const MapContainerUnsafe = MapContainer as any
 const TileLayerUnsafe = TileLayer as any
 const CircleMarkerUnsafe = CircleMarker as any
 const MarkerUnsafe = Marker as any
+const PolygonUnsafe = Polygon as any
 const PolylineUnsafe = Polyline as any
 
-const NEGROS_ISLAND_GEOJSON_URL =
-  'https://nominatim.openstreetmap.org/search?format=geojson&polygon_geojson=1&limit=1&q=Negros%20Island%20Philippines'
+const NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL = '/geo/negros-occidental-maritime-with-bacolod.json?v=3'
+const NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL = '/geo/negros-island-region-boundary.json?v=2'
+const NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL = '/geo/negros-oriental-boundary.json?v=1'
 const NEGROS_ISLAND_FALLBACK_BOUNDS = L.latLngBounds([9.0380812, 122.3758966], [11.002995, 123.5688567])
+const WORLD_MASK_RING: [number, number][] = [
+  [-90, -180],
+  [-90, 180],
+  [90, 180],
+  [90, -180],
+]
 
 type NegrosIslandGeometry = {
   type: 'Polygon' | 'MultiPolygon'
   coordinates: number[][][] | number[][][][]
 }
 
-type NegrosIslandBoundary = {
-  geometry: NegrosIslandGeometry
+type NegrosBoundary = {
+  maskGeometries?: NegrosIslandGeometry[]
+  geometries: NegrosIslandGeometry[]
   bbox: [number, number, number, number]
+}
+
+let negrosBoundaryCache: NegrosBoundary | null = null
+let negrosBoundaryPromise: Promise<NegrosBoundary | null> | null = null
+
+function getFeatureName(feature: any) {
+  const props = feature?.properties || {}
+  const candidates = [
+    props.display_name,
+    props.name,
+    props.NAME_1,
+    props.NAME_2,
+    props.PROVINCE,
+    props.province,
+    props.ADM1_EN,
+    props.adm1_en,
+  ]
+  const value = candidates.find((entry) => typeof entry === 'string' && entry.trim().length > 0)
+  return String(value || '').toLowerCase()
+}
+
+function scoreBoundaryFeature(feature: any, requiredTerms: string[]) {
+  const name = getFeatureName(feature)
+  const addresstype = String(feature?.properties?.addresstype || '').toLowerCase()
+  const type = String(feature?.properties?.type || '').toLowerCase()
+  const className = String(feature?.properties?.class || '').toLowerCase()
+  const adminLevel = String(feature?.properties?.admin_level || '').toLowerCase()
+
+  let score = 0
+  const required = requiredTerms.map((term) => term.toLowerCase()).filter(Boolean)
+  const requiredMatches = required.filter((term) => name.includes(term)).length
+  score += requiredMatches * 20
+  if (name.includes('philippines')) score += 4
+  if (name.includes('province')) score += 8
+  if (addresstype === 'province') score += 16
+  if (addresstype === 'state') score += 8
+  if (addresstype === 'city' || addresstype === 'municipality') score -= 8
+  if (type === 'administrative') score += 10
+  if (className === 'boundary') score += 10
+  if (adminLevel === '6') score += 12
+  if (name.includes('region')) score -= 8
+  return score
+}
+
+function computeBBoxFromGeometry(geometry: NegrosIslandGeometry) {
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
+
+  const visitPoint = (pair: any) => {
+    const lng = Number(pair?.[0])
+    const lat = Number(pair?.[1])
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    if (lng < minLng) minLng = lng
+    if (lat < minLat) minLat = lat
+    if (lng > maxLng) maxLng = lng
+    if (lat > maxLat) maxLat = lat
+  }
+
+  if (geometry.type === 'Polygon') {
+    ;(geometry.coordinates as number[][][]).forEach((ring) => ring.forEach(visitPoint))
+  } else {
+    ;(geometry.coordinates as number[][][][]).forEach((polygon) =>
+      polygon.forEach((ring) => ring.forEach(visitPoint))
+    )
+  }
+
+  if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) return null
+  return [minLng, minLat, maxLng, maxLat] as [number, number, number, number]
+}
+
+function bboxAreaScore(bbox: [number, number, number, number]) {
+  const width = Math.max(0, bbox[2] - bbox[0])
+  const height = Math.max(0, bbox[3] - bbox[1])
+  return width * height
+}
+
+function parseFirstBoundaryFeature(
+  payload: any,
+  requiredTerms: string[]
+): { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } | null {
+  const features = Array.isArray(payload?.features) ? payload.features : []
+  const candidates = features
+    .map((feature: any) => {
+      const name = getFeatureName(feature)
+      const required = requiredTerms.map((term) => String(term || '').toLowerCase().trim()).filter(Boolean)
+      if (required.length > 0 && !required.every((term) => name.includes(term))) return null
+
+      const geometry = feature?.geometry as NegrosIslandGeometry | undefined
+      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null
+      const bbox =
+        Array.isArray(feature?.bbox) && feature.bbox.length === 4
+          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
+          : computeBBoxFromGeometry(geometry)
+      if (!bbox) return null
+      if (!bbox.every((value) => Number.isFinite(value))) return null
+      return { geometry, bbox, score: scoreBoundaryFeature(feature, requiredTerms), area: bboxAreaScore(bbox) }
+    })
+    .filter((candidate: any): candidate is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number]; score: number; area: number } => Boolean(candidate))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score
+      return right.area - left.area
+    })
+
+  if (candidates.length === 0) return null
+  return { geometry: candidates[0].geometry, bbox: candidates[0].bbox }
+}
+
+async function loadFirstValidBoundaryFromUrls(
+  urls: string[],
+  requiredTerms: string[]
+): Promise<{ geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } | null> {
+  for (const url of urls) {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) continue
+      const payload = await response.json().catch(() => ({}))
+      const parsed = parseFirstBoundaryFeature(payload, requiredTerms)
+      if (parsed) return parsed
+    } catch {
+      // Try next source.
+    }
+  }
+  return null
+}
+
+function loadNegrosBoundary() {
+  if (negrosBoundaryCache) return Promise.resolve(negrosBoundaryCache)
+  if (negrosBoundaryPromise) return negrosBoundaryPromise
+
+  negrosBoundaryPromise = (async () => {
+    const localBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL], [
+      'negros occidental',
+    ])
+    if (!localBoundary) {
+      throw new Error('Failed to load local Negros Occidental maritime boundary geometry')
+    }
+
+    const regionBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL], [
+      'negros island region',
+    ])
+    const orientalBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL], [
+      'negros oriental',
+    ])
+
+    negrosBoundaryCache = {
+      geometries: [localBoundary.geometry],
+      bbox: localBoundary.bbox,
+      maskGeometries:
+        regionBoundary && orientalBoundary
+          ? [regionBoundary.geometry, orientalBoundary.geometry]
+          : regionBoundary
+            ? [regionBoundary.geometry]
+            : [localBoundary.geometry],
+    }
+    return negrosBoundaryCache
+  })()
+    .catch(() => null)
+    .finally(() => {
+      negrosBoundaryPromise = null
+    })
+
+  return negrosBoundaryPromise
 }
 
 const truckMarkerIcon = L.divIcon({
@@ -104,6 +277,21 @@ function MapBoundsGuard({ enabled, bounds }: { enabled: boolean; bounds: L.LatLn
   return null
 }
 
+function NegrosMaskPane() {
+  const map = useMap()
+
+  useEffect(() => {
+    const paneName = 'negros-mask-pane'
+    if (!map.getPane(paneName)) {
+      const pane = map.createPane(paneName)
+      pane.style.zIndex = '650'
+      pane.style.pointerEvents = 'none'
+    }
+  }, [map])
+
+  return null
+}
+
 function findNearestPolylineIndex(
   target: { lat: number; lng: number },
   points: [number, number][]
@@ -168,7 +356,7 @@ export function DriverRouteMap({
   className,
 }: DriverRouteMapProps) {
   const [fullRoadRoute, setFullRoadRoute] = useState<{ key: string; points: [number, number][] }>({ key: '', points: [] })
-  const [negrosIslandBoundary, setNegrosIslandBoundary] = useState<NegrosIslandBoundary | null>(null)
+  const [negrosBoundary, setNegrosBoundary] = useState<NegrosBoundary | null>(null)
 
   const hasDestination = Number.isFinite(destinationLatitude as number) && Number.isFinite(destinationLongitude as number)
   const hasWarehouse = Number.isFinite(warehouseLatitude as number) && Number.isFinite(warehouseLongitude as number)
@@ -177,13 +365,20 @@ export function DriverRouteMap({
   const destinationMarkerIcon = useMemo(() => getDestinationMarkerIcon(destinationColor), [destinationColor])
   const negrosIslandBounds = useMemo(
     () =>
-      negrosIslandBoundary
+      negrosBoundary
         ? L.latLngBounds(
-            [negrosIslandBoundary.bbox[1], negrosIslandBoundary.bbox[0]],
-            [negrosIslandBoundary.bbox[3], negrosIslandBoundary.bbox[2]]
+            [negrosBoundary.bbox[1], negrosBoundary.bbox[0]],
+            [negrosBoundary.bbox[3], negrosBoundary.bbox[2]]
           )
         : null,
-    [negrosIslandBoundary]
+    [negrosBoundary]
+  )
+  const negrosMaskRings = useMemo(
+    () =>
+      (negrosBoundary?.maskGeometries || negrosBoundary?.geometries || []).flatMap((geometry) =>
+        geometryToExteriorRings(geometry)
+      ),
+    [negrosBoundary]
   )
 
   const routeWaypoints = useMemo(() => {
@@ -260,34 +455,15 @@ export function DriverRouteMap({
   }, [routeWaypointsKey, routeWaypoints])
 
   useEffect(() => {
-    const controller = new AbortController()
-
+    let cancelled = false
     const fetchBoundary = async () => {
-      try {
-        const response = await fetch(NEGROS_ISLAND_GEOJSON_URL, { signal: controller.signal })
-        const payload = await response.json().catch(() => null)
-        const feature = payload?.features?.[0]
-        const geometry = feature?.geometry
-        const bbox = feature?.bbox
-
-        if (
-          geometry &&
-          (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') &&
-          Array.isArray(bbox) &&
-          bbox.length >= 4
-        ) {
-          setNegrosIslandBoundary({
-            geometry: geometry as NegrosIslandGeometry,
-            bbox: [Number(bbox[0]), Number(bbox[1]), Number(bbox[2]), Number(bbox[3])],
-          })
-        }
-      } catch {
-        // Best effort only for map masking.
-      }
+      const boundary = await loadNegrosBoundary()
+      if (!cancelled && boundary) setNegrosBoundary(boundary)
     }
-
     void fetchBoundary()
-    return () => controller.abort()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const historyPoints = routePoints
@@ -378,12 +554,27 @@ export function DriverRouteMap({
         maxBoundsViscosity={1.0}
       >
         <MapBoundsGuard enabled bounds={negrosIslandBounds} />
+        <NegrosMaskPane />
         <RouteViewport points={viewportPoints} />
         <TileLayerUnsafe
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           noWrap
         />
+        {negrosMaskRings.length > 0 ? (
+          <PolygonUnsafe
+            positions={[WORLD_MASK_RING, ...negrosMaskRings]}
+            pane="negros-mask-pane"
+            interactive={false}
+            pathOptions={{
+              stroke: false,
+              fillColor: '#aad3df',
+              fillOpacity: 1,
+              fillRule: 'evenodd',
+              opacity: 1,
+            }}
+          />
+        ) : null}
 
         {completedRoutePoints.length > 1 ? (
           <PolylineUnsafe positions={completedRoutePoints} pathOptions={{ color: '#6b7280', weight: 5, opacity: 0.95 }} />

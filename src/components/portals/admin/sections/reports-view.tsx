@@ -41,6 +41,7 @@ import {
   withinRange,
   getWarehouseIdFromRow,
   formatRoleLabel,
+  fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
 
@@ -85,7 +86,12 @@ export function ReportsView() {
       setIsLoading(true)
       try {
         const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes] = await Promise.all([
-          safeFetchJson('/api/orders?limit=1000&includeItems=none', undefined, { retries: 5, timeoutMs: 20000 }),
+          fetchAllPaginatedCollection<any>('/api/orders?includeItems=none', 'orders', undefined, {
+            retries: 5,
+            timeoutMs: 20000,
+            pageSize: 200,
+            maxPages: 100,
+          }),
           safeFetchJson('/api/trips?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
           safeFetchJson('/api/drivers?limit=500&includeSample=true', undefined, { retries: 5, timeoutMs: 20000 }),
           safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 5, timeoutMs: 20000 }),

@@ -23,10 +23,12 @@ import {
   checkNativeCameraPermission,
   DriverGpsLocation,
   DropPoint,
+  isNativeCapacitorApp,
   MAX_SPARE_DAMAGE_PHOTOS,
   mergeDropPointIntoTrip,
   NEGROS_OCCIDENTAL_BOUNDS,
   NEGROS_OCCIDENTAL_CENTER,
+  openNativeAppSettings,
   SPARE_DAMAGE_REASON_OPTIONS,
   SpareReplacementLine,
   stripPhilippinesFromAddress,
@@ -74,9 +76,13 @@ export function TripDetailView({
   const [isCameraLoading, setIsCameraLoading] = useState(false)
   const [isCameraPermissionDialogOpen, setIsCameraPermissionDialogOpen] = useState(false)
   const [cameraPermissionHint, setCameraPermissionHint] = useState<string>('')
+  const [isStartTripWarningOpen, setIsStartTripWarningOpen] = useState(false)
 
   // Spare/replacement workflow state.
   const [isSpareReplaceOpen, setIsSpareReplaceOpen] = useState(false)
+  const [isReplacementWarningOpen, setIsReplacementWarningOpen] = useState(false)
+  const [replacementTargetDropPointId, setReplacementTargetDropPointId] = useState<string | null>(null)
+  const [replacementTargetDropPointName, setReplacementTargetDropPointName] = useState('')
   const [spareTargetDropPointId, setSpareTargetDropPointId] = useState<string | null>(null)
   const [spareOrderItemId, setSpareOrderItemId] = useState('')
   const [spareQuantity, setSpareQuantity] = useState('1')
@@ -93,10 +99,18 @@ export function TripDetailView({
   // Failed-delivery decision flow state.
   const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
   const [failedDeliveryDropPointId, setFailedDeliveryDropPointId] = useState<string | null>(null)
+  const [isFailedDeliveryActionWarningOpen, setIsFailedDeliveryActionWarningOpen] = useState(false)
+  const [failedDeliveryPendingAction, setFailedDeliveryPendingAction] = useState<'reschedule' | 'cancel' | null>(null)
+  const [isArriveWarningOpen, setIsArriveWarningOpen] = useState(false)
+  const [arriveTargetDropPointId, setArriveTargetDropPointId] = useState<string | null>(null)
+  const [arriveTargetDropPointName, setArriveTargetDropPointName] = useState('')
   const [isFailedDeliveryRescheduleOpen, setIsFailedDeliveryRescheduleOpen] = useState(false)
   const [failedDeliveryRescheduleDropPointId, setFailedDeliveryRescheduleDropPointId] = useState<string | null>(null)
   const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'today' | 'tomorrow' | 'other_date'>('today')
   const [failedDeliveryOtherDate, setFailedDeliveryOtherDate] = useState('')
+  const [isDeliveredWarningOpen, setIsDeliveredWarningOpen] = useState(false)
+  const [deliveredTargetDropPointId, setDeliveredTargetDropPointId] = useState<string | null>(null)
+  const [deliveredTargetDropPointName, setDeliveredTargetDropPointName] = useState('')
 
   // Mobile bottom sheet and map UX state.
   const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
@@ -289,6 +303,17 @@ export function TripDetailView({
       currency: 'PHP',
       maximumFractionDigits: 2,
     }).format(amount)
+  const formatTripSchedule = (value: string | null | undefined) => {
+    const raw = String(value || '').trim()
+    if (!raw) return 'Not set'
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
   const ETA_SPEED_KMH = 28
   // Geospatial helpers used for route/movement calculations.
   const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
@@ -376,6 +401,48 @@ export function TripDetailView({
       refreshTripsInBackground()
     } finally {
       setIsUpdating(false)
+    }
+  }
+
+  const openArriveWarning = (dropPoint: DropPoint) => {
+    setArriveTargetDropPointId(String(dropPoint.id || ''))
+    setArriveTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
+    setIsArriveWarningOpen(true)
+  }
+
+  const openReplacementWarning = (dropPoint: DropPoint) => {
+    setReplacementTargetDropPointId(String(dropPoint.id || ''))
+    setReplacementTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
+    setIsReplacementWarningOpen(true)
+  }
+
+  const openDeliveredWarning = (dropPoint: DropPoint) => {
+    setDeliveredTargetDropPointId(String(dropPoint.id || ''))
+    setDeliveredTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
+    setIsDeliveredWarningOpen(true)
+  }
+
+  const submitDeliveredForDropPoint = async (dropPoint: DropPoint) => {
+    if (getDropPointOpenReplacement(dropPoint)) {
+      toast.error('Resolve the remaining replacement before marking this drop point as delivered')
+      return
+    }
+    const existingPodPhotoUrl = String(dropPoint?.deliveryPhoto || '').trim()
+    if (!podImageFile && !existingPodPhotoUrl) {
+      toast.error('Capture POD photo first')
+      openCameraCapture('pod')
+      return
+    }
+    try {
+      const imageUrl = podImageFile ? await uploadPodImage(podImageFile) : existingPodPhotoUrl
+      await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
+        recipientName: 'Customer',
+        deliveryPhoto: imageUrl,
+      })
+      handlePodFileChange(null)
+      setDeliveryNote('')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to upload POD image')
     }
   }
 
@@ -505,6 +572,64 @@ export function TripDetailView({
     await video.play().catch(() => {})
   }
 
+  const getWebCameraPermissionState = async (): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> => {
+    try {
+      const permissionsApi = (navigator as any)?.permissions
+      if (!permissionsApi?.query) return 'unknown'
+      const result = await permissionsApi.query({ name: 'camera' as PermissionName })
+      const state = String(result?.state || '').toLowerCase()
+      if (state === 'granted' || state === 'denied' || state === 'prompt') {
+        return state
+      }
+      return 'unknown'
+    } catch {
+      return 'unknown'
+    }
+  }
+
+  const ensureWebCameraPermission = async (): Promise<{ granted: boolean; reason?: string }> => {
+    if (!window.isSecureContext) {
+      return { granted: false, reason: 'Camera requires a secure connection (HTTPS). Open this app over HTTPS to allow camera on mobile.' }
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return { granted: false, reason: 'This browser/device does not expose camera APIs for this page.' }
+    }
+
+    const permissionState = await getWebCameraPermissionState()
+    if (permissionState === 'denied') {
+      return { granted: false, reason: 'Camera permission denied. Please enable camera access in browser/app settings.' }
+    }
+
+    // Explicitly verify/request permission every time camera flow starts.
+    try {
+      const preflightStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      })
+      preflightStream.getTracks().forEach((track) => track.stop())
+      return { granted: true }
+    } catch (error: any) {
+      const errName = String(error?.name || '')
+      const denied =
+        errName === 'NotAllowedError' ||
+        errName === 'PermissionDeniedError' ||
+        errName === 'SecurityError'
+      if (denied) {
+        return { granted: false, reason: 'Camera permission denied. Please enable camera access in browser/app settings.' }
+      }
+      if (errName === 'NotFoundError') {
+        return { granted: false, reason: 'No camera device was found on this phone.' }
+      }
+      if (errName === 'NotReadableError') {
+        return { granted: false, reason: 'Camera is busy in another app. Close other camera apps and retry.' }
+      }
+      if (errName === 'TypeError') {
+        return { granted: false, reason: 'Camera is unavailable for this page. On mobile this usually means non-HTTPS access.' }
+      }
+      return { granted: false, reason: 'Unable to access camera on this device/browser.' }
+    }
+  }
+
   // Stops active camera tracks to release device resources immediately.
   const stopCameraStream = () => {
     if (cameraStreamRef.current) {
@@ -551,17 +676,29 @@ export function TripDetailView({
             handlePodFileChange(file)
           }
         } catch (error: any) {
-          handleCameraPermissionDenied(error?.message || 'Unable to access camera on this device.')
+          const message = String(error?.message || '')
+          if (/cancelled|canceled|user cancelled|user canceled/i.test(message)) {
+            return
+          }
+          handleCameraPermissionDenied(message || 'Unable to access camera on this device.')
         }
       })()
       return
     }
 
-    setCameraCaptureTarget(target)
-    setCapturedCameraPhoto(null)
-    setCameraError(null)
-    setCameraPermissionHint('')
-    setIsCameraOpen(true)
+    void (async () => {
+      const permission = await ensureWebCameraPermission()
+      if (!permission.granted) {
+        handleCameraPermissionDenied(permission.reason)
+        return
+      }
+
+      setCameraCaptureTarget(target)
+      setCapturedCameraPhoto(null)
+      setCameraError(null)
+      setCameraPermissionHint('')
+      setIsCameraOpen(true)
+    })()
   }
 
   // Opens spare replacement dialog preloaded with the selected drop point.
@@ -605,6 +742,11 @@ export function TripDetailView({
   const closeFailedDeliveryChoice = () => {
     setIsFailedDeliveryChoiceOpen(false)
     setFailedDeliveryDropPointId(null)
+  }
+
+  const openFailedDeliveryActionWarning = (action: 'reschedule' | 'cancel') => {
+    setFailedDeliveryPendingAction(action)
+    setIsFailedDeliveryActionWarningOpen(true)
   }
 
   const openFailedDeliveryReschedule = (dropPointId: string) => {
@@ -1525,6 +1667,7 @@ export function TripDetailView({
               <div>
                 <h2 className="text-lg font-bold leading-tight md:text-xl">{trip.tripNumber}</h2>
                 <p className="text-slate-300 text-xs md:text-sm">{trip.vehicle?.licensePlate}</p>
+                <p className="text-slate-300 text-xs md:text-sm">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
               </div>
               <Badge className="border border-slate-300/20 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-900 md:px-2.5 md:py-1 md:text-xs">
                 {effectiveCompletedDropPoints}/{trip.totalDropPoints} Completed
@@ -1557,7 +1700,7 @@ export function TripDetailView({
               ) : null}
               <Button
                 className="h-12 w-full gap-2 bg-slate-900 text-lg text-white hover:bg-slate-800"
-                onClick={handleStartTrip}
+                onClick={() => setIsStartTripWarningOpen(true)}
                 disabled={isUpdating || notLoadedTripOrders.length > 0}
               >
                 {isUpdating ? (
@@ -1569,6 +1712,176 @@ export function TripDetailView({
               </Button>
             </div>
           )}
+
+          <Dialog open={isStartTripWarningOpen} onOpenChange={setIsStartTripWarningOpen}>
+            <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+              <DialogHeader className="px-5 pt-5">
+                <DialogTitle className="text-amber-700">Warning Before Starting Trip</DialogTitle>
+                <DialogDescription className="text-slate-600">
+                  Once started, this trip will move to <span className="font-semibold">IN PROGRESS</span> and linked orders will be dispatched.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p>Make sure driver, vehicle, and route are correct before continuing.</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="font-medium text-slate-900">{trip.tripNumber}</p>
+                  <p>Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                  <p>Stops: {effectiveCompletedDropPoints}/{trip.totalDropPoints} completed</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsStartTripWarningOpen(false)}
+                    disabled={isUpdating}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-amber-600 text-white hover:bg-amber-700"
+                    onClick={async () => {
+                      setIsStartTripWarningOpen(false)
+                      await handleStartTrip()
+                    }}
+                    disabled={isUpdating || notLoadedTripOrders.length > 0}
+                  >
+                    {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                    Start Trip
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isArriveWarningOpen} onOpenChange={setIsArriveWarningOpen}>
+            <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+              <DialogHeader className="px-5 pt-5">
+                <DialogTitle className="text-amber-700">Warning Before Marking Arrived</DialogTitle>
+                <DialogDescription className="text-slate-600">
+                  This will update the stop status to <span className="font-semibold">ARRIVED</span>.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p>Confirm that you are physically at the drop point before continuing.</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="font-medium text-slate-900">{arriveTargetDropPointName || 'Drop Point'}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsArriveWarningOpen(false)}
+                    disabled={isUpdating}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-amber-600 text-white hover:bg-amber-700"
+                    onClick={async () => {
+                      const targetId = String(arriveTargetDropPointId || '').trim()
+                      setIsArriveWarningOpen(false)
+                      if (!targetId) return
+                      await handleUpdateDropPoint(targetId, 'ARRIVED')
+                    }}
+                    disabled={isUpdating || !arriveTargetDropPointId}
+                  >
+                    {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Navigation className="mr-2 h-4 w-4" />}
+                    Mark Arrived
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isReplacementWarningOpen} onOpenChange={setIsReplacementWarningOpen}>
+            <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+              <DialogHeader className="px-5 pt-5">
+                <DialogTitle className="text-amber-700">Confirm Report Replacement</DialogTitle>
+                <DialogDescription className="text-slate-600">
+                  Please confirm you want to report a replacement for this stop.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsReplacementWarningOpen(false)}
+                    disabled={isUpdating || isSpareReplacing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-amber-600 text-white hover:bg-amber-700"
+                    onClick={() => {
+                      const targetId = String(replacementTargetDropPointId || '').trim()
+                      setIsReplacementWarningOpen(false)
+                      if (!targetId) return
+                      const targetDropPoint = sortedDropPoints.find((point) => String(point.id) === targetId)
+                      if (!targetDropPoint) return
+                      openSpareReplacement(targetDropPoint)
+                    }}
+                    disabled={isUpdating || isSpareReplacing || !replacementTargetDropPointId}
+                  >
+                    <AlertCircle className="mr-2 h-4 w-4" />
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isDeliveredWarningOpen} onOpenChange={setIsDeliveredWarningOpen}>
+            <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+              <DialogHeader className="px-5 pt-5">
+                <DialogTitle className="text-amber-700">Warning Before Marking Delivered</DialogTitle>
+                <DialogDescription className="text-slate-600">
+                  This will finalize delivery for this stop and update the order status.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p>Confirm POD photo and delivery details are correct before continuing.</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="font-medium text-slate-900">{deliveredTargetDropPointName || 'Drop Point'}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsDeliveredWarningOpen(false)}
+                    disabled={isUpdating}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    onClick={async () => {
+                      const targetId = String(deliveredTargetDropPointId || '').trim()
+                      setIsDeliveredWarningOpen(false)
+                      if (!targetId) return
+                      const targetDropPoint = sortedDropPoints.find((point) => String(point.id) === targetId)
+                      if (!targetDropPoint) return
+                      await submitDeliveredForDropPoint(targetDropPoint)
+                    }}
+                    disabled={isUpdating || !deliveredTargetDropPointId}
+                  >
+                    {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                    Delivered
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Route Map */}
           {!isMobileViewport ? (
@@ -1588,7 +1901,7 @@ export function TripDetailView({
                   restrictToNegrosOccidental
                   showDriverSelfBadge
                   showZoomControls={false}
-                  className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[350px]"
+                  className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[400px]"
                 />
               )}
             </div>
@@ -1732,7 +2045,7 @@ export function TripDetailView({
                                 {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                                   <Button
                                     className="w-full"
-                                    onClick={(e) => { e.stopPropagation(); handleUpdateDropPoint(dropPoint.id, 'ARRIVED'); }}
+                                    onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
                                     disabled={isUpdating}
                                   >
                                     <Navigation className="mr-2 h-4 w-4" />
@@ -1766,7 +2079,11 @@ export function TripDetailView({
                                           className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
                                           onClick={(e) => {
                                             e.stopPropagation()
-                                            openSpareReplacement(dropPoint)
+                                            if (getDropPointOpenReplacement(dropPoint)) {
+                                              openSpareReplacement(dropPoint)
+                                            } else {
+                                              openReplacementWarning(dropPoint)
+                                            }
                                           }}
                                           disabled={isUpdating || isSpareReplacing}
                                         >
@@ -1792,27 +2109,7 @@ export function TripDetailView({
                                         className="bg-emerald-600 hover:bg-emerald-700"
                                         onClick={async (e) => {
                                           e.stopPropagation()
-                                          if (getDropPointOpenReplacement(dropPoint)) {
-                                            toast.error('Resolve the remaining replacement before marking this drop point as delivered')
-                                            return
-                                          }
-                                          if (!podImageFile) {
-                                            toast.error('Capture POD photo first')
-                                            openCameraCapture('pod')
-                                            return
-                                          }
-                                          try {
-                                            const imageUrl = await uploadPodImage(podImageFile)
-                                            await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
-                                              recipientName: 'Customer',
-                                              deliveryPhoto: imageUrl,
-                                            })
-                                            handlePodFileChange(null)
-                                            setDeliveryNote('')
-                                          } catch (error: any) {
-                                            toast.error(error?.message || 'Failed to upload POD image')
-                                            return
-                                          }
+                                          openDeliveredWarning(dropPoint)
                                         }}
                                         disabled={isUpdating || Boolean(getDropPointOpenReplacement(dropPoint))}
                                       >
@@ -1862,7 +2159,10 @@ export function TripDetailView({
                   <span className="mx-auto mb-2 block h-1.5 w-14 rounded-full bg-slate-300" />
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
+                    <div>
+                      <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
+                      <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                    </div>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
                       {effectiveCompletedDropPoints}/{trip.totalDropPoints} Completed
                     </span>
@@ -1917,14 +2217,14 @@ export function TripDetailView({
                                   )
                                 })()}
                                 {(dropPoint.order.items || []).length > 0 ? (
-                                  <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
-                                    <p className="text-[11px] font-semibold text-slate-600">Order Details</p>
-                                    <div className="mt-1 space-y-0.5">
+                                  <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5 md:mt-2 md:px-3 md:py-2.5">
+                                    <p className="text-[11px] font-semibold text-slate-600 md:text-sm">Order Details</p>
+                                    <div className="mt-1 space-y-0.5 md:mt-2 md:space-y-1">
                                       {(dropPoint.order.items || []).map((item, index) => (
-                                        <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600">
+                                        <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600 md:text-sm">
                                           <p>{item.product?.name || 'Item'} x{Number(item.quantity || 0)}</p>
                                           {Number(item.spareProducts?.recommendedQuantity || 0) > 0 ? (
-                                            <div className="mt-1 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700">
+                                            <div className="mt-1 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700 md:px-2.5 md:py-1.5 md:text-xs">
                                               <p>Spare products: {Number(item.spareProducts?.recommendedQuantity || 0)}</p>
                                               <p>Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}</p>
                                             </div>
@@ -1966,7 +2266,7 @@ export function TripDetailView({
                         {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                           <Button
                             className="w-full"
-                            onClick={(e) => { e.stopPropagation(); handleUpdateDropPoint(dropPoint.id, 'ARRIVED'); }}
+                            onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
                             disabled={isUpdating}
                           >
                             <Navigation className="h-4 w-4 mr-2" />
@@ -2000,7 +2300,11 @@ export function TripDetailView({
                                   className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openSpareReplacement(dropPoint)
+                                    if (getDropPointOpenReplacement(dropPoint)) {
+                                      openSpareReplacement(dropPoint)
+                                    } else {
+                                      openReplacementWarning(dropPoint)
+                                    }
                                   }}
                                   disabled={isUpdating || isSpareReplacing}
                                 >
@@ -2026,27 +2330,7 @@ export function TripDetailView({
                                 className="bg-emerald-600 hover:bg-emerald-700"
                                 onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (getDropPointOpenReplacement(dropPoint)) {
-                                    toast.error('Resolve the remaining replacement before marking this drop point as delivered')
-                                    return
-                                  }
-                                  if (!podImageFile) {
-                                    toast.error('Capture POD photo first')
-                                    openCameraCapture('pod')
-                                    return
-                                  }
-                                  try {
-                                    const imageUrl = await uploadPodImage(podImageFile)
-                                    await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
-                                      recipientName: 'Customer',
-                                      deliveryPhoto: imageUrl,
-                                    })
-                                    handlePodFileChange(null)
-                                    setDeliveryNote('')
-                                  } catch (error: any) {
-                                    toast.error(error?.message || 'Failed to upload POD image')
-                                    return
-                                  }
+                                  openDeliveredWarning(dropPoint)
                                 }}
                                 disabled={isUpdating || Boolean(getDropPointOpenReplacement(dropPoint))}
                               >
@@ -2161,7 +2445,9 @@ export function TripDetailView({
                 className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]"
                 onClick={() => {
                   setIsCameraPermissionDialogOpen(false)
-                  openCameraCapture(cameraCaptureTarget)
+                  window.setTimeout(() => {
+                    openCameraCapture(cameraCaptureTarget)
+                  }, 120)
                 }}
               >
                 Retry Camera
@@ -2184,12 +2470,12 @@ export function TripDetailView({
           <DialogHeader>
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
               <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
-                {spareFollowUpReturnId ? 'Resolve Replacement' : 'Spare Product Replacement'}
+                {spareFollowUpReturnId ? 'Resolve Replacement' : 'Replacement Form'}
               </DialogTitle>
               <DialogDescription className="mt-1 text-sm text-[#4d6785]">
                 {spareFollowUpReturnId
                   ? 'Capture follow-up photo evidence and submit the remaining replacement quantity to close the case.'
-                  : 'Capture damage evidence using camera, then use the driver spare products to mark as resolved or partially replaced.'}
+                  : 'Capture damage evidence'}
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -2254,9 +2540,14 @@ export function TripDetailView({
                                 checked={checked}
                                 onChange={(event) => {
                                   if (event.target.checked) {
+                                    const initialQty = String(Math.min(Math.max(1, 0), maxQty))
                                     setSpareReplacementLines((previous) => [
                                       ...previous.filter((entry) => entry.orderItemId !== item.id),
-                                      { orderItemId: item.id, quantityToReplace: '1', quantityReplaced: spareOutcome === 'RESOLVED' ? '1' : '0' },
+                                      {
+                                        orderItemId: item.id,
+                                        quantityToReplace: initialQty,
+                                        quantityReplaced: spareOutcome === 'RESOLVED' ? initialQty : '0',
+                                      },
                                     ])
                                   } else {
                                     setSpareReplacementLines((previous) => previous.filter((entry) => entry.orderItemId !== item.id))
@@ -2265,7 +2556,9 @@ export function TripDetailView({
                               />
                               <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-semibold text-slate-900">{item.product?.name || 'Item'}</span>
-                                <span className="block text-xs text-slate-500">{item.product?.sku || 'N/A'} | Ordered Qty {maxQty}</span>
+                                <span className="block text-xs text-slate-500">
+                                  Spare Products {Number(item.spareProducts?.recommendedQuantity || 0)} | Ordered Qty {maxQty}
+                                </span>
                               </span>
                             </label>
                             {checked ? (
@@ -2278,7 +2571,9 @@ export function TripDetailView({
                                     pattern="[0-9]*"
                                     value={line?.quantityToReplace || ''}
                                     onChange={(event) => {
-                                      const nextValue = event.target.value.replace(/[^\d]/g, '')
+                                      const raw = event.target.value.replace(/[^\d]/g, '')
+                                      const parsed = Number(raw || 0)
+                                      const nextValue = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxQty))
                                       setLine({ quantityToReplace: nextValue, quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0' })
                                     }}
                                     onBlur={() => {
@@ -2294,9 +2589,15 @@ export function TripDetailView({
                                     <Input
                                       type="text"
                                       inputMode="numeric"
-                                      pattern="[0-9]*"
-                                      value={line?.quantityReplaced || ''}
-                                      onChange={(event) => setLine({ quantityReplaced: event.target.value.replace(/[^\d]/g, '') })}
+                                    pattern="[0-9]*"
+                                    value={line?.quantityReplaced || ''}
+                                    onChange={(event) => {
+                                      const maxReplace = Number(line?.quantityToReplace || 0)
+                                      const raw = event.target.value.replace(/[^\d]/g, '')
+                                      const parsed = Number(raw || 0)
+                                      const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxReplace))
+                                      setLine({ quantityReplaced: clamped })
+                                    }}
                                       onBlur={() => {
                                         const maxReplace = Number(line?.quantityToReplace || 0)
                                         const parsed = Number(line?.quantityReplaced || 0)
@@ -2512,8 +2813,7 @@ export function TripDetailView({
                 className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
                 onClick={() => {
                   if (!failedDeliveryDropPointId) return
-                  closeFailedDeliveryChoice()
-                  openFailedDeliveryReschedule(failedDeliveryDropPointId)
+                  openFailedDeliveryActionWarning('reschedule')
                 }}
                 disabled={isUpdating}
               >
@@ -2525,8 +2825,7 @@ export function TripDetailView({
                 className="h-11 rounded-xl font-semibold shadow-[0_12px_24px_rgba(220,38,38,0.22)]"
                 onClick={async () => {
                   if (!failedDeliveryDropPointId) return
-                  closeFailedDeliveryChoice()
-                  await handleUpdateDropPoint(failedDeliveryDropPointId, 'SKIPPED', deliveryNote || 'Delivery canceled by driver')
+                  openFailedDeliveryActionWarning('cancel')
                 }}
                 disabled={isUpdating}
               >
@@ -2536,6 +2835,61 @@ export function TripDetailView({
             <Button type="button" variant="outline" className="h-11 w-full rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={closeFailedDeliveryChoice} disabled={isUpdating}>
               Close
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isFailedDeliveryActionWarningOpen} onOpenChange={setIsFailedDeliveryActionWarningOpen}>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+          <DialogHeader>
+            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
+              <DialogTitle className="text-[1.35rem] font-black tracking-[-0.02em] text-amber-700">Confirm Action</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
+                {failedDeliveryPendingAction === 'reschedule'
+                  ? 'You are about to reschedule this failed delivery.'
+                  : 'You are about to cancel this failed delivery.'}
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {failedDeliveryPendingAction === 'reschedule'
+                ? 'Proceed only if customer requested another delivery attempt.'
+                : 'Proceed only if delivery must be cancelled and should not be attempted again.'}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
+                onClick={() => {
+                  setIsFailedDeliveryActionWarningOpen(false)
+                  setFailedDeliveryPendingAction(null)
+                }}
+                disabled={isUpdating}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                className={`h-11 rounded-xl font-semibold text-white ${failedDeliveryPendingAction === 'cancel' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+                onClick={async () => {
+                  if (!failedDeliveryDropPointId || !failedDeliveryPendingAction) return
+                  const action = failedDeliveryPendingAction
+                  setIsFailedDeliveryActionWarningOpen(false)
+                  setFailedDeliveryPendingAction(null)
+                  closeFailedDeliveryChoice()
+                  if (action === 'reschedule') {
+                    openFailedDeliveryReschedule(failedDeliveryDropPointId)
+                    return
+                  }
+                  await handleUpdateDropPoint(failedDeliveryDropPointId, 'SKIPPED', deliveryNote || 'Delivery canceled by driver')
+                }}
+                disabled={isUpdating || !failedDeliveryPendingAction}
+              >
+                {failedDeliveryPendingAction === 'cancel' ? 'Confirm Cancel' : 'Confirm Reschedule'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

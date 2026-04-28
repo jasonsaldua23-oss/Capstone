@@ -35,7 +35,6 @@ import {
   formatPeso,
   formatDayKey,
   toIsoDateTime,
-  formatDateTime,
   formatDayLabel,
   withinRange,
   getWarehouseIdFromRow,
@@ -404,52 +403,62 @@ export function TripsView() {
     }
   }
 
-  const saveRouteDraft = async () => {
+  const createTripFromCurrentRoutePlan = async () => {
     if (!routeDate || !routeWarehouseId || !selectedRouteCity || selectedRouteOrderIds.length === 0) {
       toast.error('Select date, warehouse, city and at least one order')
       return
     }
+    if (!selectedRouteDriverId) {
+      toast.error('Select a driver')
+      return
+    }
+    if (!selectedDriverAssignedVehicle?.id) {
+      toast.error('Selected driver has no assigned vehicle')
+      return
+    }
 
-    const warehouse = warehouses.find((w) => w.id === routeWarehouseId)
     const group = routePlans.find((g) => g.city === selectedRouteCity)
     const selectedOrders = toArray<any>(group?.orders).filter((order) => selectedRouteOrderIds.includes(order.id))
-
     if (!group || selectedOrders.length === 0) {
       toast.error('No orders selected for this route')
       return
     }
 
+    setCreatingTripFromRoute(true)
     try {
-      const response = await fetch('/api/trips/saved-routes', {
+      const response = await fetch('/api/trips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: routeDate,
+          plannedStartAt: routeDate,
+          status: 'PLANNED',
           warehouseId: routeWarehouseId,
-          warehouseName: warehouse?.name || 'Unknown Warehouse',
-          city: selectedRouteCity,
-          totalDistanceKm: Number(group.totalDistanceKm || 0),
+          driverId: selectedRouteDriverId,
+          vehicleId: selectedDriverAssignedVehicle.id,
           orderIds: selectedRouteOrderIds,
-          orders: selectedOrders,
         }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to save route')
+        throw new Error(data?.error || 'Failed to create trip')
       }
 
-      const savedRoute = data?.savedRoute
-      if (savedRoute?.id) {
-        setSavedRoutes((prev) => [savedRoute, ...prev.filter((route) => route.id !== savedRoute.id)])
-        setSelectedSavedRouteId(savedRoute.id)
-      } else {
-        await fetchSavedRoutes()
+      const createdTrip = data?.trip
+      if (createdTrip) {
+        setTrips((prev: any[]) => [createdTrip, ...prev.filter((trip: any) => trip.id !== createdTrip.id)])
       }
 
       setCreateRouteOpen(false)
-      toast.success('Route saved. Assign driver later in New Trip.')
+      setSelectedRouteCity('')
+      setSelectedRouteOrderIds([])
+      setRoutePlans([])
+      emitDataSync(['trips', 'orders'])
+      void refreshTrips({ showLoading: false })
+      toast.success('Trip created and assigned successfully')
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to save route')
+      toast.error(error?.message || 'Failed to create trip')
+    } finally {
+      setCreatingTripFromRoute(false)
     }
   }
 
@@ -458,6 +467,18 @@ export function TripsView() {
     IN_PROGRESS: 'bg-green-100 text-green-800',
     COMPLETED: 'bg-gray-100 text-gray-800',
     CANCELLED: 'bg-red-100 text-red-800',
+  }
+
+  const formatTripScheduleDate = (value?: string | null) => {
+    const raw = String(value || '').trim()
+    if (!raw) return 'Not set'
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
   }
 
   return (
@@ -469,71 +490,15 @@ export function TripsView() {
           <p className="text-gray-500">All trip records</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => setCreateRouteOpen(true)} className="bg-black text-white hover:bg-black/90 rounded-xl px-4">
-            Create Route
-          </Button>
           <Button
-            onClick={() => setCreateTripOpen(true)}
+            onClick={() => setCreateRouteOpen(true)}
             className="bg-black text-white hover:bg-black/90 rounded-xl px-4"
-            disabled={savedRoutes.length === 0}
           >
             <Truck className="h-4 w-4 mr-2" />
-            New Trip
+            Create Trip
           </Button>
         </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Saved Routes
-          </CardTitle>
-          <CardDescription>Routes created ahead of time. Use New Trip to assign driver and dispatch.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {savedRoutes.length === 0 ? (
-            <div className="h-44 rounded-md border bg-gray-50 flex flex-col items-center justify-center text-center px-4">
-              <p className="text-gray-600">No saved routes yet</p>
-              <p className="text-sm text-gray-500">Click "Create Route" to save routes for later dispatch</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {savedRoutes.map((route: any) => (
-                <div key={route.id} className="rounded-md border">
-                  <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b">
-                    <p className="font-medium">{route.city}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-600">{route.orderIds.length} orders - {Number(route.totalDistanceKm || 0).toFixed(2)} km total</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                        onClick={() => {
-                          void removeSavedRoute(route.id)
-                        }}
-                      >
-                        Delete Route
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="p-3 space-y-2">
-                    <p className="text-xs text-gray-500">
-                      {route.warehouseName} | {new Date(route.date).toLocaleDateString()}
-                    </p>
-                    {toArray<any>(route.orders).map((order: any) => (
-                      <div key={order.id} className="flex items-center justify-between text-sm">
-                        <p><span className="font-medium">{order.orderNumber}</span> - {order.customerName}</p>
-                        <p className="text-gray-600">{order.distanceKm !== null ? `${Number(order.distanceKm).toFixed(2)} km` : 'No geo data'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardContent>
@@ -572,6 +537,9 @@ export function TripsView() {
                       </p>
                       <p className="text-[13px] text-gray-600">
                         Route: {(trip.route?.start || trip.origin || 'Warehouse')} {'->'} {(trip.route?.end || trip.destination || trip.destinationCity || 'Destination')}
+                      </p>
+                      <p className="text-[13px] text-gray-600">
+                        Schedule: {formatTripScheduleDate(trip.tripSchedule)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -650,6 +618,9 @@ export function TripsView() {
                   <div>
                     <span className="font-semibold">Drop points:</span> {selectedTrip.dropPoints?.length ?? 0}
                   </div>
+                  <div>
+                    <span className="font-semibold">Schedule:</span> {formatTripScheduleDate(selectedTrip.tripSchedule)}
+                  </div>
                 </div>
 
                 <div className="rounded-lg border bg-gray-50 p-3">
@@ -720,12 +691,12 @@ export function TripsView() {
       >
         <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
           <DialogHeader>
-            <DialogTitle className="sr-only">Create Delivery Route</DialogTitle>
+            <DialogTitle className="sr-only">Create Trip</DialogTitle>
           </DialogHeader>
           <div className="flex flex-row w-full h-full">
             {/* Left: Filters and Orders Preview */}
             <div className="flex flex-col bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
-              <h2 className="mb-2 text-lg font-bold">Create Delivery Route</h2>
+              <h2 className="mb-2 text-lg font-bold">Create Trip</h2>
               <div className="mb-2">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">Delivery Date</label>
                 <Input
@@ -834,23 +805,46 @@ export function TripsView() {
                 )}
               </div>
               <div className="mt-1 space-y-1">
-                <p className="hidden text-[11px] text-gray-500 sm:block">
-                  Driver assignment is done in New Trip.
-                </p>
+                <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
+                <select
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  title="Assign Driver"
+                  value={selectedRouteDriverId}
+                  onChange={(e) => setSelectedRouteDriverId(e.target.value)}
+                >
+                  <option value="">Select driver</option>
+                  {drivers.map((driver: any) => (
+                    <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
+                      {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  readOnly
+                  className="h-8 text-xs"
+                  value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
+                />
+                {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
+                  <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                ) : null}
                 <Button
                   className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
-                    void saveRouteDraft()
+                    void createTripFromCurrentRoutePlan()
                   }}
                   disabled={
+                    creatingTripFromRoute ||
                     loadingRoutePlans ||
                     !routeDate ||
                     !routeWarehouseId ||
                     !selectedRouteCity ||
-                    selectedRouteOrderIds.length === 0
+                    selectedRouteOrderIds.length === 0 ||
+                    !selectedRouteDriverId ||
+                    !selectedDriverAssignedVehicle?.id
                   }
                 >
-                  Save Route
+                  {creatingTripFromRoute ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Create Trip
                 </Button>
               </div>
             </div>
@@ -920,7 +914,7 @@ export function TripsView() {
       <Dialog open={createTripOpen} onOpenChange={setCreateTripOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Create New Trip</DialogTitle>
+            <DialogTitle>Create Trip</DialogTitle>
             <DialogDescription>Select a saved route and assign an available driver.</DialogDescription>
           </DialogHeader>
 

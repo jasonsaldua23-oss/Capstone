@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area } from 'recharts'
-import { getCollection, formatDayKey, formatPeso } from './shared'
+import { fetchAllPaginatedCollection, getCollection, formatDayKey, formatPeso } from './shared'
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
@@ -15,11 +15,15 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        const ordersRes = await fetch('/api/orders?limit=200&includeItems=none')
+        const ordersResult = await fetchAllPaginatedCollection<any>(
+          '/api/orders?includeItems=none',
+          'orders',
+          { cache: 'no-store' },
+          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+        )
 
-        if (ordersRes.ok) {
-          const ordersData = await ordersRes.json()
-          setDashboardOrders(getCollection<any>(ordersData, ['orders']))
+        if (ordersResult.ok) {
+          setDashboardOrders(getCollection<any>(ordersResult.data, ['orders']))
         }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error)

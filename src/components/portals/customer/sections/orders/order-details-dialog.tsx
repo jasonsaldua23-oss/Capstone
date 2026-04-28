@@ -124,7 +124,15 @@ export function CustomerOrderDetailsDialog(props: any) {
             ) : null}
 
             <div className="mt-3 grid grid-cols-2 gap-2">
-              {isOrderTrackable(selectedOrder.status) && String(selectedOrder.paymentStatus || '').toLowerCase() !== 'pending_approval' ? (
+              {isOrderDelivered(selectedOrder) ? (
+                <Button
+                  variant="outline"
+                  className="h-11 rounded-xl border-slate-300 bg-white/70 text-slate-700 hover:bg-slate-100"
+                  onClick={() => setIsReceiptDialogOpen(true)}
+                >
+                  Receipt
+                </Button>
+              ) : isOrderTrackable(selectedOrder.status) && String(selectedOrder.paymentStatus || '').toLowerCase() !== 'pending_approval' ? (
                 <Button
                   variant="outline"
                   className="h-11 rounded-xl border-slate-300 bg-white/70 text-slate-600 hover:bg-slate-100"
@@ -142,14 +150,6 @@ export function CustomerOrderDetailsDialog(props: any) {
                   onClick={() => void cancelOrder(selectedOrder.id)}
                 >
                   Cancel
-                </Button>
-              ) : isOrderDelivered(selectedOrder) ? (
-                <Button
-                  variant="outline"
-                  className="h-11 rounded-xl border-slate-300 bg-white/70 text-slate-700 hover:bg-slate-100"
-                  onClick={() => setIsReceiptDialogOpen(true)}
-                >
-                  Receipt
                 </Button>
               ) : (
                 <Button variant="outline" className="h-11 rounded-xl border-slate-300 bg-white/60 text-slate-400" disabled>

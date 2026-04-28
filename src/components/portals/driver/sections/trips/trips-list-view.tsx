@@ -17,6 +17,18 @@ export function TripsListView({
   isLoading: boolean
   onSelectTrip: (trip: Trip) => void
 }) {
+  const formatTripSchedule = (value: string | null | undefined) => {
+    const raw = String(value || '').trim()
+    if (!raw) return 'Not set'
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+
   const statusColors: Record<string, string> = {
     PLANNED: 'bg-sky-100 text-sky-800 border border-sky-200',
     IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
@@ -98,6 +110,7 @@ export function TripsListView({
                     </div>
                     <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
                     <p className="text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
+                    <p className="text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
                   </div>
                   <Button
                     size="sm"

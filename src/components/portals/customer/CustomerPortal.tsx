@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useCallback, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Poppins } from 'next/font/google'
 import { useAuth } from '@/app/page'
@@ -25,9 +25,19 @@ import { CustomerPortalHeader } from './sections/layout/portal-header'
 import { CustomerBottomNav } from './sections/layout/bottom-nav'
 import { useCustomerPortalState } from './sections/layout/portal-state'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   cancelCustomerOrder,
   createCustomerOrder,
-  fetchCustomerOrders,
+  fetchAllCustomerOrders,
   fetchCustomerTracking,
   fetchReplacementsMeta,
   fetchLegacyCustomerReplacements,
@@ -76,6 +86,8 @@ const poppins = Poppins({
 
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
+  const [pendingCancelOrder, setPendingCancelOrder] = useState<{ id: string; orderNumber: string } | null>(null)
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false)
   const {
     activeView,
     setActiveView,
@@ -237,6 +249,20 @@ export function CustomerPortal() {
   } = useCustomerPortalState(user)
 
   const customerId = (user as any)?.userId || (user as any)?.id || ''
+  const selectedTrackingOrder = useMemo(
+    () => orders.find((order) => order.id === selectedTrackingOrderId) || null,
+    [orders, selectedTrackingOrderId]
+  )
+  const isSelectedTrackingOrderDelivered = useMemo(
+    () =>
+      Boolean(
+        selectedTrackingOrder &&
+        String(
+          normalizeDeliveryStatus(selectedTrackingOrder.status, selectedTrackingOrder.paymentStatus)
+        ).toUpperCase() === 'DELIVERED'
+      ),
+    [selectedTrackingOrder]
+  )
 
   useEffect(() => {
     setIsReceiptDialogOpen(false)
@@ -355,7 +381,7 @@ export function CustomerPortal() {
 
   const fetchOrders = useCallback(async (silent = false) => {
     try {
-      const requestOrders = () => fetchCustomerOrders()
+      const requestOrders = () => fetchAllCustomerOrders(100)
 
       let { response, data } = await requestOrders()
 
@@ -367,7 +393,7 @@ export function CustomerPortal() {
       if (!response?.ok || data?.success === false) {
         throw new Error(data?.error || 'Failed to fetch orders')
       }
-      setOrders(data.orders || [])
+      setOrders(Array.isArray(data?.orders) ? data.orders : [])
     } catch (error: any) {
       console.warn('Failed to load orders:', error)
     } finally {
@@ -458,12 +484,14 @@ export function CustomerPortal() {
   }, [fetchOrderMeta, fetchOrders])
 
   useEffect(() => {
-    const refreshOrders = async () => {
+    const refreshOrders = async (includeMeta = false) => {
       if (isRefreshingOrdersRef.current) return
       isRefreshingOrdersRef.current = true
       try {
         await fetchOrders(true)
-        await fetchOrderMeta()
+        if (includeMeta) {
+          await fetchOrderMeta()
+        }
       } finally {
         isRefreshingOrdersRef.current = false
       }
@@ -471,28 +499,50 @@ export function CustomerPortal() {
 
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes || []
-      if (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('replacements')) {
-        void refreshOrders()
+      const shouldRefreshTrack = activeView === 'track' && !isSelectedTrackingOrderDelivered
+      const shouldRefreshOrdersView = activeView === 'orders'
+      if (
+        (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('replacements')) &&
+        (shouldRefreshOrdersView || shouldRefreshTrack)
+      ) {
+        void refreshOrders(true)
       }
     })
 
     const onFocus = () => {
-      if (activeView === 'orders' || activeView === 'track') {
-        refreshOrders()
+      if (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered)) {
+        refreshOrders(true)
       }
     }
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && (activeView === 'orders' || activeView === 'track')) {
-        refreshOrders()
+      if (
+        document.visibilityState === 'visible' &&
+        (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
+      ) {
+        refreshOrders(true)
       }
     }
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && (activeView === 'orders' || activeView === 'track')) {
-        refreshOrders()
+    // Fast polling for order status changes so customer UI updates near-instantly.
+    const statusIntervalId = window.setInterval(() => {
+      if (
+        document.visibilityState === 'visible' &&
+        (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
+      ) {
+        void refreshOrders(false)
+      }
+    }, 2500)
+
+    // Less frequent metadata sync (feedback/replacements) to avoid heavy refetches.
+    const metaIntervalId = window.setInterval(() => {
+      if (
+        document.visibilityState === 'visible' &&
+        (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
+      ) {
+        void refreshOrders(true)
       }
     }, 10000)
 
@@ -500,9 +550,10 @@ export function CustomerPortal() {
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(intervalId)
+      window.clearInterval(statusIntervalId)
+      window.clearInterval(metaIntervalId)
     }
-  }, [activeView, fetchOrderMeta, fetchOrders])
+  }, [activeView, fetchOrderMeta, fetchOrders, isSelectedTrackingOrderDelivered])
 
   useEffect(() => {
     if (activeView !== 'track') return
@@ -583,13 +634,18 @@ export function CustomerPortal() {
     }
 
     fetchTracking()
-    const interval = setInterval(fetchTracking, 5000)
+    if (isSelectedTrackingOrderDelivered) {
+      return () => {
+        mounted = false
+      }
+    }
+    const interval = setInterval(fetchTracking, 2500)
 
     return () => {
       mounted = false
       clearInterval(interval)
     }
-  }, [activeView, orders])
+  }, [activeView, orders, isSelectedTrackingOrderDelivered])
 
   useEffect(() => {
     if (activeView !== 'track' || !selectedTrackingOrderId) return
@@ -853,8 +909,10 @@ export function CustomerPortal() {
 
     return sortedFilteredOrders.filter((order) => {
       const raw = String(order.status || '').toUpperCase()
+      const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
       const paymentMethod = String(order.paymentMethod || '').toUpperCase()
-      const isCodNotDelivered = paymentMethod === 'COD' && raw !== 'DELIVERED'
+      const isCancelled = raw === 'CANCELLED' || normalized === 'CANCELLED'
+      const isCodNotDelivered = paymentMethod === 'COD' && normalized !== 'DELIVERED' && !isCancelled
 
       if (ordersTab === 'TO_PAY') {
         return isCodNotDelivered
@@ -864,16 +922,16 @@ export function CustomerPortal() {
         return ['CONFIRMED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
       }
       if (ordersTab === 'TO_RECEIVE') {
-        return ['OUT_FOR_DELIVERY', 'DISPATCHED', 'IN_TRANSIT'].includes(raw)
+        return normalized === 'OUT_FOR_DELIVERY'
       }
       if (ordersTab === 'TO_REVIEW') {
-        return raw === 'DELIVERED' && !reviewedOrderIds.has(order.id)
+        return normalized === 'DELIVERED' && !reviewedOrderIds.has(order.id)
       }
       if (ordersTab === 'REPLACEMENT') {
         return Boolean(deliveryIssuesByOrderId[order.id])
       }
       if (ordersTab === 'DELIVERED') {
-        return raw === 'DELIVERED'
+        return normalized === 'DELIVERED'
       }
 
       return true
@@ -946,6 +1004,16 @@ export function CustomerPortal() {
       toast.error('Please select a delivery date before placing your order')
       return
     }
+    if (shippingLatitude === null || shippingLongitude === null) {
+      toast.error('Please pin your delivery address on the map before placing your order')
+      setIsAddressDialogOpen(true)
+      return
+    }
+    if (!isWithinNegrosOccidental(shippingLatitude, shippingLongitude)) {
+      toast.error('Delivery address must be within Negros Occidental, Philippines')
+      setIsAddressDialogOpen(true)
+      return
+    }
 
     setIsPlacingOrder(true)
     const cartSnapshot = [...cart]
@@ -966,7 +1034,10 @@ export function CustomerPortal() {
         deliveryDate: deliveryDate || null,
         items: selectedCartItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
       })
-      if (!response.ok || data?.success === false) throw new Error(data?.error || 'Failed')
+      if (!response.ok || data?.success === false) {
+        const errorMessage = String(data?.error || data?.message || '').trim()
+        throw new Error(errorMessage || `Failed to place order (HTTP ${response.status})`)
+      }
       const shouldRedirectToPaymongo = typeof data?.checkoutUrl === 'string' && !!data.checkoutUrl
       if (shouldRedirectToPaymongo) {
         toast.success('Redirecting to PayMongo checkout...')
@@ -984,10 +1055,8 @@ export function CustomerPortal() {
         selectedIds.forEach((id) => next.delete(id))
         return next
       })
-      // Refresh in background; order placement is already successful.
-      void fetchOrders()
+      // Refresh once in background via shared sync channel.
       emitDataSync(['orders'])
-      void fetchOrderMeta()
       setOrdersTab('ALL')
       setOrdersSearch('')
       setActiveView('orders')
@@ -1083,20 +1152,32 @@ export function CustomerPortal() {
     }
   }
 
-  const cancelOrder = async (orderId: string) => {
+  const requestCancelOrder = (orderId: string) => {
+    const source = orders.find((item) => item.id === orderId) || (selectedOrder?.id === orderId ? selectedOrder : null)
+    const orderNumber = String(source?.orderNumber || 'this order')
+    setPendingCancelOrder({ id: orderId, orderNumber })
+  }
+
+  const confirmCancelOrder = async () => {
+    const orderId = pendingCancelOrder?.id
+    if (!orderId) return
+    setIsCancellingOrder(true)
     try {
       const { response, payload } = await cancelCustomerOrder(orderId)
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to cancel order')
       }
+      const updatedOrder = payload?.order || { id: orderId, status: 'CANCELLED' }
+      setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status: 'CANCELLED' } : order)))
+      setSelectedOrder((prev) => (prev?.id === orderId ? { ...prev, ...updatedOrder, status: 'CANCELLED' } : prev))
       toast.success('Order cancelled successfully')
-      await fetchOrders()
+      // Refresh once in background via shared sync channel.
       emitDataSync(['orders'])
-      if (selectedOrder?.id === orderId) {
-        setSelectedOrder(null)
-      }
+      setPendingCancelOrder(null)
     } catch (error: any) {
       toast.error(error?.message || 'Failed to cancel order')
+    } finally {
+      setIsCancellingOrder(false)
     }
   }
 
@@ -1726,7 +1807,7 @@ export function CustomerPortal() {
             orderRatings={orderRatings}
             formatOrderStatus={formatOrderStatus}
             isOrderCancellable={isOrderCancellable}
-            cancelOrder={cancelOrder}
+            cancelOrder={requestCancelOrder}
             openRatingDialog={openRatingDialog}
             setSelectedOrder={setSelectedOrder}
             isOrderTrackable={isOrderTrackable}
@@ -1874,7 +1955,7 @@ export function CustomerPortal() {
         isOrderTrackable={isOrderTrackable}
         openTrackView={openTrackView}
         isOrderCancellable={isOrderCancellable}
-        cancelOrder={cancelOrder}
+        cancelOrder={requestCancelOrder}
         isOrderDelivered={isOrderDelivered}
       />
 
@@ -1899,6 +1980,35 @@ export function CustomerPortal() {
         isSubmittingRating={isSubmittingRating}
         submitRating={submitRating}
       />
+
+      <AlertDialog
+        open={Boolean(pendingCancelOrder)}
+        onOpenChange={(open) => {
+          if (!open) setPendingCancelOrder(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to cancel {pendingCancelOrder?.orderNumber || 'this order'}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancellingOrder}>Keep Order</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmCancelOrder()
+              }}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={isCancellingOrder}
+            >
+              {isCancellingOrder ? 'Cancelling...' : 'Yes, Cancel Order'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} />
       </div>

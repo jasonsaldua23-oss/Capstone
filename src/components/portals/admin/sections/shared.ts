@@ -130,3 +130,48 @@ export async function safeFetchJson(
 
   return { ok: false, status: 0, data: { error: 'Request failed' } }
 }
+
+export async function fetchAllPaginatedCollection<T>(
+  endpoint: string,
+  collectionKey: string,
+  init?: RequestInit,
+  options?: { retries?: number; timeoutMs?: number; pageSize?: number; maxPages?: number }
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const pageSize = Math.max(1, Number(options?.pageSize || 200))
+  const maxPages = Math.max(1, Number(options?.maxPages || 100))
+  const [path, query = ''] = String(endpoint || '').split('?')
+  const baseParams = new URLSearchParams(query)
+  const existingLimit = Number(baseParams.get('limit') || '')
+  if (!baseParams.get('pageSize')) {
+    baseParams.set('pageSize', String(Number.isFinite(existingLimit) && existingLimit > 0 ? existingLimit : pageSize))
+  }
+  baseParams.delete('limit')
+
+  const fetchPage = async (page: number) => {
+    const params = new URLSearchParams(baseParams)
+    params.set('page', String(page))
+    return safeFetchJson(`${path}?${params.toString()}`, init, options)
+  }
+
+  const first = await fetchPage(1)
+  if (!first.ok) return first
+
+  const combined = getCollection<T>(first.data, [collectionKey])
+  const reportedTotalPages = Math.max(1, Number(first.data?.totalPages || 1))
+  const totalPages = Math.min(reportedTotalPages, maxPages)
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const next = await fetchPage(page)
+    if (!next.ok) return next
+    combined.push(...getCollection<T>(next.data, [collectionKey]))
+  }
+
+  return {
+    ...first,
+    data: {
+      ...first.data,
+      [collectionKey]: combined,
+      totalPages,
+    },
+  }
+}

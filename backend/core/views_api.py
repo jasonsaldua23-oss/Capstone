@@ -13,7 +13,7 @@ import requests
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
-from django.db import transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Prefetch, Q, Sum
 from django.conf import settings
 from django.core.mail import send_mail
@@ -63,6 +63,7 @@ from .models import (
 
 
 logger = logging.getLogger(__name__)
+_order_legacy_checklist_columns_checked = False
 
 PRODUCT_UNIT_CASE = "case"
 PRODUCT_UNIT_PACK_BUNDLE = "pack(bundle)"
@@ -256,6 +257,21 @@ def _to_float_or_none(value: Any) -> float | None:
     return number
 
 
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
 def _validate_password_strength(password: str) -> str | None:
     if len(password) < 8:
         return PASSWORD_POLICY_ERROR
@@ -354,9 +370,17 @@ def _create_order_from_checkout_payload(
     payment_status: str,
     performed_by: str | None,
 ) -> Order:
-    count = Order.objects.count() + 1
+    _ensure_order_legacy_checklist_columns_defaults()
+
+    year = timezone.now().year
+    sequence = Order.objects.filter(created_at__year=year).count() + 1
+    order_number = f"ORD-{year}-{str(sequence).zfill(4)}"
+    while Order.objects.filter(order_number=order_number).exists():
+        sequence += 1
+        order_number = f"ORD-{year}-{str(sequence).zfill(4)}"
+
     order = Order.objects.create(
-        order_number=f"ORD-{timezone.now().year}-{str(count).zfill(4)}",
+        order_number=order_number,
         customer=customer,
         status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
         priority=body.get("priority") or "normal",
@@ -423,6 +447,48 @@ def _create_order_from_checkout_payload(
     )
     OrderTimeline.objects.create(order=order, delivery_date=datetime.fromisoformat(body["deliveryDate"]) if body.get("deliveryDate") else None)
     return order
+
+
+def _ensure_order_legacy_checklist_columns_defaults() -> None:
+    global _order_legacy_checklist_columns_checked
+    if _order_legacy_checklist_columns_checked:
+        return
+
+    # Legacy deployments may still have old checklist columns as NOT NULL without defaults.
+    # Ensure they can accept new inserts from the current Order model.
+    if connection.vendor != "postgresql":
+        _order_legacy_checklist_columns_checked = True
+        return
+
+    table_name = Order._meta.db_table
+    legacy_columns = [
+        "checklist_items_verified",
+        "checklist_packaging_verified",
+        "checklist_spare_products_verified",
+        "checklist_vehicle_assigned",
+        "checklist_driver_assigned",
+    ]
+
+    with connection.cursor() as cursor:
+        for column_name in legacy_columns:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE lower(table_name) = lower(%s)
+                  AND lower(column_name) = lower(%s)
+                LIMIT 1
+                """,
+                [table_name, column_name],
+            )
+            exists = cursor.fetchone() is not None
+            if not exists:
+                continue
+
+            cursor.execute(f'UPDATE "{table_name}" SET "{column_name}" = FALSE WHERE "{column_name}" IS NULL')
+            cursor.execute(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column_name}" SET DEFAULT FALSE')
+
+    _order_legacy_checklist_columns_checked = True
 
 
 def _create_paymongo_checkout_session(
@@ -836,6 +902,43 @@ def _select_trip_for_order(order_id: str, require_driver: bool = False) -> Trip 
     return best_trip
 
 
+def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) -> dict[str, Trip]:
+    normalized_order_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
+    if not normalized_order_ids:
+        return {}
+
+    trip_qs = _real_trips(
+        Trip.objects.filter(drop_points__order_id__in=normalized_order_ids).select_related("driver__user", "vehicle")
+    ).order_by("-updated_at").prefetch_related(
+        Prefetch(
+            "drop_points",
+            queryset=TripDropPoint.objects.filter(order_id__in=normalized_order_ids).only("id", "trip_id", "order_id"),
+        )
+    )
+
+    if require_driver:
+        trip_qs = trip_qs.filter(driver__isnull=False)
+
+    best_by_order_id: dict[str, Trip] = {}
+    best_rank_by_order_id: dict[str, int] = {}
+    best_updated_ts_by_order_id: dict[str, float] = {}
+    for trip in trip_qs:
+        rank = _trip_status_rank(getattr(trip, "status", ""))
+        updated_ts = trip.updated_at.timestamp() if getattr(trip, "updated_at", None) else 0.0
+        for drop_point in trip.drop_points.all():
+            order_id = str(getattr(drop_point, "order_id", "") or "").strip()
+            if not order_id:
+                continue
+            current_rank = best_rank_by_order_id.get(order_id)
+            current_updated_ts = best_updated_ts_by_order_id.get(order_id, 0.0)
+            if current_rank is None or rank < current_rank or (rank == current_rank and updated_ts > current_updated_ts):
+                best_by_order_id[order_id] = trip
+                best_rank_by_order_id[order_id] = rank
+                best_updated_ts_by_order_id[order_id] = updated_ts
+
+    return best_by_order_id
+
+
 def _payload(request: HttpRequest) -> dict[str, Any] | None:
     token = extract_token(request)
     if not token:
@@ -890,7 +993,14 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
     }
 
 
-def _serialize_order(order: Order, include_items: bool = True, include_progress: bool = False) -> dict[str, Any]:
+def _serialize_order(
+    order: Order,
+    include_items: bool = True,
+    include_progress: bool = False,
+    *,
+    warehouse_lookup: dict[str, Warehouse] | None = None,
+    assigned_trip: Trip | None = None,
+) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
     checklist_quantity_verified = bool(getattr(order, "checklist_quantity_verified", False))
@@ -905,7 +1015,9 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
     warehouse = None
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
     if warehouse_id:
-        warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+        warehouse = (warehouse_lookup or {}).get(warehouse_id)
+        if warehouse is None:
+            warehouse = Warehouse.objects.filter(id=warehouse_id).first()
     data["warehouseName"] = str(getattr(warehouse, "name", "") or "").strip() or None
     data["warehouseCode"] = str(getattr(warehouse, "code", "") or "").strip() or None
     data["warehouseCity"] = str(getattr(warehouse, "city", "") or "").strip() or None
@@ -953,7 +1065,8 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
             items.append(row)
         data["items"] = items
 
-    assigned_trip = _select_trip_for_order(order.id, require_driver=True)
+    if assigned_trip is None:
+        assigned_trip = _select_trip_for_order(order.id, require_driver=True)
     assigned_driver = getattr(assigned_trip, "driver", None)
     assigned_driver_name = ""
     if assigned_driver:
@@ -976,7 +1089,6 @@ def _serialize_order(order: Order, include_items: bool = True, include_progress:
             "dropPoint": _serialize_model(progress_drop_point) if progress_drop_point else None,
             "pod": {
                 "recipientName": getattr(progress_drop_point, "recipient_name", None) if progress_drop_point else None,
-                "recipientSignature": getattr(progress_drop_point, "recipient_signature", None) if progress_drop_point else None,
                 "deliveryPhoto": getattr(progress_drop_point, "delivery_photo", None) if progress_drop_point else None,
                 "actualArrival": progress_drop_point.actual_arrival.isoformat() if progress_drop_point and progress_drop_point.actual_arrival else None,
                 "actualDeparture": progress_drop_point.actual_departure.isoformat() if progress_drop_point and progress_drop_point.actual_departure else None,
@@ -1109,6 +1221,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
             warehouse_lng = _to_float_or_none(getattr(warehouse, "longitude", None))
     data["warehouseLatitude"] = warehouse_lat
     data["warehouseLongitude"] = warehouse_lng
+    trip_schedule_candidates: list[str] = []
     if include_points:
         drop_points: list[dict[str, Any]] = []
         prefetched_drop_points = getattr(trip, "_prefetched_objects_cache", {}).get("drop_points")
@@ -1128,6 +1241,8 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
             row = _serialize_model(dp)
             row["address"] = _strip_default_country_suffix(row.get("address"))
             if dp.order_id and dp.order:
+                if getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date:
+                    trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
                 order_items = list(dp.order.items.all())
                 try:
                     order_returns = list(dp.order.replacements.all())
@@ -1198,6 +1313,12 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                         row["longitude"] = fallback_lng
             drop_points.append(row)
         data["dropPoints"] = drop_points
+    else:
+        schedule_rows = trip.drop_points.select_related("order__timeline").all()
+        for dp in schedule_rows:
+            if dp.order_id and getattr(dp, "order", None) and getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date:
+                trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
+    data["tripSchedule"] = min(trip_schedule_candidates) if trip_schedule_candidates else None
     return data
 
 
@@ -3630,22 +3751,30 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         page, size, off = _pagination(request)
         include_replacements = str(request.GET.get("includeReplacements") or "").strip().lower() == "true"
         include_orders = request.GET.get("includeOrders", "true") != "false"
-        include_items = request.GET.get("includeItems", "full")
+        include_items = str(request.GET.get("includeItems", "full") or "full").strip().lower()
+        updated_after = _parse_iso_datetime(request.GET.get("updatedAfter"))
+        sort = str(request.GET.get("sort") or "").strip().lower()
         where = Q()
         if p.get("type") == "customer":
             where &= Q(customer_id=p.get("userId"))
         if request.GET.get("status"):
             where &= Q(status=_normalize_order_status(request.GET.get("status")))
+        if updated_after:
+            where &= Q(updated_at__gt=updated_after)
         s = str(request.GET.get("search", "")).strip()
         if s:
             where &= Q(order_number__icontains=s) | Q(customer__name__icontains=s)
-        oqs = _real_orders(
-            Order.objects.select_related("customer", "logistics", "timeline")
-            .prefetch_related("items__product")
-            .filter(where)
-        ).order_by("-created_at")
+        orders_qs = Order.objects.select_related("customer", "logistics", "timeline").filter(where)
+        if include_items != "none":
+            orders_qs = orders_qs.prefetch_related("items__product")
+        order_by_field = "-updated_at" if sort in {"updated", "updated_at"} else "-created_at"
+        oqs = _real_orders(orders_qs).order_by(order_by_field)
         total = oqs.count() if include_orders else 0
         orders = list(oqs[off : off + size]) if include_orders else []
+        order_ids = [str(getattr(order, "id", "") or "").strip() for order in orders]
+        warehouse_ids = {str(getattr(order, "warehouse_id", "") or "").strip() for order in orders if str(getattr(order, "warehouse_id", "") or "").strip()}
+        warehouse_lookup = {warehouse.id: warehouse for warehouse in Warehouse.objects.filter(id__in=warehouse_ids)} if warehouse_ids else {}
+        assigned_trip_map = _build_assigned_trip_map(order_ids, require_driver=True)
         out = []
         for o in orders:
             try:
@@ -3653,7 +3782,12 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                     o.refresh_from_db()
             except ValueError as e:
                 logger.warning("Unable to reconcile delivered order %s: %s", o.id, e)
-            row = _serialize_order(o, include_items=include_items != "none")
+            row = _serialize_order(
+                o,
+                include_items=include_items != "none",
+                warehouse_lookup=warehouse_lookup,
+                assigned_trip=assigned_trip_map.get(str(getattr(o, "id", "") or "").strip()),
+            )
             if include_items == "preview" and "items" in row:
                 row["itemCount"] = len(row["items"])
                 row["items"] = row["items"][:2]
@@ -3799,6 +3933,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 )
         except ValueError as e:
             return _err(str(e), 400)
+        except IntegrityError:
+            logger.exception("Order create integrity error")
+            return _err("Unable to create order right now. Please try again.", 409)
         except requests.RequestException:
             return _err("Unable to connect to PayMongo right now", 502)
         order = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order.id)
@@ -3891,7 +4028,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     current_status = _normalize_order_status(o.status)
 
     if current_status == next_status:
-        current = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=o.id)
+        current = Order.objects.select_related("customer", "logistics", "timeline").get(id=o.id)
         return _ok({"success": True, "order": _serialize_order(current, include_items=False)})
 
     if current_status == OrderStatus.DELIVERED and next_status != OrderStatus.DELIVERED:
@@ -3937,7 +4074,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     except ValueError as e:
         return _err(str(e), 400)
 
-    updated = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=o.id)
+    updated = Order.objects.select_related("customer", "logistics", "timeline").get(id=o.id)
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
 
 
@@ -4054,7 +4191,7 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
             timeline.save(update_fields=["shipped_at", "updated_at"])
 
     serialized_order = _serialize_order(
-        Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order.id),
+        Order.objects.select_related("customer", "logistics", "timeline").get(id=order.id),
         include_items=False,
     )
     return _ok({"success": True, "order": serialized_order, "message": f"Warehouse stage moved to {stage}"})
@@ -5333,7 +5470,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         if open_replacements:
             return _err("Drop point cannot be completed while a replacement follow-up is still open", 400)
     dp.status = next_status
-    mapping = [("recipientName", "recipient_name"), ("recipientSignature", "recipient_signature"), ("deliveryPhoto", "delivery_photo"), ("failureReason", "failure_reason"), ("failureNotes", "failure_notes"), ("notes", "notes")]
+    mapping = [("recipientName", "recipient_name"), ("deliveryPhoto", "delivery_photo"), ("failureReason", "failure_reason"), ("failureNotes", "failure_notes"), ("notes", "notes")]
     for key, attr in mapping:
         if key in body:
             setattr(dp, attr, body.get(key))

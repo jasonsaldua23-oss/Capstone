@@ -177,10 +177,10 @@ export function CustomerTrackView(props: any) {
                           warehouseLatitude={warehouseLatitude}
                           warehouseLongitude={warehouseLongitude}
                           destinationCompleted={isDestinationCompleted}
-                          className="h-[260px] rounded-none border-0 md:h-[320px]"
+                          className="h-[260px] rounded-none border-0 md:h-[420px] lg:h-[500px]"
                         />
                       ) : (
-                        <div className="grid h-[260px] w-full place-items-center bg-cyan-50 px-4 text-center text-sm text-slate-600 md:h-[320px]">
+                        <div className="grid h-[260px] w-full place-items-center bg-cyan-50 px-4 text-center text-sm text-slate-600 md:h-[420px] lg:h-[500px]">
                           Waiting for live driver GPS for this order.
                         </div>
                       )}
@@ -291,7 +291,7 @@ export function CustomerTrackView(props: any) {
                         <img
                           src={tracking.deliveryPhoto}
                           alt="Proof of delivery"
-                          className="h-40 w-full rounded-md border border-slate-200 object-cover md:h-48"
+                          className="h-44 w-full rounded-md border border-slate-200 bg-slate-950 object-contain md:h-[340px] lg:h-[420px]"
                         />
                       </CardContent>
                     </Card>

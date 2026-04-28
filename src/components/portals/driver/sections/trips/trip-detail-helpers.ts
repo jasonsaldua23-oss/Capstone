@@ -78,6 +78,37 @@ export const checkNativeCameraPermission = async (): Promise<NativeCameraCheckRe
   }
 }
 
+// Opens application settings (native) so user can manually grant blocked permissions.
+export const openNativeAppSettings = async (): Promise<boolean> => {
+  if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
+    return false
+  }
+
+  try {
+    const appModule = await import('@capacitor/app')
+    const appAny = appModule.App as any
+    if (typeof appAny?.openAppSettings === 'function') {
+      await appAny.openAppSettings()
+      return true
+    }
+  } catch {
+    // Fall back to platform-specific best effort below.
+  }
+
+  try {
+    const ua = navigator.userAgent.toLowerCase()
+    if (ua.includes('android')) {
+      window.location.href = 'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
+      return true
+    }
+
+    window.location.href = 'app-settings:'
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Applies a patch to one drop point and recomputes trip-level completion fields.
 export const mergeDropPointIntoTrip = (
   currentTrip: Trip,
