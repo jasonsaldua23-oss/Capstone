@@ -126,7 +126,7 @@ export function OrdersView() {
       isFetchingOrders = true
       try {
         const result = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=preview',
+          '/api/orders?includeItems=none',
           'orders',
           { cache: 'no-store' },
           { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }

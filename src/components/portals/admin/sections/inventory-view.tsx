@@ -25,6 +25,32 @@ const PRODUCT_UNIT_OPTIONS = [
   { value: 'pack(bundle)', label: 'pack(bundle)' },
 ]
 
+const SIZE_OPTIONS = {
+  case: [
+    '250ml (8 oz)',
+    '330ml (11 oz)',
+    '500ml (17 oz)',
+    '1L (34 oz)',
+  ],
+  'pack(bundle)': [
+    '250ml (8 oz)',
+    '330ml (11 oz)',
+    '500ml (17 oz)',
+    '1L (34 oz)',
+    '1.5L (51 oz)',
+    '2L (68 oz)',
+  ],
+}
+
+const WEIGHT_BY_SIZE: Record<string, number> = {
+  '250ml (8 oz)': 0.26,
+  '330ml (11 oz)': 0.34,
+  '500ml (17 oz)': 0.52,
+  '1L (34 oz)': 1.04,
+  '1.5L (51 oz)': 1.56,
+  '2L (68 oz)': 2.08,
+}
+
 function getCollection<T>(payload: unknown, keys: string[]): T[] {
   if (Array.isArray(payload)) return payload as T[]
   if (!payload || typeof payload !== 'object') return []
@@ -91,8 +117,6 @@ export function InventoryView() {
   const [editSku, setEditSku] = useState('')
   const [editUnit, setEditUnit] = useState('case')
   const [editPrice, setEditPrice] = useState('')
-  const [editThreshold, setEditThreshold] = useState('')
-  const [editQuantity, setEditQuantity] = useState('')
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeletingEdit, setIsDeletingEdit] = useState(false)
@@ -100,12 +124,12 @@ export function InventoryView() {
   const [addStockOpen, setAddStockOpen] = useState(false)
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false)
   const [stockInWarehouseId, setStockInWarehouseId] = useState('')
-  const [stockInQty, setStockInQty] = useState('')
-  const [stockInExpiryDate, setStockInExpiryDate] = useState('')
-  const [stockInThreshold, setStockInThreshold] = useState('')
   const [newProductName, setNewProductName] = useState('')
   const [newProductDescription, setNewProductDescription] = useState('')
   const [newProductPrice, setNewProductPrice] = useState('')
+  const [newProductSizes, setNewProductSizes] = useState<string>('')
+  const [newProductQuantityPerUnit, setNewProductQuantityPerUnit] = useState('')
+  const [newProductWeight, setNewProductWeight] = useState('')
   const [newProductUnit, setNewProductUnit] = useState('case')
   const [newProductImageFile, setNewProductImageFile] = useState<File | null>(null)
 
@@ -189,7 +213,7 @@ export function InventoryView() {
   }, [])
 
   const getAvailableQty = (item: any) => Math.max(0, (item.quantity ?? 0) - (item.reservedQuantity ?? 0))
-  const getStockStatus = (item: any) => ((item.quantity ?? 0) <= (item.minStock ?? 0) ? 'restock' : 'healthy')
+  const getStockStatus = (item: any) => ((item.quantity ?? 0) <= (item.minStock ?? 0) * 1.5 ? 'restock' : 'healthy')
   const filteredInventory = useMemo(() => {
     if (selectedWarehouseId === 'all') return inventory
     return inventory.filter((item) => getWarehouseIdFromRow(item) === selectedWarehouseId)
@@ -212,8 +236,6 @@ export function InventoryView() {
     setEditSku(item.product?.sku || '')
     setEditUnit(item.product?.unit || 'case')
     setEditPrice(String(item.product?.price ?? 0))
-    setEditThreshold(String(item.minStock ?? 0))
-    setEditQuantity(String(item.quantity ?? 0))
     setEditImageFile(null)
   }
 
@@ -223,11 +245,7 @@ export function InventoryView() {
       return
     }
     const nextPrice = Number(editPrice)
-    const nextThreshold = Number(editThreshold)
-    const nextQuantity = Number(editQuantity)
     if (!Number.isFinite(nextPrice) || nextPrice < 0) return toast.error('Invalid price')
-    if (!Number.isFinite(nextThreshold) || nextThreshold < 0) return toast.error('Invalid threshold')
-    if (!Number.isFinite(nextQuantity) || nextQuantity < 0) return toast.error('Invalid quantity')
     if (!editName.trim() || !editSku.trim() || !editUnit.trim()) return toast.error('Name, SKU, and unit are required')
 
     setIsSavingEdit(true)
@@ -246,14 +264,6 @@ export function InventoryView() {
       })
       const productPayload = await productResponse.json().catch(() => ({}))
       if (!productResponse.ok || productPayload?.success === false) throw new Error(productPayload?.error || 'Failed to update product')
-
-      const inventoryResponse = await fetch(`/api/inventory/${editingItem.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: nextQuantity, minStock: nextThreshold }),
-      })
-      const inventoryPayload = await inventoryResponse.json().catch(() => ({}))
-      if (!inventoryResponse.ok || inventoryPayload?.success === false) throw new Error(inventoryPayload?.error || 'Failed to update inventory')
 
       toast.success('Inventory item updated')
       setEditingItem(null)
@@ -295,52 +305,56 @@ export function InventoryView() {
   }
 
   const resetStockInForm = () => {
-    setStockInQty('')
-    setStockInExpiryDate('')
-    setStockInThreshold('')
     setNewProductName('')
     setNewProductDescription('')
     setNewProductPrice('')
+    setNewProductSizes('')
+    setNewProductQuantityPerUnit('')
+    setNewProductWeight('')
     setNewProductUnit('case')
     setNewProductImageFile(null)
   }
 
   const addStockInBatch = async () => {
-    const qty = Number(stockInQty)
     if (!stockInWarehouseId) return toast.error('Please select a warehouse')
-    if (!Number.isFinite(qty) || qty <= 0) return toast.error('Quantity should be greater than 0')
-    if (!newProductName.trim()) return toast.error('New product name is required')
+    if (!newProductName.trim()) return toast.error('Product name is required')
+    if (!newProductSizes.trim()) return toast.error('Size is required')
+    if (!newProductQuantityPerUnit.trim()) return toast.error('Quantity per unit is required')
 
     setIsSubmittingStockIn(true)
     try {
       const uploadedImageUrl = newProductImageFile ? await uploadProductImage(newProductImageFile) : null
-      const response = await fetch('/api/stock-batches', {
+
+      // Auto-generate SKU if not provided
+      const sku = `SKU-${Date.now()}-${Math.random().toString(16).slice(2, 6).toUpperCase()}`
+
+      const response = await fetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          warehouseId: stockInWarehouseId,
-          quantity: qty,
-          expiryDate: stockInExpiryDate || null,
-          threshold: stockInThreshold ? Number(stockInThreshold) : undefined,
-          isNewProduct: true,
-          productId: undefined,
-          productName: newProductName.trim(),
+          sku: sku,
+          name: newProductName.trim(),
           description: newProductDescription.trim() || null,
           unit: newProductUnit,
           price: Number(newProductPrice || 0),
           imageUrl: uploadedImageUrl,
+          warehouseId: stockInWarehouseId,
+          sizes: newProductSizes ? [newProductSizes] : [],
+          quantityPerUnit: Number(newProductQuantityPerUnit),
+          weight: newProductWeight ? Number(newProductWeight) : null,
         }),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to add stock')
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to create product')
 
-      toast.success('Stock added successfully')
+      toast.success('Product registered successfully')
       setAddStockOpen(false)
       resetStockInForm()
+      setStockInWarehouseId('')
       await Promise.all([fetchInventory(), fetchProducts()])
-      emitDataSync(['inventory', 'products', 'stock-batches'])
+      emitDataSync(['products', 'inventory'])
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to add stock')
+      toast.error(error?.message || 'Failed to create product')
     } finally {
       setIsSubmittingStockIn(false)
     }
@@ -353,7 +367,6 @@ export function InventoryView() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Inventory</CardTitle>
-              <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
             </div>
             <div className="flex w-full gap-2 sm:w-auto">
               <select
@@ -370,7 +383,7 @@ export function InventoryView() {
                 ))}
               </select>
               <Button onClick={() => setAddStockOpen(true)}>
-                Add Stock
+                Register Product
               </Button>
             </div>
           </div>
@@ -493,14 +506,6 @@ export function InventoryView() {
                   <label className="text-sm font-medium text-gray-700">Price</label>
                   <Input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Threshold</label>
-                  <Input type="number" value={editThreshold} onChange={(e) => setEditThreshold(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">In Stock Quantity</label>
-                  <Input type="number" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
-                </div>
                 <div className="flex gap-2 pt-1">
                   <Button
                     variant="destructive"
@@ -549,8 +554,8 @@ export function InventoryView() {
       <Dialog open={addStockOpen} onOpenChange={(open) => { setAddStockOpen(open); if (!open) resetStockInForm() }}>
         <DialogContent className="max-w-4xl w-full">
           <DialogHeader>
-            <DialogTitle>Add Product</DialogTitle>
-            <DialogDescription>Create a new product and add initial stock by batch.</DialogDescription>
+            <DialogTitle>Register Product</DialogTitle>
+            <DialogDescription>Register product information.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -562,64 +567,107 @@ export function InventoryView() {
                 ))}
               </select>
             </div>
-            <div className="space-y-3 rounded-md border p-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Product Image</label>
-                <Input type="file" accept="image/*" onChange={(e) => setNewProductImageFile(e.target.files?.[0] || null)} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Product Name</label>
-                <Input value={newProductName} onChange={(e) => setNewProductName(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Description</label>
-                <Input
-                  value={newProductDescription}
-                  onChange={(e) => setNewProductDescription(e.target.value)}
-                  placeholder="Product description"
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Price</label>
-                  <Input type="number" step="0.01" value={newProductPrice} onChange={(e) => setNewProductPrice(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Unit</label>
-                  <select
-                    aria-label="New product unit"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={newProductUnit}
-                    onChange={(e) => setNewProductUnit(e.target.value)}
-                  >
-                    {PRODUCT_UNIT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Threshold</label>
-                  <Input type="number" value={stockInThreshold} onChange={(e) => setStockInThreshold(e.target.value)} />
-                </div>
-              </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Product Image</label>
+              <Input type="file" accept="image/*" onChange={(e) => setNewProductImageFile(e.target.files?.[0] || null)} />
             </div>
-
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Product Name</label>
+              <Input value={newProductName} onChange={(e) => setNewProductName(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Description</label>
+              <Input
+                value={newProductDescription}
+                onChange={(e) => setNewProductDescription(e.target.value)}
+                placeholder="Product description"
+              />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Quantity</label>
-                <Input type="number" value={stockInQty} onChange={(e) => setStockInQty(e.target.value)} />
+                <label className="text-sm font-medium text-gray-700">Price</label>
+                <Input type="number" step="0.01" value={newProductPrice} onChange={(e) => setNewProductPrice(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Expiry Date</label>
-                <Input type="date" value={stockInExpiryDate} onChange={(e) => setStockInExpiryDate(e.target.value)} />
+                <label className="text-sm font-medium text-gray-700">Unit</label>
+                <select
+                  aria-label="New product unit"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={newProductUnit}
+                  onChange={(e) => setNewProductUnit(e.target.value)}
+                >
+                  {PRODUCT_UNIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Size</label>
+              <select
+                aria-label="Product size"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={newProductSizes}
+                onChange={(e) => {
+                  setNewProductSizes(e.target.value)
+                  // Auto-calculate weight if qty per unit is filled
+                  if (newProductQuantityPerUnit) {
+                    const pieceWeight = WEIGHT_BY_SIZE[e.target.value]
+                    if (pieceWeight) {
+                      const totalWeight = pieceWeight * Number(newProductQuantityPerUnit)
+                      setNewProductWeight(totalWeight.toFixed(2))
+                    }
+                  }
+                }}
+              >
+                <option value="">Select a size</option>
+                {SIZE_OPTIONS[newProductUnit as keyof typeof SIZE_OPTIONS].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Quantity Per Unit</label>
+              <Input
+                type="number"
+                step="1"
+                min="1"
+                value={newProductQuantityPerUnit}
+                onChange={(e) => {
+                  setNewProductQuantityPerUnit(e.target.value)
+                  // Auto-calculate weight if size is selected
+                  if (newProductSizes) {
+                    const pieceWeight = WEIGHT_BY_SIZE[newProductSizes]
+                    if (pieceWeight && e.target.value) {
+                      const totalWeight = pieceWeight * Number(e.target.value)
+                      setNewProductWeight(totalWeight.toFixed(2))
+                    }
+                  }
+                }}
+                placeholder="e.g., 24 for 24 bottles per case"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Weight (kg)</label>
+              <Input
+                type="text"
+                disabled
+                value={newProductWeight || ''}
+                placeholder="Auto-calculated from size × quantity"
+                className="bg-gray-100"
+              />
+              <p className="text-xs text-gray-500 mt-1">Total weight per case/pack (auto-calculated)</p>
             </div>
 
             <Button className="w-full" onClick={addStockInBatch} disabled={isSubmittingStockIn}>
               {isSubmittingStockIn ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Add Product
+              Register Product
             </Button>
           </div>
         </DialogContent>

@@ -7,9 +7,6 @@ export type WarehouseDashboardViewProps = {
   lowStockCount: number
   warehouseOrdersChartConfig: ChartConfig
   weeklyTrendData: any[]
-  formatPeso: (value: number) => string
-  weekIncome: number
-  incomeOverviewData: Array<{ day: string; value: number }>
   transactionDateFrom: string
   setTransactionDateFrom: (value: string) => void
   transactionDatePreset: string

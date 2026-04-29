@@ -166,6 +166,8 @@ class Product(models.Model):
     unit = models.CharField(max_length=50, default="case")
     weight = models.FloatField(blank=True, null=True)
     price = models.FloatField(default=0)
+    sizes = models.JSONField(default=list, blank=True)
+    quantity_per_unit = models.IntegerField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

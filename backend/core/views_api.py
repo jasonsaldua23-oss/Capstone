@@ -704,6 +704,35 @@ def _select_trip_for_order(order_id: str, require_driver: bool = False) -> Trip 
     return best_trip
 
 
+def _calculate_order_weight(order: Order) -> float:
+    """Calculate total weight of an order in kg based on order items and their product weights."""
+    total_weight = 0.0
+    for item in order.items.select_related("product").all():
+        product_weight = float(item.product.weight or 0)
+        item_quantity = int(item.quantity or 0)
+        total_weight += product_weight * item_quantity
+    return total_weight
+
+
+def _get_vehicle_capacity_usage(vehicle_id: str) -> float:
+    """Get current weight usage for a vehicle across all active trips (80% of capacity used)."""
+    from django.db.models import Sum, Case, When, FloatField, Q
+
+    # Get all active trips for this vehicle
+    active_trips = Trip.objects.filter(
+        vehicle_id=vehicle_id,
+        status__in=["PLANNED", "IN_TRANSIT", "READY_TO_LOAD"]
+    ).prefetch_related("drop_points__order__items__product").all()
+
+    total_weight = 0.0
+    for trip in active_trips:
+        for drop_point in trip.drop_points.all():
+            if drop_point.order:
+                total_weight += _calculate_order_weight(drop_point.order)
+
+    return total_weight
+
+
 def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) -> dict[str, Trip]:
     normalized_order_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
     if not normalized_order_ids:
@@ -739,6 +768,9 @@ def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) 
                 best_updated_ts_by_order_id[order_id] = updated_ts
 
     return best_by_order_id
+
+
+
 
 
 def _payload(request: HttpRequest) -> dict[str, Any] | None:
@@ -2798,21 +2830,48 @@ def products_collection(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     if not body.get("sku") or not body.get("name"):
         return _err("sku and name are required")
+
+    warehouse_id = str(body.get("warehouseId") or "").strip()
+    if not warehouse_id:
+        return _err("warehouseId is required", 400)
+
+    warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+    if not warehouse:
+        return _err("Warehouse not found", 404)
+
     try:
         product_unit = _normalize_product_unit(body.get("unit"))
     except ValueError as exc:
         return _err(str(exc), 400)
-    prod = Product.objects.create(
-        sku=str(body["sku"]).strip(),
-        name=str(body["name"]).strip(),
-        image_url=body.get("imageUrl"),
-        description=body.get("description"),
-        unit=product_unit,
-        weight=body.get("weight"),
-        price=float(body.get("price") or 0),
-        is_active=bool(body.get("isActive", True)),
-    )
-    return _ok({"success": True, "product": _serialize_model(prod)}, 201)
+
+    try:
+        with transaction.atomic():
+            prod = Product.objects.create(
+                sku=str(body["sku"]).strip(),
+                name=str(body["name"]).strip(),
+                image_url=body.get("imageUrl"),
+                description=body.get("description"),
+                unit=product_unit,
+                weight=body.get("weight"),
+                price=float(body.get("price") or 0),
+                sizes=body.get("sizes") or [],
+                quantity_per_unit=body.get("quantityPerUnit"),
+                is_active=bool(body.get("isActive", True)),
+            )
+
+            # Create inventory record for the selected warehouse
+            Inventory.objects.create(
+                warehouse=warehouse,
+                product=prod,
+                quantity=0,
+                reserved_quantity=0,
+                threshold=0,
+                last_restocked_at=timezone.now(),
+            )
+
+        return _ok({"success": True, "product": _serialize_model(prod)}, 201)
+    except Exception as e:
+        return _err(str(e), 500)
 
 
 @csrf_exempt
@@ -3075,19 +3134,19 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     if not product:
                         return _err("Product not found", 404)
 
-                threshold = _int(body.get("threshold"), 10)
+                threshold = max(1, int(qty * 0.15))
                 inv, created = Inventory.objects.select_related("warehouse", "product").get_or_create(
                     warehouse=warehouse,
                     product=product,
                     defaults={
                         "quantity": 0,
                         "reserved_quantity": 0,
-                        "threshold": max(0, threshold),
+                        "threshold": threshold,
                         "last_restocked_at": timezone.now(),
                     },
                 )
 
-                if not created and "threshold" in body and threshold >= 0:
+                if not created:
                     inv.threshold = threshold
 
             batch = StockBatch.objects.create(
@@ -3965,6 +4024,26 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             f"Order(s) already assigned to a trip: {', '.join(assigned_orders or sorted(active_assigned_order_ids))}",
             400,
         )
+
+    # Validate vehicle capacity (80% limit)
+    vehicle_capacity = float(vehicle.capacity or 0)
+    if vehicle_capacity > 0:
+        max_capacity_allowed = vehicle_capacity * 0.8  # 80% of capacity
+        current_vehicle_usage = _get_vehicle_capacity_usage(vehicle.id)
+
+        # Calculate weight of new orders being assigned
+        new_orders_weight = 0.0
+        orders_to_assign = Order.objects.filter(id__in=requested_order_ids).prefetch_related("items__product").all()
+        for order in orders_to_assign:
+            new_orders_weight += _calculate_order_weight(order)
+
+        total_weight_after_assignment = current_vehicle_usage + new_orders_weight
+
+        if total_weight_after_assignment > max_capacity_allowed:
+            return _err(
+                "This order cannot be assigned because it will exceed the vehicle's safe load capacity.",
+                400,
+            )
 
     count = Trip.objects.count() + 1
     trip = Trip.objects.create(trip_number=f"TRP-{timezone.now().year}-{str(count).zfill(4)}", driver=driver, vehicle=vehicle, warehouse_id=body.get("warehouseId"), status=body.get("status") or TripStatus.PLANNED, planned_start_at=datetime.fromisoformat(body["plannedStartAt"]) if body.get("plannedStartAt") else None, notes=body.get("notes"))

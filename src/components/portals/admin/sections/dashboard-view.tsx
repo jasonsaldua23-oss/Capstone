@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, ShoppingCart, Clock, Truck, MapPin, CircleCheck, TrendingUp, UserCheck, MessageSquare, AlertTriangle } from 'lucide-react'
+import { Loader2, ShoppingCart, Truck, MapPin, CircleCheck, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package } from 'lucide-react'
 import type { DashboardStats } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
-import { AreaChart, CartesianGrid, YAxis, XAxis, Area } from 'recharts'
-import { fetchAllPaginatedCollection, getCollection, formatDayKey, formatPeso } from './shared'
+import { AreaChart, CartesianGrid, YAxis, XAxis, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts'
+import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shared'
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
@@ -34,19 +34,13 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const dashboardOrderStats = useMemo(() => {
     const totalOrders = Number(stats?.totalOrders || dashboardOrders.length || 0)
-    const processing = Number(stats?.pendingOrders || 0)
-    const loadedOnly = Number(stats?.loadedOrders || 0)
     const outForDelivery = Number(stats?.inTransitOrders || 0)
     const delivered = Number(stats?.deliveredOrders || 0)
-    const deliveredPaidRevenue = Number(stats?.totalRevenue || 0)
 
     return {
       totalOrders,
-      processing,
-      loadedOnly,
       outForDelivery,
       delivered,
-      deliveredPaidRevenue,
     }
   }, [dashboardOrders.length, stats])
 
@@ -55,8 +49,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const statCards = [
     { label: 'Total Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
-    { label: 'Processing', value: dashboardOrderStats.processing, color: 'yellow', icon: Clock },
-    { label: 'Loaded', value: dashboardOrderStats.loadedOnly, color: 'purple', icon: Truck },
     { label: 'Out for Delivery', value: dashboardOrderStats.outForDelivery, color: 'red', icon: MapPin },
     { label: 'Delivered', value: dashboardOrderStats.delivered, color: 'green', icon: CircleCheck },
     { label: 'Active Trips', value: activeTripsFromData, color: 'indigo', icon: Truck },
@@ -64,10 +56,8 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const colorClasses = {
     blue: 'bg-blue-50 text-blue-600 border-blue-200',
-    yellow: 'bg-yellow-50 text-yellow-600 border-yellow-200',
-    purple: 'bg-purple-50 text-purple-600 border-purple-200',
-    green: 'bg-green-50 text-green-600 border-green-200',
     red: 'bg-red-50 text-red-600 border-red-200',
+    green: 'bg-green-50 text-green-600 border-green-200',
     indigo: 'bg-indigo-50 text-indigo-600 border-indigo-200',
   }
 
@@ -113,25 +103,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     }))
   }, [dashboardOrders, last7Days])
 
-  const revenueOverviewData = useMemo(() => {
-    const dailyRevenue = new Map<string, number>()
-    for (const order of dashboardOrders) {
-      if (!order?.createdAt) continue
-      if (String(order?.status || '').toUpperCase() !== 'DELIVERED') continue
-      if (String(order?.paymentStatus || '').toLowerCase() !== 'paid') continue
-      const orderDate = new Date(order.createdAt)
-      if (Number.isNaN(orderDate.getTime())) continue
-      const orderKey = formatDayKey(orderDate)
-      dailyRevenue.set(orderKey, (dailyRevenue.get(orderKey) || 0) + Number(order.totalAmount || 0))
-    }
-    return last7Days.map((day) => ({
-      day: day.label,
-      value: Math.round(dailyRevenue.get(day.key) || 0),
-    }))
-  }, [dashboardOrders, last7Days])
-
-  const weekRevenue = useMemo(() => revenueOverviewData.reduce((sum, entry) => sum + entry.value, 0), [revenueOverviewData])
-
   const ordersChartConfig = {
     thisWeek: {
       label: 'This Week',
@@ -143,6 +114,40 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     },
   }
 
+  // Order Status Distribution
+  const orderStatusData = useMemo(() => {
+    const statusMap = new Map<string, number>()
+    for (const order of dashboardOrders) {
+      const status = String(order?.status || '').toUpperCase() || 'UNKNOWN'
+      statusMap.set(status, (statusMap.get(status) || 0) + 1)
+    }
+    return Array.from(statusMap.entries()).map(([name, value]) => ({
+      name: name.charAt(0) + name.slice(1).toLowerCase(),
+      value,
+    }))
+  }, [dashboardOrders])
+
+  // Delivery Performance
+  const deliveryPerformance = useMemo(() => {
+    const delivered = dashboardOrderStats.delivered
+    const total = dashboardOrderStats.totalOrders
+    const pending = dashboardOrderStats.outForDelivery
+
+    return [
+      { name: 'Delivered', value: delivered, color: '#10b981' },
+      { name: 'In Progress', value: pending, color: '#f59e0b' },
+    ]
+  }, [dashboardOrderStats])
+
+  const statusColors: { [key: string]: string } = {
+    'Pending': '#ef4444',
+    'Processing': '#f59e0b',
+    'Loaded': '#8b5cf6',
+    'In_transit': '#3b82f6',
+    'Delivered': '#10b981',
+    'Cancelled': '#6b7280',
+    'Unknown': '#9ca3af',
+  }
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -159,37 +164,36 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCards.map((stat, i) => (
-          <Card key={i} className="relative overflow-hidden rounded-2xl border border-slate-200/80 shadow-sm">
-            <CardContent className="flex min-h-[120px] flex-col justify-between p-5">
-              <div className={`inline-flex w-fit rounded-xl border p-2.5 ${colorClasses[stat.color as keyof typeof colorClasses]}`}>
-                <stat.icon className="h-5 w-5" />
-              </div>
-              <div className="mt-4">
-                <p className="text-2xl font-bold leading-none">{stat.value.toLocaleString()}</p>
-                <p className="mt-2 text-sm leading-tight text-gray-500">{stat.label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((stat, i) => {
+          const gradients: { [key: string]: string } = {
+            blue: 'from-blue-50 to-indigo-50',
+            red: 'from-red-50 to-rose-50',
+            green: 'from-green-50 to-emerald-50',
+            indigo: 'from-indigo-50 to-blue-50',
+          }
+          const textColors: { [key: string]: string } = {
+            blue: 'text-blue-900',
+            red: 'text-red-900',
+            green: 'text-green-900',
+            indigo: 'text-indigo-900',
+          }
+          return (
+            <Card key={i} className={`relative overflow-hidden rounded-2xl border-0 shadow-sm bg-gradient-to-br ${gradients[stat.color as keyof typeof gradients] || 'from-gray-50 to-gray-100'}`}>
+              <CardContent className="flex min-h-[160px] flex-col items-center justify-center p-6 text-center">
+                <div className={`inline-flex rounded-xl border-0 p-3 ${colorClasses[stat.color as keyof typeof colorClasses]}`}>
+                  <stat.icon className="h-6 w-6" />
+                </div>
+                <p className={`text-3xl font-bold leading-none mt-4 ${textColors[stat.color as keyof typeof textColors] || 'text-gray-900'}`}>{stat.value.toLocaleString()}</p>
+                <p className="mt-2 text-sm leading-tight text-gray-600">{stat.label}</p>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       {/* Quick Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-gradient-to-br from-blue-600 to-blue-700 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100 text-sm">Total Revenue</p>
-                <p className="text-3xl font-bold mt-1">
-                  {formatPeso(dashboardOrderStats.deliveredPaidRevenue)}
-                </p>
-              </div>
-              <TrendingUp className="h-10 w-10 text-blue-200" />
-            </div>
-          </CardContent>
-        </Card>
 
         <Card className="bg-gradient-to-br from-green-600 to-green-700 text-white">
           <CardContent className="pt-6">
@@ -214,23 +218,40 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </div>
           </CardContent>
         </Card>
+
+        <Card className="bg-gradient-to-br from-cyan-500 to-blue-600 text-white">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-cyan-100 text-sm">Delivery Success Rate</p>
+                <p className="text-3xl font-bold mt-1">
+                  {dashboardOrderStats.totalOrders > 0
+                    ? Math.round((dashboardOrderStats.delivered / dashboardOrderStats.totalOrders) * 100)
+                    : 0}%
+                </p>
+              </div>
+              <CircleCheck className="h-10 w-10 text-cyan-200" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="xl:col-span-2">
+        <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
                 <CardTitle className="text-base">Orders This Week vs Last Week</CardTitle>
               </div>
               <div className="flex items-center gap-2 text-xs">
-                <span className="text-gray-400">Month</span>
-                <span className="rounded-md border border-blue-400 px-2 py-0.5 text-blue-600">Week</span>
+                <span className="text-gray-400">This Week</span>
+                <span className="rounded-md border border-blue-400 bg-blue-50 px-2 py-0.5 text-blue-600">vs Last Week</span>
               </div>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            <ChartContainer config={ordersChartConfig} className="h-[320px] w-full">
+            <ChartContainer config={ordersChartConfig} className="h-[300px] w-full">
               <AreaChart data={ordersComparisonData} margin={{ left: 8, right: 8, top: 12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fillThisWeekAdmin" x1="0" y1="0" x2="0" y2="1">
@@ -246,31 +267,65 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </ChartContainer>
           </CardContent>
         </Card>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>This Week Statistics</CardDescription>
-            <CardTitle className="text-3xl">{formatPeso(weekRevenue)}</CardTitle>
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Order Status Distribution */}
+        <Card className="rounded-2xl border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Order Status Distribution</CardTitle>
+            <CardDescription>Breakdown of orders by status</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[250px] flex items-end gap-3">
-              {(() => {
-                const maxRevenueBar = Math.max(...revenueOverviewData.map((d) => Number(d.value) || 0), 1)
-                return revenueOverviewData.map((item) => {
-                  const percent = Math.max(0, Math.min(100, ((Number(item.value) || 0) / maxRevenueBar) * 100))
-                  return (
-                    <div key={item.day} className="flex-1 flex flex-col items-center gap-2">
-                      <div className="flex-1 w-full rounded-t-md bg-cyan-100/50 relative min-h-[18px] overflow-hidden">
-                        <div
-                          className="absolute bottom-0 left-0 right-0 rounded-t-md bg-cyan-400 min-h-[4px]"
-                          style={{ height: `${percent}%` }}
+            <div className="h-[300px] flex items-center justify-center">
+              {orderStatusData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={orderStatusData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={(entry: any) => `${entry.name}: ${entry.value}`}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {orderStatusData.map((entry: any, index: number) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={Object.values(statusColors)[index % Object.values(statusColors).length]}
                         />
-                      </div>
-                      <span className="text-[10px] text-gray-500">{item.day}</span>
-                    </div>
-                  )
-                })
-              })()}
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: any) => `${value} orders`} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-500">No data available</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Delivery Performance */}
+        <Card className="rounded-2xl border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Delivery Performance</CardTitle>
+            <CardDescription>Delivered vs In Progress orders</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deliveryPerformance} margin={{ left: 8, right: 8, top: 12, bottom: 0 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <YAxis axisLine={false} tickLine={false} width={28} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
@@ -278,7 +333,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
       {/* Alerts Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
+        <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-orange-500" />
@@ -301,7 +356,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               {/* <Undo2 className="h-5 w-5 text-purple-500" /> */}

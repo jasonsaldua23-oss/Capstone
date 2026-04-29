@@ -488,7 +488,6 @@ export function WarehousePortal() {
   const [stockInWarehouseId, setStockInWarehouseId] = useState('')
   const [stockInQty, setStockInQty] = useState('')
   const [stockInExpiryDate, setStockInExpiryDate] = useState('')
-  const [stockInThreshold, setStockInThreshold] = useState('')
   const [newProductName, setNewProductName] = useState('')
   const [newProductDescription, setNewProductDescription] = useState('')
   const [newProductPrice, setNewProductPrice] = useState('')
@@ -1218,26 +1217,6 @@ export function WarehousePortal() {
       lastWeek: lastWeekCount.get(day.key) || 0,
     }))
   }, [scopedOrders, last7Days])
-
-  const incomeOverviewData = useMemo(() => {
-    const dailyRevenue = new Map<string, number>()
-    for (const order of scopedOrders) {
-      if (!order?.createdAt) continue
-      const orderDate = new Date(order.createdAt)
-      if (Number.isNaN(orderDate.getTime())) continue
-      const key = formatDayKey(orderDate)
-      dailyRevenue.set(key, (dailyRevenue.get(key) || 0) + Number(order.totalAmount || 0))
-    }
-    return last7Days.map((day) => ({
-      day: day.label,
-      value: Math.round(dailyRevenue.get(day.key) || 0),
-    }))
-  }, [scopedOrders, last7Days])
-
-  const weekIncome = useMemo(
-    () => incomeOverviewData.reduce((sum, item) => sum + item.value, 0),
-    [incomeOverviewData]
-  )
 
   const warehouseOverviewStats = useMemo(() => {
     if (!assignedWarehouse) return null
@@ -2181,7 +2160,7 @@ export function WarehousePortal() {
   const getStockStatus = (item: InventoryItem) => {
     const qty = item.quantity ?? 0
     const min = item.minStock ?? 0
-    return qty <= min ? 'restock' : 'healthy'
+    return qty <= min * 1.5 ? 'restock' : 'healthy'
   }
 
   const openEditDialog = (item: InventoryItem) => {
@@ -2376,7 +2355,6 @@ export function WarehousePortal() {
           warehouseId: stockInWarehouseId,
           quantity: qty,
           expiryDate: stockInExpiryDate || null,
-          threshold: isNewProduct && stockInThreshold ? Number(stockInThreshold) : undefined,
           isNewProduct,
           productId: isNewProduct ? undefined : selectedProductId,
           productName: isNewProduct ? newProductName.trim() : undefined,
@@ -2737,9 +2715,6 @@ export function WarehousePortal() {
               lowStockCount={lowStockCount}
               warehouseOrdersChartConfig={warehouseOrdersChartConfig}
               weeklyTrendData={weeklyTrendData}
-              formatPeso={formatPeso}
-              weekIncome={weekIncome}
-              incomeOverviewData={incomeOverviewData}
               transactionDateFrom={transactionDateFrom}
               setTransactionDateFrom={setTransactionDateFrom}
               transactionDatePreset={transactionDatePreset}
@@ -3510,10 +3485,6 @@ export function WarehousePortal() {
                         </option>
                       ))}
                     </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Threshold</label>
-                    <Input id="stock-threshold" type="number" value={stockInThreshold} onChange={(e) => setStockInThreshold(e.target.value)} />
                   </div>
                 </div>
               </div>
