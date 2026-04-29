@@ -9,7 +9,7 @@
     "dev:customer": "set NEXT_PUBLIC_APP_VARIANT=customer&& next dev -p 3000",
     "dev:phone": "next dev -H 0.0.0.0 -p 3000",
     "dev:https": "next dev -H 0.0.0.0 -p 3000 --experimental-https",
-    "dev:https:lan": "next dev -H 0.0.0.0 -p 3000",
+    "dev:https:lan": "next dev -H 0.0.0.0 -p 3000 --experimental-https --experimental-https-key certificates/lan-key.pem --experimental-https-cert certificates/lan-cert.pem",
     "dev:https:admin": "set NEXT_PUBLIC_APP_VARIANT=admin&& next dev -H 0.0.0.0 -p 3000 --experimental-https",
     "dev:https:lan:admin": "set NEXT_PUBLIC_APP_VARIANT=admin&& next dev -H 0.0.0.0 -p 3000 --experimental-https --experimental-https-key certificates/lan-key.pem --experimental-https-cert certificates/lan-cert.pem",
     "dev:https:driver": "set NEXT_PUBLIC_APP_VARIANT=driver&& next dev -H 0.0.0.0 -p 3000 --experimental-https",

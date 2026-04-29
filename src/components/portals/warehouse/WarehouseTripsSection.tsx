@@ -23,6 +23,7 @@ type TripItem = {
   totalDropPoints?: number
   completedDropPoints?: number
   driver?: {
+    name?: string
     user?: {
       name?: string
     }
@@ -166,7 +167,7 @@ export function WarehouseTripsSection({
                         </Badge>
                       </div>
                       <p className="text-[13px] text-gray-700">
-                        Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.user?.name || 'Unassigned'}
+                        Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.name || trip.driver?.user?.name || 'Unassigned'}
                       </p>
                       <p className="text-[13px] text-gray-600">
                         Route: {(assignedWarehouseName || 'Warehouse')} {'->'} {(trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination')}
@@ -245,7 +246,7 @@ export function WarehouseTripsSection({
                   <span className="font-semibold">Vehicle:</span> {selectedTrip.vehicle?.licensePlate || 'Unassigned'}
                 </div>
                 <div>
-                  <span className="font-semibold">Driver:</span> {selectedTrip.driver?.user?.name || 'Unassigned'}
+                  <span className="font-semibold">Driver:</span> {selectedTrip.driver?.name || selectedTrip.driver?.user?.name || 'Unassigned'}
                 </div>
               </div>
               <div className="flex flex-wrap gap-6 mb-2 text-sm">

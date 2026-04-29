@@ -3,7 +3,6 @@ export interface Order {
   orderNumber: string
   status: string
   paymentStatus?: string | null
-  paymentMethod?: string | null
   shippingName?: string | null
   shippingPhone?: string | null
   shippingProvince?: string | null
@@ -61,8 +60,7 @@ export interface CartItem {
   available: number
 }
 
-export type PaymentMethod = 'COD' | 'CARD' | 'GCASH' | 'MAYA'
-export type CustomerOrdersTab = 'ALL' | 'TO_PAY' | 'TO_SHIP' | 'TO_RECEIVE' | 'TO_REVIEW' | 'REPLACEMENT' | 'DELIVERED'
+export type CustomerOrdersTab = 'ALL' | 'TO_SHIP' | 'TO_RECEIVE' | 'TO_REVIEW' | 'REPLACEMENT' | 'DELIVERED'
 
 export interface DriverTrackingItem {
   orderId: string

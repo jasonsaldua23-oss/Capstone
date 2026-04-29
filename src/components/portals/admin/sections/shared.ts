@@ -30,7 +30,8 @@ export function getDefaultRouteDate() {
 
 export function normalizeTripStatus(status: unknown) {
   const value = String(status || '').toUpperCase()
-  return value === 'IN_TRANSIT' ? 'IN_PROGRESS' : value
+  if (value === 'IN_TRANSIT' || value === 'OUT_FOR_DELIVERY') return 'IN_PROGRESS'
+  return value
 }
 
 export function formatPeso(value: number) {

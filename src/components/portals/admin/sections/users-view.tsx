@@ -26,8 +26,10 @@ function toArray<T>(value: unknown): T[] {
 }
 
 function formatRoleLabel(role: string | null | undefined) {
-  if (!role) return 'Unknown'
-  return role
+  const value = String(role || '').trim().toUpperCase()
+  if (!value) return 'Unknown'
+  if (value === 'SUPER_ADMIN') return 'Admin'
+  return value
     .split('_')
     .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
     .join(' ')
@@ -47,6 +49,7 @@ export function UsersView() {
   const [emailVerificationRequested, setEmailVerificationRequested] = useState(false)
   const [emailVerificationCode, setEmailVerificationCode] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
+  const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({
     name: '',
@@ -98,6 +101,7 @@ export function UsersView() {
     setEmailVerificationRequested(false)
     setEmailVerificationCode('')
     setEmailVerified(false)
+    setEmailVerificationToken('')
     setShowPassword(false)
     setEditingUser(null)
   }
@@ -159,6 +163,7 @@ export function UsersView() {
           email: form.email.trim(),
           phone: form.phone.trim() || null,
           roleId: form.roleId,
+          emailVerificationToken: mode === 'create' ? emailVerificationToken : undefined,
           password: form.password || undefined,
           isActive: form.isActive,
         }),
@@ -230,6 +235,7 @@ export function UsersView() {
       setEmailVerificationRequested(true)
       setEmailVerificationCode('')
       setEmailVerified(false)
+      setEmailVerificationToken('')
       toast.success('Verification code sent to the Gmail address')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to send verification code')
@@ -255,6 +261,7 @@ export function UsersView() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to verify email')
       }
+      setEmailVerificationToken(String(payload?.verificationToken || '').trim())
       setEmailVerified(true)
       toast.success('Email verified successfully')
     } catch (error: any) {
@@ -358,6 +365,7 @@ export function UsersView() {
                     setEmailVerificationRequested(false)
                     setEmailVerificationCode('')
                     setEmailVerified(false)
+                    setEmailVerificationToken('')
                   }}
                 />
                 <Button type="button" variant="outline" onClick={requestEmailVerification} disabled={isVerificationSending}>
@@ -384,6 +392,7 @@ export function UsersView() {
                   setEmailVerificationRequested(false)
                   setEmailVerificationCode('')
                   setEmailVerified(false)
+                  setEmailVerificationToken('')
                 }}
               >
                 <option value="">Select role</option>

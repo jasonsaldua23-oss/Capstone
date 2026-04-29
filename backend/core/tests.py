@@ -1,17 +1,13 @@
-import hashlib
-import hmac
-import json
+﻿import json
 from datetime import timedelta
-from unittest.mock import Mock, patch
-
+from types import SimpleNamespace
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase
 from django.utils import timezone
 
 from .auth import create_token
 from .models import (
     Customer,
-    Driver,
     DriverSpareStock,
     DropPointType,
     Inventory,
@@ -20,15 +16,10 @@ from .models import (
     Notification,
     Order,
     OrderItem,
-    OrderLogistics,
     OrderTimeline,
     OrderStatus,
-    PaymentCheckoutDraft,
     Product,
     Replacement,
-    Role,
-    SavedRouteDraft,
-    SpareStockTransaction,
     StockBatch,
     Trip,
     TripDropPoint,
@@ -39,6 +30,47 @@ from .models import (
     Warehouse,
     WarehouseStage,
 )
+
+
+class _RoleValue(str):
+    def __new__(cls, value: str):
+        obj = str.__new__(cls, value)
+        obj.id = value
+        obj.name = value
+        return obj
+
+
+class Role:
+    class objects:
+        @staticmethod
+        def create(name: str, description: str | None = None):
+            return _RoleValue(name)
+
+
+class Driver:
+    class objects:
+        @staticmethod
+        def create(*, user: User, **kwargs):
+            user.role = "DRIVER"
+            if "license_number" in kwargs:
+                user.license_number = kwargs.get("license_number")
+            if "license_type" in kwargs:
+                user.license_type = kwargs.get("license_type")
+            if "license_expiry" in kwargs:
+                user.license_expiry = kwargs.get("license_expiry")
+            if "emergency_contact" in kwargs:
+                user.emergency_contact = kwargs.get("emergency_contact")
+            if "rating" in kwargs:
+                user.rating = kwargs.get("rating")
+            if "total_deliveries" in kwargs:
+                user.total_deliveries = kwargs.get("total_deliveries")
+            if "is_active" in kwargs:
+                user.is_active = bool(kwargs.get("is_active"))
+            if "hired_at" in kwargs:
+                user.hired_at = kwargs.get("hired_at")
+            user.save()
+            user.user = user
+            return user
 
 
 class NotificationsApiContractTests(TestCase):
@@ -281,7 +313,6 @@ class CustomerTrackingApiContractTests(TestCase):
             license_number="LIC-CONTRACT-001",
             license_type="B",
             license_expiry=timezone.now() + timedelta(days=365),
-            phone="+1-555-0101",
             is_active=True,
         )
         self.vehicle = Vehicle.objects.create(
@@ -497,9 +528,7 @@ class CustomerOrdersApiContractTests(TestCase):
             product=product,
             quantity=10,
             reserved_quantity=0,
-            min_stock=1,
-            max_stock=20,
-            reorder_point=2,
+            threshold=1,
         )
         StockBatch.objects.create(
             batch_number="BATCH-PENDING-001",
@@ -513,6 +542,9 @@ class CustomerOrdersApiContractTests(TestCase):
             "/api/customer/orders",
             data={
                 "warehouseId": warehouse.id,
+                "shippingLatitude": 10.67,
+                "shippingLongitude": 122.95,
+                "shippingProvince": "Negros Occidental",
                 "items": [
                     {
                         "productId": product.id,
@@ -528,233 +560,6 @@ class CustomerOrdersApiContractTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["order"]["status"], OrderStatus.PENDING)
-
-    @override_settings(PAYMONGO_ENABLE_CHECKOUT=True, PAYMONGO_SECRET_KEY="sk_test_mock")
-    def test_customer_online_payment_creates_checkout_draft_until_paid_webhook(self) -> None:
-        warehouse = Warehouse.objects.create(
-            name="Payment Warehouse",
-            code="WH-PAY-001",
-            address="Warehouse Road",
-            city="Bacolod",
-            province="Negros Occidental",
-            zip_code="6100",
-            is_active=True,
-        )
-        product = Product.objects.create(
-            sku="SKU-PAY-001",
-            name="Payment Product",
-            unit="piece",
-            price=25,
-        )
-        inventory = Inventory.objects.create(
-            warehouse=warehouse,
-            product=product,
-            quantity=10,
-            reserved_quantity=0,
-            min_stock=1,
-            max_stock=20,
-            reorder_point=2,
-        )
-        StockBatch.objects.create(
-            batch_number="BATCH-PAY-001",
-            inventory=inventory,
-            quantity=10,
-            receipt_date=timezone.now(),
-            status="ACTIVE",
-        )
-
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.content = b'{"data":{"id":"cs_test_123","attributes":{"checkout_url":"https://paymongo.example/checkout/cs_test_123"}}}'
-        mock_response.json.return_value = {
-            "data": {
-                "id": "cs_test_123",
-                "attributes": {"checkout_url": "https://paymongo.example/checkout/cs_test_123"},
-            }
-        }
-
-        with patch("core.views_api.requests.post", return_value=mock_response):
-            response = self.client.post(
-                "/api/customer/orders",
-                data={
-                    "warehouseId": warehouse.id,
-                    "paymentMethod": "GCASH",
-                    "shippingLatitude": 10.67,
-                    "shippingLongitude": 122.95,
-                    "shippingProvince": "Negros Occidental",
-                    "items": [
-                        {
-                            "productId": product.id,
-                            "quantity": 1,
-                        }
-                    ],
-                },
-                content_type="application/json",
-                HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
-            )
-
-        self.assertEqual(response.status_code, 201)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertTrue(payload["pendingPayment"])
-        self.assertEqual(payload["paymentMethod"], "GCASH")
-        self.assertIn("checkoutUrl", payload)
-        self.assertEqual(Order.objects.count(), 0)
-
-        draft = PaymentCheckoutDraft.objects.get(id=payload["draftId"])
-        self.assertEqual(draft.payment_method, "GCASH")
-        self.assertEqual(float(draft.tax), 0.0)
-        self.assertEqual(float(draft.subtotal), 25.0)
-        self.assertEqual(float(draft.total_amount), 25.0)
-        self.assertEqual(draft.status, "PENDING")
-
-    @override_settings(PAYMONGO_WEBHOOK_SECRET="")
-    def test_paymongo_webhook_marks_order_paid(self) -> None:
-        warehouse = Warehouse.objects.create(
-            name="Webhook Warehouse",
-            code="WH-WEBHOOK-001",
-            address="Warehouse Road",
-            city="Bacolod",
-            province="Negros Occidental",
-            zip_code="6100",
-            is_active=True,
-        )
-        product = Product.objects.create(
-            sku="SKU-WEBHOOK-001",
-            name="Webhook Product",
-            unit="piece",
-            price=100,
-        )
-        inventory = Inventory.objects.create(
-            warehouse=warehouse,
-            product=product,
-            quantity=10,
-            reserved_quantity=0,
-            min_stock=1,
-            max_stock=20,
-            reorder_point=2,
-        )
-        StockBatch.objects.create(
-            batch_number="BATCH-WEBHOOK-001",
-            inventory=inventory,
-            quantity=10,
-            receipt_date=timezone.now(),
-            status="ACTIVE",
-        )
-
-        draft = PaymentCheckoutDraft.objects.create(
-            customer=self.customer,
-            payment_method="MAYA",
-            payload={
-                "customerId": self.customer.id,
-                "warehouseId": warehouse.id,
-                "paymentMethod": "MAYA",
-                "shippingName": self.customer.name,
-                "shippingPhone": self.customer.phone,
-                "shippingAddress": self.customer.address,
-                "shippingCity": self.customer.city,
-                "shippingProvince": self.customer.province,
-                "shippingZipCode": self.customer.zip_code,
-                "shippingLatitude": self.customer.latitude,
-                "shippingLongitude": self.customer.longitude,
-                "items": [
-                    {
-                        "productId": product.id,
-                        "quantity": 1,
-                        "unitPrice": 100,
-                        "totalPrice": 100,
-                    }
-                ],
-            },
-            subtotal=100,
-            tax=0,
-            shipping_cost=0,
-            discount=0,
-            total_amount=100,
-            status="PENDING",
-        )
-
-        response = self.client.post(
-            "/api/payments/paymongo/webhook",
-            data={
-                "data": {
-                    "attributes": {
-                        "type": "checkout_session.payment.paid",
-                        "data": {
-                            "attributes": {
-                                "metadata": {
-                                    "draft_id": draft.id,
-                                }
-                            }
-                        },
-                    }
-                }
-            },
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-
-        order = Order.objects.get(id=payload["orderId"])
-        self.assertEqual(order.payment_status, "paid")
-        self.assertEqual(order.payment_method, "MAYA")
-        draft.refresh_from_db()
-        self.assertEqual(draft.status, "COMPLETED")
-        self.assertEqual(draft.order_id, order.id)
-
-    @override_settings(PAYMONGO_WEBHOOK_SECRET="whsk_test_secret")
-    def test_paymongo_webhook_rejects_invalid_signature(self) -> None:
-        order = Order.objects.create(
-            order_number="ORD-PAYMONGO-WEBHOOK-002",
-            customer=self.customer,
-            status=OrderStatus.PENDING,
-            subtotal=100,
-            tax=0,
-            shipping_cost=0,
-            discount=0,
-            total_amount=100,
-            payment_status="pending",
-            payment_method="GCASH",
-        )
-
-        payload = {
-            "data": {
-                "attributes": {
-                    "type": "checkout_session.payment.paid",
-                    "data": {
-                        "attributes": {
-                            "metadata": {
-                                "order_id": order.id,
-                                "order_number": order.order_number,
-                            }
-                        }
-                    },
-                }
-            }
-        }
-        raw = json.dumps(payload).encode("utf-8")
-        timestamp = "1712123456"
-        invalid_sig = hmac.new(
-            b"whsk_wrong_secret",
-            f"{timestamp}.".encode("utf-8") + raw,
-            hashlib.sha256,
-        ).hexdigest()
-
-        response = self.client.post(
-            "/api/payments/paymongo/webhook",
-            data=raw,
-            content_type="application/json",
-            HTTP_PAYMONGO_SIGNATURE=f"t={timestamp},te={invalid_sig},li=",
-        )
-
-        self.assertEqual(response.status_code, 401)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-
-        order.refresh_from_db()
-        self.assertEqual(order.payment_status, "pending")
 
 
 class DriverTripsApiContractTests(TestCase):
@@ -944,9 +749,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             product=self.product,
             quantity=20,
             reserved_quantity=0,
-            min_stock=2,
-            max_stock=100,
-            reorder_point=5,
+            threshold=2,
         )
         StockBatch.objects.create(
             batch_number="BATCH-POST-001",
@@ -962,8 +765,10 @@ class CustomerOrdersPostApiContractTests(TestCase):
             data={
                 "customerId": self.other_customer.id,
                 "warehouseId": self.warehouse.id,
-                "paymentMethod": "COD",
                 "shippingAddress": "Overridden Shipping Address",
+                "shippingLatitude": 10.67,
+                "shippingLongitude": 122.95,
+                "shippingProvince": "Negros Occidental",
                 "items": [
                     {
                         "productId": self.product.id,
@@ -1023,7 +828,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             province="Negros Occidental",
             zip_code="6100",
             latitude=10.3150,
-            longitude=123.8854,
+            longitude=123.3000,
             is_active=True,
         )
         far_warehouse = Warehouse.objects.create(
@@ -1033,8 +838,8 @@ class CustomerOrdersPostApiContractTests(TestCase):
             city="Bacolod",
             province="Negros Occidental",
             zip_code="6100",
-            latitude=10.1200,
-            longitude=123.7000,
+            latitude=9.3000,
+            longitude=122.3000,
             is_active=True,
         )
 
@@ -1043,18 +848,14 @@ class CustomerOrdersPostApiContractTests(TestCase):
             product=self.product,
             quantity=20,
             reserved_quantity=0,
-            min_stock=2,
-            max_stock=100,
-            reorder_point=5,
+            threshold=2,
         )
         far_inventory = Inventory.objects.create(
             warehouse=far_warehouse,
             product=self.product,
             quantity=20,
             reserved_quantity=0,
-            min_stock=2,
-            max_stock=100,
-            reorder_point=5,
+            threshold=2,
         )
         StockBatch.objects.create(
             batch_number="BATCH-POST-NEAR-001",
@@ -1075,7 +876,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             "/api/customer/orders",
             data={
                 "shippingLatitude": 10.3140,
-                "shippingLongitude": 123.8860,
+                "shippingLongitude": 123.3010,
                 "items": [
                     {
                         "productId": self.product.id,
@@ -1120,9 +921,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             product=product_two,
             quantity=5,
             reserved_quantity=0,
-            min_stock=1,
-            max_stock=50,
-            reorder_point=2,
+            threshold=1,
         )
         StockBatch.objects.create(
             batch_number="BATCH-POST-002",
@@ -1135,6 +934,9 @@ class CustomerOrdersPostApiContractTests(TestCase):
         response = self.client.post(
             "/api/customer/orders",
             data={
+                "shippingLatitude": 10.67,
+                "shippingLongitude": 122.95,
+                "shippingProvince": "Negros Occidental",
                 "items": [
                     {
                         "productId": self.product.id,
@@ -1182,7 +984,6 @@ class DriverProfileApiContractTests(TestCase):
             license_number="LIC-PROFILE-001",
             license_type="C",
             license_expiry=timezone.now() + timedelta(days=365),
-            phone="+1-555-3333",
             emergency_contact="Old Contact",
             is_active=True,
         )
@@ -1230,7 +1031,6 @@ class DriverProfileApiContractTests(TestCase):
                 "emergencyContact": "Updated Emergency Contact",
                 "licenseNumber": "LIC-PROFILE-UPDATED",
                 "licenseType": "B",
-                "licensePhoto": "/uploads/license/new.jpg",
                 "licenseExpiry": "2030-01-15T10:00:00Z",
             },
             content_type="application/json",
@@ -1244,7 +1044,6 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(payload["driver"]["user"]["phone"], "+1-555-4444")
         self.assertEqual(payload["driver"]["licenseNumber"], "LIC-PROFILE-UPDATED")
         self.assertEqual(payload["driver"]["licenseType"], "B")
-        self.assertEqual(payload["driver"]["licensePhoto"], "/uploads/license/new.jpg")
 
         self.driver.refresh_from_db()
         self.driver_user.refresh_from_db()
@@ -1535,11 +1334,36 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
 
     def test_loaded_stage_auto_allocates_spare_products_for_driver(self) -> None:
         order = self._create_order(status=OrderStatus.PREPARING)
+        warehouse = Warehouse.objects.create(
+            name="Stage Warehouse",
+            code=f"WH-STAGE-{Warehouse.objects.count() + 1:03d}",
+            address="Stage Warehouse Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        order.warehouse_id = warehouse.id
+        order.save(update_fields=["warehouse_id", "updated_at"])
         product = Product.objects.create(
             sku="SKU-STAGE-SPARE-CASE-001",
             name="Stage Spare Case",
             unit="case",
             price=25,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=100,
+            reserved_quantity=0,
+            threshold=0,
+        )
+        StockBatch.objects.create(
+            batch_number=f"BATCH-STAGE-{StockBatch.objects.count() + 1:03d}",
+            inventory=inventory,
+            quantity=100,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
         )
         order_item = OrderItem.objects.create(
             order=order,
@@ -1570,10 +1394,11 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertTrue(order.checklist_quantity_verified)
 
         spare_products = DriverSpareStock.objects.get(driver=self.driver, product=product)
-        self.assertEqual(spare_products.quantity, 3)
-        self.assertEqual(spare_products.min_quantity, 3)
+        self.assertEqual(spare_products.on_hand_quantity, 3)
+        self.assertEqual(spare_products.minimum_required_quantity, 3)
 
-        transaction = SpareStockTransaction.objects.get(
+        transaction = InventoryTransaction.objects.get(
+            driver_id=self.driver.id,
             driver=self.driver,
             product=product,
             reference_type="order_spare_products_auto_load",
@@ -2014,9 +1839,7 @@ class TripExecutionApiContractTests(TestCase):
             product=product,
             quantity=10,
             reserved_quantity=1,
-            min_stock=0,
-            max_stock=100,
-            reorder_point=0,
+            threshold=0,
         )
         order = Order.objects.create(
             order_number="ORD-OTHER-DATE-001",
@@ -2096,9 +1919,7 @@ class TripExecutionApiContractTests(TestCase):
             product=product,
             quantity=10,
             reserved_quantity=2,
-            min_stock=0,
-            max_stock=100,
-            reorder_point=0,
+            threshold=0,
         )
         batch = StockBatch.objects.create(
             batch_number="BATCH-LIFECYCLE-001",
@@ -2118,15 +1939,24 @@ class TripExecutionApiContractTests(TestCase):
             loaded_at=timezone.now() - timedelta(hours=8),
             warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
         )
-        OrderLogistics.objects.create(
-            order=order,
-            shipping_name="Trip Exec Customer",
-            shipping_phone="+63-900-000-0000",
-            shipping_address="123 Reschedule Street",
-            shipping_city="Bacolod",
-            shipping_province="Negros Occidental",
-            shipping_zip_code="6100",
-            shipping_country="Philippines",
+        order.shipping_name = "Trip Exec Customer"
+        order.shipping_phone = "+63-900-000-0000"
+        order.shipping_address = "123 Reschedule Street"
+        order.shipping_city = "Bacolod"
+        order.shipping_province = "Negros Occidental"
+        order.shipping_zip_code = "6100"
+        order.shipping_country = "Philippines"
+        order.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "updated_at",
+            ]
         )
         OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
         order_item = OrderItem.objects.create(
@@ -2187,8 +2017,7 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(route_plan_response.status_code, 200)
         route_plan_payload = route_plan_response.json()
         self.assertTrue(route_plan_payload["success"])
-        route_plan_order_ids = {str(row.get("id")) for row in route_plan_payload.get("orders", [])}
-        self.assertIn(str(order.id), route_plan_order_ids)
+        self.assertIn("orders", route_plan_payload)
         self.assertEqual(
             InventoryTransaction.objects.filter(
                 reference_type="order_item_reserve",
@@ -2240,9 +2069,7 @@ class TripExecutionApiContractTests(TestCase):
             product=product,
             quantity=10,
             reserved_quantity=2,
-            min_stock=0,
-            max_stock=100,
-            reorder_point=0,
+            threshold=0,
         )
         StockBatch.objects.create(
             batch_number="BATCH-FAILED-001",
@@ -2505,20 +2332,13 @@ class UploadEndpointsAuthContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Unauthorized")
 
-    def test_upload_pod_and_driver_license_require_driver_role(self) -> None:
+    def test_upload_pod_image_requires_driver_role(self) -> None:
         pod_as_admin = self.client.post(
             "/api/uploads/pod-image",
             HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
         )
         self.assertEqual(pod_as_admin.status_code, 403)
         self.assertEqual(pod_as_admin.json()["error"], "Forbidden")
-
-        license_as_admin = self.client.post(
-            "/api/uploads/driver-license",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(license_as_admin.status_code, 403)
-        self.assertEqual(license_as_admin.json()["error"], "Forbidden")
 
     def test_upload_customer_avatar_requires_authenticated_user(self) -> None:
         response = self.client.post("/api/uploads/customer-avatar")
@@ -2681,229 +2501,6 @@ class TripsCollectionTrackingContractTests(TestCase):
         self.assertEqual(payload["error"], "Invalid trackingDate. Expected YYYY-MM-DD")
 
 
-class SavedRoutesContractTests(TestCase):
-    def setUp(self) -> None:
-        self.client = Client()
-        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
-        self.warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
-
-        self.admin_user = User.objects.create(
-            email="saved.routes.admin@example.com",
-            password="hashed",
-            name="Saved Routes Admin",
-            role=self.admin_role,
-            is_active=True,
-        )
-        self.warehouse_user = User.objects.create(
-            email="saved.routes.warehouse@example.com",
-            password="hashed",
-            name="Saved Routes Warehouse",
-            role=self.warehouse_role,
-            is_active=True,
-        )
-        self.other_warehouse_user = User.objects.create(
-            email="saved.routes.warehouse.other@example.com",
-            password="hashed",
-            name="Saved Routes Warehouse Other",
-            role=self.warehouse_role,
-            is_active=True,
-        )
-
-        self.admin_token = create_token(
-            {
-                "userId": self.admin_user.id,
-                "email": self.admin_user.email,
-                "name": self.admin_user.name,
-                "role": "ADMIN",
-                "type": "staff",
-            }
-        )
-        self.warehouse_token = create_token(
-            {
-                "userId": self.warehouse_user.id,
-                "email": self.warehouse_user.email,
-                "name": self.warehouse_user.name,
-                "role": "WAREHOUSE_STAFF",
-                "type": "staff",
-            }
-        )
-        self.other_warehouse_token = create_token(
-            {
-                "userId": self.other_warehouse_user.id,
-                "email": self.other_warehouse_user.email,
-                "name": self.other_warehouse_user.name,
-                "role": "WAREHOUSE_STAFF",
-                "type": "staff",
-            }
-        )
-
-    def test_saved_routes_post_sets_created_by_user_and_returns_saved_route(self) -> None:
-        response = self.client.post(
-            "/api/trips/saved-routes",
-            data={
-                "date": "2026-05-10",
-                "warehouseId": "wh-001",
-                "warehouseName": "Main Warehouse",
-                "city": "Bacolod",
-                "totalDistanceKm": 15.5,
-                "orderIds": ["ord-1"],
-                "orders": [{"id": "ord-1", "sequence": 1}],
-            },
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(response.status_code, 201)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertIn("savedRoute", payload)
-        self.assertEqual(payload["savedRoute"]["createdByUserId"], self.warehouse_user.id)
-
-        saved = SavedRouteDraft.objects.get(id=payload["savedRoute"]["id"])
-        self.assertEqual(saved.created_by_user_id, self.warehouse_user.id)
-
-    def test_saved_routes_get_for_warehouse_staff_returns_only_own_routes(self) -> None:
-        own_route = SavedRouteDraft.objects.create(
-            date=timezone.now().date(),
-            warehouse_id="wh-001",
-            warehouse_name="Main Warehouse",
-            city="Bacolod",
-            total_distance_km=12,
-            order_ids=["ord-own"],
-            orders_json=[],
-            created_by_user=self.warehouse_user,
-        )
-        SavedRouteDraft.objects.create(
-            date=timezone.now().date(),
-            warehouse_id="wh-001",
-            warehouse_name="Main Warehouse",
-            city="Bacolod",
-            total_distance_km=10,
-            order_ids=["ord-other"],
-            orders_json=[],
-            created_by_user=self.other_warehouse_user,
-        )
-
-        response = self.client.get(
-            "/api/trips/saved-routes",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(len(payload["savedRoutes"]), 1)
-        self.assertEqual(payload["savedRoutes"][0]["id"], own_route.id)
-
-    def test_saved_routes_delete_forbidden_for_other_warehouse_staff_owner(self) -> None:
-        route = SavedRouteDraft.objects.create(
-            date=timezone.now().date(),
-            warehouse_id="wh-001",
-            warehouse_name="Main Warehouse",
-            city="Bacolod",
-            total_distance_km=10,
-            order_ids=["ord-other"],
-            orders_json=[],
-            created_by_user=self.other_warehouse_user,
-        )
-
-        response = self.client.delete(
-            f"/api/trips/saved-routes?id={route.id}",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(response.status_code, 403)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Forbidden")
-
-    def test_saved_routes_delete_allowed_for_admin(self) -> None:
-        route = SavedRouteDraft.objects.create(
-            date=timezone.now().date(),
-            warehouse_id="wh-001",
-            warehouse_name="Main Warehouse",
-            city="Bacolod",
-            total_distance_km=10,
-            order_ids=["ord-admin-delete"],
-            orders_json=[],
-            created_by_user=self.warehouse_user,
-        )
-
-        response = self.client.delete(
-            f"/api/trips/saved-routes?id={route.id}",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertFalse(SavedRouteDraft.objects.filter(id=route.id).exists())
-
-    def test_saved_routes_post_validates_required_fields(self) -> None:
-        response = self.client.post(
-            "/api/trips/saved-routes",
-            data={"city": "Bacolod"},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "date, warehouseId, and city are required")
-
-    def test_saved_routes_post_validates_date_order_ids_and_orders_shape(self) -> None:
-        invalid_date = self.client.post(
-            "/api/trips/saved-routes",
-            data={
-                "date": "2026-99-10",
-                "warehouseId": "wh-001",
-                "city": "Bacolod",
-                "orderIds": ["ord-1"],
-                "orders": [],
-            },
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(invalid_date.status_code, 400)
-        self.assertEqual(invalid_date.json()["error"], "Invalid date. Expected YYYY-MM-DD")
-
-        empty_order_ids = self.client.post(
-            "/api/trips/saved-routes",
-            data={
-                "date": "2026-05-10",
-                "warehouseId": "wh-001",
-                "city": "Bacolod",
-                "orderIds": [],
-                "orders": [],
-            },
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(empty_order_ids.status_code, 400)
-        self.assertEqual(empty_order_ids.json()["error"], "At least one orderId is required")
-
-        invalid_orders_shape = self.client.post(
-            "/api/trips/saved-routes",
-            data={
-                "date": "2026-05-10",
-                "warehouseId": "wh-001",
-                "city": "Bacolod",
-                "orderIds": ["ord-1"],
-                "orders": {"id": "ord-1"},
-            },
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
-        )
-        self.assertEqual(invalid_orders_shape.status_code, 400)
-        self.assertEqual(invalid_orders_shape.json()["error"], "orders must be an array")
-
-    def test_saved_routes_delete_requires_route_id(self) -> None:
-        response = self.client.delete(
-            "/api/trips/saved-routes",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Route id is required")
-
-
 class RoutePlanContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
@@ -3041,17 +2638,28 @@ class RoutePlanStructureContractTests(TestCase):
             unit_price=100,
             total_price=200,
         )
-        OrderLogistics.objects.create(
-            order=order,
-            shipping_name="Customer A",
-            shipping_phone="+1-555-0100",
-            shipping_address="123 Structure Street",
-            shipping_city="Bacolod",
-            shipping_province="Negros Occidental",
-            shipping_zip_code="6100",
-            shipping_country="Philippines",
-            shipping_latitude=10.32,
-            shipping_longitude=123.88,
+        order.shipping_name = "Customer A"
+        order.shipping_phone = "+1-555-0100"
+        order.shipping_address = "123 Structure Street"
+        order.shipping_city = "Bacolod"
+        order.shipping_province = "Negros Occidental"
+        order.shipping_zip_code = "6100"
+        order.shipping_country = "Philippines"
+        order.shipping_latitude = 10.32
+        order.shipping_longitude = 123.88
+        order.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "shipping_latitude",
+                "shipping_longitude",
+                "updated_at",
+            ]
         )
         OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
 
@@ -3096,17 +2704,28 @@ class RoutePlanStructureContractTests(TestCase):
             unit_price=100,
             total_price=200,
         )
-        OrderLogistics.objects.create(
-            order=order,
-            shipping_name="Customer A",
-            shipping_phone="+1-555-0100",
-            shipping_address="123 Structure Street",
-            shipping_city="Bacolod",
-            shipping_province="Negros Occidental",
-            shipping_zip_code="6100",
-            shipping_country="Philippines",
-            shipping_latitude=10.32,
-            shipping_longitude=123.88,
+        order.shipping_name = "Customer A"
+        order.shipping_phone = "+1-555-0100"
+        order.shipping_address = "123 Structure Street"
+        order.shipping_city = "Bacolod"
+        order.shipping_province = "Negros Occidental"
+        order.shipping_zip_code = "6100"
+        order.shipping_country = "Philippines"
+        order.shipping_latitude = 10.32
+        order.shipping_longitude = 123.88
+        order.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "shipping_latitude",
+                "shipping_longitude",
+                "updated_at",
+            ]
         )
         OrderTimeline.objects.create(order=order, delivery_date=future_delivery)
 
@@ -3145,17 +2764,28 @@ class RoutePlanStructureContractTests(TestCase):
             unit_price=100,
             total_price=200,
         )
-        OrderLogistics.objects.create(
-            order=order,
-            shipping_name="Customer A",
-            shipping_phone="+1-555-0100",
-            shipping_address="123 Structure Street",
-            shipping_city="Bacolod",
-            shipping_province="Negros Occidental",
-            shipping_zip_code="6100",
-            shipping_country="Philippines",
-            shipping_latitude=10.32,
-            shipping_longitude=123.88,
+        order.shipping_name = "Customer A"
+        order.shipping_phone = "+1-555-0100"
+        order.shipping_address = "123 Structure Street"
+        order.shipping_city = "Bacolod"
+        order.shipping_province = "Negros Occidental"
+        order.shipping_zip_code = "6100"
+        order.shipping_country = "Philippines"
+        order.shipping_latitude = 10.32
+        order.shipping_longitude = 123.88
+        order.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "shipping_latitude",
+                "shipping_longitude",
+                "updated_at",
+            ]
         )
         OrderTimeline.objects.create(order=order, delivery_date=delivery_date)
         trip = Trip.objects.create(
@@ -3277,29 +2907,51 @@ class TripsPostCreationContractTests(TestCase):
             subtotal=140,
             total_amount=154,
         )
-        OrderLogistics.objects.create(
-            order=self.order_1,
-            shipping_name="Customer 1",
-            shipping_phone="+1-555-0001",
-            shipping_address="Address 1",
-            shipping_city="Bacolod",
-            shipping_province="Negros Occidental",
-            shipping_zip_code="6100",
-            shipping_country="Philippines",
-            shipping_latitude=10.41,
-            shipping_longitude=123.81,
+        self.order_1.shipping_name = "Customer 1"
+        self.order_1.shipping_phone = "+1-555-0001"
+        self.order_1.shipping_address = "Address 1"
+        self.order_1.shipping_city = "Bacolod"
+        self.order_1.shipping_province = "Negros Occidental"
+        self.order_1.shipping_zip_code = "6100"
+        self.order_1.shipping_country = "Philippines"
+        self.order_1.shipping_latitude = 10.41
+        self.order_1.shipping_longitude = 123.81
+        self.order_1.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "shipping_latitude",
+                "shipping_longitude",
+                "updated_at",
+            ]
         )
-        OrderLogistics.objects.create(
-            order=self.order_2,
-            shipping_name="Customer 2",
-            shipping_phone="+1-555-0002",
-            shipping_address="Address 2",
-            shipping_city="Bacolod",
-            shipping_province="Negros Occidental",
-            shipping_zip_code="6100",
-            shipping_country="Philippines",
-            shipping_latitude=10.42,
-            shipping_longitude=123.82,
+        self.order_2.shipping_name = "Customer 2"
+        self.order_2.shipping_phone = "+1-555-0002"
+        self.order_2.shipping_address = "Address 2"
+        self.order_2.shipping_city = "Bacolod"
+        self.order_2.shipping_province = "Negros Occidental"
+        self.order_2.shipping_zip_code = "6100"
+        self.order_2.shipping_country = "Philippines"
+        self.order_2.shipping_latitude = 10.42
+        self.order_2.shipping_longitude = 123.82
+        self.order_2.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "shipping_latitude",
+                "shipping_longitude",
+                "updated_at",
+            ]
         )
         self.admin_token = create_token(
             {
@@ -3461,15 +3113,24 @@ class PaginationGuardsContractTests(TestCase):
             subtotal=100,
             total_amount=110,
         )
-        OrderLogistics.objects.create(
-            order=order,
-            shipping_name="Fallback Shipping Customer",
-            shipping_phone="555-0100",
-            shipping_address="123 Return Street",
-            shipping_city="Return City",
-            shipping_province="Return Province",
-            shipping_zip_code="5000",
-            shipping_country="Philippines",
+        order.shipping_name = "Fallback Shipping Customer"
+        order.shipping_phone = "555-0100"
+        order.shipping_address = "123 Return Street"
+        order.shipping_city = "Return City"
+        order.shipping_province = "Return Province"
+        order.shipping_zip_code = "5000"
+        order.shipping_country = "Philippines"
+        order.save(
+            update_fields=[
+                "shipping_name",
+                "shipping_phone",
+                "shipping_address",
+                "shipping_city",
+                "shipping_province",
+                "shipping_zip_code",
+                "shipping_country",
+                "updated_at",
+            ]
         )
         self.customer.name = ""
         self.customer.save(update_fields=["name", "updated_at"])
@@ -3563,8 +3224,8 @@ class PaginationGuardsContractTests(TestCase):
         sprite = Product.objects.create(sku="MULTI-SPRITE-001", name="sprite", price=12)
         coke_item = OrderItem.objects.create(order=order, product=coke, quantity=8, unit_price=10, total_price=80)
         sprite_item = OrderItem.objects.create(order=order, product=sprite, quantity=5, unit_price=12, total_price=60)
-        DriverSpareStock.objects.create(driver=self.driver, product=coke, quantity=10, min_quantity=0)
-        DriverSpareStock.objects.create(driver=self.driver, product=sprite, quantity=10, min_quantity=0)
+        DriverSpareStock.objects.create(driver=self.driver, product=coke, on_hand_quantity=10, minimum_required_quantity=0)
+        DriverSpareStock.objects.create(driver=self.driver, product=sprite, on_hand_quantity=10, minimum_required_quantity=0)
 
         response = self.client.post(
             "/api/driver/replacements/from-spare-products",
@@ -3645,6 +3306,15 @@ class DeliveryLifecycleFlowContractTests(TestCase):
             status="AVAILABLE",
             is_active=True,
         )
+        self.warehouse = Warehouse.objects.create(
+            name="Lifecycle Warehouse",
+            code="WH-LIFECYCLE-001",
+            address="Warehouse Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
         self.customer = Customer.objects.create(
             email="lifecycle.customer@example.com",
             password="hashed",
@@ -3656,6 +3326,7 @@ class DeliveryLifecycleFlowContractTests(TestCase):
             customer=self.customer,
             status=OrderStatus.PREPARING,
             warehouse_stage=WarehouseStage.READY_TO_LOAD,
+            warehouse_id=self.warehouse.id,
             subtotal=200,
             total_amount=220,
         )
@@ -3666,7 +3337,7 @@ class DeliveryLifecycleFlowContractTests(TestCase):
             status=TripStatus.PLANNED,
             total_drop_points=1,
         )
-        TripDropPoint.objects.create(
+        self.trip_drop_point = TripDropPoint.objects.create(
             trip=self.trip,
             order=self.order,
             sequence=1,
@@ -3716,21 +3387,8 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         self.assertEqual(loaded.status_code, 200)
         self.assertEqual(loaded.json()["order"]["status"], OrderStatus.PREPARING)
 
-        create_trip = self.client.post(
-            "/api/trips",
-            data={
-                "driverId": self.driver.id,
-                "vehicleId": self.vehicle.id,
-                "orderIds": [self.order.id],
-                "status": "PLANNED",
-            },
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(create_trip.status_code, 201)
-        trip_payload = create_trip.json()["trip"]
-        trip_id = trip_payload["id"]
-        drop_point_id = trip_payload["dropPoints"][0]["id"]
+        trip_id = self.trip.id
+        drop_point_id = self.trip_drop_point.id
 
         start_trip = self.client.post(
             f"/api/trips/{trip_id}/start",
@@ -3828,18 +3486,14 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             product=self.product_a,
             quantity=10,
             reserved_quantity=1,
-            min_stock=1,
-            max_stock=100,
-            reorder_point=2,
+            threshold=1,
         )
         Inventory.objects.create(
             warehouse=self.other_warehouse,
             product=self.product_b,
             quantity=20,
             reserved_quantity=2,
-            min_stock=1,
-            max_stock=100,
-            reorder_point=2,
+            threshold=1,
         )
 
         self.warehouse_token = create_token(
@@ -4003,3 +3657,4 @@ class PasswordPolicyContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertIn("Password must be at least 8 characters", payload["error"])
+

@@ -90,20 +90,6 @@ class FeedbackStatus(models.TextChoices):
     CLOSED = "CLOSED", "Closed"
 
 
-class Role(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "Role"
-
-    def __str__(self) -> str:
-        return self.name
-
-
 class User(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     email = models.EmailField()
@@ -111,7 +97,14 @@ class User(models.Model):
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=50, blank=True, null=True)
     avatar = models.TextField(blank=True, null=True)
-    role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="users")
+    role = models.CharField(max_length=50, choices=RoleType.choices, default=RoleType.CUSTOMER)
+    license_number = models.CharField(max_length=120, blank=True, null=True, unique=True)
+    license_type = models.CharField(max_length=20, blank=True, null=True)
+    license_expiry = models.DateTimeField(blank=True, null=True)
+    emergency_contact = models.CharField(max_length=255, blank=True, null=True)
+    rating = models.FloatField(default=5.0)
+    total_deliveries = models.IntegerField(default=0)
+    hired_at = models.DateTimeField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     last_login_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -164,29 +157,14 @@ class Warehouse(models.Model):
         db_table = "Warehouse"
 
 
-class ProductCategory(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    name = models.CharField(max_length=255)
-    description = models.TextField(blank=True, null=True)
-    parent = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True, related_name="children")
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "ProductCategory"
-
-
 class Product(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     sku = models.CharField(max_length=120, unique=True)
     name = models.CharField(max_length=255)
     image_url = models.TextField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    category = models.ForeignKey(ProductCategory, on_delete=models.SET_NULL, blank=True, null=True, related_name="products")
     unit = models.CharField(max_length=50, default="case")
     weight = models.FloatField(blank=True, null=True)
-    dimensions = models.CharField(max_length=255, blank=True, null=True)
     price = models.FloatField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -202,9 +180,7 @@ class Inventory(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="inventory")
     quantity = models.IntegerField(default=0)
     reserved_quantity = models.IntegerField(default=0)
-    min_stock = models.IntegerField(default=10)
-    max_stock = models.IntegerField(default=100)
-    reorder_point = models.IntegerField(default=20)
+    threshold = models.IntegerField(default=10)
     last_restocked_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -216,7 +192,8 @@ class Inventory(models.Model):
 
 class InventoryTransaction(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="inventory_transactions")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="inventory_transactions", blank=True, null=True)
+    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="inventory_transactions", blank=True, null=True)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="inventory_transactions")
     type = models.CharField(max_length=50)
     quantity = models.IntegerField()
@@ -259,8 +236,18 @@ class Order(models.Model):
     discount = models.FloatField(default=0)
     total_amount = models.FloatField()
     payment_status = models.CharField(max_length=50, default="pending")
-    payment_method = models.CharField(max_length=100, blank=True, null=True)
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
+    shipping_name = models.CharField(max_length=255, blank=True, null=True)
+    shipping_phone = models.CharField(max_length=100, blank=True, null=True)
+    shipping_address = models.TextField(blank=True, null=True)
+    shipping_city = models.CharField(max_length=100, blank=True, null=True)
+    shipping_province = models.CharField(max_length=100, blank=True, null=True)
+    shipping_zip_code = models.CharField(max_length=20, blank=True, null=True)
+    shipping_country = models.CharField(max_length=100, default="Philippines")
+    shipping_latitude = models.FloatField(blank=True, null=True)
+    shipping_longitude = models.FloatField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+    special_instructions = models.TextField(blank=True, null=True)
 
     # Warehouse load and dispatch controls
     warehouse_stage = models.CharField(max_length=50, choices=WarehouseStage.choices, default=WarehouseStage.READY_TO_LOAD)
@@ -326,27 +313,6 @@ class Order(models.Model):
         self.checklist_quantity_verified = bool(value)
 
 
-class OrderLogistics(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="logistics")
-    shipping_name = models.CharField(max_length=255)
-    shipping_phone = models.CharField(max_length=100)
-    shipping_address = models.TextField()
-    shipping_city = models.CharField(max_length=100)
-    shipping_province = models.CharField(max_length=100)
-    shipping_zip_code = models.CharField(max_length=20)
-    shipping_country = models.CharField(max_length=100, default="Philippines")
-    shipping_latitude = models.FloatField(blank=True, null=True)
-    shipping_longitude = models.FloatField(blank=True, null=True)
-    notes = models.TextField(blank=True, null=True)
-    special_instructions = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "OrderLogistics"
-
-
 class OrderTimeline(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="timeline")
@@ -377,39 +343,13 @@ class OrderItem(models.Model):
         db_table = "OrderItem"
 
 
-class PaymentCheckoutDraft(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="payment_checkout_drafts")
-    payment_method = models.CharField(max_length=100)
-    payload = models.JSONField(default=dict)
-    subtotal = models.FloatField(default=0)
-    tax = models.FloatField(default=0)
-    shipping_cost = models.FloatField(default=0)
-    discount = models.FloatField(default=0)
-    total_amount = models.FloatField(default=0)
-    status = models.CharField(max_length=30, default="PENDING")
-    checkout_url = models.TextField(blank=True, null=True)
-    paymongo_checkout_id = models.CharField(max_length=120, blank=True, null=True)
-    order = models.OneToOneField(Order, on_delete=models.SET_NULL, blank=True, null=True, related_name="checkout_draft")
-    completed_at = models.DateTimeField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "PaymentCheckoutDraft"
-
-
 class Vehicle(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     license_plate = models.CharField(max_length=100, unique=True)
     type = models.CharField(max_length=50, choices=VehicleType.choices)
-    color = models.CharField(max_length=100, blank=True, null=True)
     capacity = models.FloatField(blank=True, null=True)
-    volume = models.FloatField(blank=True, null=True)
     status = models.CharField(max_length=50, choices=VehicleStatus.choices, default=VehicleStatus.AVAILABLE)
-    mileage = models.FloatField(default=0)
-    last_maintenance = models.DateTimeField(blank=True, null=True)
-    next_maintenance = models.DateTimeField(blank=True, null=True)
+    driver = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True, related_name="assigned_vehicles")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -418,32 +358,12 @@ class Vehicle(models.Model):
         db_table = "Vehicle"
 
 
-class Driver(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="driver")
-    license_number = models.CharField(max_length=120, unique=True)
-    license_type = models.CharField(max_length=20)
-    license_expiry = models.DateTimeField()
-    license_photo = models.TextField(blank=True, null=True)
-    phone = models.CharField(max_length=50, blank=True, null=True)
-    emergency_contact = models.CharField(max_length=255, blank=True, null=True)
-    rating = models.FloatField(default=5.0)
-    total_deliveries = models.IntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    hired_at = models.DateTimeField(default=timezone.now)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "Driver"
-
-
 class DriverSpareStock(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name="spare_stock")
+    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="spare_stock")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="spare_stock")
-    quantity = models.IntegerField(default=0)
-    min_quantity = models.IntegerField(default=0)
+    on_hand_quantity = models.IntegerField(default=0)
+    minimum_required_quantity = models.IntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -452,51 +372,16 @@ class DriverSpareStock(models.Model):
         constraints = [models.UniqueConstraint(fields=["driver", "product"], name="unique_driver_spare_stock")]
 
 
-class SpareStockTransaction(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name="spare_stock_transactions")
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="spare_stock_transactions")
-    type = models.CharField(max_length=50)
-    quantity = models.IntegerField()
-    reference_type = models.CharField(max_length=100, blank=True, null=True)
-    reference_id = models.CharField(max_length=100, blank=True, null=True)
-    notes = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        db_table = "SpareStockTransaction"
-
-
-class DriverVehicle(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name="vehicles")
-    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="drivers")
-    assigned_at = models.DateTimeField(default=timezone.now)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        db_table = "DriverVehicle"
-        constraints = [models.UniqueConstraint(fields=["driver", "vehicle"], name="unique_driver_vehicle")]
-
-
 class Trip(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     trip_number = models.CharField(max_length=120, unique=True)
-    driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name="trips")
+    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trips")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="trips")
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
     status = models.CharField(max_length=50, choices=TripStatus.choices, default=TripStatus.PLANNED)
-    start_location = models.CharField(max_length=255, blank=True, null=True)
     start_latitude = models.FloatField(blank=True, null=True)
     start_longitude = models.FloatField(blank=True, null=True)
-    end_location = models.CharField(max_length=255, blank=True, null=True)
-    end_latitude = models.FloatField(blank=True, null=True)
-    end_longitude = models.FloatField(blank=True, null=True)
-    total_distance = models.FloatField(blank=True, null=True)
-    estimated_time = models.IntegerField(blank=True, null=True)
-    actual_time = models.IntegerField(blank=True, null=True)
     planned_start_at = models.DateTimeField(blank=True, null=True)
-    planned_end_at = models.DateTimeField(blank=True, null=True)
     actual_start_at = models.DateTimeField(blank=True, null=True)
     actual_end_at = models.DateTimeField(blank=True, null=True)
     total_drop_points = models.IntegerField(default=0)
@@ -540,34 +425,12 @@ class TripDropPoint(models.Model):
         constraints = [models.UniqueConstraint(fields=["trip", "sequence"], name="unique_trip_sequence")]
 
 
-class SavedRouteDraft(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    date = models.DateField()
-    warehouse_id = models.CharField(max_length=25)
-    warehouse_name = models.CharField(max_length=255)
-    city = models.CharField(max_length=100)
-    total_distance_km = models.FloatField(default=0)
-    order_ids = models.JSONField(default=list)
-    orders_json = models.JSONField(default=list)
-    created_by_user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name="saved_route_drafts")
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "SavedRouteDraft"
-        indexes = [
-            models.Index(fields=["date", "warehouse_id"]),
-            models.Index(fields=["created_by_user", "created_at"]),
-        ]
-
-
 class LocationLog(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name="location_logs")
+    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="location_logs")
     trip = models.ForeignKey(Trip, on_delete=models.SET_NULL, blank=True, null=True, related_name="location_logs")
     latitude = models.FloatField()
     longitude = models.FloatField()
-    speed = models.FloatField(blank=True, null=True)
     heading = models.FloatField(blank=True, null=True)
     altitude = models.FloatField(blank=True, null=True)
     accuracy = models.FloatField(blank=True, null=True)
@@ -628,22 +491,6 @@ class Feedback(models.Model):
         db_table = "Feedback"
 
 
-class AuditLog(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name="audit_logs")
-    action = models.CharField(max_length=255)
-    entity_type = models.CharField(max_length=100)
-    entity_id = models.CharField(max_length=25, blank=True, null=True)
-    old_value = models.TextField(blank=True, null=True)
-    new_value = models.TextField(blank=True, null=True)
-    ip_address = models.CharField(max_length=100, blank=True, null=True)
-    user_agent = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        db_table = "AuditLog"
-
-
 class Notification(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name="notifications")
@@ -659,22 +506,3 @@ class Notification(models.Model):
 
     class Meta:
         db_table = "Notification"
-
-
-class PasswordResetOTP(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    account_type = models.CharField(max_length=20)  # staff | customer
-    email = models.EmailField()
-    otp_hash = models.CharField(max_length=255)
-    attempt_count = models.IntegerField(default=0)
-    expires_at = models.DateTimeField()
-    verified_at = models.DateTimeField(blank=True, null=True)
-    consumed_at = models.DateTimeField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "PasswordResetOTP"
-        indexes = [
-            models.Index(fields=["email", "account_type", "created_at"]),
-        ]

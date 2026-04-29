@@ -3,6 +3,30 @@
 from django.db import migrations
 
 
+def _drop_legacy_columns(apps, schema_editor):
+    # SQLite in local/dev can fail on PostgreSQL-style DROP COLUMN IF EXISTS chains.
+    # Keep migration state changes, but only run raw SQL on PostgreSQL.
+    if schema_editor.connection.vendor != 'postgresql':
+        return
+    schema_editor.execute(
+        'ALTER TABLE "OrderLogistics" '
+        'DROP COLUMN IF EXISTS "billing_address", '
+        'DROP COLUMN IF EXISTS "billing_city", '
+        'DROP COLUMN IF EXISTS "billing_country", '
+        'DROP COLUMN IF EXISTS "billing_name", '
+        'DROP COLUMN IF EXISTS "billing_province", '
+        'DROP COLUMN IF EXISTS "billing_zip_code";'
+    )
+    schema_editor.execute(
+        'ALTER TABLE "Return" '
+        'DROP COLUMN IF EXISTS "pickup_latitude", '
+        'DROP COLUMN IF EXISTS "pickup_longitude", '
+        'DROP COLUMN IF EXISTS "pickup_scheduled", '
+        'DROP COLUMN IF EXISTS "refund_amount", '
+        'DROP COLUMN IF EXISTS "refund_status";'
+    )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -22,18 +46,7 @@ class Migration(migrations.Migration):
         ),
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunSQL(
-                    sql=(
-                        'ALTER TABLE "OrderLogistics" '
-                        'DROP COLUMN IF EXISTS "billing_address", '
-                        'DROP COLUMN IF EXISTS "billing_city", '
-                        'DROP COLUMN IF EXISTS "billing_country", '
-                        'DROP COLUMN IF EXISTS "billing_name", '
-                        'DROP COLUMN IF EXISTS "billing_province", '
-                        'DROP COLUMN IF EXISTS "billing_zip_code";'
-                    ),
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
+                migrations.RunPython(_drop_legacy_columns, migrations.RunPython.noop),
             ],
             state_operations=[
                 migrations.RemoveField(
@@ -63,19 +76,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql=(
-                        'ALTER TABLE "Return" '
-                        'DROP COLUMN IF EXISTS "pickup_latitude", '
-                        'DROP COLUMN IF EXISTS "pickup_longitude", '
-                        'DROP COLUMN IF EXISTS "pickup_scheduled", '
-                        'DROP COLUMN IF EXISTS "refund_amount", '
-                        'DROP COLUMN IF EXISTS "refund_status";'
-                    ),
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
+            database_operations=[],
             state_operations=[
                 migrations.RemoveField(
                     model_name='return',

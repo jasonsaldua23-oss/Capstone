@@ -7,8 +7,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
-type PaymentMethod = 'COD' | 'CARD' | 'GCASH' | 'MAYA'
-
 type CustomerCheckoutViewProps = {
   setActiveView: (view: any) => void
   selectedCartItems: any[]
@@ -18,9 +16,6 @@ type CustomerCheckoutViewProps = {
   composedShippingAddress: string
   getProductImage: (imageUrl?: string | null) => string
   formatPeso: (value: number) => string
-  selectedPaymentMethod: string
-  paymentMethod: PaymentMethod
-  setPaymentMethod: (method: PaymentMethod) => void
   selectedSubtotal: number
   notes: string
   setNotes: (value: string) => void
@@ -40,9 +35,6 @@ export function CustomerCheckoutView({
   composedShippingAddress,
   getProductImage,
   formatPeso,
-  selectedPaymentMethod,
-  paymentMethod,
-  setPaymentMethod,
   selectedSubtotal,
   notes,
   setNotes,
@@ -104,49 +96,6 @@ export function CustomerCheckoutView({
 
           <Card className="rounded-2xl border border-slate-200/90 bg-[#f8fafc] shadow-none">
             <CardContent className="space-y-2 p-3 md:space-y-2.5 md:p-3.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-[13px] font-semibold text-slate-800 md:text-sm">Payment method</Label>
-                <p className="text-[9px] font-semibold tracking-[0.08em] text-slate-500 md:text-[10px]">
-                  {selectedPaymentMethod.replace(/_/g, ' ')}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                {(['COD', 'CARD', 'GCASH', 'MAYA'] as PaymentMethod[]).map((m) => {
-                  const label = String(m).replace(/_/g, ' ')
-                  const iconSrc =
-                    m === 'COD'
-                      ? '/icons/payment/cod.svg'
-                      : m === 'GCASH'
-                        ? '/icons/payment/gcash.svg'
-                        : m === 'MAYA'
-                          ? '/icons/payment/maya.svg'
-                          : '/icons/payment/bank-transfer.svg'
-
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setPaymentMethod(m)}
-                      className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-[13px] font-medium transition-all md:py-2 md:text-sm ${
-                        paymentMethod === m ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/30'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <span className="grid h-7 w-7 place-items-center overflow-hidden rounded-md border border-slate-200 bg-white md:h-8 md:w-8">
-                          <img src={iconSrc} alt={label} className="h-full w-full object-contain" />
-                        </span>
-                        <span>{label}</span>
-                      </span>
-                      <span className={`h-3.5 w-3.5 rounded-full border md:h-4 md:w-4 ${paymentMethod === m ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300 bg-white'}`} />
-                    </button>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl border border-slate-200/90 bg-[#f8fafc] shadow-none">
-            <CardContent className="space-y-2 p-3 md:space-y-2.5 md:p-3.5">
               <div className="flex items-center justify-between text-[13px] md:text-sm">
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
@@ -202,4 +151,3 @@ export function CustomerCheckoutView({
     </section>
   )
 }
-

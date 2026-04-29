@@ -9,8 +9,10 @@ import { Input } from '@/components/ui/input'
 import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
 
 function formatRoleLabel(role: string | null | undefined) {
-  if (!role) return 'Unknown'
-  return role
+  const value = String(role || '').trim().toUpperCase()
+  if (!value) return 'Unknown'
+  if (value === 'SUPER_ADMIN') return 'Admin'
+  return value
     .split('_')
     .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
     .join(' ')

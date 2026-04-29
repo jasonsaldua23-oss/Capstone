@@ -377,7 +377,8 @@ function formatPeso(value: number) {
 
 function normalizeTripStatus(status: string | null | undefined) {
   const value = String(status || '').toUpperCase()
-  return value === 'IN_TRANSIT' ? 'IN_PROGRESS' : value
+  if (value === 'IN_TRANSIT' || value === 'OUT_FOR_DELIVERY') return 'IN_PROGRESS'
+  return value
 }
 
 function isActiveTripStatus(status: string | null | undefined) {
@@ -496,6 +497,7 @@ export function WarehousePortal() {
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
+  const savedRoutesGetUnsupportedRef = useRef(false)
   const isRefreshingAllRef = useRef(false)
   const hasAssignedWarehouse = warehouses.length > 0
   const hasWarehouseFetchFailure = !hasAssignedWarehouse && Boolean(warehouseLoadError)
@@ -641,12 +643,15 @@ export function WarehousePortal() {
     const value = String(status || '').toUpperCase()
     return ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(value)
   }
+  const isCancelledLikeStatus = (status: unknown) => {
+    const value = String(status || '').toUpperCase()
+    return ['CANCELLED', 'CANCELED', 'FAILED', 'SKIPPED', 'FAILED_DELIVERY', 'REJECTED'].includes(value)
+  }
 
   const isDateMatch = (value: unknown, dayKey: string) => {
     if (!value || !dayKey) return false
     const raw = String(value).trim()
     if (!raw) return false
-    if (/^\d{4}-\d{2}-\d{2}/.test(raw) && raw.slice(0, 10) === dayKey) return true
     const parsed = new Date(raw)
     if (Number.isNaN(parsed.getTime())) return false
     return formatDayKey(parsed) === dayKey
@@ -665,9 +670,33 @@ export function WarehousePortal() {
       isDateMatch(value, trackingDate)
     )
     if (hasMatchingTripDate) return true
-    const logs = toArray<any>(tripAny?.locationLogs)
+    const dropPoints = Array.isArray(tripAny?.dropPoints) ? tripAny.dropPoints : []
+    if (
+      dropPoints.some((point) =>
+        [
+          point?.actualArrival,
+          point?.actualDeparture,
+          point?.order?.deliveryDate,
+          point?.order?.timeline?.deliveryDate,
+        ].some((value) => isDateMatch(value, trackingDate))
+      )
+    ) {
+      return true
+    }
+    const logs = Array.isArray(tripAny?.locationLogs) ? tripAny.locationLogs : []
     if (logs.some((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))) return true
     return isDateMatch(tripAny?.latestLocation?.recordedAt, trackingDate)
+  }
+  const dropPointMatchesTrackingDay = (dropPoint: any) => {
+    if (!trackingDate) return true
+    return [
+      dropPoint?.actualArrival,
+      dropPoint?.actualDeparture,
+      dropPoint?.order?.deliveryDate,
+      dropPoint?.order?.timeline?.deliveryDate,
+      dropPoint?.deliveryDate,
+      dropPoint?.createdAt,
+    ].some((value) => isDateMatch(value, trackingDate))
   }
 
   const liveMapData = useMemo(() => {
@@ -696,7 +725,13 @@ export function WarehousePortal() {
       snapToRoad?: boolean
     }> = []
 
-    const dayOrders = scopedOrders.filter((order: any) => orderMatchesTrackingDay(order))
+    const cancelledOrderIds = new Set(
+      scopedOrders
+        .filter((order: any) => isCancelledLikeStatus(order?.status))
+        .map((order: any) => String(order?.id || '').trim())
+        .filter(Boolean)
+    )
+    const dayOrders = scopedOrders.filter((order: any) => orderMatchesTrackingDay(order) && !isCancelledLikeStatus(order?.status))
     const dayOrderIds = new Set(
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
@@ -705,8 +740,7 @@ export function WarehousePortal() {
     scopedTrips
       .filter(
         (trip: any) =>
-          ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status)) &&
-          tripMatchesTrackingDay(trip)
+          ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))
       )
       .forEach((trip: any) => {
         const normalizedTripStatus = normalizeTripStatus(trip?.status)
@@ -717,23 +751,36 @@ export function WarehousePortal() {
         }
         const dropPoints = (trip.dropPoints || [])
           .filter((point: any) => {
-            if (!trackingDate) return true
-            if (tripMatchesDay) return true
             const orderId = String(point?.orderId || '').trim()
+            if (orderId && cancelledOrderIds.has(orderId)) return false
+            if (isCancelledLikeStatus(point?.status) || isCancelledLikeStatus(point?.orderStatus) || isCancelledLikeStatus(point?.order?.status)) return false
+            if (dropPointMatchesTrackingDay(point)) return true
+            if (tripMatchesDay && !trackingDate) return true
             if (!orderId) return false
             return dayOrderIds.has(orderId)
           })
           .filter((point: any) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
           .sort((a: any, b: any) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
 
+        const getLogLatitude = (log: any) => Number(log?.latitude ?? log?.lat)
+        const getLogLongitude = (log: any) => Number(log?.longitude ?? log?.lng)
+        const getLogTripId = (log: any) => String(log?.tripId || log?.trip_id || log?.trip || '').trim()
+        const getLogRecordedAt = (log: any) =>
+          new Date(log?.recordedAt || log?.recorded_at || log?.createdAt || log?.created_at || 0).getTime()
         const logs = (trip.locationLogs || [])
-          .filter((log: any) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
+          .filter((log: any) => {
+            const lat = getLogLatitude(log)
+            const lng = getLogLongitude(log)
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false
+            const logTripId = getLogTripId(log)
+            return !logTripId || logTripId === String(trip?.id || '')
+          })
           .map((log: any) => ({
             ...log,
-            latitude: Number(log.latitude),
-            longitude: Number(log.longitude),
+            latitude: getLogLatitude(log),
+            longitude: getLogLongitude(log),
           }))
-          .sort((a: any, b: any) => new Date(a.recordedAt || 0).getTime() - new Date(b.recordedAt || 0).getTime())
+          .sort((a: any, b: any) => getLogRecordedAt(a) - getLogRecordedAt(b))
 
         const terminalStatuses = ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED']
         const nextPendingIndex = dropPoints.findIndex((point: any) => {
@@ -756,8 +803,8 @@ export function WarehousePortal() {
 
         const latestLog = logs[logs.length - 1]
         const latestLocation = trip.latestLocation
-        const driverLat = Number(latestLog?.latitude ?? latestLocation?.latitude)
-        const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude)
+        const driverLat = Number(latestLog?.latitude ?? latestLocation?.latitude ?? latestLocation?.lat)
+        const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude ?? latestLocation?.lng)
         const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
         const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
         const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
@@ -783,20 +830,20 @@ export function WarehousePortal() {
               })()
             : null
 
-        if (hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)) {
-          locations.push({
-            id: `driver-${trip.id}`,
-            driverName,
-            vehiclePlate,
-            lat: driverLat,
-            lng: driverLng,
-            status: String(trip?.status || 'IN_PROGRESS'),
-            markerColor: '#1d4ed8',
-            markerLabel: 'Current location',
-            markerType: 'truck',
-            markerHeading: markerHeading ?? undefined,
-          })
-        }
+        const driverLocationMarker = hasDriverPosition
+          ? {
+              id: `driver-${trip.id}`,
+              driverName,
+              vehiclePlate,
+              lat: driverLat,
+              lng: driverLng,
+              status: String(trip?.status || 'IN_PROGRESS'),
+              markerColor: '#1d4ed8',
+              markerLabel: ['IN_PROGRESS'].includes(normalizedTripStatus) ? 'Driver current location' : 'Driver last known location',
+              markerType: 'truck' as const,
+              markerHeading: markerHeading ?? undefined,
+            }
+          : null
 
         dropPoints.forEach((dropPoint: any, index: number) => {
           const dropPointOrderId = String(dropPoint?.orderId || '').trim()
@@ -823,16 +870,33 @@ export function WarehousePortal() {
           })
         })
 
-        if (logs.length > 1) {
-          routeLines.push({
-            id: `completed-${trip.id}`,
-            points: logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
-            color: '#93c5fd',
-            label: `${trip.tripNumber || 'Trip'} - Completed route`,
-            opacity: 0.85,
-            weight: 6,
-            dashArray: '7 9',
+        if (driverLocationMarker) {
+          // Push driver marker last so it stays visually on top of stop pins.
+          locations.push(driverLocationMarker)
+        }
+
+        if (logs.length > 0) {
+          const passedPathPoints: [number, number][] = [
+            ...(warehouseStart ? [warehouseStart] : []),
+            ...logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
+          ].filter((point, index, list) => {
+            if (index === 0) return true
+            const previous = list[index - 1]
+            return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001)
           })
+
+          if (passedPathPoints.length > 1) {
+          routeLines.push({
+            id: `passed-${trip.id}`,
+            points: passedPathPoints,
+            color: '#6b7280',
+            label: `${trip.tripNumber || 'Trip'} - Path taken`,
+            opacity: 0.95,
+            weight: 7,
+            dashArray: '8 8',
+            snapToRoad: true,
+          })
+          }
         }
 
         const pendingPoints = dropPoints.filter(
@@ -898,7 +962,7 @@ export function WarehousePortal() {
         lat,
         lng,
         status: String(order?.status || 'PREPARING'),
-        markerColor: completed ? '#2563eb' : '#16a34a',
+        markerColor: String(order?.status || '').toUpperCase() === 'CANCELLED' ? '#ef4444' : (completed ? '#2563eb' : '#16a34a'),
         markerType: 'pin',
         markerLabel: orderAddressLabel,
       })
@@ -916,16 +980,15 @@ export function WarehousePortal() {
   const liveTrackingActiveTrips = useMemo(
     () =>
       scopedTrips.filter(
-        (trip) =>
-          ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status)) &&
-          tripMatchesTrackingDay(trip)
+        (trip) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status))
       ),
-    [scopedTrips, trackingDate]
+    [scopedTrips]
   )
 
   const liveTrackingRecentLocations = useMemo(
     () =>
-      liveTrackingActiveTrips
+      scopedTrips
+        .filter((trip: any) => tripMatchesTrackingDay(trip))
         .flatMap((trip: any) => (Array.isArray(trip?.locationLogs) ? trip.locationLogs : []))
         .filter((log: any) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
         .map((log: any) => ({
@@ -935,7 +998,7 @@ export function WarehousePortal() {
         }))
         .sort((a: any, b: any) => new Date(b.recordedAt || 0).getTime() - new Date(a.recordedAt || 0).getTime())
         .slice(0, 5),
-    [liveTrackingActiveTrips]
+    [scopedTrips, trackingDate]
   )
 
   const scopedInventory = useMemo(() => {
@@ -1627,22 +1690,28 @@ export function WarehousePortal() {
     const showLoading = options?.showLoading !== false
     if (showLoading) setLoadingTrips(true)
     try {
-      const normalizedTrackingDate =
-        /^\d{4}-\d{2}-\d{2}$/.test(String(trackingDate || '').trim())
-          ? String(trackingDate).trim()
-          : ''
-      const query = new URLSearchParams({
-        limit: '200',
-        includeTracking: '1',
-      })
-      if (normalizedTrackingDate) {
-        query.set('trackingDate', normalizedTrackingDate)
+      const pageSize = 500
+      let page = 1
+      let totalPages = 1
+      const mergedTrips: WarehouseTripItem[] = []
+
+      while (page <= totalPages) {
+        const query = new URLSearchParams({
+          page: String(page),
+          pageSize: String(pageSize),
+          includeTracking: '1',
+        })
+        const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
+        if (!result.ok) {
+          return
+        }
+        mergedTrips.push(...getCollection<WarehouseTripItem>(result.data, ['trips']))
+        const payload = (result.data || {}) as Record<string, any>
+        totalPages = Math.max(1, Number(payload.totalPages || 1))
+        page += 1
       }
-      const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
-      if (!result.ok) {
-        return
-      }
-      setTrips(getCollection<WarehouseTripItem>(result.data, ['trips']))
+
+      setTrips(mergedTrips)
     } catch (error: any) {
       console.warn('Failed to load trips:', error)
     } finally {
@@ -1719,9 +1788,13 @@ export function WarehousePortal() {
   }
 
   const fetchSavedRoutesData = async () => {
+    if (savedRoutesGetUnsupportedRef.current) return
     try {
-      const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' })
+      const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 0, timeoutMs: 8000 })
       if (!result.ok) {
+        if (Number(result.status || 0) === 405) {
+          savedRoutesGetUnsupportedRef.current = true
+        }
         return
       }
       if ((result.data as any)?.success === false) {
@@ -2054,11 +2127,29 @@ export function WarehousePortal() {
   }, [activeView])
 
   useEffect(() => {
+    if (activeView === 'liveTracking') {
+      void Promise.all([
+        fetchTripsData(),
+        fetchOrdersData({ showLoading: false, silent: true }),
+      ])
+      return
+    }
+    if (activeView === 'trips') {
+      void fetchTripsData()
+    }
+  }, [activeView, trackingDate])
+
+  useEffect(() => {
     if (activeView !== 'liveTracking') return
-    void Promise.all([
-      fetchTripsData(),
-      fetchOrdersData({ showLoading: false, silent: true }),
-    ])
+    const refreshLiveTracking = () => {
+      if (document.visibilityState !== 'visible') return
+      void Promise.all([
+        fetchTripsData({ showLoading: false }),
+        fetchOrdersData({ showLoading: false, silent: true }),
+      ])
+    }
+    const intervalId = window.setInterval(refreshLiveTracking, 7000)
+    return () => window.clearInterval(intervalId)
   }, [activeView, trackingDate])
 
   useEffect(() => {
@@ -3078,7 +3169,7 @@ export function WarehousePortal() {
       </Dialog>
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-        <DialogContent className="max-w-4xl w-full">
+        <DialogContent className="max-h-[85vh] w-full max-w-4xl overflow-y-auto">
           {selectedOrder && (
             <>
               <DialogHeader>
@@ -3178,6 +3269,44 @@ export function WarehousePortal() {
                       Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}
                     </p>
                   </div>
+                  {(() => {
+                    const trip = selectedOrder.progress?.trip
+                    const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+                    const selectedSchedule = String(
+                      selectedOrder.deliveryDate || trip?.tripSchedule || ''
+                    )
+                      .trim()
+                      .slice(0, 10)
+                    const scheduledOrders = points
+                      .map((point: any) => point?.order)
+                      .filter((order: any) => order && String(order.id || '').trim())
+                      .filter((order: any) => {
+                        if (!selectedSchedule) return true
+                        return String(order.deliveryDate || '').trim().slice(0, 10) === selectedSchedule
+                      })
+                      .filter(
+                        (order: any, index: number, rows: any[]) =>
+                          rows.findIndex((candidate: any) => String(candidate.id) === String(order.id)) === index
+                      )
+
+                    return (
+                      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs font-medium text-slate-500">Scheduled Orders On This Trip</p>
+                        {scheduledOrders.length === 0 ? (
+                          <p className="mt-1 text-sm text-slate-600">No scheduled orders found for this trip date.</p>
+                        ) : (
+                          <div className="mt-1 space-y-1">
+                            {scheduledOrders.map((order: any) => (
+                              <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
+                                <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                <span className="text-xs uppercase text-slate-500">{String(order.status || 'N/A').replace(/_/g, ' ')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="mb-2 font-medium">Proof Of Delivery</p>

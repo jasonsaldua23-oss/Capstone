@@ -152,7 +152,7 @@ export function HomeView({
     : 0
   const assignedOrderRows: AssignedOrderRow[] = []
   const seenAssignedOrderIds = new Set<string>()
-  const relevantTrips = prioritizedTrips
+  const relevantTrips = prioritizedTrips.filter((trip) => isTripForDay(trip, today))
 
   for (const trip of relevantTrips) {
     for (const dropPoint of [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)) {

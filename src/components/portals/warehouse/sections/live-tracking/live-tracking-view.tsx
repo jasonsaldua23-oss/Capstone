@@ -93,7 +93,7 @@ export function WarehouseLiveTrackingView({
                       <div className="flex-1">
                         <p className="text-sm font-medium">{trip.tripNumber}</p>
                         <p className="text-xs text-gray-500">
-                          Driver: {trip.driver?.user?.name || 'Unassigned'}
+                          Driver: {trip.driver?.name || trip.driver?.user?.name || 'Unassigned'}
                         </p>
                       </div>
                       <Badge variant="outline">

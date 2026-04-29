@@ -58,7 +58,6 @@ export function useCustomerPortalState(user: any) {
   const [deliveryDate, setDeliveryDate] = useState<string>('')
   const [ordersSearch, setOrdersSearch] = useState('')
   const [ordersTab, setOrdersTab] = useState('ALL')
-  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'CARD' | 'GCASH' | 'MAYA'>('COD')
   const [isSavingAddress, setIsSavingAddress] = useState(false)
   const [trackingByOrderId, setTrackingByOrderId] = useState<Record<string, any>>({})
   const [isTrackingLoading, setIsTrackingLoading] = useState(false)
@@ -196,8 +195,6 @@ export function useCustomerPortalState(user: any) {
     setOrdersSearch,
     ordersTab,
     setOrdersTab,
-    paymentMethod,
-    setPaymentMethod,
     isSavingAddress,
     setIsSavingAddress,
     trackingByOrderId,

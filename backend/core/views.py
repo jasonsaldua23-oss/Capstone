@@ -7,7 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .auth import TOKEN_NAME, create_token, decode_token, extract_token, hash_password, verify_password
-from .models import Customer, Role, User
+from .models import Customer, User
 
 
 def _json_body(request: HttpRequest) -> dict:
@@ -50,7 +50,7 @@ def staff_login(request: HttpRequest) -> JsonResponse:
         return _response({"success": False, "error": "Email and password are required"}, status=400)
 
     try:
-        user = User.objects.select_related("role").get(email=email)
+        user = User.objects.get(email=email)
     except User.DoesNotExist:
         return _response({"success": False, "error": "Invalid email or password"}, status=401)
 
@@ -65,7 +65,7 @@ def staff_login(request: HttpRequest) -> JsonResponse:
         "email": user.email,
         "name": user.name,
         "avatar": user.avatar,
-        "role": user.role.name,
+        "role": user.role,
         "type": "staff",
     }
     token = create_token(payload)
@@ -167,17 +167,13 @@ def auth_logout(_request: HttpRequest) -> JsonResponse:
 
 @transaction.atomic
 def ensure_demo_accounts() -> None:
-    super_admin_role, _ = Role.objects.get_or_create(name="SUPER_ADMIN", defaults={"description": "Full system access"})
-    driver_role, _ = Role.objects.get_or_create(name="DRIVER", defaults={"description": "Delivery driver"})
-    warehouse_role, _ = Role.objects.get_or_create(name="WAREHOUSE_STAFF", defaults={"description": "Warehouse operations"})
-
     User.objects.get_or_create(
         email="admin@logistics.com",
         defaults={
             "name": "Admin User",
             "password": hash_password("admin123"),
             "phone": "+1-555-0100",
-            "role": super_admin_role,
+            "role": "SUPER_ADMIN",
             "is_active": True,
         },
     )
@@ -187,7 +183,7 @@ def ensure_demo_accounts() -> None:
             "name": "Demo Driver",
             "password": hash_password("driver123"),
             "phone": "+1-555-0103",
-            "role": driver_role,
+            "role": "DRIVER",
             "is_active": True,
         },
     )
@@ -197,7 +193,7 @@ def ensure_demo_accounts() -> None:
             "name": "Warehouse Staff",
             "password": hash_password("admin123"),
             "phone": "+1-555-0102",
-            "role": warehouse_role,
+            "role": "WAREHOUSE_STAFF",
             "is_active": True,
         },
     )

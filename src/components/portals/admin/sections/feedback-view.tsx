@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -241,7 +241,10 @@ export function FeedbackView() {
               <div key={row.label} className="grid grid-cols-[80px_1fr_40px] items-center gap-3">
                 <span className="text-gray-600">{row.label}</span>
                 <div className="h-3 rounded-md bg-gray-100 overflow-hidden">
-                  <div className={`h-full min-w-[4px] bg-blue-500 transition-all ${getWidthClass((row.value / maxDistribution) * 100)}`} />
+                  <div
+                    className="h-full min-w-[4px] bg-blue-500 transition-all"
+                    style={{ width: `${Math.max((row.value / maxDistribution) * 100, row.value > 0 ? 4 : 0)}%` }}
+                  />
                 </div>
                 <span className="text-sm text-gray-600 text-right">{row.value}</span>
               </div>
@@ -315,10 +318,10 @@ export function FeedbackView() {
                         <MessageSquare className="h-5 w-5 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">ï¿½ {item.order?.orderNumber || 'No Order'}</span></p>
+                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">• {item.order?.orderNumber || 'No Order'}</span></p>
                         <div className="mt-2 flex items-center gap-2">
                           {renderStars(Number(item.rating || 0))}
-                          <span className="text-sm text-gray-500">ï¿½ {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
+                          <span className="text-sm text-gray-500">• {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
                         </div>
                       </div>
                     </div>
@@ -352,7 +355,7 @@ export function FeedbackView() {
             <>
               <DialogHeader>
                 <DialogTitle>Respond to Feedback</DialogTitle>
-                <DialogDescription>Customer: {respondingItem.customer?.name || 'N/A'} ï¿½ {respondingItem.order?.orderNumber || 'N/A'}</DialogDescription>
+                <DialogDescription>Customer: {respondingItem.customer?.name || 'N/A'} • {respondingItem.order?.orderNumber || 'N/A'}</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <label className="text-sm font-medium text-gray-700">Response</label>
@@ -379,3 +382,4 @@ export function FeedbackView() {
     </div>
   )
 }
+

@@ -97,21 +97,25 @@ ASGI_APPLICATION = "config.asgi.application"
 FORCE_SQLITE = _bool("DJANGO_USE_SQLITE", False)
 SHOW_SAMPLE_DATA = _bool("SHOW_SAMPLE_DATA", False)
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-if FORCE_SQLITE:
+SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "").strip()
+LOCAL_SQLITE_DB = {
+    "ENGINE": "django.db.backends.sqlite3",
+    "NAME": SQLITE_DB_PATH or (BASE_DIR / "db.sqlite3"),
+}
+REMOTE_POSTGRES_DB = _parse_database_url(DATABASE_URL) if DATABASE_URL else None
+
+if FORCE_SQLITE or not REMOTE_POSTGRES_DB:
     DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
+        "default": LOCAL_SQLITE_DB,
+        "local_sqlite": LOCAL_SQLITE_DB,
     }
-elif DATABASE_URL:
-    DATABASES = {"default": _parse_database_url(DATABASE_URL)}
+    if REMOTE_POSTGRES_DB:
+        DATABASES["supabase"] = REMOTE_POSTGRES_DB
 else:
     DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
+        "default": REMOTE_POSTGRES_DB,
+        "supabase": REMOTE_POSTGRES_DB,
+        "local_sqlite": LOCAL_SQLITE_DB,
     }
 
 AUTH_PASSWORD_VALIDATORS = []
@@ -137,6 +141,8 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ]
 }
+
+DATABASE_ROUTERS = ["core.db_router.CoreAppRouter"]
 
 # Gmail-only SMTP for OTP emails
 OTP_GMAIL_USER = os.getenv("OTP_GMAIL_USER", "").strip()

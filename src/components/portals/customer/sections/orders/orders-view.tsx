@@ -26,6 +26,7 @@ export function CustomerOrdersView(props: any) {
     isOrderCancellable,
     cancelOrder,
     openRatingDialog,
+    openReviewDetails,
     setSelectedOrder,
     isOrderTrackable,
     openTrackView,
@@ -248,11 +249,14 @@ export function CustomerOrdersView(props: any) {
                             className="h-8 bg-rose-600 px-3 text-xs text-white hover:bg-rose-700 disabled:opacity-70"
                             onClick={(e) => {
                               e.stopPropagation()
+                              if (isReviewed) {
+                                openReviewDetails(o)
+                                return
+                              }
                               openRatingDialog(o)
                             }}
-                            disabled={isReviewed}
                           >
-                            {isReviewed ? 'Rated' : 'Rate order'}
+                            {isReviewed ? 'Review details' : 'Rate order'}
                           </Button>
                         ) : null}
                       </div>

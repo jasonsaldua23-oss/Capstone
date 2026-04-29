@@ -1,0 +1,1463 @@
+[
+{
+  "model": "core.user",
+  "pk": "c1873bd919efd4aa1b6746d4b",
+  "fields": {
+    "email": "warehouse@logistics.com",
+    "password": "pbkdf2_sha256$600000$jppdqDjLkWWalYymsxo0Zi$r9iZXXkByeL5Re2i5WaoOay9gcpCPFYog0J+AZn7vEo=",
+    "name": "Warehouse Staff",
+    "phone": "+1-555-0102",
+    "avatar": null,
+    "role": "WAREHOUSE_STAFF",
+    "license_number": null,
+    "license_type": null,
+    "license_expiry": null,
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": null,
+    "is_active": true,
+    "last_login_at": "2026-04-28T08:12:19.068Z",
+    "created_at": "2026-04-18T11:22:11.441Z",
+    "updated_at": "2026-04-28T08:12:19.068Z"
+  }
+},
+{
+  "model": "core.user",
+  "pk": "c19dc7abd18984088a3bfe912",
+  "fields": {
+    "email": "driver@logistics.com",
+    "password": "pbkdf2_sha256$600000$zbA5pOrkXRBtvtuYGAZ94P$k0nABZFzyRiehnUqp+pvgXpsFf4vVRwQ1FufZ5XGHVY=",
+    "name": "Jason Saldua",
+    "phone": "09460056944",
+    "avatar": null,
+    "role": "DRIVER",
+    "license_number": "DEMO-DRIVER-BFE912",
+    "license_type": "B",
+    "license_expiry": "2030-05-26T16:00:00Z",
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": "2026-04-18T11:22:13.302Z",
+    "is_active": true,
+    "last_login_at": "2026-04-28T10:59:42.516Z",
+    "created_at": "2026-04-18T11:22:09.851Z",
+    "updated_at": "2026-04-28T10:59:42.516Z"
+  }
+},
+{
+  "model": "core.user",
+  "pk": "c62ba6314599b402fab23ed7a",
+  "fields": {
+    "email": "admin@logistics.com",
+    "password": "pbkdf2_sha256$600000$ihPgXZbUqvIi2Uwwx3rJTw$VDs/OOIg8HarnauUzJAJUDReNYFnK0A7JVuKqDZt0Ak=",
+    "name": "Admin User",
+    "phone": "+1-555-0100",
+    "avatar": null,
+    "role": "SUPER_ADMIN",
+    "license_number": null,
+    "license_type": null,
+    "license_expiry": null,
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": null,
+    "is_active": true,
+    "last_login_at": "2026-04-28T08:04:49.377Z",
+    "created_at": "2026-04-18T11:22:08.938Z",
+    "updated_at": "2026-04-28T08:04:49.377Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "c2aea7073059e4a22a7b3407d",
+  "fields": {
+    "email": "jan@gmail.com",
+    "password": "pbkdf2_sha256$600000$uDcRTKVcK21yExP0Uz7NMJ$5iknSHgS2xgjAn07oHoYkGBbwLhowvmXEeJ+a2O7ZUs=",
+    "name": "jan",
+    "phone": "0918721831",
+    "avatar": null,
+    "address": "Cabatangan, 123, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "country": "Philippines",
+    "latitude": 10.682472661482947,
+    "longitude": 123.09164425358178,
+    "is_active": true,
+    "created_at": "2026-04-28T08:09:09.806Z",
+    "updated_at": "2026-04-28T08:09:42.055Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "c562a5d81c03047ec895b05a7",
+  "fields": {
+    "email": "customer@example.com",
+    "password": "pbkdf2_sha256$600000$tFwrkurbyjGdtJngNtdSpY$HHHngNeudXXPk0aTW6aPlwt/CtmTfze6MSZv4lVdQWY=",
+    "name": "Demo Customer",
+    "phone": "+1-555-0104",
+    "avatar": null,
+    "address": null,
+    "city": null,
+    "province": null,
+    "zip_code": null,
+    "country": "USA",
+    "latitude": null,
+    "longitude": null,
+    "is_active": true,
+    "created_at": "2026-04-18T11:22:13.286Z",
+    "updated_at": "2026-04-18T11:22:13.287Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "c7731470be7f04c76b3308bde",
+  "fields": {
+    "email": "shaneth@gmail.com",
+    "password": "pbkdf2_sha256$600000$gibsgp9YW81EuYEVtJKNr6$dAm4R5Dzaw7tjZoZc0FgvTmnI38BeRwauvudVE+DAro=",
+    "name": "shaneth",
+    "phone": "971623161712",
+    "avatar": null,
+    "address": "121, Anthony V. Lizares Avenue, Zone 12A, 123, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "country": "Philippines",
+    "latitude": 10.74754860922771,
+    "longitude": 122.98531722917689,
+    "is_active": true,
+    "created_at": "2026-04-28T08:03:58.852Z",
+    "updated_at": "2026-04-28T08:08:24.612Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "c946a576c89284abf993e835c",
+  "fields": {
+    "email": "jasonsaldua23@gmail.com",
+    "password": "pbkdf2_sha256$600000$zYhDaEaVGP5qVjc9ycXZ98$9ytfM5qZ3DF0aTzPdo9sAXAyMuSYaXGFHZl0JLDW/JM=",
+    "name": "Jason Saldua",
+    "phone": "9460056944",
+    "avatar": "https://lh3.googleusercontent.com/a/ACg8ocIOERXGH0uvb74I12U2UfNp79ZXxvdq0mwyKwHZgHqiG4iSlw=s96-c",
+    "address": "McKinley Baybay, Mambulac, Silay, Negros Occidental, 6116",
+    "city": "Silay",
+    "province": "Negros Occidental",
+    "zip_code": "6116",
+    "country": "Philippines",
+    "latitude": 10.796422092618988,
+    "longitude": 122.9701643333484,
+    "is_active": true,
+    "created_at": "2026-04-28T07:04:31.008Z",
+    "updated_at": "2026-04-28T07:14:00.729Z"
+  }
+},
+{
+  "model": "core.warehouse",
+  "pk": "c4993cd330c994de7af867580",
+  "fields": {
+    "name": "Main Warehouse",
+    "code": "WH-MAIN",
+    "address": "Zone 7, Zone 12, Talisay, Negros Occidental, Negros Island Region, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "country": "Philippines",
+    "latitude": 10.736223,
+    "longitude": 122.96416,
+    "capacity": 1000,
+    "manager_id": "c1873bd919efd4aa1b6746d4b",
+    "is_active": true,
+    "created_at": "2026-04-24T07:32:16.986Z",
+    "updated_at": "2026-04-28T07:12:34.563Z"
+  }
+},
+{
+  "model": "core.product",
+  "pk": "c8c720dcade1541d798e39ce9",
+  "fields": {
+    "sku": "SKU-1777363537-2EE8",
+    "name": "sopdrink",
+    "image_url": null,
+    "description": "liquid",
+    "unit": "case",
+    "weight": null,
+    "price": 80.0,
+    "is_active": true,
+    "created_at": "2026-04-28T08:05:37.899Z",
+    "updated_at": "2026-04-28T08:05:37.899Z"
+  }
+},
+{
+  "model": "core.product",
+  "pk": "c9b453c7037ff441f86a6f2d7",
+  "fields": {
+    "sku": "SKU-1777359988-2939",
+    "name": "Pepsi",
+    "image_url": "/uploads/products/product-1777359988488.png",
+    "description": "12 item per case",
+    "unit": "case",
+    "weight": null,
+    "price": 124.0,
+    "is_active": true,
+    "created_at": "2026-04-28T07:06:28.547Z",
+    "updated_at": "2026-04-28T07:06:28.547Z"
+  }
+},
+{
+  "model": "core.inventory",
+  "pk": "cceaf9bdb85dc435fad9049b3",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "quantity": 195,
+    "reserved_quantity": 5,
+    "threshold": 121,
+    "last_restocked_at": "2026-04-28T07:06:28.573Z",
+    "created_at": "2026-04-28T07:06:28.551Z",
+    "updated_at": "2026-04-28T08:15:04.102Z"
+  }
+},
+{
+  "model": "core.inventory",
+  "pk": "cd3cfdcae78104164affcb803",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "product": "c8c720dcade1541d798e39ce9",
+    "quantity": 98,
+    "reserved_quantity": 5,
+    "threshold": 10,
+    "last_restocked_at": "2026-04-28T08:05:37.907Z",
+    "created_at": "2026-04-28T08:05:37.905Z",
+    "updated_at": "2026-04-28T08:15:04.123Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c15b01584d7214c7a8e401b98",
+  "fields": {
+    "warehouse": null,
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "IN",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c04d7d432852e477686233de1",
+    "notes": "Auto-loaded spare products for ORD-2026-0004: 1 (10% of ordered qty 1); allocated BATCH-1777359988 x1",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:14:55.765Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c1c7233ea8807415593d05f43",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "RESERVE",
+    "quantity": 4,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c196f0b196f154f7598ca5828",
+    "notes": "FEFO reserve for order ORD-2026-0005",
+    "performed_by": "c2aea7073059e4a22a7b3407d",
+    "created_at": "2026-04-28T08:11:46.979Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c26ee568174b54bbaa940414a",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "RESERVE",
+    "quantity": 1,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c0c465178f5ee41719f887c30",
+    "notes": "FEFO reserve for order ORD-2026-0003",
+    "performed_by": "c946a576c89284abf993e835c",
+    "created_at": "2026-04-28T07:56:52.841Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c300aba6014ba412f8fc753fa",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "RESERVE",
+    "quantity": 1,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c3cd9b835482c4adba6415e04",
+    "notes": "FEFO reserve for order ORD-2026-0002",
+    "performed_by": "c946a576c89284abf993e835c",
+    "created_at": "2026-04-28T07:14:04.267Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c3b8a3329f0df46849bbf5c6b",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "IN",
+    "quantity": 100,
+    "reference_type": "stock_batch",
+    "reference_id": "c994eed8cc8da40cf995c6739",
+    "notes": "Stock batch added",
+    "performed_by": "c62ba6314599b402fab23ed7a",
+    "created_at": "2026-04-28T08:05:37.908Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c56f983124b6c40e388ad246b",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "UNRESERVE",
+    "quantity": 1,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c3cd9b835482c4adba6415e04",
+    "notes": "Reserved quantity released on cancellation",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T07:39:51.715Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c59e464b0db4846778250b3f5",
+  "fields": {
+    "warehouse": null,
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "IN",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c39830b164e044ebb98ca4859",
+    "notes": "Auto-loaded spare products for ORD-2026-0005: 1 (10% of ordered qty 3); allocated BATCH-1777359988 x1",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:15:04.109Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c5a83947549064790861ceddf",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c0c465178f5ee41719f887c30",
+    "notes": "Spare products loaded for ORD-2026-0003; batch BATCH-1777359988",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T07:57:41.362Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c5c65e0728da943a584fde1f7",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c39830b164e044ebb98ca4859",
+    "notes": "Spare products loaded for ORD-2026-0005; batch BATCH-1777359988",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:15:04.103Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c5f4378d4562d4565be5c0e8c",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "RESERVE",
+    "quantity": 3,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c39830b164e044ebb98ca4859",
+    "notes": "FEFO reserve for order ORD-2026-0005",
+    "performed_by": "c2aea7073059e4a22a7b3407d",
+    "created_at": "2026-04-28T08:11:46.967Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c8ac121995a41446cb44c1188",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "cda3121d590c34176ab9f5079",
+    "notes": "Spare products loaded for ORD-2026-0004; batch BATCH-1777363537",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:14:55.771Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c9186885edc084d42a77ded8a",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "IN",
+    "quantity": 199,
+    "reference_type": "stock_batch",
+    "reference_id": "ce8ed4509c8214a1abbce070c",
+    "notes": "Stock batch added",
+    "performed_by": "c62ba6314599b402fab23ed7a",
+    "created_at": "2026-04-28T07:06:28.575Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c924872c87b5c49d09c92e25b",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "RESERVE",
+    "quantity": 1,
+    "reference_type": "order_item_reserve",
+    "reference_id": "cda3121d590c34176ab9f5079",
+    "notes": "FEFO reserve for order ORD-2026-0004",
+    "performed_by": "c7731470be7f04c76b3308bde",
+    "created_at": "2026-04-28T08:08:29.197Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "ca2d9d55cd706411b85fe8b49",
+  "fields": {
+    "warehouse": null,
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "IN",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c196f0b196f154f7598ca5828",
+    "notes": "Auto-loaded spare products for ORD-2026-0005: 1 (10% of ordered qty 4); allocated BATCH-1777363537 x1",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:15:04.135Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cb70d8ee65267482e8a7cd52e",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c04d7d432852e477686233de1",
+    "notes": "Spare products loaded for ORD-2026-0004; batch BATCH-1777359988",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:14:55.763Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cb88f16ab186047898c385631",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c196f0b196f154f7598ca5828",
+    "notes": "Spare products loaded for ORD-2026-0005; batch BATCH-1777363537",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:15:04.124Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cd6e1e37f9346442d925022ac",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c3cd9b835482c4adba6415e04",
+    "notes": "Spare products loaded for ORD-2026-0002; batch BATCH-1777359988",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T07:15:42.828Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cebddda5ef8cc452e8fdd5de8",
+  "fields": {
+    "warehouse": "c4993cd330c994de7af867580",
+    "driver": null,
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "RESERVE",
+    "quantity": 1,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c04d7d432852e477686233de1",
+    "notes": "FEFO reserve for order ORD-2026-0004",
+    "performed_by": "c7731470be7f04c76b3308bde",
+    "created_at": "2026-04-28T08:08:29.182Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cf020c69ddd414d6da8102f9a",
+  "fields": {
+    "warehouse": null,
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "IN",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c0c465178f5ee41719f887c30",
+    "notes": "Auto-loaded spare products for ORD-2026-0003: 1 (10% of ordered qty 1); allocated BATCH-1777359988 x1",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T07:57:41.372Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cf789cb6d782140d781876466",
+  "fields": {
+    "warehouse": null,
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "type": "IN",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "c3cd9b835482c4adba6415e04",
+    "notes": "Auto-loaded spare products for ORD-2026-0002: 1 (10% of ordered qty 1); allocated BATCH-1777359988 x1",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T07:15:42.836Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cf9a538df50874d62bf8624c9",
+  "fields": {
+    "warehouse": null,
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c8c720dcade1541d798e39ce9",
+    "type": "IN",
+    "quantity": 1,
+    "reference_type": "order_spare_products_auto_load",
+    "reference_id": "cda3121d590c34176ab9f5079",
+    "notes": "Auto-loaded spare products for ORD-2026-0004: 1 (10% of ordered qty 1); allocated BATCH-1777363537 x1",
+    "performed_by": "c19dc7abd18984088a3bfe912",
+    "created_at": "2026-04-28T08:14:55.777Z"
+  }
+},
+{
+  "model": "core.stockbatch",
+  "pk": "c994eed8cc8da40cf995c6739",
+  "fields": {
+    "batch_number": "BATCH-1777363537",
+    "inventory": "cd3cfdcae78104164affcb803",
+    "quantity": 98,
+    "receipt_date": "2026-04-28T08:05:37.906Z",
+    "expiry_date": "2026-04-30T00:00:00Z",
+    "location_label": null,
+    "status": "ACTIVE",
+    "created_by": "c62ba6314599b402fab23ed7a",
+    "created_at": "2026-04-28T08:05:37.906Z",
+    "updated_at": "2026-04-28T08:15:04.121Z"
+  }
+},
+{
+  "model": "core.stockbatch",
+  "pk": "ce8ed4509c8214a1abbce070c",
+  "fields": {
+    "batch_number": "BATCH-1777359988",
+    "inventory": "cceaf9bdb85dc435fad9049b3",
+    "quantity": 195,
+    "receipt_date": "2026-04-28T07:06:28.553Z",
+    "expiry_date": "2026-11-07T00:00:00Z",
+    "location_label": null,
+    "status": "ACTIVE",
+    "created_by": "c62ba6314599b402fab23ed7a",
+    "created_at": "2026-04-28T07:06:28.553Z",
+    "updated_at": "2026-04-28T08:15:04.100Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c08df389d3ad84a9390804d19",
+  "fields": {
+    "order_number": "ORD-2026-0004",
+    "customer": "c7731470be7f04c76b3308bde",
+    "status": "OUT_FOR_DELIVERY",
+    "priority": "normal",
+    "subtotal": 204.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "total_amount": 204.0,
+    "payment_status": "pending",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "shipping_name": "shaneth",
+    "shipping_phone": "971623161712",
+    "shipping_address": "121, Anthony V. Lizares Avenue, Zone 12A, 123, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.74754860922771,
+    "shipping_longitude": 122.98531722917689,
+    "notes": "",
+    "special_instructions": null,
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-04-28T08:14:55.751Z",
+    "warehouse_dispatched_at": "2026-04-28T08:16:37.713Z",
+    "checklist_quantity_verified": true,
+    "dispatch_signed_off_by": null,
+    "dispatch_signed_off_user_id": null,
+    "dispatch_signed_off_at": null,
+    "exception_short_load_qty": 0,
+    "exception_damaged_on_loading_qty": 0,
+    "exception_hold_reason": null,
+    "exception_notes": null,
+    "created_at": "2026-04-28T08:08:29.171Z",
+    "updated_at": "2026-04-28T08:16:37.720Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c279632ec0d5544e3aa9ddbe5",
+  "fields": {
+    "order_number": "ORD-2026-0001",
+    "customer": "c562a5d81c03047ec895b05a7",
+    "status": "CANCELLED",
+    "priority": "normal",
+    "subtotal": 0.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "total_amount": 0.0,
+    "payment_status": "pending",
+    "warehouse_id": null,
+    "shipping_name": "Demo Customer",
+    "shipping_phone": "09171234567",
+    "shipping_address": "Lacson St",
+    "shipping_city": "Bacolod City",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6100",
+    "shipping_country": "Philippines",
+    "shipping_latitude": null,
+    "shipping_longitude": null,
+    "notes": "Seeded logistics data",
+    "special_instructions": null,
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-04-28T07:03:06.924Z",
+    "warehouse_dispatched_at": "2026-04-28T07:21:02.688Z",
+    "checklist_quantity_verified": true,
+    "dispatch_signed_off_by": null,
+    "dispatch_signed_off_user_id": null,
+    "dispatch_signed_off_at": null,
+    "exception_short_load_qty": 0,
+    "exception_damaged_on_loading_qty": 0,
+    "exception_hold_reason": null,
+    "exception_notes": null,
+    "created_at": "2026-04-18T11:49:01.340Z",
+    "updated_at": "2026-04-28T07:40:25.544Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c3ae529f7a8a242d9bd40a59f",
+  "fields": {
+    "order_number": "ORD-2026-0003",
+    "customer": "c946a576c89284abf993e835c",
+    "status": "OUT_FOR_DELIVERY",
+    "priority": "normal",
+    "subtotal": 124.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "total_amount": 124.0,
+    "payment_status": "pending",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "9460056944",
+    "shipping_address": "McKinley Baybay, Mambulac, Silay, Negros Occidental, 6116",
+    "shipping_city": "Silay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6116",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.796422092618988,
+    "shipping_longitude": 122.9701643333484,
+    "notes": "",
+    "special_instructions": null,
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-04-28T07:57:41.341Z",
+    "warehouse_dispatched_at": "2026-04-28T07:58:03.899Z",
+    "checklist_quantity_verified": true,
+    "dispatch_signed_off_by": null,
+    "dispatch_signed_off_user_id": null,
+    "dispatch_signed_off_at": null,
+    "exception_short_load_qty": 0,
+    "exception_damaged_on_loading_qty": 0,
+    "exception_hold_reason": null,
+    "exception_notes": null,
+    "created_at": "2026-04-28T07:56:52.829Z",
+    "updated_at": "2026-04-28T07:58:03.905Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c4bccd3558d124fd49d2716a2",
+  "fields": {
+    "order_number": "ORD-2026-0002",
+    "customer": "c946a576c89284abf993e835c",
+    "status": "CANCELLED",
+    "priority": "normal",
+    "subtotal": 124.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "total_amount": 124.0,
+    "payment_status": "pending",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "9460056944",
+    "shipping_address": "McKinley Baybay, Mambulac, Silay, Negros Occidental, 6116",
+    "shipping_city": "Silay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6116",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.796422092618988,
+    "shipping_longitude": 122.9701643333484,
+    "notes": "",
+    "special_instructions": null,
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-04-28T07:15:42.816Z",
+    "warehouse_dispatched_at": "2026-04-28T07:30:03.422Z",
+    "checklist_quantity_verified": true,
+    "dispatch_signed_off_by": null,
+    "dispatch_signed_off_user_id": null,
+    "dispatch_signed_off_at": null,
+    "exception_short_load_qty": 0,
+    "exception_damaged_on_loading_qty": 0,
+    "exception_hold_reason": null,
+    "exception_notes": null,
+    "created_at": "2026-04-28T07:14:04.259Z",
+    "updated_at": "2026-04-28T07:39:51.724Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c5e8997b321544fe781e8e77e",
+  "fields": {
+    "order_number": "ORD-2026-0005",
+    "customer": "c2aea7073059e4a22a7b3407d",
+    "status": "OUT_FOR_DELIVERY",
+    "priority": "normal",
+    "subtotal": 692.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "total_amount": 692.0,
+    "payment_status": "pending",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "shipping_name": "jan",
+    "shipping_phone": "0918721831",
+    "shipping_address": "Cabatangan, 123, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.682472661482947,
+    "shipping_longitude": 123.09164425358178,
+    "notes": "",
+    "special_instructions": null,
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-04-28T08:15:04.084Z",
+    "warehouse_dispatched_at": "2026-04-28T08:16:37.713Z",
+    "checklist_quantity_verified": true,
+    "dispatch_signed_off_by": null,
+    "dispatch_signed_off_user_id": null,
+    "dispatch_signed_off_at": null,
+    "exception_short_load_qty": 0,
+    "exception_damaged_on_loading_qty": 0,
+    "exception_hold_reason": null,
+    "exception_notes": null,
+    "created_at": "2026-04-28T08:11:46.957Z",
+    "updated_at": "2026-04-28T08:16:37.725Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c043312c4bc14461282d60824",
+  "fields": {
+    "order": "c3ae529f7a8a242d9bd40a59f",
+    "confirmed_at": null,
+    "processed_at": "2026-04-28T07:57:03.063Z",
+    "shipped_at": "2026-04-28T07:58:03.899Z",
+    "delivery_date": "2026-04-28T00:00:00Z",
+    "delivered_at": null,
+    "cancelled_at": null,
+    "created_at": "2026-04-28T07:56:52.846Z",
+    "updated_at": "2026-04-28T07:58:03.907Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c1369ebc01ad940a09e3956ca",
+  "fields": {
+    "order": "c08df389d3ad84a9390804d19",
+    "confirmed_at": null,
+    "processed_at": "2026-04-28T08:12:31.060Z",
+    "shipped_at": "2026-04-28T08:16:37.713Z",
+    "delivery_date": "2026-04-29T00:00:00Z",
+    "delivered_at": null,
+    "cancelled_at": null,
+    "created_at": "2026-04-28T08:08:29.204Z",
+    "updated_at": "2026-04-28T08:16:37.724Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c1f80d911a27a4abc9f8e985f",
+  "fields": {
+    "order": "c279632ec0d5544e3aa9ddbe5",
+    "confirmed_at": null,
+    "processed_at": null,
+    "shipped_at": "2026-04-28T07:21:02.688Z",
+    "delivery_date": "2026-04-29T07:03:06.924Z",
+    "delivered_at": null,
+    "cancelled_at": "2026-04-28T07:28:37.193Z",
+    "created_at": "2026-04-28T07:03:06.963Z",
+    "updated_at": "2026-04-28T07:40:25.551Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c23f3afb383714ccf92b35887",
+  "fields": {
+    "order": "c5e8997b321544fe781e8e77e",
+    "confirmed_at": null,
+    "processed_at": "2026-04-28T08:12:29.551Z",
+    "shipped_at": "2026-04-28T08:16:37.713Z",
+    "delivery_date": "2026-04-29T00:00:00Z",
+    "delivered_at": null,
+    "cancelled_at": null,
+    "created_at": "2026-04-28T08:11:46.986Z",
+    "updated_at": "2026-04-28T08:16:37.727Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c3c0d5a23f4f1479f91bd2dc7",
+  "fields": {
+    "order": "c4bccd3558d124fd49d2716a2",
+    "confirmed_at": null,
+    "processed_at": "2026-04-28T07:14:12.982Z",
+    "shipped_at": "2026-04-28T07:30:03.422Z",
+    "delivery_date": "2026-04-29T00:00:00Z",
+    "delivered_at": null,
+    "cancelled_at": "2026-04-28T07:39:51.694Z",
+    "created_at": "2026-04-28T07:14:04.272Z",
+    "updated_at": "2026-04-28T07:39:51.730Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c04d7d432852e477686233de1",
+  "fields": {
+    "order": "c08df389d3ad84a9390804d19",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "quantity": 1,
+    "unit_price": 124.0,
+    "total_price": 124.0,
+    "notes": "AllocationPolicy=FEFO\nReserved using FEFO: BATCH-1777359988 x1",
+    "created_at": "2026-04-28T08:08:29.177Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c0c465178f5ee41719f887c30",
+  "fields": {
+    "order": "c3ae529f7a8a242d9bd40a59f",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "quantity": 1,
+    "unit_price": 124.0,
+    "total_price": 124.0,
+    "notes": "AllocationPolicy=FEFO\nReserved using FEFO: BATCH-1777359988 x1",
+    "created_at": "2026-04-28T07:56:52.834Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c196f0b196f154f7598ca5828",
+  "fields": {
+    "order": "c5e8997b321544fe781e8e77e",
+    "product": "c8c720dcade1541d798e39ce9",
+    "quantity": 4,
+    "unit_price": 80.0,
+    "total_price": 320.0,
+    "notes": "AllocationPolicy=FEFO\nReserved using FEFO: BATCH-1777363537 x4",
+    "created_at": "2026-04-28T08:11:46.970Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c39830b164e044ebb98ca4859",
+  "fields": {
+    "order": "c5e8997b321544fe781e8e77e",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "quantity": 3,
+    "unit_price": 124.0,
+    "total_price": 372.0,
+    "notes": "AllocationPolicy=FEFO\nReserved using FEFO: BATCH-1777359988 x3",
+    "created_at": "2026-04-28T08:11:46.962Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c3cd9b835482c4adba6415e04",
+  "fields": {
+    "order": "c4bccd3558d124fd49d2716a2",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "quantity": 1,
+    "unit_price": 124.0,
+    "total_price": 124.0,
+    "notes": "AllocationPolicy=FEFO\nReserved using FEFO: BATCH-1777359988 x1",
+    "created_at": "2026-04-28T07:14:04.263Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "cda3121d590c34176ab9f5079",
+  "fields": {
+    "order": "c08df389d3ad84a9390804d19",
+    "product": "c8c720dcade1541d798e39ce9",
+    "quantity": 1,
+    "unit_price": 80.0,
+    "total_price": 80.0,
+    "notes": "AllocationPolicy=FEFO\nReserved using FEFO: BATCH-1777363537 x1",
+    "created_at": "2026-04-28T08:08:29.186Z"
+  }
+},
+{
+  "model": "core.vehicle",
+  "pk": "c769d59524385452a9176136e",
+  "fields": {
+    "license_plate": "ABC-1234",
+    "type": "TRUCK",
+    "capacity": 1200.0,
+    "status": "AVAILABLE",
+    "driver": "c19dc7abd18984088a3bfe912",
+    "is_active": true,
+    "created_at": "2026-04-28T07:03:06.933Z",
+    "updated_at": "2026-04-28T07:03:06.933Z"
+  }
+},
+{
+  "model": "core.driversparestock",
+  "pk": "c645c141dea83453baf6d9a1d",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c9b453c7037ff441f86a6f2d7",
+    "on_hand_quantity": 4,
+    "minimum_required_quantity": 1,
+    "created_at": "2026-04-28T07:15:42.832Z",
+    "updated_at": "2026-04-28T08:15:04.108Z"
+  }
+},
+{
+  "model": "core.driversparestock",
+  "pk": "cb80368a90df647ca8e256b33",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "product": "c8c720dcade1541d798e39ce9",
+    "on_hand_quantity": 2,
+    "minimum_required_quantity": 1,
+    "created_at": "2026-04-28T08:14:55.775Z",
+    "updated_at": "2026-04-28T08:15:04.132Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c45160c7f4de84e96bdad14af",
+  "fields": {
+    "trip_number": "TRP-2026-0005",
+    "driver": "c19dc7abd18984088a3bfe912",
+    "vehicle": "c769d59524385452a9176136e",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "status": "IN_PROGRESS",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-04-29T00:00:00Z",
+    "actual_start_at": "2026-04-28T08:16:37.713Z",
+    "actual_end_at": null,
+    "total_drop_points": 2,
+    "completed_drop_points": 0,
+    "notes": null,
+    "created_at": "2026-04-28T08:13:31.722Z",
+    "updated_at": "2026-04-28T08:17:33.393Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c737a0fa5dfb24c0f9ce307b6",
+  "fields": {
+    "trip_number": "TRP-2026-0004",
+    "driver": "c19dc7abd18984088a3bfe912",
+    "vehicle": "c769d59524385452a9176136e",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "status": "IN_PROGRESS",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-04-28T00:00:00Z",
+    "actual_start_at": "2026-04-28T07:58:03.899Z",
+    "actual_end_at": null,
+    "total_drop_points": 1,
+    "completed_drop_points": 0,
+    "notes": null,
+    "created_at": "2026-04-28T07:57:22.853Z",
+    "updated_at": "2026-04-28T08:00:49.961Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c927ec6cac20b42229bd44b5b",
+  "fields": {
+    "trip_number": "TRP-2026-0002",
+    "driver": "c19dc7abd18984088a3bfe912",
+    "vehicle": "c769d59524385452a9176136e",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-04-28T06:03:06.924Z",
+    "actual_start_at": "2026-04-28T06:18:06.924Z",
+    "actual_end_at": "2026-04-28T07:28:37.193Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": "Seeded in-progress trip",
+    "created_at": "2026-04-28T07:03:07.002Z",
+    "updated_at": "2026-04-28T07:28:37.233Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "cc89942d94db549c1a59cd71a",
+  "fields": {
+    "trip_number": "TRP-2026-0001",
+    "driver": "c19dc7abd18984088a3bfe912",
+    "vehicle": "c769d59524385452a9176136e",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-04-28T09:03:06.924Z",
+    "actual_start_at": "2026-04-28T07:21:02.688Z",
+    "actual_end_at": "2026-04-28T07:40:25.529Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": "Seeded planned trip",
+    "created_at": "2026-04-28T07:03:06.980Z",
+    "updated_at": "2026-04-28T07:40:25.563Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "cd771ed4d1ec04037b5768542",
+  "fields": {
+    "trip_number": "TRP-2026-0003",
+    "driver": "c19dc7abd18984088a3bfe912",
+    "vehicle": "c769d59524385452a9176136e",
+    "warehouse_id": "c4993cd330c994de7af867580",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-04-29T00:00:00Z",
+    "actual_start_at": "2026-04-28T07:30:03.422Z",
+    "actual_end_at": "2026-04-28T07:39:51.694Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-04-28T07:14:34.253Z",
+    "updated_at": "2026-04-28T07:39:51.738Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c3e83989d0a894fb3aecfa9ec",
+  "fields": {
+    "trip": "cc89942d94db549c1a59cd71a",
+    "order": "c279632ec0d5544e3aa9ddbe5",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "SKIPPED",
+    "location_name": "Demo Customer",
+    "address": "Lacson St",
+    "city": "Bacolod City",
+    "province": "Negros Occidental",
+    "zip_code": "6100",
+    "latitude": null,
+    "longitude": null,
+    "contact_name": "Demo Customer",
+    "contact_phone": "09171234567",
+    "notes": "Delivery canceled by driver",
+    "actual_arrival": "2026-04-28T07:40:19.945Z",
+    "actual_departure": "2026-04-28T07:40:25.529Z",
+    "recipient_name": null,
+    "delivery_photo": null,
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-04-28T07:03:06.990Z",
+    "updated_at": "2026-04-28T07:40:25.529Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c3ed0bd895f47434fb34e7a6f",
+  "fields": {
+    "trip": "c45160c7f4de84e96bdad14af",
+    "order": "c5e8997b321544fe781e8e77e",
+    "drop_point_type": "DELIVERY",
+    "sequence": 2,
+    "status": "PENDING",
+    "location_name": "jan",
+    "address": "Cabatangan, 123, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.682472661482947,
+    "longitude": 123.09164425358178,
+    "contact_name": "jan",
+    "contact_phone": "0918721831",
+    "notes": null,
+    "actual_arrival": null,
+    "actual_departure": null,
+    "recipient_name": null,
+    "delivery_photo": null,
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-04-28T08:13:31.750Z",
+    "updated_at": "2026-04-28T08:13:31.751Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "caf0e663d08e94d2d933bd07b",
+  "fields": {
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "order": "c3ae529f7a8a242d9bd40a59f",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "ARRIVED",
+    "location_name": "Jason Saldua",
+    "address": "McKinley Baybay, Mambulac, Silay, Negros Occidental, 6116",
+    "city": "Silay",
+    "province": "Negros Occidental",
+    "zip_code": "6116",
+    "latitude": 10.796422092618988,
+    "longitude": 122.9701643333484,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "9460056944",
+    "notes": null,
+    "actual_arrival": "2026-04-28T08:00:49.944Z",
+    "actual_departure": null,
+    "recipient_name": null,
+    "delivery_photo": null,
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-04-28T07:57:22.871Z",
+    "updated_at": "2026-04-28T08:00:49.944Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "cecd8f2224bd54df58fcd494f",
+  "fields": {
+    "trip": "c927ec6cac20b42229bd44b5b",
+    "order": "c279632ec0d5544e3aa9ddbe5",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "SKIPPED",
+    "location_name": "Demo Customer",
+    "address": "Lacson St",
+    "city": "Bacolod City",
+    "province": "Negros Occidental",
+    "zip_code": "6100",
+    "latitude": null,
+    "longitude": null,
+    "contact_name": "Demo Customer",
+    "contact_phone": "09171234567",
+    "notes": "Delivery canceled by driver",
+    "actual_arrival": "2026-04-28T07:28:31.345Z",
+    "actual_departure": "2026-04-28T07:28:37.193Z",
+    "recipient_name": null,
+    "delivery_photo": null,
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-04-28T07:03:07.010Z",
+    "updated_at": "2026-04-28T07:28:37.193Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "cf7a7ea86badb4d52a3d57529",
+  "fields": {
+    "trip": "c45160c7f4de84e96bdad14af",
+    "order": "c08df389d3ad84a9390804d19",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "ARRIVED",
+    "location_name": "shaneth",
+    "address": "121, Anthony V. Lizares Avenue, Zone 12A, 123, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.74754860922771,
+    "longitude": 122.98531722917689,
+    "contact_name": "shaneth",
+    "contact_phone": "971623161712",
+    "notes": null,
+    "actual_arrival": "2026-04-28T08:17:33.373Z",
+    "actual_departure": null,
+    "recipient_name": null,
+    "delivery_photo": null,
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-04-28T08:13:31.737Z",
+    "updated_at": "2026-04-28T08:17:33.373Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "cfd05a182db164e3fa8e74740",
+  "fields": {
+    "trip": "cd771ed4d1ec04037b5768542",
+    "order": "c4bccd3558d124fd49d2716a2",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "SKIPPED",
+    "location_name": "Jason Saldua",
+    "address": "McKinley Baybay, Mambulac, Silay, Negros Occidental, 6116",
+    "city": "Silay",
+    "province": "Negros Occidental",
+    "zip_code": "6116",
+    "latitude": 10.796422092618988,
+    "longitude": 122.9701643333484,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "9460056944",
+    "notes": "Delivery canceled by driver",
+    "actual_arrival": "2026-04-28T07:31:52.358Z",
+    "actual_departure": "2026-04-28T07:39:51.694Z",
+    "recipient_name": null,
+    "delivery_photo": null,
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-04-28T07:14:34.267Z",
+    "updated_at": "2026-04-28T07:39:51.694Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c05813572b9a84b899ae234b0",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.743148980792391,
+    "longitude": 122.96975006167945,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 91.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:01:11.512Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c17a677536735451e9c7bf560",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.743196964346744,
+    "longitude": 122.96972936934908,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 89.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T07:59:14.748Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c18e6b58e64e24e788056457f",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.74313718010877,
+    "longitude": 122.96972158757319,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 86.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:00:17.327Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c423a871708e243b2a6365033",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.743264,
+    "longitude": 122.96976966666668,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 100.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T07:58:35.039Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c64b276b6682e401f88725f4b",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.7431693949741,
+    "longitude": 122.96972655683297,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 96.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:01:49.759Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "ca4cdcc078954457aac015052",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.743178815986324,
+    "longitude": 122.96981801300288,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 98.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:01:38.150Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "caf3d8dcf32aa40f7a5d12ba7",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.74315527108678,
+    "longitude": 122.96976660266289,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 90.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T07:59:27.274Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "cb67a6eae1f7f4948adb00a6b",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.74312701829262,
+    "longitude": 122.96973330785046,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 86.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T07:59:39.388Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "cc08294983f1143b3b3ccd55e",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.743179843178392,
+    "longitude": 122.96981810910195,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 98.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:16:37.685Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "cc257be56bed642d8928e1eb4",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.743202717189956,
+    "longitude": 122.96970611147748,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 97.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:02:14.411Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "cd4aef6ce20464e00a4e833e1",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": null,
+    "latitude": 10.743264,
+    "longitude": 122.96976966666668,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 100.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T07:58:03.878Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "cf89102cd3d25439f9233a91f",
+  "fields": {
+    "driver": "c19dc7abd18984088a3bfe912",
+    "trip": "c737a0fa5dfb24c0f9ce307b6",
+    "latitude": 10.74322007715372,
+    "longitude": 122.96978206477814,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 99.0,
+    "battery": null,
+    "recorded_at": "2026-04-28T08:17:15.490Z"
+  }
+}
+]

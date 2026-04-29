@@ -97,10 +97,14 @@ export function CustomersView() {
   const customerRows = useMemo(() => {
     const statsByCustomer = new Map<string, { orderCount: number; totalSpend: number; lastOrderNumber: string | null; lastOrderDate: string | null }>()
     const ratingByCustomer = new Map<string, { sum: number; count: number }>()
+    const deliveredOrderIds = new Set<string>()
 
     for (const order of orders) {
-      const normalizedStatus = String(order?.status || '').toUpperCase()
-      if (normalizedStatus !== 'DELIVERED') continue
+      const normalizedOrderStatus = String(order?.status || '').toUpperCase()
+      const normalizedDeliveryStatus = String(order?.deliveryStatus || '').toUpperCase()
+      const isSuccessfulDelivery = normalizedOrderStatus === 'DELIVERED' || normalizedDeliveryStatus === 'DELIVERED'
+      if (!isSuccessfulDelivery) continue
+      if (order?.id) deliveredOrderIds.add(String(order.id))
       const customerId = String(order?.customerId || '')
       if (!customerId) continue
       const prev = statsByCustomer.get(customerId) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
@@ -117,7 +121,10 @@ export function CustomersView() {
     }
 
     for (const item of feedback) {
-      const customerId = String(item?.customerId || '')
+      const feedbackOrderId = String(item?.orderId || item?.order_id || '').trim()
+      if (feedbackOrderId && !deliveredOrderIds.has(feedbackOrderId)) continue
+
+      const customerId = String(item?.customerId || item?.customer_id || item?.customer?.id || '').trim()
       if (!customerId) continue
       const rating = Number(item?.rating || 0)
       if (!Number.isFinite(rating) || rating <= 0) continue
@@ -138,7 +145,7 @@ export function CustomersView() {
         rating,
         ratingCount: feedbackStats.count,
       }
-    }).filter((row) => Number(row.orderCount || 0) > 0)
+    })
   }, [customers, orders, feedback])
 
   const filteredRows = useMemo(() => {
@@ -331,7 +338,7 @@ export function CustomersView() {
                     <th className="text-left p-4 font-medium text-gray-600">Client</th>
                     <th className="text-left p-4 font-medium text-gray-600">Contact</th>
                     <th className="text-left p-4 font-medium text-gray-600">Location</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Orders (Total)</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Successful Deliveries</th>
                     <th className="text-left p-4 font-medium text-gray-600">Last Order</th>
                     <th className="text-left p-4 font-medium text-gray-600">Satisfaction</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>

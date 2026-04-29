@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import hmac
 import json
 import logging
@@ -9,12 +9,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import requests
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import F, Prefetch, Q, Sum
 from django.conf import settings
 from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
@@ -28,9 +27,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from .auth import TOKEN_NAME, create_token, decode_token, extract_token, hash_password, verify_password
 from .models import (
     Customer,
-    Driver,
     DriverSpareStock,
-    DriverVehicle,
     Feedback,
     Inventory,
     InventoryTransaction,
@@ -38,19 +35,13 @@ from .models import (
     Notification,
     Order,
     OrderItem,
-    OrderLogistics,
     OrderStatus,
-    PaymentCheckoutDraft,
-    PasswordResetOTP,
     OrderTimeline,
     WarehouseStage,
     Product,
-    ProductCategory,
     Replacement,
     ReplacementStatus,
-    Role,
-    SavedRouteDraft,
-    SpareStockTransaction,
+    RoleType,
     StockBatch,
     Trip,
     TripDropPoint,
@@ -91,7 +82,8 @@ PASSWORD_POLICY_ERROR = "Password must be at least 8 characters and include uppe
 
 
 def _hide_sample_data() -> bool:
-    return str(getattr(settings, "SHOW_SAMPLE_DATA", "") or "").strip().lower() not in {"1", "true", "yes", "on"}
+    # Local/dev and portal operations should include seeded/demo records by default.
+    return False
 
 
 def _sample_text_query(*fields: str) -> Q:
@@ -146,13 +138,13 @@ def _real_warehouses(qs):
 def _real_vehicles(qs):
     if not _hide_sample_data():
         return qs
-    return qs.exclude(_sample_text_query("license_plate", "color"))
+    return qs.exclude(_sample_text_query("license_plate"))
 
 
 def _real_drivers(qs):
     if not _hide_sample_data():
         return qs
-    return qs.exclude(_sample_text_query("license_number", "user__name", "user__email") | _sample_email_query("user__email"))
+    return qs.exclude(_sample_text_query("license_number", "name", "email") | _sample_email_query("email"))
 
 
 def _real_orders(qs):
@@ -163,9 +155,9 @@ def _real_orders(qs):
             "order_number",
             "customer__name",
             "customer__email",
-            "logistics__shipping_name",
-            "logistics__shipping_address",
-            "logistics__shipping_city",
+            "shipping_name",
+            "shipping_address",
+            "shipping_city",
         )
         | _sample_email_query("customer__email")
     )
@@ -175,47 +167,42 @@ def _real_trips(qs):
     if not _hide_sample_data():
         return qs
     return qs.exclude(
-        _sample_text_query("trip_number", "notes", "driver__license_number", "driver__user__name", "driver__user__email")
-        | _sample_email_query("driver__user__email")
+        _sample_text_query("trip_number", "notes", "driver__license_number", "driver__name", "driver__email")
+        | _sample_email_query("driver__email")
         | _sample_text_query(
             "drop_points__order__order_number",
             "drop_points__order__customer__name",
             "drop_points__order__customer__email",
-            "drop_points__order__logistics__shipping_name",
-            "drop_points__order__logistics__shipping_address",
+            "drop_points__order__shipping_name",
+            "drop_points__order__shipping_address",
         )
         | _sample_email_query("drop_points__order__customer__email")
     ).distinct()
 
 
-def _serialize_driver_vehicle_link(link: DriverVehicle) -> dict[str, Any]:
+def _serialize_driver_vehicle_link(vehicle: Vehicle) -> dict[str, Any]:
+    driver_payload = _serialize_model(vehicle.driver, exclude={"password"}) if getattr(vehicle, "driver", None) else None
+    if driver_payload:
+        driver_payload["user"] = _serialize_model(vehicle.driver, exclude={"password"})
     return {
-        "id": link.id,
-        "isActive": bool(link.is_active),
-        "assignedAt": link.assigned_at.isoformat() if link.assigned_at else None,
-        "driverId": link.driver_id,
-        "vehicleId": link.vehicle_id,
-        "vehicle": _serialize_model(link.vehicle) if getattr(link, "vehicle", None) else None,
-        "driver": _serialize_model(link.driver, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})}) if getattr(link, "driver", None) else None,
+        "id": f"veh-assignment-{vehicle.id}",
+        "isActive": bool(vehicle.driver_id),
+        "assignedAt": vehicle.updated_at.isoformat() if vehicle.driver_id and vehicle.updated_at else None,
+        "driverId": vehicle.driver_id,
+        "vehicleId": vehicle.id,
+        "vehicle": _serialize_model(vehicle),
+        "driver": driver_payload,
     }
 
 
-def _assign_vehicle_to_driver(driver: Driver, vehicle: Vehicle | None) -> None:
-    DriverVehicle.objects.filter(driver=driver, is_active=True).update(is_active=False)
-
+def _assign_vehicle_to_driver(driver: User, vehicle: Vehicle | None) -> None:
     if not vehicle:
+        Vehicle.objects.filter(driver=driver).update(driver=None)
         return
 
-    DriverVehicle.objects.filter(vehicle=vehicle, is_active=True).exclude(driver=driver).update(is_active=False)
-
-    existing = DriverVehicle.objects.filter(driver=driver, vehicle=vehicle).order_by("-assigned_at").first()
-    if existing:
-        existing.is_active = True
-        existing.assigned_at = timezone.now()
-        existing.save(update_fields=["is_active", "assigned_at"])
-        return
-
-    DriverVehicle.objects.create(driver=driver, vehicle=vehicle, is_active=True)
+    Vehicle.objects.filter(driver=driver).exclude(id=vehicle.id).update(driver=None)
+    vehicle.driver = driver
+    vehicle.save(update_fields=["driver", "updated_at"])
 
 
 def _camel(name: str) -> str:
@@ -288,27 +275,6 @@ def _validate_password_strength(password: str) -> str | None:
     return None
 
 
-def _normalize_payment_method(value: Any) -> str:
-    raw = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
-    if raw in {"GCASH", "MAYA", "CARD"}:
-        return raw
-    if raw in {"BANK_TRANSFER", "ONLINE_PAYMENT"}:
-        return "CARD"
-    if raw == "PAYMONGO":
-        return "CARD"
-    if raw == "COD":
-        return "COD"
-    return "COD"
-
-
-def _is_paymongo_payment_method(value: Any) -> bool:
-    return _normalize_payment_method(value) in {"CARD", "GCASH", "MAYA"}
-
-
-def _is_truthy(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _normalize_order_items_for_checkout(raw_items: Any) -> tuple[list[dict[str, Any]], float]:
     if not isinstance(raw_items, list) or not raw_items:
         raise ValueError("items are required")
@@ -363,7 +329,6 @@ def _create_order_from_checkout_payload(
     shipping_cost: float,
     discount: float,
     total_amount: float,
-    normalized_payment_method: str,
     selected_warehouse_id: str | None,
     shipping_latitude: Any,
     shipping_longitude: Any,
@@ -390,7 +355,6 @@ def _create_order_from_checkout_payload(
         discount=discount,
         total_amount=0,
         payment_status=payment_status,
-        payment_method=normalized_payment_method,
         warehouse_id=selected_warehouse_id,
     )
 
@@ -430,20 +394,35 @@ def _create_order_from_checkout_payload(
     order.subtotal = subtotal
     order.tax = tax
     order.total_amount = total_amount
-    order.save(update_fields=["subtotal", "tax", "total_amount", "updated_at"])
-    OrderLogistics.objects.create(
-        order=order,
-        shipping_name=body.get("shippingName") or customer.name,
-        shipping_phone=body.get("shippingPhone") or customer.phone or "",
-        shipping_address=_strip_default_country_suffix(body.get("shippingAddress") or customer.address or ""),
-        shipping_city=body.get("shippingCity") or customer.city or "",
-        shipping_province=body.get("shippingProvince") or customer.province or "",
-        shipping_zip_code=body.get("shippingZipCode") or customer.zip_code or "",
-        shipping_country=DEFAULT_COUNTRY,
-        shipping_latitude=shipping_latitude,
-        shipping_longitude=shipping_longitude,
-        notes=body.get("notes"),
-        special_instructions=body.get("specialInstructions"),
+    order.shipping_name = body.get("shippingName") or customer.name
+    order.shipping_phone = body.get("shippingPhone") or customer.phone or ""
+    order.shipping_address = _strip_default_country_suffix(body.get("shippingAddress") or customer.address or "")
+    order.shipping_city = body.get("shippingCity") or customer.city or ""
+    order.shipping_province = body.get("shippingProvince") or customer.province or ""
+    order.shipping_zip_code = body.get("shippingZipCode") or customer.zip_code or ""
+    order.shipping_country = DEFAULT_COUNTRY
+    order.shipping_latitude = shipping_latitude
+    order.shipping_longitude = shipping_longitude
+    order.notes = body.get("notes")
+    order.special_instructions = body.get("specialInstructions")
+    order.save(
+        update_fields=[
+            "subtotal",
+            "tax",
+            "total_amount",
+            "shipping_name",
+            "shipping_phone",
+            "shipping_address",
+            "shipping_city",
+            "shipping_province",
+            "shipping_zip_code",
+            "shipping_country",
+            "shipping_latitude",
+            "shipping_longitude",
+            "notes",
+            "special_instructions",
+            "updated_at",
+        ]
     )
     OrderTimeline.objects.create(order=order, delivery_date=datetime.fromisoformat(body["deliveryDate"]) if body.get("deliveryDate") else None)
     return order
@@ -489,183 +468,6 @@ def _ensure_order_legacy_checklist_columns_defaults() -> None:
             cursor.execute(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column_name}" SET DEFAULT FALSE')
 
     _order_legacy_checklist_columns_checked = True
-
-
-def _create_paymongo_checkout_session(
-    order: Order,
-    request: HttpRequest,
-    selected_method: str | None = None,
-    *,
-    metadata_override: dict[str, Any] | None = None,
-    redirect_reference_id: str | None = None,
-) -> str:
-    secret_key = str(getattr(settings, "PAYMONGO_SECRET_KEY", "") or "").strip()
-    if not secret_key:
-        raise ValueError("PAYMONGO_SECRET_KEY is not configured")
-
-    origin = str(request.headers.get("origin") or "").strip()
-    if not origin:
-        referer = str(request.headers.get("referer") or "").strip()
-        if referer:
-            try:
-                from urllib.parse import urlsplit
-
-                parsed = urlsplit(referer)
-                if parsed.scheme and parsed.netloc:
-                    origin = f"{parsed.scheme}://{parsed.netloc}"
-            except Exception:
-                origin = ""
-
-    success_url = str(getattr(settings, "PAYMONGO_SUCCESS_URL", "") or "").strip()
-    cancel_url = str(getattr(settings, "PAYMONGO_CANCEL_URL", "") or "").strip()
-    reference_id = str(redirect_reference_id or order.id or "").strip()
-    if not success_url:
-        base = origin or "http://localhost:3000"
-        success_url = f"{base}/?payment=success&orderId={reference_id}"
-    if not cancel_url:
-        base = origin or "http://localhost:3000"
-        cancel_url = f"{base}/?payment=cancelled&orderId={reference_id}"
-
-    requested = _normalize_payment_method(selected_method)
-    method_map = {"CARD": ["card"], "GCASH": ["gcash"], "MAYA": ["paymaya"]}
-    payment_method_types: list[str]
-    if requested in method_map:
-        payment_method_types = method_map[requested]
-    else:
-        configured_types = str(getattr(settings, "PAYMONGO_PAYMENT_METHOD_TYPES", "") or "").strip()
-        if configured_types:
-            allowed = {"card", "gcash", "paymaya"}
-            payment_method_types = [item.strip().lower() for item in configured_types.split(",") if item.strip().lower() in allowed]
-            if not payment_method_types:
-                payment_method_types = ["gcash", "paymaya", "card"]
-        else:
-            payment_method_types = ["gcash", "paymaya", "card"]
-
-    amount_centavos = max(100, int(round(float(order.total_amount or 0) * 100)))
-    customer = getattr(order, "customer", None)
-    try:
-        logistics = getattr(order, "logistics", None)
-    except Exception:
-        logistics = None
-    billing_name = str(
-        (getattr(logistics, "shipping_name", "") if logistics else "")
-        or (getattr(customer, "name", "") if customer else "")
-        or ""
-    ).strip()
-    billing_email = str((getattr(customer, "email", "") if customer else "") or "").strip()
-    billing_phone = str(
-        (getattr(logistics, "shipping_phone", "") if logistics else "")
-        or (getattr(customer, "phone", "") if customer else "")
-        or ""
-    ).strip()
-    billing: dict[str, Any] | None = None
-    if billing_name or billing_email or billing_phone:
-        billing = {
-            "name": billing_name or None,
-            "email": billing_email or None,
-            "phone": billing_phone or None,
-        }
-
-    payload = {
-        "data": {
-            "attributes": {
-                "billing": billing,
-                "send_email_receipt": False,
-                "show_description": True,
-                "show_line_items": True,
-                "description": f"Payment for order {order.order_number}",
-                "line_items": [
-                    {
-                        "currency": "PHP",
-                        "amount": amount_centavos,
-                        "name": f"Order {order.order_number}",
-                        "quantity": 1,
-                    }
-                ],
-                "payment_method_types": payment_method_types,
-                "success_url": success_url,
-                "cancel_url": cancel_url,
-                "metadata": metadata_override
-                or {
-                    "order_id": order.id,
-                    "order_number": order.order_number,
-                    "customer_id": order.customer_id,
-                },
-            }
-        }
-    }
-
-    response = requests.post(
-        "https://api.paymongo.com/v1/checkout_sessions",
-        auth=(secret_key, ""),
-        json=payload,
-        timeout=20,
-    )
-    data = response.json() if response.content else {}
-    if response.status_code >= 400:
-        detail = data.get("errors") if isinstance(data, dict) else None
-        raise ValueError(f"Unable to initialize PayMongo checkout: {detail or response.text}")
-
-    checkout_url = (
-        ((data or {}).get("data") or {}).get("attributes", {}).get("checkout_url")
-        if isinstance(data, dict)
-        else None
-    )
-    if not checkout_url:
-        raise ValueError("Unable to initialize PayMongo checkout: missing checkout URL")
-    return str(checkout_url)
-
-
-def _extract_paymongo_metadata(payload: Any) -> dict[str, Any]:
-    queue: list[Any] = [payload]
-    while queue:
-        current = queue.pop(0)
-        if isinstance(current, dict):
-            metadata = current.get("metadata")
-            if isinstance(metadata, dict) and (
-                metadata.get("order_id")
-                or metadata.get("orderId")
-                or metadata.get("order_number")
-                or metadata.get("draft_id")
-                or metadata.get("draftId")
-            ):
-                return metadata
-            queue.extend(current.values())
-        elif isinstance(current, list):
-            queue.extend(current)
-    return {}
-
-
-def _parse_paymongo_signature_header(value: Any) -> dict[str, str]:
-    parts: dict[str, str] = {}
-    for chunk in str(value or "").split(","):
-        item = chunk.strip()
-        if not item or "=" not in item:
-            continue
-        key, raw = item.split("=", 1)
-        parts[key.strip().lower()] = raw.strip()
-    return parts
-
-
-def _verify_paymongo_webhook_signature(request: HttpRequest) -> bool:
-    secret = str(getattr(settings, "PAYMONGO_WEBHOOK_SECRET", "") or "").strip()
-    # Keep local/dev setups working when the webhook secret is not configured.
-    if not secret:
-        return True
-
-    signature_header = request.headers.get("Paymongo-Signature", "")
-    parsed = _parse_paymongo_signature_header(signature_header)
-    timestamp = parsed.get("t", "")
-    if not timestamp:
-        return False
-
-    expected_signatures = [sig for sig in (parsed.get("te", ""), parsed.get("li", "")) if sig]
-    if not expected_signatures:
-        return False
-
-    signed_payload = timestamp.encode("utf-8") + b"." + bytes(request.body or b"")
-    computed = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
-    return any(hmac.compare_digest(computed, expected) for expected in expected_signatures)
 
 
 NEGROS_OCCIDENTAL_BOUNDS = {
@@ -885,7 +687,7 @@ def _trip_status_rank(value: Any) -> int:
 
 def _select_trip_for_order(order_id: str, require_driver: bool = False) -> Trip | None:
     trip_qs = _real_trips(
-        Trip.objects.filter(drop_points__order_id=order_id).select_related("driver__user", "vehicle").order_by("-updated_at")
+        Trip.objects.filter(drop_points__order_id=order_id).select_related("driver", "vehicle").order_by("-updated_at")
     )
     if require_driver:
         trip_qs = trip_qs.filter(driver__isnull=False)
@@ -908,7 +710,7 @@ def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) 
         return {}
 
     trip_qs = _real_trips(
-        Trip.objects.filter(drop_points__order_id__in=normalized_order_ids).select_related("driver__user", "vehicle")
+        Trip.objects.filter(drop_points__order_id__in=normalized_order_ids).select_related("driver", "vehicle")
     ).order_by("-updated_at").prefetch_related(
         Prefetch(
             "drop_points",
@@ -977,7 +779,7 @@ def _user_payload(user: User) -> dict[str, Any]:
         "email": user.email,
         "name": user.name,
         "avatar": user.avatar,
-        "role": user.role.name,
+        "role": user.role,
         "type": "staff",
     }
 
@@ -1022,34 +824,22 @@ def _serialize_order(
     data["warehouseCode"] = str(getattr(warehouse, "code", "") or "").strip() or None
     data["warehouseCity"] = str(getattr(warehouse, "city", "") or "").strip() or None
     data["warehouseProvince"] = str(getattr(warehouse, "province", "") or "").strip() or None
-    logistics = getattr(order, "logistics", None)
     timeline = getattr(order, "timeline", None)
-    data["logistics"] = _serialize_model(logistics) if logistics else None
+    data["logistics"] = None
     data["timeline"] = _serialize_model(timeline) if timeline else None
 
     # Keep backward-compatible top-level shipping/timeline fields expected by portal UIs.
-    if logistics:
-        shipping_latitude = logistics.shipping_latitude if logistics.shipping_latitude is not None else order.customer.latitude
-        shipping_longitude = logistics.shipping_longitude if logistics.shipping_longitude is not None else order.customer.longitude
-        data["shippingName"] = logistics.shipping_name
-        data["shippingPhone"] = logistics.shipping_phone
-        data["shippingAddress"] = _strip_default_country_suffix(logistics.shipping_address)
-        data["shippingCity"] = logistics.shipping_city
-        data["shippingProvince"] = logistics.shipping_province
-        data["shippingZipCode"] = logistics.shipping_zip_code
-        data["shippingCountry"] = DEFAULT_COUNTRY
-        data["shippingLatitude"] = shipping_latitude
-        data["shippingLongitude"] = shipping_longitude
-    else:
-        data["shippingName"] = None
-        data["shippingPhone"] = None
-        data["shippingAddress"] = None
-        data["shippingCity"] = None
-        data["shippingProvince"] = None
-        data["shippingZipCode"] = None
-        data["shippingCountry"] = DEFAULT_COUNTRY
-        data["shippingLatitude"] = order.customer.latitude
-        data["shippingLongitude"] = order.customer.longitude
+    shipping_latitude = order.shipping_latitude if order.shipping_latitude is not None else order.customer.latitude
+    shipping_longitude = order.shipping_longitude if order.shipping_longitude is not None else order.customer.longitude
+    data["shippingName"] = order.shipping_name
+    data["shippingPhone"] = order.shipping_phone
+    data["shippingAddress"] = _strip_default_country_suffix(order.shipping_address)
+    data["shippingCity"] = order.shipping_city
+    data["shippingProvince"] = order.shipping_province
+    data["shippingZipCode"] = order.shipping_zip_code
+    data["shippingCountry"] = DEFAULT_COUNTRY
+    data["shippingLatitude"] = shipping_latitude
+    data["shippingLongitude"] = shipping_longitude
 
     if timeline:
         data["deliveryDate"] = timeline.delivery_date.isoformat() if timeline.delivery_date else None
@@ -1077,7 +867,7 @@ def _serialize_order(
     if include_progress:
         progress_trip = _select_trip_for_order(order.id, require_driver=False)
         if progress_trip:
-            progress_trip = Trip.objects.select_related("driver__user", "vehicle").prefetch_related("drop_points__order").filter(id=progress_trip.id).first()
+            progress_trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").filter(id=progress_trip.id).first()
         progress_drop_point = None
         if progress_trip:
             progress_drop_point = next(
@@ -1122,7 +912,6 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
             warehouse_id = str(getattr(source_trip, "warehouse_id", "") or "").strip() or None
     warehouse = Warehouse.objects.filter(id=warehouse_id).first() if warehouse_id else None
     order_customer = getattr(order, "customer", None)
-    order_logistics = getattr(order, "logistics", None)
     customer = order_customer
     if not customer and entry.customer_id:
         customer = Customer.objects.filter(id=entry.customer_id).first()
@@ -1131,7 +920,7 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
             str(value).strip()
             for value in (
                 getattr(customer, "name", None),
-                getattr(order_logistics, "shipping_name", None),
+                getattr(order, "shipping_name", None),
                 getattr(customer, "email", None),
                 entry.customer_id,
             )
@@ -1152,7 +941,7 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         "id": getattr(order, "id", None),
         "orderNumber": getattr(order, "order_number", None),
         "customer": data["customer"],
-        "shippingName": getattr(order_logistics, "shipping_name", None),
+        "shippingName": getattr(order, "shipping_name", None),
         "warehouseId": warehouse_id,
         "warehouseName": data.get("warehouseName"),
         "warehouseCode": data.get("warehouseCode"),
@@ -1160,7 +949,16 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         "warehouseProvince": data.get("warehouseProvince"),
     } if order else None
     data["replacementMode"] = _normalize_replacement_mode(data.get("replacementMode"))
-    data["status"] = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
+    normalized_status = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
+    data["workflowStatus"] = normalized_status
+    is_partial_follow_up = (
+        data["replacementMode"] == REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
+        and normalized_status == ReplacementStatus.NEEDS_FOLLOW_UP
+    )
+    # For partial replacements, keep NEEDS_FOLLOW_UP as warehouse-stage workflow,
+    # while exposing a completed primary status to client-facing status views.
+    data["warehouseStage"] = "NEEDS_FOLLOW_UP" if is_partial_follow_up else None
+    data["status"] = ReplacementStatus.COMPLETED if is_partial_follow_up else normalized_status
     original_item = None
     if entry.original_order_item_id:
         original_item = OrderItem.objects.select_related("product").filter(id=entry.original_order_item_id).first()
@@ -1209,7 +1007,7 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
 
 def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
     data = _serialize_model(trip)
-    data["driver"] = _serialize_model(trip.driver, include={"user": lambda d: _serialize_model(d.user, exclude={"password"})})
+    data["driver"] = _serialize_model(trip.driver, exclude={"password"}) if getattr(trip, "driver", None) else None
     data["vehicle"] = _serialize_model(trip.vehicle)
     warehouse_lat = None
     warehouse_lng = None
@@ -1231,7 +1029,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
             drop_point_rows = trip.drop_points.select_related(
                 "order",
                 "order__customer",
-                "order__logistics",
                 "order__timeline",
             ).prefetch_related(
                 "order__items__product",
@@ -1301,12 +1098,11 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
 
                 # Backfill coordinates for old trips where TripDropPoint lat/lng were saved as null.
                 if _to_float_or_none(row.get("latitude")) is None or _to_float_or_none(row.get("longitude")) is None:
-                    logistics = getattr(dp.order, "logistics", None)
                     fallback_lat = _to_float_or_none(
-                        (logistics.shipping_latitude if logistics else None) or getattr(dp.order.customer, "latitude", None)
+                        getattr(dp.order, "shipping_latitude", None) or getattr(dp.order.customer, "latitude", None)
                     )
                     fallback_lng = _to_float_or_none(
-                        (logistics.shipping_longitude if logistics else None) or getattr(dp.order.customer, "longitude", None)
+                        getattr(dp.order, "shipping_longitude", None) or getattr(dp.order.customer, "longitude", None)
                     )
                     if fallback_lat is not None and fallback_lng is not None:
                         row["latitude"] = fallback_lat
@@ -1320,22 +1116,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                 trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
     data["tripSchedule"] = min(trip_schedule_candidates) if trip_schedule_candidates else None
     return data
-
-
-def _serialize_saved_route(route: SavedRouteDraft) -> dict[str, Any]:
-    return {
-        "id": route.id,
-        "date": route.date.isoformat() if route.date else None,
-        "warehouseId": route.warehouse_id,
-        "warehouseName": route.warehouse_name,
-        "city": route.city,
-        "totalDistanceKm": float(route.total_distance_km or 0),
-        "orderIds": [str(x) for x in (route.order_ids or [])],
-        "orders": route.orders_json or [],
-        "createdByUserId": route.created_by_user_id,
-        "createdAt": route.created_at.isoformat() if route.created_at else None,
-        "updatedAt": route.updated_at.isoformat() if route.updated_at else None,
-    }
 
 
 def _warehouse_checklist_complete(order: Order) -> bool:
@@ -1444,7 +1224,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
     return row
 
 
-def _allocate_driver_spare_products_for_loaded_order(order: Order, driver: Driver | None) -> None:
+def _allocate_driver_spare_products_for_loaded_order(order: Order, driver: User | None) -> None:
     if not driver:
         return
 
@@ -1456,7 +1236,7 @@ def _allocate_driver_spare_products_for_loaded_order(order: Order, driver: Drive
         recommended_qty = _int(spare_products.get("recommendedQuantity"), 0)
         if recommended_qty <= 0:
             continue
-        if SpareStockTransaction.objects.filter(
+        if InventoryTransaction.objects.filter(
             driver=driver,
             product=product,
             reference_type=SPARE_PRODUCTS_REFERENCE_TYPE,
@@ -1482,13 +1262,13 @@ def _allocate_driver_spare_products_for_loaded_order(order: Order, driver: Drive
         stock, _ = DriverSpareStock.objects.get_or_create(
             driver=driver,
             product=product,
-            defaults={"quantity": 0, "min_quantity": 0},
+            defaults={"on_hand_quantity": 0, "minimum_required_quantity": 0},
         )
-        stock.quantity = _int(stock.quantity, 0) + allocated_qty
-        stock.min_quantity = max(_int(stock.min_quantity, 0), allocated_qty)
-        stock.save(update_fields=["quantity", "min_quantity", "updated_at"])
+        stock.on_hand_quantity = _int(stock.on_hand_quantity, 0) + allocated_qty
+        stock.minimum_required_quantity = max(_int(stock.minimum_required_quantity, 0), allocated_qty)
+        stock.save(update_fields=["on_hand_quantity", "minimum_required_quantity", "updated_at"])
 
-        SpareStockTransaction.objects.create(
+        InventoryTransaction.objects.create(
             driver=driver,
             product=product,
             type="IN",
@@ -1606,7 +1386,7 @@ def _return_unused_spare_products_for_delivered_order(
         if not product:
             continue
 
-        if SpareStockTransaction.objects.filter(
+        if InventoryTransaction.objects.filter(
             driver=driver,
             product=product,
             type="OUT",
@@ -1616,7 +1396,7 @@ def _return_unused_spare_products_for_delivered_order(
             continue
 
         loaded_qty = (
-            SpareStockTransaction.objects.filter(
+            InventoryTransaction.objects.filter(
                 driver=driver,
                 product=product,
                 type="IN",
@@ -1667,22 +1447,20 @@ def _return_unused_spare_products_for_delivered_order(
                 product=product,
                 quantity=0,
                 reserved_quantity=0,
-                min_stock=10,
-                max_stock=100,
-                reorder_point=20,
+                threshold=10,
             )
 
         driver_stock = DriverSpareStock.objects.filter(driver=driver, product=product).first()
         if not driver_stock:
             continue
-        transferable_qty = min(unused_qty, max(0, _int(driver_stock.quantity, 0)))
+        transferable_qty = min(unused_qty, max(0, _int(driver_stock.on_hand_quantity, 0)))
         if transferable_qty <= 0:
             continue
 
         with transaction.atomic():
-            driver_stock.quantity = max(0, _int(driver_stock.quantity, 0) - transferable_qty)
-            driver_stock.save(update_fields=["quantity", "updated_at"])
-            SpareStockTransaction.objects.create(
+            driver_stock.on_hand_quantity = max(0, _int(driver_stock.on_hand_quantity, 0) - transferable_qty)
+            driver_stock.save(update_fields=["on_hand_quantity", "updated_at"])
+            InventoryTransaction.objects.create(
                 driver=driver,
                 product=product,
                 type="OUT",
@@ -2158,7 +1936,8 @@ def _allocate_inventory_for_order_item(
 
 
 OTP_EXPIRY_MINUTES = 10
-OTP_MAX_ATTEMPTS = 5
+
+EMAIL_VERIFICATION_TOKEN_HOURS = 1
 
 
 def _normalize_email(value: Any) -> str:
@@ -2169,12 +1948,12 @@ def _is_gmail_email(email: str) -> bool:
     return bool(email and email.endswith("@gmail.com") and "@" in email and email.count("@") == 1)
 
 
-def _staff_email_conflict_message(email: str, role: Role, exclude_user_id: str | None = None) -> str | None:
+def _staff_email_conflict_message(email: str, role: str, exclude_user_id: str | None = None) -> str | None:
     normalized_email = _normalize_email(email)
     if not normalized_email:
         return None
 
-    qs = User.objects.filter(email=normalized_email, role=role)
+    qs = User.objects.filter(email=normalized_email, role=str(role or "").strip())
     if exclude_user_id:
         qs = qs.exclude(id=exclude_user_id)
     if qs.exists():
@@ -2189,7 +1968,7 @@ def _email_exists_for_account(email: str, account_type: str, role_id: str | None
     if account_type == "customer":
         return Customer.objects.filter(email=normalized_email).exists()
     if account_type == "staff" and role_id:
-        return User.objects.filter(email=normalized_email, role_id=role_id).exists()
+        return User.objects.filter(email=normalized_email, role=role_id).exists()
     if account_type == "staff":
         return User.objects.filter(email=normalized_email).exists()
     return False
@@ -2248,24 +2027,54 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
     )
 
 
-def _latest_verified_otp(email: str, account_type: str):
-    return (
-        PasswordResetOTP.objects.filter(
-            email=email,
-            account_type=account_type,
-            consumed_at__isnull=False,
-            verified_at__isnull=False,
-        )
-        .order_by("-verified_at", "-created_at")
-        .first()
+def _otp_secret() -> str:
+    return str(getattr(settings, "OTP_SECRET_KEY", "") or settings.SECRET_KEY or "otp-fallback-secret")
+
+
+def _otp_bucket(value: datetime) -> int:
+    timestamp = int(value.timestamp())
+    return timestamp // 60
+
+
+def _stateless_otp_for_bucket(email: str, account_type: str, purpose: str, bucket: int) -> str:
+    payload = f"{email}|{account_type}|{purpose}|{bucket}"
+    digest = hmac.new(_otp_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{int(digest[:12], 16) % 1000000:06d}"
+
+
+def _is_valid_stateless_otp(otp_code: str, email: str, account_type: str, purpose: str, now: datetime | None = None) -> bool:
+    candidate = str(otp_code or "").strip()
+    if not candidate:
+        return False
+    current = now or timezone.now()
+    for minute_offset in range(0, OTP_EXPIRY_MINUTES + 1):
+        bucket = _otp_bucket(current - timedelta(minutes=minute_offset))
+        expected = _stateless_otp_for_bucket(email, account_type, purpose, bucket)
+        if hmac.compare_digest(candidate, expected):
+            return True
+    return False
+
+
+def _issue_email_verification_token(email: str, account_type: str) -> str:
+    return create_token(
+        {
+            "type": "email_verification",
+            "email": email,
+            "accountType": account_type,
+        },
+        exp_hours=EMAIL_VERIFICATION_TOKEN_HOURS,
     )
 
 
-def _has_recent_verified_email(email: str, account_type: str) -> bool:
-    otp = _latest_verified_otp(email, account_type)
-    if not otp:
+def _is_email_verification_token_valid(token: str, email: str, account_type: str) -> bool:
+    payload = decode_token(str(token or "").strip())
+    if not payload:
         return False
-    return bool(otp.verified_at and otp.verified_at >= timezone.now() - timedelta(minutes=OTP_EXPIRY_MINUTES))
+    if str(payload.get("type") or "") != "email_verification":
+        return False
+    token_email = _normalize_email(payload.get("email"))
+    token_account_type = str(payload.get("accountType") or "").strip().lower()
+    return token_email == email and token_account_type == account_type
 
 
 @csrf_exempt
@@ -2285,7 +2094,7 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
     if account_type == "staff":
         if not role_id:
             return _err("Role is required before verifying a staff email")
-        if not Role.objects.filter(id=role_id).exists():
+        if role_id not in {x for x, _ in RoleType.choices}:
             return _err("Role not found", 404)
     if _email_exists_for_account(email, account_type, role_id):
         return _err("Email already exists for this account type", 409)
@@ -2293,19 +2102,10 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
         return _err("Verification email service is not configured", 500)
 
     now = timezone.now()
-    code = f"{secrets.randbelow(1000000):06d}"
-    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
-    otp = PasswordResetOTP.objects.create(
-        email=email,
-        account_type=account_type,
-        otp_hash=hash_password(code),
-        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
-    )
+    code = _stateless_otp_for_bucket(email, account_type, "email_verification", _otp_bucket(now))
     try:
         _send_email_verification_otp(email, code)
     except Exception:
-        otp.consumed_at = now
-        otp.save(update_fields=["consumed_at", "updated_at"])
         return _err("Unable to send verification email right now", 500)
 
     return _ok({"success": True, "message": "Verification code sent."})
@@ -2329,29 +2129,10 @@ def auth_email_verification_confirm(request: HttpRequest) -> JsonResponse:
         return _err("Verification code is required")
 
     now = timezone.now()
-    otp = (
-        PasswordResetOTP.objects.filter(
-            email=email,
-            account_type=account_type,
-            consumed_at__isnull=True,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    if not otp or otp.expires_at < now:
+    if not _is_valid_stateless_otp(otp_code, email, account_type, "email_verification", now):
         return _err("Invalid or expired verification code", 400)
-    if otp.attempt_count >= OTP_MAX_ATTEMPTS:
-        return _err("Too many invalid verification attempts. Request a new code.", 429)
-    if not verify_password(otp_code, otp.otp_hash):
-        otp.attempt_count += 1
-        otp.save(update_fields=["attempt_count", "updated_at"])
-        return _err("Invalid or expired verification code", 400)
-
-    otp.verified_at = now
-    otp.consumed_at = now
-    otp.save(update_fields=["verified_at", "consumed_at", "updated_at"])
-    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
-    return _ok({"success": True, "message": "Email verified successfully"})
+    verification_token = _issue_email_verification_token(email, account_type)
+    return _ok({"success": True, "message": "Email verified successfully", "verificationToken": verification_token})
 
 
 @require_GET
@@ -2379,9 +2160,9 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         "driver": {"DRIVER"},
         "warehouse": {"WAREHOUSE_STAFF"},
     }.get(portal)
-    users_qs = User.objects.select_related("role").filter(email=email)
+    users_qs = User.objects.filter(email=email)
     if role_scope:
-        users_qs = users_qs.filter(role__name__in=role_scope)
+        users_qs = users_qs.filter(role__in=role_scope)
     user = users_qs.first()
     if not user:
         return _err("Invalid email or password", 401)
@@ -2518,20 +2299,16 @@ def auth_staff_google(request: HttpRequest) -> JsonResponse:
         return _err("Invalid credentials", 401)
 
     expected_roles = {"driver": {"DRIVER"}, "warehouse": {"WAREHOUSE_STAFF"}}
-    user = (
-        User.objects.select_related("role")
-        .filter(email=email, is_active=True, role__name__in=expected_roles[portal])
-        .first()
-    )
+    user = User.objects.filter(email=email, is_active=True, role__in=expected_roles[portal]).first()
     if not user:
         return _err("Invalid credentials", 401)
 
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
-    if portal == "warehouse" and user.role.name != "WAREHOUSE_STAFF":
+    if portal == "warehouse" and user.role != "WAREHOUSE_STAFF":
         return _err("Invalid credentials", 401)
-    if portal == "driver" and user.role.name != "DRIVER":
+    if portal == "driver" and user.role != "DRIVER":
         return _err("Invalid credentials", 401)
 
     token = create_token(payload, 24 * 30 if remember_me else 24)
@@ -2626,19 +2403,10 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
         return _err("Account not found for this email", 404)
 
     now = timezone.now()
-    code = f"{secrets.randbelow(1000000):06d}"
-    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
-    otp = PasswordResetOTP.objects.create(
-        email=email,
-        account_type=account_type,
-        otp_hash=hash_password(code),
-        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
-    )
+    code = _stateless_otp_for_bucket(email, account_type, "password_reset", _otp_bucket(now))
     try:
         _send_reset_otp_email(email, code)
     except Exception:
-        otp.consumed_at = now
-        otp.save(update_fields=["consumed_at", "updated_at"])
         return _err("Unable to send OTP email right now", 500)
 
     return _ok({"success": True, "message": "OTP sent successfully."})
@@ -2664,22 +2432,7 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
         return _err(password_error)
 
     now = timezone.now()
-    otp = (
-        PasswordResetOTP.objects.filter(
-            email=email,
-            account_type=account_type,
-            consumed_at__isnull=True,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    if not otp or otp.expires_at < now:
-        return _err("Invalid or expired OTP", 400)
-    if otp.attempt_count >= OTP_MAX_ATTEMPTS:
-        return _err("Too many invalid OTP attempts. Request a new code.", 429)
-    if not verify_password(otp_code, otp.otp_hash):
-        otp.attempt_count += 1
-        otp.save(update_fields=["attempt_count", "updated_at"])
+    if not _is_valid_stateless_otp(otp_code, email, account_type, "password_reset", now):
         return _err("Invalid or expired OTP", 400)
 
     if account_type == "staff":
@@ -2692,11 +2445,6 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
     account.password = hash_password(new_password)
     account.save(update_fields=["password", "updated_at"])
 
-    otp.verified_at = now
-    otp.consumed_at = now
-    otp.save(update_fields=["verified_at", "consumed_at", "updated_at"])
-    PasswordResetOTP.objects.filter(email=email, account_type=account_type, consumed_at__isnull=True).update(consumed_at=now)
-
     return _ok({"success": True, "message": "Password reset successful. Please log in."})
 
 
@@ -2705,8 +2453,8 @@ def roles_list(request: HttpRequest) -> JsonResponse:
     _, err = _require_staff(request)
     if err:
         return err
-    roles = Role.objects.all().order_by("name")
-    return _ok({"success": True, "roles": [_serialize_model(r) for r in roles]})
+    roles = [{"id": value, "name": value, "description": label} for value, label in RoleType.choices]
+    return _ok({"success": True, "roles": roles})
 
 
 @csrf_exempt
@@ -2717,13 +2465,13 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = _real_users(User.objects.select_related("role").all()).order_by("-created_at")
+        qs = User.objects.all().order_by("-created_at")
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(email__icontains=s))
         total = qs.count()
         rows = list(qs[off : off + size])
-        users = [_serialize_model(u, include={"role": lambda x: _serialize_model(x.role)}, exclude={"password"}) for u in rows]
+        users = [_serialize_model(u, exclude={"password"}) for u in rows]
         return _ok({"success": True, "users": users, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
 
     body = _json_body(request)
@@ -2731,6 +2479,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     name = str(body.get("name", "")).strip()
     password = str(body.get("password", "")).strip()
     role_id = str(body.get("roleId", "")).strip()
+    email_verification_token = str(body.get("emailVerificationToken", "")).strip()
     if not email or not name or not password or not role_id:
         return _err("name, email, password and roleId are required")
     password_error = _validate_password_strength(password)
@@ -2738,14 +2487,13 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         return _err(password_error)
     if not _is_gmail_email(email):
         return _err("Only Gmail addresses are allowed for staff/driver accounts")
-    try:
-        role = Role.objects.get(id=role_id)
-    except Role.DoesNotExist:
+    if role_id not in {x for x, _ in RoleType.choices}:
         return _err("Role not found", 404)
-    existing_message = _staff_email_conflict_message(email, role)
+    role = role_id
+    existing_message = _staff_email_conflict_message(email, role_id)
     if existing_message:
         return _err(existing_message, 409)
-    if not _has_recent_verified_email(email, "staff"):
+    if not _is_email_verification_token_valid(email_verification_token, email, "staff"):
         return _err("Please verify this Gmail address before creating the user", 400)
     user = User.objects.create(
         email=email,
@@ -2756,7 +2504,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         role=role,
         is_active=bool(body.get("isActive", True)),
     )
-    return _ok({"success": True, "user": _serialize_model(user, include={"role": lambda x: _serialize_model(x.role)}, exclude={"password"})}, 201)
+    return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})}, 201)
 
 
 @csrf_exempt
@@ -2766,11 +2514,11 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     if err:
         return err
     try:
-        user = User.objects.select_related("role").get(id=user_id)
+        user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return _err("User not found", 404)
     if request.method == "GET":
-        return _ok({"success": True, "user": _serialize_model(user, include={"role": lambda x: _serialize_model(x.role)}, exclude={"password"})})
+        return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
     if request.method == "DELETE":
         user.delete()
         return _ok({"success": True})
@@ -2786,15 +2534,15 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
             return _err(password_error)
         user.password = hash_password(str(body["password"]))
     if body.get("roleId"):
-        try:
-            user.role = Role.objects.get(id=str(body["roleId"]))
-        except Role.DoesNotExist:
+        role_value = str(body["roleId"])
+        if role_value not in {x for x, _ in RoleType.choices}:
             return _err("Role not found", 404)
+        user.role = role_value
     existing_message = _staff_email_conflict_message(user.email, user.role, exclude_user_id=user.id)
     if existing_message:
         return _err(existing_message, 409)
     user.save()
-    return _ok({"success": True, "user": _serialize_model(user, include={"role": lambda x: _serialize_model(x.role)}, exclude={"password"})})
+    return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
 
 
 @csrf_exempt
@@ -2907,8 +2655,7 @@ def categories_list(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p:
         return _err("Unauthorized", 401)
-    rows = ProductCategory.objects.filter(is_active=True).order_by("name")
-    return _ok({"success": True, "categories": [_serialize_model(r) for r in rows]})
+    return _ok({"success": True, "categories": []})
 
 
 @csrf_exempt
@@ -3005,7 +2752,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         return _err("Unauthorized", 401)
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = _real_products(Product.objects.select_related("category").all()).order_by("name")
+        qs = _real_products(Product.objects.all()).order_by("name")
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(sku__icontains=s))
@@ -3034,10 +2781,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
 
         products_out = []
         for product in rows:
-            row = _serialize_model(
-                product,
-                include={"category": (lambda o: _serialize_model(o.category) if o.category else None)},
-            )
+            row = _serialize_model(product)
             inventory_entries = inventory_by_product.get(product.id, [])
             available_quantity = sum(
                 max(0, _int(item.get("quantity"), 0) - _int(item.get("reservedQuantity"), 0))
@@ -3054,12 +2798,6 @@ def products_collection(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     if not body.get("sku") or not body.get("name"):
         return _err("sku and name are required")
-    category = None
-    if body.get("categoryId"):
-        try:
-            category = ProductCategory.objects.get(id=str(body["categoryId"]))
-        except ProductCategory.DoesNotExist:
-            return _err("Category not found", 404)
     try:
         product_unit = _normalize_product_unit(body.get("unit"))
     except ValueError as exc:
@@ -3069,14 +2807,12 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         name=str(body["name"]).strip(),
         image_url=body.get("imageUrl"),
         description=body.get("description"),
-        category=category,
         unit=product_unit,
         weight=body.get("weight"),
-        dimensions=body.get("dimensions"),
         price=float(body.get("price") or 0),
         is_active=bool(body.get("isActive", True)),
     )
-    return _ok({"success": True, "product": _serialize_model(prod, include={"category": (lambda o: _serialize_model(o.category) if o.category else None)})}, 201)
+    return _ok({"success": True, "product": _serialize_model(prod)}, 201)
 
 
 @csrf_exempt
@@ -3086,11 +2822,11 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
     if not p:
         return _err("Unauthorized", 401)
     try:
-        prod = Product.objects.select_related("category").get(id=product_id)
+        prod = Product.objects.get(id=product_id)
     except Product.DoesNotExist:
         return _err("Product not found", 404)
     if request.method == "GET":
-        return _ok({"success": True, "product": _serialize_model(prod, include={"category": (lambda o: _serialize_model(o.category) if o.category else None)})})
+        return _ok({"success": True, "product": _serialize_model(prod)})
     _, err = _require_staff(request)
     if err:
         return err
@@ -3103,22 +2839,14 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             prod.unit = _normalize_product_unit(body.get("unit"))
         except ValueError as exc:
             return _err(str(exc), 400)
-    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("description", "description"), ("weight", "weight"), ("dimensions", "dimensions"), ("price", "price")]
+    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("description", "description"), ("weight", "weight"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
     if "isActive" in body:
         prod.is_active = bool(body.get("isActive"))
-    if "categoryId" in body:
-        if body.get("categoryId"):
-            try:
-                prod.category = ProductCategory.objects.get(id=str(body["categoryId"]))
-            except ProductCategory.DoesNotExist:
-                return _err("Category not found", 404)
-        else:
-            prod.category = None
     prod.save()
-    return _ok({"success": True, "product": _serialize_model(prod, include={"category": (lambda o: _serialize_model(o.category) if o.category else None)})})
+    return _ok({"success": True, "product": _serialize_model(prod)})
 
 
 @csrf_exempt
@@ -3179,7 +2907,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
     item, created = Inventory.objects.get_or_create(
         warehouse=warehouse,
         product=product,
-        defaults={"quantity": qty, "reserved_quantity": 0, "min_stock": _int(body.get("minStock"), 10), "max_stock": _int(body.get("maxStock"), 100), "reorder_point": _int(body.get("reorderPoint"), 20), "last_restocked_at": timezone.now()},
+        defaults={"quantity": qty, "reserved_quantity": 0, "threshold": _int(body.get("threshold"), 10), "last_restocked_at": timezone.now()},
     )
     if not created:
         item.quantity += qty
@@ -3209,7 +2937,7 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
     except Inventory.DoesNotExist:
         return _err("Inventory not found", 404)
     body = _json_body(request)
-    mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity"), ("minStock", "min_stock"), ("maxStock", "max_stock"), ("reorderPoint", "reorder_point")]
+    mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity"), ("threshold", "threshold")]
     for key, attr in mapping:
         if key in body:
             setattr(item, attr, _int(body.get(key), getattr(item, attr)))
@@ -3354,15 +3082,13 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     defaults={
                         "quantity": 0,
                         "reserved_quantity": 0,
-                        "min_stock": max(0, threshold),
-                        "max_stock": max(100, threshold * 5 if threshold > 0 else 100),
-                        "reorder_point": max(20, threshold * 2 if threshold > 0 else 20),
+                        "threshold": max(0, threshold),
                         "last_restocked_at": timezone.now(),
                     },
                 )
 
                 if not created and "threshold" in body and threshold >= 0:
-                    inv.min_stock = threshold
+                    inv.threshold = threshold
 
             batch = StockBatch.objects.create(
                 batch_number=str(body.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}"),
@@ -3377,7 +3103,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
 
             inv.quantity += qty
             inv.last_restocked_at = timezone.now()
-            inv.save(update_fields=["quantity", "min_stock", "last_restocked_at", "updated_at"])
+            inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
 
             InventoryTransaction.objects.create(
                 warehouse=inv.warehouse,
@@ -3403,7 +3129,7 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = _real_vehicles(Vehicle.objects.prefetch_related("drivers__driver__user").all()).order_by("-created_at")
+        qs = _real_vehicles(Vehicle.objects.select_related("driver").all()).order_by("-created_at")
         if request.GET.get("status"):
             qs = qs.filter(status=request.GET.get("status"))
         total = qs.count()
@@ -3411,8 +3137,7 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         vehicles_data = []
         for vehicle in rows:
             row = _serialize_model(vehicle)
-            links = [link for link in vehicle.drivers.all() if link.is_active]
-            row["drivers"] = [_serialize_driver_vehicle_link(link) for link in links]
+            row["drivers"] = [_serialize_driver_vehicle_link(vehicle)] if vehicle.driver_id else []
             vehicles_data.append(row)
         return _ok({"success": True, "vehicles": vehicles_data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
@@ -3422,16 +3147,13 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         v = Vehicle.objects.create(
             license_plate=body["licensePlate"],
             type=body["type"],
-            color=body.get("color"),
             capacity=body.get("capacity"),
-            volume=body.get("volume"),
             status=body.get("status") or VehicleStatus.AVAILABLE,
-            mileage=body.get("mileage") or 0,
             is_active=bool(body.get("isActive", True)),
         )
         driver_id = str(body.get("driverId") or "").strip()
         if driver_id:
-            driver = Driver.objects.filter(id=driver_id).first()
+            driver = User.objects.filter(id=driver_id, role="DRIVER").first()
             if not driver:
                 return _err("Driver not found", 404)
             _assign_vehicle_to_driver(driver, v)
@@ -3443,19 +3165,19 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         v = Vehicle.objects.get(id=vehicle_id)
     except Vehicle.DoesNotExist:
         return _err("Vehicle not found", 404)
-    mapping = [("licensePlate", "license_plate"), ("type", "type"), ("color", "color"), ("capacity", "capacity"), ("volume", "volume"), ("status", "status"), ("mileage", "mileage")]
+    mapping = [("licensePlate", "license_plate"), ("type", "type"), ("capacity", "capacity"), ("status", "status")]
     for key, attr in mapping:
         if key in body:
             setattr(v, attr, body.get(key))
     if "driverId" in body:
         driver_id = str(body.get("driverId") or "").strip()
         if driver_id:
-            driver = Driver.objects.filter(id=driver_id).first()
+            driver = User.objects.filter(id=driver_id, role="DRIVER").first()
             if not driver:
                 return _err("Driver not found", 404)
             _assign_vehicle_to_driver(driver, v)
         else:
-            DriverVehicle.objects.filter(vehicle=v, is_active=True).update(is_active=False)
+            v.driver = None
     if "isActive" in body:
         v.is_active = bool(body.get("isActive"))
     v.save()
@@ -3485,21 +3207,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         page, size, off = _pagination(request)
         show_sample = str(request.GET.get("includeSample") or request.GET.get("showSample") or "").strip().lower() in {"1", "true", "yes", "on"}
-        driver_users = User.objects.select_related("role").filter(role__name="DRIVER")
-        if not show_sample:
-            driver_users = _real_users(driver_users)
-        for user in driver_users:
-            if not hasattr(user, "driver"):
-                Driver.objects.create(
-                    user=user,
-                    license_number=f"DRV-{user.id[:12]}",
-                    license_type="B",
-                    license_expiry=timezone.now() + timedelta(days=365),
-                    phone=user.phone,
-                    is_active=bool(user.is_active),
-                )
-
-        base_qs = Driver.objects.select_related("user").prefetch_related("vehicles__vehicle").all()
+        base_qs = User.objects.prefetch_related("assigned_vehicles").filter(role="DRIVER")
         qs = (base_qs if show_sample else _real_drivers(base_qs)).order_by("-created_at")
         if request.GET.get("active") == "true":
             qs = qs.filter(is_active=True)
@@ -3507,9 +3215,11 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         rows = list(qs[off : off + size])
         data = []
         for driver in rows:
-            row = _serialize_model(driver, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})
-            links = [link for link in driver.vehicles.all() if link.is_active]
-            row["vehicles"] = [_serialize_driver_vehicle_link(link) for link in links]
+            row = _serialize_model(driver, exclude={"password"})
+            row["phone"] = driver.phone
+            row["user"] = _serialize_model(driver, exclude={"password"})
+            vehicles = list(driver.assigned_vehicles.all())
+            row["vehicles"] = [_serialize_driver_vehicle_link(vehicle) for vehicle in vehicles]
             data.append(row)
         return _ok({"success": True, "drivers": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
@@ -3521,31 +3231,28 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return _err("User not found", 404)
-        if hasattr(user, "driver"):
+        if user.role == "DRIVER":
             return _err("User already assigned as driver", 409)
-        d = Driver.objects.create(
-            user=user,
-            license_number=body.get("licenseNumber") or f"DRV-{int(timezone.now().timestamp())}",
-            license_type=body.get("licenseType") or "B",
-            license_expiry=datetime.fromisoformat(body["licenseExpiry"]) if body.get("licenseExpiry") else timezone.now() + timedelta(days=365),
-            license_photo=body.get("licensePhoto"),
-            phone=body.get("phone") or user.phone,
-            emergency_contact=body.get("emergencyContact"),
-            is_active=bool(body.get("isActive", True)),
-        )
-        return _ok({"success": True, "driver": _serialize_model(d, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})}, 201)
+        user.role = "DRIVER"
+        user.license_number = body.get("licenseNumber") or f"DRV-{int(timezone.now().timestamp())}"
+        user.license_type = body.get("licenseType") or "B"
+        user.license_expiry = datetime.fromisoformat(body["licenseExpiry"]) if body.get("licenseExpiry") else timezone.now() + timedelta(days=365)
+        user.emergency_contact = body.get("emergencyContact")
+        user.is_active = bool(body.get("isActive", True))
+        user.save()
+        driver_payload = _serialize_model(user, exclude={"password"})
+        driver_payload["user"] = _serialize_model(user, exclude={"password"})
+        return _ok({"success": True, "driver": driver_payload}, 201)
     driver_id = str(body.get("id", "")).strip()
     if not driver_id:
         return _err("id is required")
     try:
-        d = Driver.objects.select_related("user").get(id=driver_id)
-    except Driver.DoesNotExist:
+        d = User.objects.get(id=driver_id, role="DRIVER")
+    except User.DoesNotExist:
         return _err("Driver not found", 404)
     mapping = [
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
-        ("licensePhoto", "license_photo"),
-        ("phone", "phone"),
         ("emergencyContact", "emergency_contact"),
         ("rating", "rating"),
         ("totalDeliveries", "total_deliveries"),
@@ -3567,7 +3274,12 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     if "isActive" in body:
         d.is_active = bool(body.get("isActive"))
     d.save()
-    return _ok({"success": True, "driver": _serialize_model(d, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})})
+    if "phone" in body:
+        d.phone = body.get("phone")
+        d.save(update_fields=["phone", "updated_at"])
+    driver_payload = _serialize_model(d, exclude={"password"})
+    driver_payload["user"] = _serialize_model(d, exclude={"password"})
+    return _ok({"success": True, "driver": driver_payload})
 
 
 @require_GET
@@ -3583,7 +3295,7 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
         .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
     )
     customers = _real_customers(Customer.objects.all())
-    drivers = _real_drivers(Driver.objects.select_related("user").all())
+    drivers = _real_drivers(User.objects.filter(role="DRIVER"))
     feedback_qs = Feedback.objects.filter(customer__in=customers)
     ratings_qs = feedback_qs.exclude(rating__isnull=True)
     avg_rating = float(ratings_qs.aggregate(avg=Sum("rating")).get("avg") or 0)
@@ -3607,9 +3319,9 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     loaded_orders = orders.filter(warehouse_stage=WarehouseStage.LOADED).count()
     total_orders = orders.count()
     total_revenue = float(orders.filter(status=OrderStatus.DELIVERED).aggregate(total=Sum("total_amount")).get("total") or 0)
-    active_drivers = drivers.filter(is_active=True, user__is_active=True).count()
+    active_drivers = drivers.filter(is_active=True).count()
     available_drivers = active_drivers
-    low_stock_items = inventory.filter(quantity__lte=10).count()
+    low_stock_items = inventory.filter(quantity__lte=F("threshold") + F("reserved_quantity")).count()
     total_customers = customers.count()
     total_vehicles = Vehicle.objects.count()
 
@@ -3658,23 +3370,54 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
             .order_by("-created_at")
         )
         if p.get("type") == "customer":
-            qs = qs.filter(customer_id=p.get("userId"))
+            requester_id = str(p.get("userId") or "").strip()
+            customer_scope_q = Q(customer_id=requester_id)
+            if requester_id:
+                customer_scope_q |= Q(customer__user_id=requester_id)
+            qs = qs.filter(customer_scope_q)
         total = qs.count()
         rows = list(qs[off : off + size])
-        data = [_serialize_model(x, include={"customer": lambda o: _serialize_model(o.customer, exclude={"password"})}) for x in rows]
-        return _ok({"success": True, "feedback": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+        data = [
+            _serialize_model(
+                x,
+                include={
+                    "customer": lambda o: _serialize_model(o.customer, exclude={"password"}),
+                    "order": lambda o: _serialize_model(o.order) if o.order else None,
+                },
+            )
+            for x in rows
+        ]
+        for row in data:
+            order_obj = row.get("order")
+            if isinstance(order_obj, dict):
+                row["orderNumber"] = order_obj.get("orderNumber") or order_obj.get("order_number")
+        return _ok({
+            "success": True,
+            "feedback": data,
+            "feedbacks": data,
+            "total": total,
+            "page": page,
+            "pageSize": size,
+            "totalPages": (total + size - 1) // size,
+        })
     if request.method == "POST":
         body = _json_body(request)
-        customer_id = p.get("userId") if p.get("type") == "customer" else str(body.get("customerId") or "")
-        if not customer_id:
+        customer_ref = str(p.get("userId") or "").strip() if p.get("type") == "customer" else str(body.get("customerId") or "").strip()
+        if not customer_ref:
             return _err("customerId is required")
-        try:
-            customer = Customer.objects.get(id=customer_id)
-        except Customer.DoesNotExist:
+        customer = (
+            Customer.objects.filter(id=customer_ref).first()
+            or Customer.objects.filter(user_id=customer_ref).first()
+        )
+        if not customer:
             return _err("Customer not found", 404)
         order = None
         if body.get("orderId"):
             order = Order.objects.filter(id=str(body["orderId"])).first()
+        if p.get("type") == "customer" and order and str(order.customer_id or "") != str(customer.id):
+            return _err("Forbidden", 403)
+        if order and Feedback.objects.filter(order_id=order.id, customer_id=customer.id).exists():
+            return _err("Feedback already submitted for this order", 409)
         f = Feedback.objects.create(
             customer=customer,
             order=order,
@@ -3764,7 +3507,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         s = str(request.GET.get("search", "")).strip()
         if s:
             where &= Q(order_number__icontains=s) | Q(customer__name__icontains=s)
-        orders_qs = Order.objects.select_related("customer", "logistics", "timeline").filter(where)
+        orders_qs = Order.objects.select_related("customer", "timeline").filter(where)
         if include_items != "none":
             orders_qs = orders_qs.prefetch_related("items__product")
         order_by_field = "-updated_at" if sort in {"updated", "updated_at"} else "-created_at"
@@ -3796,7 +3539,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             out.append(row)
         replacements_out = []
         if include_replacements:
-            replacements_qs = Replacement.objects.select_related("order", "order__customer", "order__logistics").filter(
+            replacements_qs = Replacement.objects.select_related("order", "order__customer").filter(
                 order__in=oqs,
                 order__customer__in=_real_customers(Customer.objects.all()),
             ).order_by("-created_at")
@@ -3843,77 +3586,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         if address_error:
             return _err(address_error, 400)
         try:
-            checkout_url: str | None = None
-            normalized_payment_method = _normalize_payment_method(body.get("paymentMethod"))
             normalized_items, subtotal = _normalize_order_items_for_checkout(items)
             tax, shipping_cost, discount, total = _compute_order_totals(body, subtotal)
-
-            if _is_paymongo_payment_method(normalized_payment_method):
-                if not _is_truthy(getattr(settings, "PAYMONGO_ENABLE_CHECKOUT", "")):
-                    return _err("Online payment is not available right now", 400)
-
-                draft_payload = dict(body)
-                draft_payload["customerId"] = customer.id
-                draft_payload["warehouseId"] = selected_warehouse_id
-                draft_payload["items"] = normalized_items
-                draft_payload["shippingLatitude"] = shipping_latitude
-                draft_payload["shippingLongitude"] = shipping_longitude
-                draft_payload["paymentMethod"] = normalized_payment_method
-                draft_payload["tax"] = tax
-                draft_payload["shippingCost"] = shipping_cost
-                draft_payload["discount"] = discount
-                draft_payload["totalAmount"] = total
-
-                with transaction.atomic():
-                    draft = PaymentCheckoutDraft.objects.create(
-                        customer=customer,
-                        payment_method=normalized_payment_method,
-                        payload=draft_payload,
-                        subtotal=subtotal,
-                        tax=tax,
-                        shipping_cost=shipping_cost,
-                        discount=discount,
-                        total_amount=total,
-                        status="PENDING",
-                    )
-
-                    checkout_order = Order(
-                        id=draft.id,
-                        order_number=f"ORD-PENDING-{str(draft.id)[-8:].upper()}",
-                        customer=customer,
-                        subtotal=subtotal,
-                        tax=tax,
-                        shipping_cost=shipping_cost,
-                        discount=discount,
-                        total_amount=total,
-                        payment_method=normalized_payment_method,
-                    )
-                    checkout_url = _create_paymongo_checkout_session(
-                        checkout_order,
-                        request,
-                        normalized_payment_method,
-                        metadata_override={
-                            "draft_id": draft.id,
-                            "customer_id": customer.id,
-                            "payment_method": normalized_payment_method,
-                        },
-                        redirect_reference_id=draft.id,
-                    )
-                    draft.checkout_url = checkout_url
-                    draft.save(update_fields=["checkout_url", "updated_at"])
-
-                return _ok(
-                    {
-                        "success": True,
-                        "pendingPayment": True,
-                        "paymentMethod": normalized_payment_method,
-                        "checkoutUrl": checkout_url,
-                        "paymentGateway": "PAYMONGO",
-                        "draftId": draft.id,
-                    },
-                    201,
-                )
-
             with transaction.atomic():
                 order = _create_order_from_checkout_payload(
                     customer=customer,
@@ -3924,7 +3598,6 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                     shipping_cost=shipping_cost,
                     discount=discount,
                     total_amount=total,
-                    normalized_payment_method=normalized_payment_method,
                     selected_warehouse_id=selected_warehouse_id,
                     shipping_latitude=shipping_latitude,
                     shipping_longitude=shipping_longitude,
@@ -3936,14 +3609,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         except IntegrityError:
             logger.exception("Order create integrity error")
             return _err("Unable to create order right now. Please try again.", 409)
-        except requests.RequestException:
-            return _err("Unable to connect to PayMongo right now", 502)
-        order = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order.id)
-        response_payload: dict[str, Any] = {"success": True, "order": _serialize_order(order)}
-        if checkout_url:
-            response_payload["checkoutUrl"] = checkout_url
-            response_payload["paymentGateway"] = "PAYMONGO"
-        return _ok(response_payload, 201)
+        order = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order.id)
+        return _ok({"success": True, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
     if err:
         return err
@@ -3986,14 +3653,14 @@ def order_detail(request: HttpRequest, order_id: str) -> JsonResponse:
     if not p:
         return _err("Unauthorized", 401)
     try:
-        o = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order_id)
+        o = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order_id)
     except Order.DoesNotExist:
         return _err("Order not found", 404)
     if p.get("type") == "customer" and p.get("userId") != o.customer_id:
         return _err("Forbidden", 403)
     try:
         if _reconcile_delivered_order_from_completed_drop_point(o, p.get("userId")):
-            o = Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=order_id)
+            o = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order_id)
     except ValueError as e:
         logger.warning("Unable to reconcile delivered order %s: %s", o.id, e)
     return _ok({"success": True, "order": _serialize_order(o, include_progress=True)})
@@ -4028,7 +3695,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     current_status = _normalize_order_status(o.status)
 
     if current_status == next_status:
-        current = Order.objects.select_related("customer", "logistics", "timeline").get(id=o.id)
+        current = Order.objects.select_related("customer", "timeline").get(id=o.id)
         return _ok({"success": True, "order": _serialize_order(current, include_items=False)})
 
     if current_status == OrderStatus.DELIVERED and next_status != OrderStatus.DELIVERED:
@@ -4074,7 +3741,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     except ValueError as e:
         return _err(str(e), 400)
 
-    updated = Order.objects.select_related("customer", "logistics", "timeline").get(id=o.id)
+    updated = Order.objects.select_related("customer", "timeline").get(id=o.id)
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
 
 
@@ -4099,8 +3766,8 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     assigned_trip_for_loaded_stage = None
     if staff.get("role") == "DRIVER":
         assigned_trip_for_loaded_stage = (
-            Trip.objects.select_related("driver__user")
-            .filter(drop_points__order_id=order.id, driver__user_id=staff.get("userId"))
+            Trip.objects.select_related("driver")
+            .filter(drop_points__order_id=order.id, driver_id=staff.get("userId"))
             .order_by("-updated_at")
             .first()
         )
@@ -4140,7 +3807,7 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     if stage == WarehouseStage.LOADED:
         if not assigned_trip_for_loaded_stage:
             assigned_trip_for_loaded_stage = (
-                Trip.objects.select_related("driver__user")
+                Trip.objects.select_related("driver")
                 .filter(drop_points__order_id=order.id, driver__isnull=False)
                 .order_by("-updated_at")
                 .first()
@@ -4191,7 +3858,7 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
             timeline.save(update_fields=["shipped_at", "updated_at"])
 
     serialized_order = _serialize_order(
-        Order.objects.select_related("customer", "logistics", "timeline").get(id=order.id),
+        Order.objects.select_related("customer", "timeline").get(id=order.id),
         include_items=False,
     )
     return _ok({"success": True, "order": serialized_order, "message": f"Warehouse stage moved to {stage}"})
@@ -4205,8 +3872,8 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = _real_trips(
-            Trip.objects.select_related("driver__user", "vehicle").prefetch_related("drop_points__order").all()
+        qs = (
+            Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").all()
         ).order_by("-created_at")
         tracking_date_raw = str(request.GET.get("trackingDate") or "").strip()
         include_tracking = str(request.GET.get("includeTracking") or "").strip().lower() in {"1", "true", "yes"}
@@ -4227,6 +3894,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 | Q(created_at__date=tracking_date)
                 | Q(drop_points__actual_arrival__date=tracking_date)
                 | Q(drop_points__actual_departure__date=tracking_date)
+                | Q(drop_points__order__timeline__delivery_date__date=tracking_date)
                 | Q(location_logs__recorded_at__date=tracking_date)
             ).distinct()
         total = qs.count()
@@ -4240,6 +3908,11 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 logs_qs = logs_qs.filter(recorded_at__date=tracking_date)
             logs_qs = logs_qs.order_by("recorded_at")
 
+            latest_logs_qs = (
+                LocationLog.objects.filter(trip_id__in=trip_ids)
+                .order_by("trip_id", "-recorded_at", "-id")
+            )
+
             logs_by_trip: dict[str, list[dict[str, Any]]] = {}
             latest_log_by_trip: dict[str, dict[str, Any]] = {}
             for log in logs_qs:
@@ -4247,7 +3920,12 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                     continue
                 row = _serialize_model(log)
                 logs_by_trip.setdefault(log.trip_id, []).append(row)
-                latest_log_by_trip[log.trip_id] = row
+            for log in latest_logs_qs:
+                if not log.trip_id:
+                    continue
+                if log.trip_id in latest_log_by_trip:
+                    continue
+                latest_log_by_trip[log.trip_id] = _serialize_model(log)
 
             for trip_row in serialized_rows:
                 trip_id = trip_row.get("id")
@@ -4268,9 +3946,9 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         )
     body = _json_body(request)
     try:
-        driver = Driver.objects.select_related("user").get(id=str(body.get("driverId", "")))
+        driver = User.objects.get(id=str(body.get("driverId", "")), role="DRIVER")
         vehicle = Vehicle.objects.get(id=str(body.get("vehicleId", "")))
-    except (Driver.DoesNotExist, Vehicle.DoesNotExist):
+    except (User.DoesNotExist, Vehicle.DoesNotExist):
         return _err("Driver or vehicle not found", 404)
     requested_order_ids = [str(oid) for oid in (body.get("orderIds") or []) if str(oid).strip()]
     active_assigned_order_ids = set(
@@ -4295,27 +3973,26 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         order = Order.objects.filter(id=str(oid)).first()
         if not order:
             continue
-        log = OrderLogistics.objects.filter(order=order).first()
-        drop_latitude = _to_float_or_none((log.shipping_latitude if log else None) or getattr(order.customer, "latitude", None))
-        drop_longitude = _to_float_or_none((log.shipping_longitude if log else None) or getattr(order.customer, "longitude", None))
+        drop_latitude = _to_float_or_none(order.shipping_latitude or getattr(order.customer, "latitude", None))
+        drop_longitude = _to_float_or_none(order.shipping_longitude or getattr(order.customer, "longitude", None))
         TripDropPoint.objects.create(
             trip=trip,
             order=order,
             sequence=seq,
-            location_name=(log.shipping_name if log else f"Order {order.order_number}"),
-            address=_strip_default_country_suffix(log.shipping_address if log else "Address"),
-            city=(log.shipping_city if log else "City"),
-            province=(log.shipping_province if log else "Province"),
-            zip_code=(log.shipping_zip_code if log else "00000"),
+            location_name=(order.shipping_name or f"Order {order.order_number}"),
+            address=_strip_default_country_suffix(order.shipping_address or "Address"),
+            city=(order.shipping_city or "City"),
+            province=(order.shipping_province or "Province"),
+            zip_code=(order.shipping_zip_code or "00000"),
             latitude=drop_latitude,
             longitude=drop_longitude,
-            contact_name=(log.shipping_name if log else None),
-            contact_phone=(log.shipping_phone if log else None),
+            contact_name=(order.shipping_name or None),
+            contact_phone=(order.shipping_phone or None),
         )
         seq += 1
     trip.total_drop_points = trip.drop_points.count()
     trip.save(update_fields=["total_drop_points", "updated_at"])
-    trip = Trip.objects.select_related("driver__user", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
+    trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
     return _ok({"success": True, "trip": _serialize_trip(trip)}, 201)
 
 
@@ -4326,7 +4003,7 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
     if err:
         return err
 
-    trip = _real_trips(Trip.objects.filter(id=trip_id)).first()
+    trip = Trip.objects.filter(id=trip_id).first()
     if not trip:
         return _err("Trip not found", 404)
     if str(trip.status or "").upper() != TripStatus.PLANNED:
@@ -4344,7 +4021,7 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
         return err
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
-    d = Driver.objects.filter(user_id=p.get("userId")).first()
+    d = User.objects.filter(id=p.get("userId"), role="DRIVER").first()
     if not d:
         return _err("Driver profile not found", 404)
     drop_points_prefetch = Prefetch(
@@ -4352,18 +4029,20 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
         queryset=TripDropPoint.objects.select_related(
             "order",
             "order__customer",
-            "order__logistics",
             "order__timeline",
         ).prefetch_related(
             "order__items__product",
         ).order_by("sequence"),
     )
-    rows = (
-        Trip.objects.select_related("driver__user", "vehicle")
+    page, size, off = _pagination(request)
+    qs = (
+        Trip.objects.select_related("driver", "vehicle")
         .prefetch_related(drop_points_prefetch)
         .filter(driver=d)
-        .order_by("-updated_at")[:100]
+        .order_by("-updated_at")
     )
+    total = qs.count()
+    rows = list(qs[off : off + size])
 
     trip_ids = [trip.id for trip in rows]
     latest_log_by_trip: dict[str, LocationLog] = {}
@@ -4385,7 +4064,6 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
                 "longitude": float(latest_log.longitude),
                 "accuracy": float(latest_log.accuracy) if latest_log.accuracy is not None else None,
                 "heading": float(latest_log.heading) if latest_log.heading is not None else None,
-                "speed": float(latest_log.speed) if latest_log.speed is not None else None,
                 "recordedAt": latest_log.recorded_at.isoformat() if latest_log.recorded_at else None,
             }
             if latest_log
@@ -4393,7 +4071,16 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
         )
         payload_rows.append(row)
 
-    return _ok({"success": True, "trips": payload_rows})
+    return _ok(
+        {
+            "success": True,
+            "trips": payload_rows,
+            "total": total,
+            "page": page,
+            "pageSize": size,
+            "totalPages": (total + size - 1) // size,
+        }
+    )
 
 
 @csrf_exempt
@@ -4405,7 +4092,7 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         page, size, off = _pagination(request)
         qs = _real_orders(
-            Order.objects.select_related("customer", "logistics", "timeline")
+            Order.objects.select_related("customer", "timeline")
             .prefetch_related("items__product")
             .filter(customer_id=p.get("userId"))
         ).order_by("-created_at")
@@ -4416,93 +4103,6 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
     body["customerId"] = p.get("userId")
     request._body = json.dumps(body).encode("utf-8")
     return orders_collection(request)
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-def paymongo_webhook(request: HttpRequest) -> JsonResponse:
-    if not _verify_paymongo_webhook_signature(request):
-        return _err("Invalid PayMongo webhook signature", 401)
-
-    body = _json_body(request)
-    event_type = str((((body or {}).get("data") or {}).get("attributes") or {}).get("type") or "").strip().lower()
-    paid_events = {
-        "checkout_session.payment.paid",
-        "payment.paid",
-        "source.chargeable",
-        "source.paid",
-    }
-    if event_type and event_type not in paid_events:
-        return _ok({"success": True, "ignored": True})
-
-    metadata = _extract_paymongo_metadata(body)
-    order_id = str(metadata.get("order_id") or metadata.get("orderId") or "").strip()
-    order_number = str(metadata.get("order_number") or metadata.get("orderNumber") or "").strip()
-    draft_id = str(metadata.get("draft_id") or metadata.get("draftId") or "").strip()
-
-    if draft_id:
-        with transaction.atomic():
-            draft = PaymentCheckoutDraft.objects.select_for_update().select_related("customer").filter(id=draft_id).first()
-            if not draft:
-                return _err("Checkout draft not found for webhook metadata", 404)
-
-            if str(draft.status or "").upper() == "COMPLETED" and draft.order_id:
-                return _ok({"success": True, "orderId": draft.order_id, "duplicate": True})
-
-            try:
-                draft_payload = dict(draft.payload or {})
-                normalized_payment_method = _normalize_payment_method(draft.payment_method or draft_payload.get("paymentMethod"))
-                items = draft_payload.get("items") or []
-                normalized_items, subtotal = _normalize_order_items_for_checkout(items)
-                tax, shipping_cost, discount, total = _compute_order_totals(draft_payload, subtotal)
-                selected_warehouse_id = str(draft_payload.get("warehouseId") or "").strip() or None
-                shipping_latitude = (
-                    draft_payload.get("shippingLatitude")
-                    if draft_payload.get("shippingLatitude") is not None
-                    else draft.customer.latitude
-                )
-                shipping_longitude = (
-                    draft_payload.get("shippingLongitude")
-                    if draft_payload.get("shippingLongitude") is not None
-                    else draft.customer.longitude
-                )
-                order = _create_order_from_checkout_payload(
-                    customer=draft.customer,
-                    body=draft_payload,
-                    normalized_items=normalized_items,
-                    subtotal=subtotal,
-                    tax=tax,
-                    shipping_cost=shipping_cost,
-                    discount=discount,
-                    total_amount=total,
-                    normalized_payment_method=normalized_payment_method,
-                    selected_warehouse_id=selected_warehouse_id,
-                    shipping_latitude=shipping_latitude,
-                    shipping_longitude=shipping_longitude,
-                    payment_status="paid",
-                    performed_by="paymongo_webhook",
-                )
-            except ValueError as exc:
-                return _err(str(exc), 400)
-
-            draft.status = "COMPLETED"
-            draft.order = order
-            draft.completed_at = timezone.now()
-            draft.save(update_fields=["status", "order", "completed_at", "updated_at"])
-            return _ok({"success": True, "orderId": order.id})
-
-    order = None
-    if order_id:
-        order = Order.objects.filter(id=order_id).first()
-    if not order and order_number:
-        order = Order.objects.filter(order_number=order_number).first()
-    if not order:
-        return _err("Order not found for webhook metadata", 404)
-
-    update_fields = ["payment_status", "updated_at"]
-    order.payment_status = "paid"
-    order.save(update_fields=update_fields)
-    return _ok({"success": True})
 
 
 @csrf_exempt
@@ -4535,7 +4135,7 @@ def replacements_collection(request: HttpRequest) -> JsonResponse:
     if not p:
         return _err("Unauthorized", 401)
     page, size, off = _pagination(request)
-    qs = Replacement.objects.select_related("order", "order__customer", "order__logistics")
+    qs = Replacement.objects.select_related("order", "order__customer")
 
     if p.get("type") == "customer":
         qs = qs.filter(order__in=_real_orders(Order.objects.all()))
@@ -4593,7 +4193,7 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
     orders = list(
-        _real_orders(Order.objects.select_related("logistics", "customer").filter(customer_id=p.get("userId")))
+        _real_orders(Order.objects.select_related("customer").filter(customer_id=p.get("userId")))
         .order_by("-updated_at")[:100]
     )
     order_ids = [o.id for o in orders]
@@ -4602,7 +4202,7 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
     trip_ids: set[str] = set()
     if order_ids:
         drop_points = (
-            TripDropPoint.objects.select_related("trip__driver__user", "trip__vehicle")
+            TripDropPoint.objects.select_related("trip__driver", "trip__vehicle")
             .filter(order_id__in=order_ids)
             .order_by("order_id", "-trip__updated_at", "-updated_at")
         )
@@ -4639,8 +4239,8 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
         driver_lng = _to_float_or_none(getattr(latest_log, "longitude", None))
         drop_lat = _to_float_or_none(getattr(drop_point, "latitude", None))
         drop_lng = _to_float_or_none(getattr(drop_point, "longitude", None))
-        shipping_lat = _to_float_or_none((o.logistics.shipping_latitude if o.logistics else None) or getattr(o.customer, "latitude", None))
-        shipping_lng = _to_float_or_none((o.logistics.shipping_longitude if o.logistics else None) or getattr(o.customer, "longitude", None))
+        shipping_lat = _to_float_or_none(o.shipping_latitude or getattr(o.customer, "latitude", None))
+        shipping_lng = _to_float_or_none(o.shipping_longitude or getattr(o.customer, "longitude", None))
 
         if driver_lat is not None and driver_lng is not None:
             latitude = driver_lat
@@ -4698,8 +4298,7 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
             and destination_lng is not None
         ):
             remaining_distance_km = _haversine_km(float(driver_lat), float(driver_lng), float(destination_lat), float(destination_lng))
-            raw_speed_mps = _to_float_or_none(getattr(latest_log, "speed", None)) if latest_log else None
-            speed_kph = (raw_speed_mps * 3.6) if raw_speed_mps and raw_speed_mps > 0 else 24.0
+            speed_kph = 24.0
             speed_kph = min(max(float(speed_kph), 10.0), 70.0)
             computed_eta = int(math.ceil((remaining_distance_km / speed_kph) * 60)) if remaining_distance_km > 0 else 1
             eta_minutes = max(1, computed_eta)
@@ -4745,7 +4344,7 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         return err
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
-    d = Driver.objects.filter(user_id=p.get("userId")).first()
+    d = User.objects.filter(id=p.get("userId"), role="DRIVER").first()
     if not d:
         return _err("Driver not found", 404)
     body = _json_body(request)
@@ -4755,24 +4354,42 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         return _err("Invalid coordinates")
     accuracy = _to_float_or_none(body.get("accuracy"))
     heading = _to_float_or_none(body.get("heading"))
-    speed = _to_float_or_none(body.get("speed"))
     altitude = _to_float_or_none(body.get("altitude"))
-    trip_id = body.get("tripId")
-    if not trip_id:
-        t = Trip.objects.filter(driver=d, status=TripStatus.IN_PROGRESS).order_by("-updated_at").first()
-        trip_id = t.id if t else None
+    requested_trip_id = str(body.get("tripId") or "").strip()
+    active_statuses = {"IN_PROGRESS", "IN_TRANSIT", "OUT_FOR_DELIVERY"}
+    active_trip = Trip.objects.filter(driver_id=d.id, status__in=list(active_statuses)).order_by("-updated_at").first()
+    trip_id = None
+    trip_resolution = "none"
+    if requested_trip_id:
+        requested_trip = Trip.objects.filter(id=requested_trip_id, driver_id=d.id).first()
+        # Always attach to the explicitly requested trip when it belongs to this driver.
+        # This prevents logs from being saved without trip linkage during status transitions.
+        if requested_trip:
+            trip_id = requested_trip.id
+            trip_resolution = "requested_trip_matched_driver"
+        elif active_trip:
+            trip_id = active_trip.id
+            trip_resolution = "fallback_active_trip"
+    else:
+        trip_id = active_trip.id if active_trip else None
+        trip_resolution = "auto_active_trip" if trip_id else "none"
     log = LocationLog.objects.create(
-        driver=d,
+        driver_id=d.id,
         trip_id=trip_id,
         latitude=lat,
         longitude=lng,
-        speed=speed,
         heading=heading,
         altitude=altitude,
         accuracy=accuracy,
         battery=body.get("battery"),
     )
-    return _ok({"success": True, "locationLogId": log.id})
+    return _ok({
+        "success": True,
+        "locationLogId": log.id,
+        "tripIdUsed": trip_id,
+        "tripIdRequested": requested_trip_id or None,
+        "tripResolution": trip_resolution,
+    })
 
 
 @csrf_exempt
@@ -4783,18 +4400,19 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         return err
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
-    d = Driver.objects.select_related("user").filter(user_id=p.get("userId")).first()
+    d = User.objects.filter(id=p.get("userId"), role="DRIVER").first()
     if not d:
         return _err("Driver profile not found", 404)
     if request.method == "GET":
-        return _ok({"success": True, "driver": _serialize_model(d, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})})
+        row = _serialize_model(d, exclude={"password"})
+        row["phone"] = d.phone
+        row["user"] = _serialize_model(d, exclude={"password"})
+        return _ok({"success": True, "driver": row})
     body = _json_body(request)
     for key, attr in [
-        ("phone", "phone"),
         ("emergencyContact", "emergency_contact"),
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
-        ("licensePhoto", "license_photo"),
     ]:
         if key in body:
             setattr(d, attr, body.get(key))
@@ -4803,9 +4421,12 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
     d.save()
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
-            setattr(d.user, attr, body.get(key))
-    d.user.save()
-    return _ok({"success": True, "driver": _serialize_model(d, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})})
+            setattr(d, attr, body.get(key))
+    d.save()
+    row = _serialize_model(d, exclude={"password"})
+    row["phone"] = d.phone
+    row["user"] = _serialize_model(d, exclude={"password"})
+    return _ok({"success": True, "driver": row})
 
 
 @csrf_exempt
@@ -4816,16 +4437,21 @@ def driver_spare_products(request: HttpRequest) -> JsonResponse:
         return err
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
-    d = Driver.objects.filter(user_id=p.get("userId")).first()
+    d = User.objects.filter(id=p.get("userId"), role="DRIVER").first()
     if not d:
         return _err("Driver not found", 404)
     if request.method == "GET":
         rows = (
             DriverSpareStock.objects.select_related("product")
-            .filter(driver=d, product__in=_real_products(Product.objects.all()))
+            .filter(driver_id=d.id, product__in=_real_products(Product.objects.all()))
             .order_by("product__name")
         )
-        data = [_serialize_model(x, include={"product": lambda o: _serialize_model(o.product)}) for x in rows]
+        data = []
+        for x in rows:
+            row = _serialize_model(x, include={"product": lambda o: _serialize_model(o.product)})
+            row["quantity"] = _int(getattr(x, "on_hand_quantity", 0), 0)
+            row["minQuantity"] = _int(getattr(x, "minimum_required_quantity", 0), 0)
+            data.append(row)
         return _ok({"success": True, "spareProducts": data})
     body = _json_body(request)
     pid = str(body.get("productId") or "")
@@ -4835,13 +4461,15 @@ def driver_spare_products(request: HttpRequest) -> JsonResponse:
     prod = Product.objects.filter(id=pid).first()
     if not prod:
         return _err("Product not found", 404)
-    stock, _ = DriverSpareStock.objects.get_or_create(driver=d, product=prod, defaults={"quantity": 0, "min_quantity": 0})
-    stock.quantity += qty
+    stock, _ = DriverSpareStock.objects.get_or_create(driver_id=d.id, product=prod, defaults={"on_hand_quantity": 0, "minimum_required_quantity": 0})
+    stock.on_hand_quantity += qty
     if "minQuantity" in body:
-        stock.min_quantity = _int(body.get("minQuantity"), stock.min_quantity)
+        stock.minimum_required_quantity = _int(body.get("minQuantity"), stock.minimum_required_quantity)
     stock.save()
-    SpareStockTransaction.objects.create(driver=d, product=prod, type=body.get("type") or ("IN" if qty > 0 else "OUT"), quantity=qty, reference_type=body.get("referenceType"), reference_id=body.get("referenceId"), notes=body.get("notes"))
+    InventoryTransaction.objects.create(driver_id=d.id, product=prod, type=body.get("type") or ("IN" if qty > 0 else "OUT"), quantity=qty, reference_type=body.get("referenceType"), reference_id=body.get("referenceId"), notes=body.get("notes"))
     serialized = _serialize_model(stock)
+    serialized["quantity"] = _int(getattr(stock, "on_hand_quantity", 0), 0)
+    serialized["minQuantity"] = _int(getattr(stock, "minimum_required_quantity", 0), 0)
     return _ok({"success": True, "spareProducts": serialized})
 
 
@@ -4853,7 +4481,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         return err
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
-    d = Driver.objects.filter(user_id=p.get("userId")).first()
+    d = User.objects.filter(id=p.get("userId"), role="DRIVER").first()
     if not d:
         return _err("Driver not found", 404)
     body = _json_body(request)
@@ -4909,8 +4537,8 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 return _err(f"Replacement item {index} quantity replaced cannot exceed quantity to replace", 400)
             if resolved_on_delivery and quantity_replaced <= 0:
                 return _err(f"Replacement item {index} quantity replaced must be greater than zero", 400)
-            stock = DriverSpareStock.objects.filter(driver=d, product=order_item.product).first()
-            available_qty = _int(getattr(stock, "quantity", 0), 0)
+            stock = DriverSpareStock.objects.filter(driver_id=d.id, product=order_item.product).first()
+            available_qty = _int(getattr(stock, "on_hand_quantity", 0), 0)
             if quantity_replaced > available_qty:
                 return _err(f"Insufficient spare products for {order_item.product.name}", 400)
             replacement_lines.append({
@@ -4942,10 +4570,10 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                     stock = line["stock"]
                     if stock is None:
                         return _err(f"Insufficient spare products for {product.name}", 400)
-                    stock.quantity -= quantity_replaced
-                    stock.save(update_fields=["quantity", "updated_at"])
-                    SpareStockTransaction.objects.create(
-                        driver=d,
+                    stock.on_hand_quantity -= quantity_replaced
+                    stock.save(update_fields=["on_hand_quantity", "updated_at"])
+                    InventoryTransaction.objects.create(
+                        driver_id=d.id,
                         product=product,
                         type="OUT",
                         quantity=quantity_replaced,
@@ -5064,15 +4692,22 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             follow_up_meta.get("quantityToReplace", follow_up_meta.get("damagedQuantity")),
             _int(order_item.quantity, 0) if order_item else _int(follow_up_return.replacement_quantity, 0),
         )
-        remaining_to_replace = max(follow_up_quantity_to_replace - _int(follow_up_return.replacement_quantity, 0), 0)
+        db_previously_replaced_qty = _int(getattr(follow_up_return, "replacement_quantity", 0), 0)
+        meta_previously_replaced_qty = _int(follow_up_meta.get("quantityReplaced"), 0)
+        previously_replaced_qty = (
+            db_previously_replaced_qty
+            if db_previously_replaced_qty > 0
+            else max(meta_previously_replaced_qty, 0)
+        )
+        remaining_to_replace = max(follow_up_quantity_to_replace - previously_replaced_qty, 0)
         if order_item and qty > remaining_to_replace:
             return _err("quantity cannot exceed the remaining quantity to replace", 400)
         quantity_replaced = qty
     else:
         follow_up_quantity_to_replace = qty
 
-    stock = DriverSpareStock.objects.filter(driver=d, product=product).first() if product else None
-    available_qty = _int(getattr(stock, "quantity", 0), 0)
+    stock = DriverSpareStock.objects.filter(driver_id=d.id, product=product).first() if product else None
+    available_qty = _int(getattr(stock, "on_hand_quantity", 0), 0)
     if quantity_replaced > available_qty:
         return _err("Insufficient spare products for selected replacement quantity", 400)
     replacement_status = ReplacementStatus.RESOLVED_ON_DELIVERY if resolved_on_delivery else ReplacementStatus.NEEDS_FOLLOW_UP
@@ -5089,16 +4724,19 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         "tripId": str(body.get("tripId") or "").strip() or None,
         "dropPointId": str(body.get("dropPointId") or "").strip() or None,
         "quantityToReplace": follow_up_quantity_to_replace,
-        "quantityReplaced": _int(getattr(follow_up_return, "replacement_quantity", 0), 0) + quantity_replaced if follow_up_return else quantity_replaced,
-        "remainingQuantity": max(follow_up_quantity_to_replace - (_int(getattr(follow_up_return, "replacement_quantity", 0), 0) + quantity_replaced if follow_up_return else quantity_replaced), 0),
+        "quantityReplaced": (previously_replaced_qty + quantity_replaced) if follow_up_return else quantity_replaced,
+        "remainingQuantity": max(
+            follow_up_quantity_to_replace - ((previously_replaced_qty + quantity_replaced) if follow_up_return else quantity_replaced),
+            0,
+        ),
     }
 
     with transaction.atomic():
         if quantity_replaced > 0:
-            stock.quantity -= quantity_replaced
-            stock.save(update_fields=["quantity", "updated_at"])
-            SpareStockTransaction.objects.create(
-                driver=d,
+            stock.on_hand_quantity -= quantity_replaced
+            stock.save(update_fields=["on_hand_quantity", "updated_at"])
+            InventoryTransaction.objects.create(
+                driver_id=d.id,
                 product=product,
                 type="OUT",
                 quantity=quantity_replaced,
@@ -5109,7 +4747,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         if follow_up_return:
             follow_up_return.status = ReplacementStatus.COMPLETED
             follow_up_return.replacement_mode = follow_up_return.replacement_mode or replacement_mode
-            follow_up_return.replacement_quantity = _int(follow_up_return.replacement_quantity, 0) + quantity_replaced
+            follow_up_return.replacement_quantity = previously_replaced_qty + quantity_replaced
             follow_up_return.damage_photo_url = damage_photos[0]
             follow_up_return.processed_at = timezone.now()
             follow_up_return.processed_by = p.get("userId")
@@ -5171,7 +4809,7 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 return _err("Invalid date. Expected YYYY-MM-DD", 400)
 
         oqs = _real_orders(
-            Order.objects.select_related("customer", "logistics", "timeline")
+            Order.objects.select_related("customer", "timeline")
             .prefetch_related("items__product")
             .filter(status__in=[OrderStatus.PREPARING, OrderStatus.CONFIRMED])
         ).order_by("created_at")
@@ -5204,11 +4842,10 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         orders = []
         grouped_by_city: dict[str, list[dict[str, Any]]] = {}
         for o in oqs[:300]:
-            log = getattr(o, "logistics", None)
-            city = str((log.shipping_city if log else None) or "Unknown").strip() or "Unknown"
-            latitude = _to_float_or_none((log.shipping_latitude if log else None) or o.customer.latitude)
-            longitude = _to_float_or_none((log.shipping_longitude if log else None) or o.customer.longitude)
-            address = str((log.shipping_address if log else None) or "").strip()
+            city = str((o.shipping_city or None) or "Unknown").strip() or "Unknown"
+            latitude = _to_float_or_none((o.shipping_latitude or None) or o.customer.latitude)
+            longitude = _to_float_or_none((o.shipping_longitude or None) or o.customer.longitude)
+            address = str((o.shipping_address or None) or "").strip()
             products_preview = ", ".join(
                 [
                     f"{item.product.name} x{item.quantity}"
@@ -5225,8 +4862,8 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 "address": address,
                 "shippingAddress": address,
                 "city": city,
-                "province": log.shipping_province if log else None,
-                "zipCode": log.shipping_zip_code if log else None,
+                "province": o.shipping_province,
+                "zipCode": o.shipping_zip_code,
                 "latitude": latitude,
                 "longitude": longitude,
                 "shippingLatitude": latitude,
@@ -5258,8 +4895,8 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
             )
 
         drivers = [
-            _serialize_model(x, include={"user": lambda o: _serialize_model(o.user, exclude={"password"})})
-            for x in _real_drivers(Driver.objects.select_related("user").filter(is_active=True))[:200]
+            _serialize_model(x, exclude={"password"})
+            for x in _real_drivers(User.objects.filter(role="DRIVER", is_active=True))[:200]
         ]
         vehicles = [
             _serialize_model(x)
@@ -5271,108 +4908,6 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
-@require_http_methods(["GET", "POST", "DELETE"])
-def trips_saved_routes(request: HttpRequest) -> JsonResponse:
-    payload, err = _require_staff(request)
-    if err:
-        return err
-
-    role = str(payload.get("role") or "").upper()
-    user_id = str(payload.get("userId") or "").strip() or None
-
-    if request.method == "GET":
-        qs = SavedRouteDraft.objects.all().order_by("-created_at")
-
-        warehouse_id = str(request.GET.get("warehouseId") or "").strip()
-        if warehouse_id:
-            qs = qs.filter(warehouse_id=warehouse_id)
-
-        # Warehouse users should only see their own drafts.
-        if role == "WAREHOUSE_STAFF" and user_id:
-            qs = qs.filter(created_by_user_id=user_id)
-
-        route_rows = list(qs[:300])
-        warehouse_ids = {str(route.warehouse_id) for route in route_rows if route.warehouse_id}
-        warehouse_lookup = {
-            warehouse.id: (
-                _to_float_or_none(warehouse.latitude),
-                _to_float_or_none(warehouse.longitude),
-            )
-            for warehouse in _real_warehouses(Warehouse.objects.filter(id__in=warehouse_ids)).only("id", "latitude", "longitude")
-        }
-
-        rows = []
-        for route in route_rows:
-            row = _serialize_saved_route(route)
-            start_lat, start_lng = warehouse_lookup.get(str(route.warehouse_id), (None, None))
-            orders_raw = [dict(order) for order in (row.get("orders") or []) if isinstance(order, dict)]
-            enriched_orders, computed_total_km = _compute_order_distances(orders_raw, start_lat, start_lng)
-            row["orders"] = enriched_orders
-            if enriched_orders:
-                row["totalDistanceKm"] = computed_total_km
-            rows.append(row)
-        return _ok({"success": True, "savedRoutes": rows})
-
-    if request.method == "POST":
-        body = _json_body(request)
-
-        date_raw = str(body.get("date") or "").strip()
-        warehouse_id = str(body.get("warehouseId") or "").strip()
-        warehouse_name = str(body.get("warehouseName") or "").strip()
-        city = str(body.get("city") or "").strip()
-        total_distance_km = body.get("totalDistanceKm")
-        order_ids = body.get("orderIds") or []
-        orders = body.get("orders") or []
-
-        if not date_raw or not warehouse_id or not city:
-            return _err("date, warehouseId, and city are required")
-
-        try:
-            parsed_date = datetime.fromisoformat(date_raw).date()
-        except ValueError:
-            return _err("Invalid date. Expected YYYY-MM-DD")
-
-        if not isinstance(order_ids, list) or len(order_ids) == 0:
-            return _err("At least one orderId is required")
-
-        if not isinstance(orders, list):
-            return _err("orders must be an array")
-
-        try:
-            total_distance_value = float(total_distance_km or 0)
-        except (TypeError, ValueError):
-            total_distance_value = 0.0
-
-        created_by = User.objects.filter(id=user_id).first() if user_id else None
-        route = SavedRouteDraft.objects.create(
-            date=parsed_date,
-            warehouse_id=warehouse_id,
-            warehouse_name=warehouse_name or "Unknown Warehouse",
-            city=city,
-            total_distance_km=total_distance_value,
-            order_ids=[str(x) for x in order_ids],
-            orders_json=orders,
-            created_by_user=created_by,
-        )
-        return _ok({"success": True, "savedRoute": _serialize_saved_route(route)}, 201)
-
-    body = _json_body(request)
-    route_id = str(request.GET.get("id") or body.get("id") or "").strip()
-    if not route_id:
-        return _err("Route id is required")
-
-    route = SavedRouteDraft.objects.filter(id=route_id).first()
-    if not route:
-        return _err("Saved route not found", 404)
-
-    if role == "WAREHOUSE_STAFF" and user_id and route.created_by_user_id and route.created_by_user_id != user_id:
-        return _err("Forbidden", 403)
-
-    route.delete()
-    return _ok({"success": True})
-
-
-@csrf_exempt
 @require_http_methods(["POST"])
 def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     p, err = _require_staff(request)
@@ -5381,7 +4916,7 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     t = Trip.objects.prefetch_related("drop_points__order").filter(id=trip_id).first()
     if not t:
         return _err("Trip not found", 404)
-    if p.get("role") == "DRIVER" and p.get("userId") != t.driver.user_id:
+    if p.get("role") == "DRIVER" and p.get("userId") != t.driver_id:
         return _err("Forbidden", 403)
 
     # Drivers can only start a trip when all assigned delivery orders are loaded.
@@ -5409,16 +4944,24 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
             if not drop_point.order_id or not drop_point.order:
                 continue
             order = drop_point.order
-            if str(order.warehouse_stage or "").upper() == WarehouseStage.LOADED:
+            changed_fields: list[str] = []
+            if str(order.warehouse_stage or "").upper() != WarehouseStage.DISPATCHED:
                 order.warehouse_stage = WarehouseStage.DISPATCHED
+                changed_fields.append("warehouse_stage")
+            if not order.warehouse_dispatched_at:
                 order.warehouse_dispatched_at = now
+                changed_fields.append("warehouse_dispatched_at")
+            if _normalize_order_status(order.status) != OrderStatus.OUT_FOR_DELIVERY:
                 order.status = OrderStatus.OUT_FOR_DELIVERY
-                order.save(update_fields=["warehouse_stage", "warehouse_dispatched_at", "status", "updated_at"])
+                changed_fields.append("status")
+            if changed_fields:
+                changed_fields.append("updated_at")
+                order.save(update_fields=changed_fields)
 
-                timeline, _ = OrderTimeline.objects.get_or_create(order=order)
-                if not timeline.shipped_at:
-                    timeline.shipped_at = now
-                    timeline.save(update_fields=["shipped_at", "updated_at"])
+            timeline, _ = OrderTimeline.objects.get_or_create(order=order)
+            if not timeline.shipped_at:
+                timeline.shipped_at = now
+                timeline.save(update_fields=["shipped_at", "updated_at"])
     return _ok({"success": True, "trip": _serialize_model(t)})
 
 
@@ -5431,7 +4974,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     dp = TripDropPoint.objects.select_related("trip").filter(id=drop_point_id, trip_id=trip_id).first()
     if not dp:
         return _err("Drop point not found", 404)
-    if p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver.user_id:
+    if p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver_id:
         return _err("Forbidden", 403)
     body = _json_body(request)
     requeued_to_route_pool = False
@@ -5477,7 +5020,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     now = timezone.now()
     if next_status == "ARRIVED":
         dp.actual_arrival = now
-    if next_status in {"COMPLETED", "FAILED", "SKIPPED"}:
+    if next_status in {"COMPLETED", "FAILED", "SKIPPED", "CANCELLED"}:
         dp.actual_departure = now
     dp.save()
 
@@ -5504,10 +5047,10 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         parsed_release_inventory = True
     else:
         parsed_release_inventory = bool(release_inventory)
-    should_release_inventory = next_status == "SKIPPED" or parsed_release_inventory
+    should_release_inventory = next_status in {"SKIPPED", "CANCELLED"} or parsed_release_inventory
 
-    # If drop point is marked as FAILED or SKIPPED, optionally return items back to inventory
-    if next_status in {"FAILED", "SKIPPED"} and should_release_inventory and dp.order_id:
+    # If drop point is marked as FAILED/SKIPPED/CANCELLED, optionally return items back to inventory
+    if next_status in {"FAILED", "SKIPPED", "CANCELLED"} and should_release_inventory and dp.order_id:
         order = Order.objects.prefetch_related("items").filter(id=dp.order_id).first()
         if order:
             user_id = str(p.get("userId") or "").strip() or None
@@ -5518,7 +5061,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
                     performed_by=user_id,
                 )
 
-    if next_status in {"FAILED", "SKIPPED"} and dp.order_id:
+    if next_status in {"FAILED", "SKIPPED", "CANCELLED"} and dp.order_id:
         order = Order.objects.select_related("timeline").filter(id=dp.order_id).first()
         if order:
             timeline = getattr(order, "timeline", None)
@@ -5566,7 +5109,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
 
             dp.sequence = len(reordered_drop_points)
 
-    terminal_drop_point_statuses = ["COMPLETED", "FAILED", "SKIPPED"]
+    terminal_drop_point_statuses = ["COMPLETED", "FAILED", "SKIPPED", "CANCELLED"]
     actual_total_drop_points = t.drop_points.count()
     effective_total_drop_points = max(_int(t.total_drop_points, 0), actual_total_drop_points)
 
@@ -5586,7 +5129,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     order_payload = None
     if delivered_order:
         order_payload = _serialize_order(
-            Order.objects.select_related("customer", "logistics", "timeline").prefetch_related("items__product").get(id=delivered_order.id),
+            Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=delivered_order.id),
             include_items=False,
         )
     return _ok({"success": True, "dropPoint": _serialize_model(dp), "order": order_payload, "requeuedToRoutePool": requeued_to_route_pool})
@@ -5637,6 +5180,17 @@ def upload_pod_image(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def upload_damage_image(request: HttpRequest) -> JsonResponse:
+    p, err = _require_staff(request)
+    if err:
+        return err
+    if p.get("role") != "DRIVER":
+        return _err("Forbidden", 403)
+    return _handle_image_upload(request, "damages", "damage")
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def upload_customer_avatar(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p:
@@ -5644,23 +5198,18 @@ def upload_customer_avatar(request: HttpRequest) -> JsonResponse:
     return _handle_image_upload(request, "customers", "customer")
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def upload_driver_license(request: HttpRequest) -> JsonResponse:
-    p, err = _require_staff(request)
-    if err:
-        return err
-    if p.get("role") != "DRIVER":
-        return _err("Forbidden", 403)
-    return _handle_image_upload(request, "driver-licenses", "license")
-
-
 def ensure_demo_accounts() -> None:
-    super_admin_role, _ = Role.objects.get_or_create(name="SUPER_ADMIN", defaults={"description": "Full system access"})
-    driver_role, _ = Role.objects.get_or_create(name="DRIVER", defaults={"description": "Delivery driver"})
-    warehouse_role, _ = Role.objects.get_or_create(name="WAREHOUSE_STAFF", defaults={"description": "Warehouse operations"})
-    User.objects.get_or_create(email="admin@logistics.com", defaults={"name": "Admin User", "password": hash_password("admin123"), "phone": "+1-555-0100", "role": super_admin_role, "is_active": True})
-    driver_user, _ = User.objects.get_or_create(email="driver@logistics.com", defaults={"name": "Demo Driver", "password": hash_password("driver123"), "phone": "+1-555-0103", "role": driver_role, "is_active": True})
-    User.objects.get_or_create(email="warehouse@logistics.com", defaults={"name": "Warehouse Staff", "password": hash_password("admin123"), "phone": "+1-555-0102", "role": warehouse_role, "is_active": True})
+    User.objects.get_or_create(email="admin@logistics.com", defaults={"name": "Admin User", "password": hash_password("admin123"), "phone": "+1-555-0100", "role": "SUPER_ADMIN", "is_active": True})
+    driver_user, _ = User.objects.get_or_create(email="driver@logistics.com", defaults={"name": "Demo Driver", "password": hash_password("driver123"), "phone": "+1-555-0103", "role": "DRIVER", "is_active": True})
+    User.objects.get_or_create(email="warehouse@logistics.com", defaults={"name": "Warehouse Staff", "password": hash_password("admin123"), "phone": "+1-555-0102", "role": "WAREHOUSE_STAFF", "is_active": True})
     Customer.objects.get_or_create(email="customer@example.com", defaults={"name": "Demo Customer", "password": hash_password("customer123"), "phone": "+1-555-0104", "is_active": True})
-    Driver.objects.get_or_create(user=driver_user, defaults={"license_number": f"DEMO-DRIVER-{driver_user.id[-6:].upper()}", "license_type": "B", "license_expiry": timezone.now() + timedelta(days=1500), "phone": driver_user.phone, "is_active": True})
+    User.objects.filter(id=driver_user.id, role="DRIVER").update(
+        license_number=f"DEMO-DRIVER-{driver_user.id[-6:].upper()}",
+        license_type="B",
+        license_expiry=timezone.now() + timedelta(days=1500),
+        hired_at=timezone.now(),
+    )
+
+
+
+

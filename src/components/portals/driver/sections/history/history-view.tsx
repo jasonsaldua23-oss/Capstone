@@ -1,9 +1,11 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { ChevronRight, Clock, Loader2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { ChevronRight, Clock, Loader2, Search } from 'lucide-react'
 
 type Trip = any
 
@@ -33,6 +35,7 @@ export function HistoryView({
   isLoading: boolean
   onOpenTrip: (trip: Trip) => void
 }) {
+  const [search, setSearch] = useState('')
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const completedTrips = [...(trips || [])]
     .filter((trip) => isCompletedTrip(trip.status))
@@ -41,6 +44,31 @@ export function HistoryView({
       const bDate = new Date(b.actualEndAt || b.updatedAt || b.createdAt || b.plannedStartAt || 0).getTime()
       return bDate - aDate
     })
+  const visibleTrips = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return completedTrips
+    return completedTrips.filter((trip) => {
+      const tripText = String(trip.tripNumber || '').toLowerCase()
+      const vehicleText = `${trip.vehicle?.licensePlate || ''} ${trip.vehicle?.type || ''}`.toLowerCase()
+      const stopText = Array.isArray(trip.dropPoints)
+        ? trip.dropPoints
+            .map((stop: any) =>
+              [
+                stop?.locationName,
+                stop?.address,
+                stop?.city,
+                stop?.order?.orderNumber,
+                stop?.contactName,
+              ]
+                .filter(Boolean)
+                .join(' ')
+            )
+            .join(' ')
+            .toLowerCase()
+        : ''
+      return tripText.includes(q) || vehicleText.includes(q) || stopText.includes(q)
+    })
+  }, [completedTrips, search])
 
   const formatDate = (value?: string | null) => {
     if (!value) return 'N/A'
@@ -52,6 +80,15 @@ export function HistoryView({
   return (
     <div className="p-4">
       <h2 className="mb-4 text-xl font-semibold text-slate-900">Delivery History</h2>
+      <div className="relative mb-4">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search trip, order, customer, address, vehicle..."
+          className="pl-9"
+        />
+      </div>
 
       {isLoading ? (
         <Card>
@@ -60,17 +97,17 @@ export function HistoryView({
             <p className="text-sm text-slate-600">Loading delivery history...</p>
           </CardContent>
         </Card>
-      ) : completedTrips.length === 0 ? (
+      ) : visibleTrips.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Clock className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No delivery history yet</p>
-            <p className="text-sm text-gray-400 mt-1">Completed deliveries will appear here</p>
+            <p className="text-gray-500">No matching delivery history</p>
+            <p className="text-sm text-gray-400 mt-1">Try a different search keyword</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {completedTrips.map((trip) => (
+          {visibleTrips.map((trip) => (
             <Card key={trip.id} className="rounded-xl border border-slate-200 shadow-sm">
               <CardContent className="pt-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">

@@ -175,6 +175,23 @@ export function WarehouseReplacementsView({
             const meta = parseIssueMeta(selectedReplacement.notes)
             const evidenceUrl = String(selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
+            const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
+            const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+            const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
+            const isResolvedCase = Boolean(
+              selectedReplacement?.isClosed ||
+              rawStatus === 'COMPLETED' ||
+              rawStatus === 'RESOLVED_ON_DELIVERY' ||
+              (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
+            )
+            const baseResolution = String(selectedReplacement.description || '').trim()
+            const effectiveResolution = isResolvedCase
+              ? (baseResolution.replace(/;?\s*follow-?up required\.?/i, '').trim() || 'Resolved')
+              : (baseResolution || 'N/A')
+            const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
+            const effectiveMode = isResolvedCase && /PARTIAL/i.test(rawMode)
+              ? rawMode.replace(/PARTIAL/ig, 'RESOLVED')
+              : rawMode
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
@@ -182,8 +199,8 @@ export function WarehouseReplacementsView({
               ['Status', formatIssueStatus(selectedReplacement)],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
-              ['Resolution', selectedReplacement.description || 'N/A'],
-              ['Replacement Mode', String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A').replace(/_/g, ' ')],
+              ['Resolution', effectiveResolution],
+              ['Replacement Mode', effectiveMode.replace(/_/g, ' ')],
             ] as Array<[string, string]>
             return (
               <>

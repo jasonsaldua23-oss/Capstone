@@ -1,5 +1,3 @@
-import type { PaymentMethod } from './customer-types'
-
 const pesoFormatter = new Intl.NumberFormat('en-PH', {
   style: 'currency',
   currency: 'PHP',
@@ -52,15 +50,6 @@ export function getReplacementRank(label: string): number {
   if (label === 'In Progress') return 2
   if (label === 'Resolved on Delivery' || label === 'Completed') return 1
   return 0
-}
-
-export const normalizePaymentMethod = (value: unknown): PaymentMethod => {
-  const raw = String(value || '').trim().toUpperCase().replace(/[-\s]+/g, '_')
-  if (raw === 'COD') return 'COD'
-  if (raw === 'GCASH') return 'GCASH'
-  if (raw === 'MAYA') return 'MAYA'
-  if (raw === 'CARD' || raw === 'BANK_TRANSFER' || raw === 'ONLINE_PAYMENT' || raw === 'PAYMONGO') return 'CARD'
-  return 'CARD'
 }
 
 export function getReplacementStatusLabel(status?: string | null) {

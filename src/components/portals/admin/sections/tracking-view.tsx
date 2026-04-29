@@ -69,12 +69,15 @@ export function TrackingView() {
     const value = String(status || '').toUpperCase()
     return ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(value)
   }
+  const isCancelledLikeStatus = (status: unknown) => {
+    const value = String(status || '').toUpperCase()
+    return ['CANCELLED', 'CANCELED', 'FAILED', 'SKIPPED', 'FAILED_DELIVERY', 'REJECTED'].includes(value)
+  }
 
   const isDateMatch = (value: unknown, dayKey: string) => {
     if (!value || !dayKey) return false
     const raw = String(value).trim()
     if (!raw) return false
-    if (/^\d{4}-\d{2}-\d{2}/.test(raw) && raw.slice(0, 10) === dayKey) return true
     const parsed = new Date(raw)
     if (Number.isNaN(parsed.getTime())) return false
     return formatDayKey(parsed) === dayKey
@@ -96,17 +99,31 @@ export function TrackingView() {
     if (logs.some((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))) return true
     return isDateMatch(trip?.latestLocation?.recordedAt, trackingDate)
   }
+  const dropPointMatchesTrackingDay = (dropPoint: any) => {
+    if (!trackingDate) return true
+    return [
+      dropPoint?.actualArrival,
+      dropPoint?.actualDeparture,
+      dropPoint?.order?.deliveryDate,
+      dropPoint?.order?.timeline?.deliveryDate,
+      dropPoint?.deliveryDate,
+      dropPoint?.createdAt,
+    ].some((value) => isDateMatch(value, trackingDate))
+  }
 
   const fetchTrackingTrips = async () => {
     setIsLoading(true)
     try {
       const query = new URLSearchParams({
-        limit: '200',
         includeTracking: '1',
       })
-      if (trackingDate) query.set('trackingDate', trackingDate)
       const [tripsResponse, ordersResponse] = await Promise.all([
-        safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+        fetchAllPaginatedCollection<any>(
+          `/api/trips?${query.toString()}`,
+          'trips',
+          { cache: 'no-store' },
+          { retries: 3, timeoutMs: 15000, pageSize: 500, maxPages: 100 }
+        ),
         fetchAllPaginatedCollection<any>(
           '/api/orders?includeItems=none',
           'orders',
@@ -130,12 +147,22 @@ export function TrackingView() {
     fetchTrackingTrips()
   }, [trackingDate])
 
+  useEffect(() => {
+    const refreshLive = () => {
+      if (document.visibilityState !== 'visible') return
+      void fetchTrackingTrips()
+    }
+    const intervalId = window.setInterval(refreshLive, 7000)
+    return () => window.clearInterval(intervalId)
+  }, [trackingDate])
+
   const activeTrips = useMemo(
     () => trips.filter((trip: any) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))),
     [trips]
   )
 
-  const recentLocations = activeTrips
+  const recentLocations = trips
+    .filter((trip: any) => tripMatchesTrackingDay(trip))
     .flatMap((trip: any) => toArray<any>(trip.locationLogs || []))
     .filter((log) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
     .map((log) => ({
@@ -177,7 +204,13 @@ export function TrackingView() {
         ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) &&
         tripMatchesTrackingDay(trip)
     )
-    const dayOrders = ordersForMap.filter((order: any) => orderMatchesTrackingDay(order))
+    const cancelledOrderIds = new Set(
+      ordersForMap
+        .filter((order: any) => isCancelledLikeStatus(order?.status))
+        .map((order: any) => String(order?.id || '').trim())
+        .filter(Boolean)
+    )
+    const dayOrders = ordersForMap.filter((order: any) => orderMatchesTrackingDay(order) && !isCancelledLikeStatus(order?.status))
     const dayOrderIds = new Set(
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
@@ -192,9 +225,11 @@ export function TrackingView() {
       }
       const dropPoints = toArray<any>(trip.dropPoints)
         .filter((point) => {
-          if (!trackingDate) return true
-          if (tripMatchesDay) return true
           const orderId = String(point?.orderId || '').trim()
+          if (orderId && cancelledOrderIds.has(orderId)) return false
+          if (isCancelledLikeStatus(point?.status) || isCancelledLikeStatus(point?.orderStatus) || isCancelledLikeStatus(point?.order?.status)) return false
+          if (dropPointMatchesTrackingDay(point)) return true
+          if (tripMatchesDay && !trackingDate) return true
           if (!orderId) return false
           return dayOrderIds.has(orderId)
         })
@@ -451,7 +486,7 @@ export function TrackingView() {
                       <div className="bg-green-500 h-2 w-2 rounded-full animate-pulse"></div>
                       <div className="flex-1">
                         <p className="font-medium text-sm">{trip.tripNumber}</p>
-                        <p className="text-xs text-gray-500">Driver: {trip.driver?.user?.name || 'Unassigned'}</p>
+                        <p className="text-xs text-gray-500">Driver: {trip.driver?.name || trip.driver?.user?.name || 'Unassigned'}</p>
                       </div>
                       <Badge variant="outline">
                         {trip.completedDropPoints || 0}/{trip.totalDropPoints || 0}

@@ -146,9 +146,10 @@ export type DriverGpsLocation = {
 
 // Security and GPS filtering constants used by tracking flow.
 const isSecureWebContext = typeof window !== 'undefined' ? window.isSecureContext : true
-const DRIVER_GPS_GOOD_ACCURACY_METERS = 50
-const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 120
-const DRIVER_GPS_MAX_JUMP_METERS = 250
+const DRIVER_GPS_GOOD_ACCURACY_METERS = 35
+const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 80
+const DRIVER_GPS_MAX_JUMP_METERS = 180
+const DRIVER_GPS_MAX_REALISTIC_SPEED_MPS = 45
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -287,6 +288,10 @@ export function useDriverPortalState() {
   const isFetchingTripsRef = useRef(false)
   const latestTripsRef = useRef<Trip[]>([])
   const latestGpsRef = useRef<DriverGpsLocation | null>(null)
+  const lastLocationUploadAtRef = useRef<number>(0)
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const autoTrackingTripIdRef = useRef<string | null>(null)
+  const trackingLifecycleLockRef = useRef(false)
 
   // Fetches driver trips and keeps both state and refs in sync.
   const fetchTrips = useCallback(async (_silent = false): Promise<Trip[]> => {
@@ -294,7 +299,7 @@ export function useDriverPortalState() {
     isFetchingTripsRef.current = true
     try {
       const { response, data, raw } = await fetchJsonWithRetry(
-        '/api/driver/trips',
+        '/api/driver/trips?page=1&pageSize=50',
         { cache: 'no-store', credentials: 'include' },
         { retries: 2, timeoutMs: 10000 }
       )
@@ -508,15 +513,21 @@ export function useDriverPortalState() {
 
   const shouldUseGpsLocation = (next: DriverGpsLocation, previous: DriverGpsLocation | null) => {
     const nextAccuracy = Number(next.accuracy ?? Number.POSITIVE_INFINITY)
-    if (!previous) return nextAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS || !Number.isFinite(nextAccuracy)
+    if (!Number.isFinite(nextAccuracy)) return false
+    if (!previous) return nextAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS
 
     const previousAccuracy = Number(previous.accuracy ?? Number.POSITIVE_INFINITY)
+    if (nextAccuracy > DRIVER_GPS_MAX_USABLE_ACCURACY_METERS) return false
     if (nextAccuracy <= DRIVER_GPS_GOOD_ACCURACY_METERS) return true
-    if (nextAccuracy > DRIVER_GPS_MAX_USABLE_ACCURACY_METERS && previousAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS) {
-      return false
-    }
 
     const movedMeters = distanceMeters(previous, next)
+    const nextTime = Number(next.recordedAt || Date.now())
+    const previousTime = Number(previous.recordedAt || Date.now())
+    const elapsedSeconds = Math.max((nextTime - previousTime) / 1000, 1)
+    const inferredSpeedMps = movedMeters / elapsedSeconds
+    if (inferredSpeedMps > DRIVER_GPS_MAX_REALISTIC_SPEED_MPS && nextAccuracy >= previousAccuracy) {
+      return false
+    }
     if (movedMeters > DRIVER_GPS_MAX_JUMP_METERS && nextAccuracy > previousAccuracy) {
       return false
     }
@@ -526,9 +537,13 @@ export function useDriverPortalState() {
   // Sends driver coordinates to backend; failures are intentionally non-blocking.
   const sendLocationUpdate = async (location: DriverGpsLocation, tripId?: string | null) => {
     try {
+      const token = getTabAuthToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
       await fetch('/api/driver/location', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers,
         body: JSON.stringify({
           latitude: location.lat,
           longitude: location.lng,
@@ -545,22 +560,54 @@ export function useDriverPortalState() {
 
   // Selects the trip currently eligible for live tracking attachment.
   const getActiveTripId = () => {
-    if (selectedTripId) {
-      const t = trips.find((trip) => trip.id === selectedTripId)
-      if (t?.status === 'IN_PROGRESS') return t.id
+    const sourceTrips = latestTripsRef.current.length > 0 ? latestTripsRef.current : trips
+    const normalizeStatus = (status: unknown) => {
+      const value = String(status || '').toUpperCase()
+      if (value === 'IN_TRANSIT' || value === 'OUT_FOR_DELIVERY') return 'IN_PROGRESS'
+      return value
     }
-    const inProgress = trips.find((trip) => trip.status === 'IN_PROGRESS')
-    return inProgress?.id || null
+    const isTrackableTrip = (trip: Trip | null | undefined) => {
+      const normalized = normalizeStatus(trip?.status)
+      return normalized === 'IN_PROGRESS' || normalized === 'PLANNED'
+    }
+    const isActiveTrip = (trip: Trip | null | undefined) => normalizeStatus(trip?.status) === 'IN_PROGRESS'
+    const pickMostRecentActiveTrip = (tripList: Trip[]) => {
+      const activeTrips = tripList.filter((trip) => isActiveTrip(trip))
+      if (activeTrips.length === 0) return null
+      return [...activeTrips].sort((a, b) => {
+        const aTime = new Date((a as any)?.actualStartAt || (a as any)?.updatedAt || (a as any)?.createdAt || 0).getTime()
+        const bTime = new Date((b as any)?.actualStartAt || (b as any)?.updatedAt || (b as any)?.createdAt || 0).getTime()
+        return bTime - aTime
+      })[0] || null
+    }
+
+    if (selectedTripId) {
+      const selectedTrip = sourceTrips.find((trip) => trip.id === selectedTripId) || null
+      if (isTrackableTrip(selectedTrip)) return selectedTrip?.id || null
+    }
+
+    const fallbackActiveTrip = pickMostRecentActiveTrip(sourceTrips)
+    return fallbackActiveTrip?.id || null
   }
 
   // Applies accepted GPS point locally and sends it upstream.
   const applyGpsLocation = (next: DriverGpsLocation, tripId?: string | null) => {
-    if (!shouldUseGpsLocation(next, latestGpsRef.current)) return false
+    const now = Date.now()
+    if (!shouldUseGpsLocation(next, latestGpsRef.current)) {
+      const fallbackAccuracy = Number(next.accuracy ?? Number.POSITIVE_INFINITY)
+      const shouldSendFallback = now - lastLocationUploadAtRef.current > 30000 && fallbackAccuracy <= 150
+      if (shouldSendFallback) {
+        void sendLocationUpdate(next, tripId)
+        lastLocationUploadAtRef.current = now
+      }
+      return false
+    }
     latestGpsRef.current = next
     setCurrentLocation(next)
     setLocationPermission('granted')
     setIsTracking(true)
     void sendLocationUpdate(next, tripId)
+    lastLocationUploadAtRef.current = now
     return true
   }
 
@@ -620,15 +667,45 @@ export function useDriverPortalState() {
         throw new Error('Location unavailable')
       }
       applyGpsLocation(location, getActiveTripId())
-    } catch {
-      setLocationPermission('denied')
+    } catch (error: any) {
+      const geolocationErrorCode = Number(error?.code)
+      if (geolocationErrorCode === 1) {
+        setLocationPermission('denied')
+      } else {
+        setLocationPermission('prompt')
+      }
       setIsTracking(false)
-      toast.error('Location is required to start trip. Please enable location access in settings.')
-      void openLocationSettings()
+      if (geolocationErrorCode === 1) {
+        toast.error('Location is required to start trip. Please enable location access in settings.')
+        void openLocationSettings()
+      } else if (geolocationErrorCode === 3) {
+        toast.error('Location request timed out. Please move to open sky and try again.')
+      } else {
+        toast.error('Unable to get current location right now. Please try again.')
+      }
       return false
     }
 
     if (watchIdRef.current !== null) {
+      if (heartbeatIntervalRef.current === null) {
+        heartbeatIntervalRef.current = setInterval(() => {
+          void (async () => {
+            try {
+              const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+              const location = gpsFromPosition(position)
+              if (!location) return
+              const activeTripId = getActiveTripId()
+              if (activeTripId) {
+                void sendLocationUpdate(location, activeTripId)
+                lastLocationUploadAtRef.current = Date.now()
+              }
+              applyGpsLocation(location, activeTripId)
+            } catch {
+              // heartbeat is best-effort
+            }
+          })()
+        }, 20000)
+      }
       setIsTracking(true)
       return true
     }
@@ -639,27 +716,108 @@ export function useDriverPortalState() {
         if (!location) return
         applyGpsLocation(location, getActiveTripId())
       },
-      () => {
-        setLocationPermission('denied')
+      (error) => {
+        if (Number(error?.code) === 1) {
+          setLocationPermission('denied')
+        } else {
+          setLocationPermission('prompt')
+        }
         setIsTracking(false)
-        toast.error('Location permission denied. Please enable location access.')
+        if (heartbeatIntervalRef.current !== null) {
+          clearInterval(heartbeatIntervalRef.current)
+          heartbeatIntervalRef.current = null
+        }
+        if (Number(error?.code) === 1) {
+          toast.error('Location permission denied. Please enable location access.')
+        }
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     )
 
     watchIdRef.current = watchId
+    heartbeatIntervalRef.current = setInterval(() => {
+      void (async () => {
+        try {
+          const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+          const location = gpsFromPosition(position)
+          if (!location) return
+          const activeTripId = getActiveTripId()
+          if (activeTripId) {
+            void sendLocationUpdate(location, activeTripId)
+            lastLocationUploadAtRef.current = Date.now()
+          }
+          applyGpsLocation(location, activeTripId)
+        } catch {
+          // heartbeat is best-effort
+        }
+      })()
+    }, 20000)
     toast.success('Location tracking started')
     return true
   }
 
+  const stopLocationTracking = useCallback(() => {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+    }
+    if (heartbeatIntervalRef.current !== null) {
+      clearInterval(heartbeatIntervalRef.current)
+      heartbeatIntervalRef.current = null
+    }
+    setIsTracking(false)
+  }, [])
+
+  // Auto-start tracking when driver opens a specific trip so current location is visible/saved without extra taps.
+  useEffect(() => {
+    const sourceTrips = latestTripsRef.current.length > 0 ? latestTripsRef.current : trips
+    const selectedTrip = selectedTripId
+      ? sourceTrips.find((trip) => String(trip.id || '') === String(selectedTripId || '')) || null
+      : null
+    const normalizedStatus = String(selectedTrip?.status || '').toUpperCase()
+    const isTrackable = normalizedStatus === 'PLANNED' || normalizedStatus === 'IN_PROGRESS' || normalizedStatus === 'IN_TRANSIT' || normalizedStatus === 'OUT_FOR_DELIVERY'
+    if (!selectedTripId || !selectedTrip || !isTrackable) return
+    if (locationPermission === 'denied') return
+    if (watchIdRef.current !== null) return
+    if (autoTrackingTripIdRef.current === selectedTripId) return
+
+    autoTrackingTripIdRef.current = selectedTripId
+    void startLocationTracking()
+  }, [selectedTripId, trips, locationPermission])
+
+  // Keep tracking alive while any trip is in progress; stop only when all active trips are done.
+  useEffect(() => {
+    if (trackingLifecycleLockRef.current) return
+    const sourceTrips = latestTripsRef.current.length > 0 ? latestTripsRef.current : trips
+    const hasInProgressTrip = sourceTrips.some((trip) => {
+      const status = String(trip?.status || '').toUpperCase()
+      return status === 'IN_PROGRESS' || status === 'IN_TRANSIT' || status === 'OUT_FOR_DELIVERY'
+    })
+
+    if (hasInProgressTrip) {
+      if (locationPermission === 'denied') return
+      if (watchIdRef.current !== null) {
+        setIsTracking(true)
+        return
+      }
+      trackingLifecycleLockRef.current = true
+      void startLocationTracking().finally(() => {
+        trackingLifecycleLockRef.current = false
+      })
+      return
+    }
+
+    if (watchIdRef.current !== null || heartbeatIntervalRef.current !== null || isTracking) {
+      stopLocationTracking()
+    }
+  }, [trips, locationPermission, isTracking, stopLocationTracking])
+
   // Clears geolocation watch on unmount.
   useEffect(() => {
     return () => {
-      if (watchIdRef.current !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
-      }
+      stopLocationTracking()
     }
-  }, [])
+  }, [stopLocationTracking])
 
   // Convenience handler used by camera gate dialog.
   const openNativeCameraAppSettings = useCallback(async () => {

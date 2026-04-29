@@ -36,7 +36,8 @@ export function TripsListView({
     CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
   }
   const [deliverySearch, setDeliverySearch] = useState('')
-  const filteredDeliveryTrips = trips.filter((trip) => {
+  const activeTrips = (trips || []).filter((trip) => String(trip?.status || '').toUpperCase() !== 'COMPLETED')
+  const filteredDeliveryTrips = activeTrips.filter((trip) => {
     const query = deliverySearch.trim().toLowerCase()
     if (!query) return true
 
@@ -79,12 +80,12 @@ export function TripsListView({
         </div>
       </div>
 
-      {trips.length === 0 ? (
+      {activeTrips.length === 0 ? (
         <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
           <CardContent className="py-12 text-center">
             <Truck className="mx-auto mb-4 h-12 w-12 text-sky-300" />
-            <p className="font-semibold text-slate-700">No trips assigned yet</p>
-            <p className="mt-1 text-sm text-slate-500">Ask admin/warehouse to assign a trip to this driver account.</p>
+            <p className="font-semibold text-slate-700">No active deliveries</p>
+            <p className="mt-1 text-sm text-slate-500">Completed trips are in History.</p>
           </CardContent>
         </Card>
       ) : filteredDeliveryTrips.length === 0 ? (

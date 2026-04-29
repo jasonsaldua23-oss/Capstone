@@ -34,6 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   cancelCustomerOrder,
   createCustomerOrder,
@@ -52,7 +53,6 @@ import {
   getReplacementBadgeClass,
   getReplacementRank,
   getReplacementStatusLabel,
-  normalizePaymentMethod,
   parseReplacementMeta,
 } from './sections/shared/customer-common'
 import type {
@@ -63,7 +63,6 @@ import type {
   DriverTrackingItem,
   Order,
   OrderItem,
-  PaymentMethod,
   Product,
 } from './sections/shared/customer-types'
 import {
@@ -88,6 +87,8 @@ export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
   const [pendingCancelOrder, setPendingCancelOrder] = useState<{ id: string; orderNumber: string } | null>(null)
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
+  const [reviewByOrderId, setReviewByOrderId] = useState<Record<string, any>>({})
+  const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
   const {
     activeView,
     setActiveView,
@@ -186,8 +187,6 @@ export function CustomerPortal() {
     setOrdersSearch,
     ordersTab,
     setOrdersTab,
-    paymentMethod,
-    setPaymentMethod,
     isSavingAddress,
     setIsSavingAddress,
     trackingByOrderId,
@@ -402,51 +401,59 @@ export function CustomerPortal() {
   }, [])
 
   const fetchOrderMeta = useCallback(async () => {
-    try {
-      const [feedbackResult, replacementResult] = await Promise.all([
-        fetchFeedbackMeta(),
-        fetchReplacementsMeta(),
-      ])
-      const { response: feedbackResponse, data: feedbackPayload } = feedbackResult
-      const { response: replacementResponse, data: replacementPayload } = replacementResult
+    const [feedbackResult, replacementResult] = await Promise.allSettled([
+      fetchFeedbackMeta(),
+      fetchReplacementsMeta(),
+    ])
 
+    if (feedbackResult.status === 'fulfilled') {
+      const { response: feedbackResponse, data: feedbackPayload } = feedbackResult.value
       if (feedbackResponse?.ok) {
-        const feedbacks = Array.isArray(feedbackPayload?.feedbacks) ? feedbackPayload.feedbacks : []
+        const feedbacks = Array.isArray(feedbackPayload?.feedbacks)
+          ? feedbackPayload.feedbacks
+          : Array.isArray(feedbackPayload?.feedback)
+            ? feedbackPayload.feedback
+            : []
         const reviewed = new Set<string>()
         const ratingsByOrder: Record<string, number> = {}
+        const reviewMap: Record<string, any> = {}
         for (const item of feedbacks) {
-          const orderId = String(item?.orderId || item?.order?.id || '').trim()
+          const orderId = String(item?.orderId || item?.order_id || item?.order?.id || '').trim()
           if (!orderId) continue
           reviewed.add(orderId)
           const rawRating = Number(item?.rating)
           if (Number.isFinite(rawRating) && rawRating >= 1 && rawRating <= 5) {
             ratingsByOrder[orderId] = Math.round(rawRating)
           }
+          const existing = reviewMap[orderId]
+          const existingTime = new Date(existing?.createdAt || existing?.created_at || 0).getTime()
+          const nextTime = new Date(item?.createdAt || item?.created_at || 0).getTime()
+          if (!existing || nextTime >= existingTime) {
+            reviewMap[orderId] = item
+          }
         }
         setReviewedOrderIds(reviewed)
         setOrderRatings(ratingsByOrder)
-      } else {
-        setReviewedOrderIds(new Set())
-        setOrderRatings({})
+        setReviewByOrderId(reviewMap)
       }
+    }
 
+    if (replacementResult.status === 'fulfilled') {
+      const { response: replacementResponse, data: replacementPayload } = replacementResult.value
       if (replacementResponse?.ok) {
         const replacements = Array.isArray(replacementPayload?.replacements)
           ? (replacementPayload.replacements as DeliveryIssueRecord[])
           : []
         setDeliveryIssueRecords(replacements)
-      } else {
-        const { response: legacyResponse, data: legacyPayload } = await fetchLegacyCustomerReplacements()
-        const replacements = legacyResponse?.ok && Array.isArray(legacyPayload?.replacements)
-          ? (legacyPayload.replacements as DeliveryIssueRecord[])
-          : []
-        setDeliveryIssueRecords(replacements)
+        return
       }
-    } catch {
-      setReviewedOrderIds(new Set())
-      setOrderRatings({})
-      setDeliveryIssueRecords([])
     }
+
+    const { response: legacyResponse, data: legacyPayload } = await fetchLegacyCustomerReplacements()
+    const replacements = legacyResponse?.ok && Array.isArray(legacyPayload?.replacements)
+      ? (legacyPayload.replacements as DeliveryIssueRecord[])
+      : []
+    setDeliveryIssueRecords(replacements)
   }, [])
 
   const fetchProducts = async () => {
@@ -802,7 +809,6 @@ export function CustomerPortal() {
     () => cart.filter((item) => selectedCartIds.has(item.productId)),
     [cart, selectedCartIds]
   )
-  const selectedPaymentMethod = normalizePaymentMethod(paymentMethod)
   const selectedSubtotal = useMemo(
     () => selectedCartItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
     [selectedCartItems]
@@ -896,7 +902,6 @@ export function CustomerPortal() {
 
   const ordersTabOptions: Array<{ id: CustomerOrdersTab; label: string }> = [
     { id: 'ALL', label: 'All' },
-    { id: 'TO_PAY', label: 'To Pay' },
     { id: 'TO_SHIP', label: 'To Ship' },
     { id: 'TO_RECEIVE', label: 'To Receive' },
     { id: 'DELIVERED', label: 'Delivered' },
@@ -910,13 +915,6 @@ export function CustomerPortal() {
     return sortedFilteredOrders.filter((order) => {
       const raw = String(order.status || '').toUpperCase()
       const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
-      const paymentMethod = String(order.paymentMethod || '').toUpperCase()
-      const isCancelled = raw === 'CANCELLED' || normalized === 'CANCELLED'
-      const isCodNotDelivered = paymentMethod === 'COD' && normalized !== 'DELIVERED' && !isCancelled
-
-      if (ordersTab === 'TO_PAY') {
-        return isCodNotDelivered
-      }
       if (ordersTab === 'TO_SHIP') {
         const paymentStatus = String(order.paymentStatus || '').toLowerCase()
         return ['CONFIRMED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
@@ -1029,7 +1027,6 @@ export function CustomerPortal() {
         shippingCountry,
         shippingLatitude,
         shippingLongitude,
-        paymentMethod: selectedPaymentMethod,
         notes,
         deliveryDate: deliveryDate || null,
         items: selectedCartItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
@@ -1037,12 +1034,6 @@ export function CustomerPortal() {
       if (!response.ok || data?.success === false) {
         const errorMessage = String(data?.error || data?.message || '').trim()
         throw new Error(errorMessage || `Failed to place order (HTTP ${response.status})`)
-      }
-      const shouldRedirectToPaymongo = typeof data?.checkoutUrl === 'string' && !!data.checkoutUrl
-      if (shouldRedirectToPaymongo) {
-        toast.success('Redirecting to PayMongo checkout...')
-        window.location.assign(String(data.checkoutUrl))
-        return
       }
       toast.success('Order placed successfully')
       if (data?.order) {
@@ -1079,7 +1070,7 @@ export function CustomerPortal() {
 
   const openRatingDialog = (order: Order, initialDeliveryRating = 5, initialSatisfactionRating = 5) => {
     if (reviewedOrderIds.has(order.id)) {
-      toast.info('You already rated this order')
+      setReviewDetailsOrder(order)
       return
     }
     setRatingDialogOrder(order)
@@ -1774,9 +1765,6 @@ export function CustomerPortal() {
             composedShippingAddress={composedShippingAddress}
             getProductImage={getProductImage}
             formatPeso={formatPeso}
-            selectedPaymentMethod={selectedPaymentMethod}
-            paymentMethod={paymentMethod}
-            setPaymentMethod={setPaymentMethod}
             selectedSubtotal={selectedSubtotal}
             notes={notes}
             setNotes={setNotes}
@@ -1809,6 +1797,8 @@ export function CustomerPortal() {
             isOrderCancellable={isOrderCancellable}
             cancelOrder={requestCancelOrder}
             openRatingDialog={openRatingDialog}
+            reviewByOrderId={reviewByOrderId}
+            openReviewDetails={(order: Order) => setReviewDetailsOrder(order)}
             setSelectedOrder={setSelectedOrder}
             isOrderTrackable={isOrderTrackable}
             openTrackView={openTrackView}
@@ -1980,6 +1970,44 @@ export function CustomerPortal() {
         isSubmittingRating={isSubmittingRating}
         submitRating={submitRating}
       />
+
+      <Dialog open={!!reviewDetailsOrder} onOpenChange={(open) => !open && setReviewDetailsOrder(null)}>
+        {reviewDetailsOrder ? (() => {
+          const review = reviewByOrderId[reviewDetailsOrder.id] || null
+          const ratingValue = Number(review?.rating || orderRatings[reviewDetailsOrder.id] || 0)
+          const stars = Math.max(0, Math.min(5, Math.round(ratingValue)))
+          const createdAtText = review?.createdAt ? new Date(review.createdAt).toLocaleString() : 'N/A'
+          const subject = String(review?.subject || '').trim()
+          const message = String(review?.message || '').trim()
+          const adminResponse = String(review?.response || '').trim()
+          return (
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Review Details - {reviewDetailsOrder.orderNumber}</DialogTitle>
+                <DialogDescription>Submitted review and admin response</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-md border bg-slate-50 px-3 py-2">
+                  <p className="text-xs text-slate-500">Rating</p>
+                  <p className="font-semibold text-slate-900">
+                    {'★'.repeat(stars)}{'☆'.repeat(Math.max(5 - stars, 0))} ({stars}/5)
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Submitted: {createdAtText}</p>
+                </div>
+                <div className="rounded-md border bg-white px-3 py-2">
+                  <p className="text-xs text-slate-500">Your Feedback</p>
+                  {subject ? <p className="font-medium text-slate-900">{subject}</p> : null}
+                  <p className="mt-1 whitespace-pre-wrap text-slate-800">{message || 'No feedback message'}</p>
+                </div>
+                <div className="rounded-md border bg-blue-50 px-3 py-2">
+                  <p className="text-xs text-slate-500">Admin Response</p>
+                  <p className="mt-1 whitespace-pre-wrap text-slate-900">{adminResponse || 'No admin response yet.'}</p>
+                </div>
+              </div>
+            </DialogContent>
+          )
+        })() : null}
+      </Dialog>
 
       <AlertDialog
         open={Boolean(pendingCancelOrder)}

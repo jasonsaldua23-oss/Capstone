@@ -778,6 +778,7 @@ function getTruckIcon(options: { direction?: TruckIconDirection; heading?: numbe
     className: 'custom-truck-marker',
     html: `<div style="position:relative;width:66px;height:66px;display:flex;align-items:center;justify-content:center;overflow:visible;">
       ${showSelfBadge ? '<div style="position:absolute;left:50%;top:-8px;transform:translateX(-50%);border-radius:9999px;background:#ffffff;border:1px solid rgba(15,23,42,0.18);padding:1px 6px;color:#0f3d72;font-size:10px;line-height:14px;font-weight:900;letter-spacing:0;">YOU</div>' : ''}
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:9999px;background:#1d4ed8;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>
       <img src="${TRUCK_ICON_URL}" alt="truck" style="position:relative;z-index:1;width:58px;height:58px;display:block;image-rendering:auto;transform:rotate(${rotation}deg);transform-origin:29px 29px;will-change:transform;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.35)) drop-shadow(0 3px 5px rgba(0,0,0,0.35)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src='/icons/delivery-truck.png';" />
     </div>`,
     iconSize: [66, 66],
@@ -1224,25 +1225,7 @@ export default function LiveTrackingMap({
         )}
 
         {smoothedLocations.map((loc) =>
-          loc.markerType === 'truck' ? (
-            <Fragment key={loc.id}>
-              <MarkerUnsafe
-                position={[loc.lat, loc.lng]}
-                icon={getTruckIcon({ direction: loc.markerDirection || 'right', heading: loc.markerHeading, showSelfBadge: showDriverSelfBadge })}
-                zIndexOffset={1000}
-              >
-                <Popup>
-                  <div className="text-sm">
-                    <p className="font-bold text-base mb-1">{loc.driverName}</p>
-                    <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
-                    <p className="text-gray-600">
-                      Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
-                    </p>
-                  </div>
-                </Popup>
-              </MarkerUnsafe>
-            </Fragment>
-          ) : loc.markerType === 'pin' ? (
+          loc.markerType === 'pin' ? (
             (() => {
               const pinColor: 'green' | 'blue' =
                 loc.markerEtaPhase === 'completed' ||
@@ -1280,6 +1263,29 @@ export default function LiveTrackingMap({
             </MarkerUnsafe>
               )
             })()
+          ) : loc.markerType === 'truck' ? (
+            <Fragment key={loc.id}>
+              <CircleMarkerUnsafe
+                center={[loc.lat, loc.lng]}
+                radius={11}
+                pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#1d4ed8', fillOpacity: 0.9 }}
+              />
+              <MarkerUnsafe
+                position={[loc.lat, loc.lng]}
+                icon={getTruckIcon({ direction: loc.markerDirection || 'right', heading: loc.markerHeading, showSelfBadge: showDriverSelfBadge })}
+                zIndexOffset={10000}
+              >
+                <Popup>
+                  <div className="text-sm">
+                    <p className="font-bold text-base mb-1">{loc.driverName}</p>
+                    <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
+                    <p className="text-gray-600">
+                      Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
+                    </p>
+                  </div>
+                </Popup>
+              </MarkerUnsafe>
+            </Fragment>
           ) : loc.markerType === 'dot' || loc.markerColor ? (
             <CircleMarkerUnsafe
               key={loc.id}
