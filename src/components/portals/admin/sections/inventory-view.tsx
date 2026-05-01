@@ -78,10 +78,6 @@ function formatPeso(value: number) {
   }).format(Number(value || 0))
 }
 
-function getItemThreshold(item: any) {
-  return Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0) || 0)
-}
-
 async function safeFetchJson(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -131,7 +127,6 @@ export function InventoryView() {
   const [productSku, setProductSku] = useState('')
   const [productUnit, setProductUnit] = useState('case')
   const [productPrice, setProductPrice] = useState('')
-  const [productWarehouseId, setProductWarehouseId] = useState('')
   const [productSizes, setProductSizes] = useState<string[]>([])
   const [productImageFile, setProductImageFile] = useState<File | null>(null)
   const [productSkuSeed, setProductSkuSeed] = useState('')
@@ -243,7 +238,7 @@ export function InventoryView() {
   }, [])
 
   const getAvailableQty = (item: any) => Math.max(0, (item.quantity ?? 0) - (item.reservedQuantity ?? 0))
-  const getStockStatus = (item: any) => ((item.quantity ?? 0) <= getItemThreshold(item) * 1.5 ? 'restock' : 'healthy')
+  const getStockStatus = (item: any) => ((item.quantity ?? 0) <= (item.minStock ?? 0) * 1.5 ? 'restock' : 'healthy')
   const filteredInventory = useMemo(() => {
     if (selectedWarehouseId === 'all') return inventory
     return inventory.filter((item) => getWarehouseIdFromRow(item) === selectedWarehouseId)
@@ -343,9 +338,6 @@ export function InventoryView() {
     if (!Number.isFinite(nextPrice) || nextPrice < 0) {
       return toast.error('Invalid price')
     }
-    if (!productWarehouseId.trim()) {
-      return toast.error('Please select a warehouse')
-    }
     if (productSizes.length === 0) {
       return toast.error('Please select at least one size')
     }
@@ -362,7 +354,6 @@ export function InventoryView() {
         body: JSON.stringify({
           name: productName.trim(),
           sku: nextSku,
-          warehouseId: productWarehouseId.trim(),
           unit: productUnit.trim(),
           price: nextPrice,
           sizes: productSizes,
@@ -379,7 +370,6 @@ export function InventoryView() {
       setProductName('')
       setProductSku('')
       setProductSkuSeed('')
-      setProductWarehouseId('')
       setProductUnit('case')
       setProductPrice('')
       setProductSizes([])
@@ -418,11 +408,6 @@ export function InventoryView() {
               <Button
                 onClick={() => {
                   setProductSkuSeed(createSkuSeed())
-                  const initialWarehouseId =
-                    selectedWarehouseId !== 'all'
-                      ? selectedWarehouseId
-                      : (warehouses[0]?.id ? String(warehouses[0].id) : '')
-                  setProductWarehouseId(initialWarehouseId)
                   setRegisterProductOpen(true)
                 }}
                 className="whitespace-nowrap"
@@ -483,7 +468,7 @@ export function InventoryView() {
                         </td>
                         <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
                         <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
-                        <td className="p-4 font-semibold text-gray-900">{getItemThreshold(item)}</td>
+                        <td className="p-4 font-semibold text-gray-900">{item.minStock ?? 0}</td>
                         <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
                         <td className="p-4 font-semibold text-orange-600">{item.reserved_quantity ?? 0}</td>
                         <td className="p-4 text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
@@ -629,22 +614,6 @@ export function InventoryView() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Warehouse</label>
-              <select
-                aria-label="Warehouse"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={productWarehouseId}
-                onChange={(e) => setProductWarehouseId(e.target.value)}
-              >
-                <option value="">Select warehouse</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name || warehouse.code || warehouse.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Unit</label>
               <select
                 aria-label="Product unit"
@@ -689,6 +658,14 @@ export function InventoryView() {
               </select>
             </div>
             <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Weight (kg)</label>
+              <Input
+                value={selectedProductWeight !== null ? selectedProductWeight.toFixed(2) : ''}
+                readOnly
+                placeholder=""
+              />
+            </div>                                                          
+            <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Photo</label>
               <Input
                 type="file"
@@ -705,7 +682,6 @@ export function InventoryView() {
                   setProductName('')
                   setProductSku('')
                   setProductSkuSeed('')
-                  setProductWarehouseId('')
                   setProductUnit('case')
                   setProductPrice('')
                   setProductSizes([])
