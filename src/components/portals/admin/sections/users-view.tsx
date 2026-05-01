@@ -28,11 +28,15 @@ function toArray<T>(value: unknown): T[] {
 function formatRoleLabel(role: string | null | undefined) {
   const value = String(role || '').trim().toUpperCase()
   if (!value) return 'Unknown'
-  if (value === 'SUPER_ADMIN') return 'Admin'
+  if (value === 'SUPER_ADMIN') return 'Owner'
   return value
     .split('_')
     .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
     .join(' ')
+}
+
+function resolveRoleCode(value: any): string {
+  return String(value?.roleId || value?.role?.id || value?.role?.name || value?.role || '').trim().toUpperCase()
 }
 
 export function UsersView() {
@@ -69,13 +73,23 @@ export function UsersView() {
         const data = await usersResponse.json()
         const rows = toArray<any>(data?.data ?? data?.users ?? data).map((row) => ({
           ...row,
-          roleId: String(row?.roleId || row?.role?.id || ''),
+          roleId: resolveRoleCode(row),
         }))
         setUsers(rows)
       }
       if (rolesResponse.ok) {
         const rolesData = await rolesResponse.json()
-        setRoles(toArray(rolesData?.data ?? rolesData?.roles ?? rolesData))
+        const rawRoles = toArray<any>(rolesData?.data ?? rolesData?.roles ?? rolesData)
+        const seen = new Set<string>()
+        const filtered = rawRoles.filter((role) => {
+          const roleCode = String(role?.id || role?.name || '').trim().toUpperCase()
+          if (!roleCode || roleCode === 'CUSTOMER' || roleCode === 'SUPER_ADMIN' || roleCode === 'ADMIN') return false
+          const labelKey = formatRoleLabel(roleCode).toUpperCase()
+          if (seen.has(labelKey)) return false
+          seen.add(labelKey)
+          return true
+        })
+        setRoles(filtered)
       }
     } catch (error) {
       console.error('Failed to fetch users:', error)
@@ -107,7 +121,7 @@ export function UsersView() {
   }
 
   const openEdit = (user: any) => {
-    const resolvedRoleId = String(user?.roleId || user?.role?.id || '')
+    const resolvedRoleId = resolveRoleCode(user)
     setEditingUser(user)
     setForm({
       name: user.name || '',
@@ -323,7 +337,7 @@ export function UsersView() {
                       </td>
                       <td className="p-4 text-gray-500">{user.email}</td>
                       <td className="p-4">
-                        <Badge variant="outline">{formatRoleLabel(user.role?.name)}</Badge>
+                        <Badge variant="outline">{formatRoleLabel(resolveRoleCode(user))}</Badge>
                       </td>
                       <td className="p-4">
                         <Badge variant={user.isActive ? 'default' : 'secondary'}>
@@ -342,7 +356,7 @@ export function UsersView() {
         </CardContent>
       </Card>
 
-      <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetForm() }}>
+      <Dialog open={addOpen} onOpenChange={(open) => { if (open) resetForm(); setAddOpen(open); }}>
         <DialogContent className="max-w-4xl w-full">
           <DialogHeader>
             <DialogTitle>Add User</DialogTitle>
@@ -358,6 +372,7 @@ export function UsersView() {
               <div className="flex gap-2">
                 <Input
                   type="email"
+                  autoComplete="off"
                   value={form.email}
                   onChange={(e) => {
                     const nextEmail = e.target.value
@@ -379,7 +394,7 @@ export function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input autoComplete="off" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>
@@ -406,6 +421,7 @@ export function UsersView() {
               <div className="relative">
                 <Input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   className="pr-11"
@@ -425,6 +441,7 @@ export function UsersView() {
               <label className="text-sm font-medium text-gray-700">Confirm Password</label>
               <Input
                 type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
                 value={form.confirmPassword}
                 onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
                 placeholder="Confirm Password"
@@ -473,11 +490,11 @@ export function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Email</label>
-              <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+              <Input type="email" autoComplete="off" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input autoComplete="off" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>

@@ -116,7 +116,24 @@ export async function safeFetchJson(
       })
 
       const text = await response.text()
-      const data = text ? JSON.parse(text) : {}
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+      const isJsonResponse = contentType.includes('application/json')
+      const looksLikeHtml = /^\s*</.test(text)
+
+      let data: any = {}
+      if (text) {
+        if (isJsonResponse) {
+          data = JSON.parse(text)
+        } else if (looksLikeHtml) {
+          data = {
+            error: response.status === 401 || response.status === 403
+              ? 'Unauthorized response (HTML received). Please log in again.'
+              : `Non-JSON response received (status ${response.status}).`,
+          }
+        } else {
+          data = { error: text }
+        }
+      }
       return { ok: response.ok && data?.success !== false, status: response.status, data }
     } catch (error) {
       if (attempt === retries) {

@@ -140,6 +140,7 @@ export function CustomerOrdersView(props: any) {
                 {visibleOrders.map((o) => {
                   const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
                   const deliveryIssue = deliveryIssuesByOrderId[o.id]
+                  const hasReplacementCase = Boolean(deliveryIssue)
                   const firstItem = o.items?.[0]
                   const isDelivered = normalizedStatus === 'DELIVERED'
                   const isReviewed = reviewedOrderIds.has(o.id)
@@ -200,6 +201,12 @@ export function CustomerOrdersView(props: any) {
                       {isDelivered && hasSubmittedRating ? (
                         <div className="-mt-1 px-3 pb-2 text-xs text-amber-700">
                           Rated: {'★'.repeat(submittedRating)}{'☆'.repeat(5 - submittedRating)} ({submittedRating}/5)
+                        </div>
+                      ) : null}
+
+                      {isDelivered && !hasReplacementCase ? (
+                        <div className="-mt-1 px-3 pb-2 text-xs text-slate-500">
+                          No replacement case filed for this order.
                         </div>
                       ) : null}
 

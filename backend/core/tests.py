@@ -3658,3 +3658,40 @@ class PasswordPolicyContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertIn("Password must be at least 8 characters", payload["error"])
 
+
+class CustomerCreationPermissionContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.owner_user = User.objects.create(
+            email="owner.customer.create@gmail.com",
+            password="hashed",
+            name="Owner User",
+            role="SUPER_ADMIN",
+            is_active=True,
+        )
+        self.owner_token = create_token(
+            {
+                "userId": self.owner_user.id,
+                "email": self.owner_user.email,
+                "name": self.owner_user.name,
+                "role": self.owner_user.role,
+                "type": "staff",
+            }
+        )
+
+    def test_super_admin_cannot_create_customer_account(self) -> None:
+        response = self.client.post(
+            "/api/customers",
+            data={
+                "name": "Blocked Customer",
+                "email": "blocked.customer.create@gmail.com",
+                "password": "StrongPass1!",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.owner_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
+

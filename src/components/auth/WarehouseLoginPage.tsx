@@ -122,7 +122,7 @@ export function WarehouseLoginPage() {
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'warehouse') router.replace('/')
+        router.replace('/')
       } catch (error) {
         console.warn('Warehouse session check timed out or failed:', error)
       } finally {

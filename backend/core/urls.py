@@ -30,6 +30,7 @@ urlpatterns = [
     path("inventory/<str:inventory_id>", v.inventory_detail),
     path("inventory-transactions", v.inventory_transactions_list),
     path("stock-batches", v.stock_batches_collection),
+    path("stock-batches/bulk", v.stock_batches_bulk_collection),
     path("vehicles", v.vehicles_collection),
     path("vehicles/<str:vehicle_id>", v.vehicle_detail),
     path("drivers", v.drivers_collection),

@@ -48,7 +48,8 @@ import {
   Plus,
   Pencil,
   Eye,
-  CircleCheck
+  CircleCheck,
+  Trash2
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
 
@@ -103,6 +104,8 @@ interface ProductOption {
   name: string
   sku: string
   price?: number
+  unit?: string
+  sizes?: string[] | any[]
 }
 
 interface StockBatchItem {
@@ -148,11 +151,6 @@ interface InventoryTransactionItem {
     sku?: string
   } | null
 }
-
-const PRODUCT_UNIT_OPTIONS = [
-  { value: 'case', label: 'case' },
-  { value: 'pack(bundle)', label: 'pack(bundle)' },
-]
 
 interface WarehouseOrderItem {
   id: string
@@ -337,6 +335,18 @@ interface SavedRouteDraft {
   createdAt: string
 }
 
+interface StockRow {
+  id: string
+  productId: string
+  quantity: string
+  expiryDate: string
+  validationErrors: {
+    productId?: string
+    quantity?: string
+    expiryDate?: string
+  }
+}
+
 function getCollection<T>(payload: unknown, keys: string[]): T[] {
   if (Array.isArray(payload)) return payload as T[]
   if (!payload || typeof payload !== 'object') return []
@@ -471,28 +481,24 @@ export function WarehousePortal() {
   const [rejectReason, setRejectReason] = useState('')
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [editName, setEditName] = useState('')
-  const [editSku, setEditSku] = useState('')
-  const [editUnit, setEditUnit] = useState('case')
   const [editImageUrl, setEditImageUrl] = useState('')
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
-  const [editPrice, setEditPrice] = useState('')
-  const [editThreshold, setEditThreshold] = useState('')
   const [editQuantity, setEditQuantity] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeletingEdit, setIsDeletingEdit] = useState(false)
   const [deleteEditOpen, setDeleteEditOpen] = useState(false)
   const [addStockOpen, setAddStockOpen] = useState(false)
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false)
-  const [isNewProduct, setIsNewProduct] = useState(false)
-  const [selectedProductId, setSelectedProductId] = useState('')
   const [stockInWarehouseId, setStockInWarehouseId] = useState('')
-  const [stockInQty, setStockInQty] = useState('')
-  const [stockInExpiryDate, setStockInExpiryDate] = useState('')
-  const [newProductName, setNewProductName] = useState('')
-  const [newProductDescription, setNewProductDescription] = useState('')
-  const [newProductPrice, setNewProductPrice] = useState('')
-  const [newProductUnit, setNewProductUnit] = useState('case')
-  const [newProductImageFile, setNewProductImageFile] = useState<File | null>(null)
+  const [stockRows, setStockRows] = useState<StockRow[]>([
+    { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
+  ])
+
+  const getItemThreshold = (item: InventoryItem | null | undefined) =>
+    Math.max(
+      0,
+      Number((item as any)?.minStock ?? (item as any)?.threshold ?? (item as any)?.min_stock ?? 0) || 0
+    )
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
@@ -1036,6 +1042,8 @@ export function WarehousePortal() {
         sku: String(item?.product?.sku || '').trim(),
         name: String(item?.product?.name || '').trim(),
         price: Number(item?.product?.price || 0),
+        unit: String(item?.product?.unit || 'case').trim(),
+        sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : []
       })
     }
 
@@ -1046,6 +1054,8 @@ export function WarehousePortal() {
         sku: entry.sku || String(fallback?.sku || '').trim(),
         name: entry.name || String(fallback?.name || '').trim(),
         price: Number(entry.price || fallback?.price || 0),
+        unit: entry.unit || String(fallback?.unit || 'case').trim(),
+        sizes: (entry.sizes && entry.sizes.length > 0) ? entry.sizes : (Array.isArray(fallback?.sizes) ? fallback.sizes : [])
       }
     })
 
@@ -1171,7 +1181,7 @@ export function WarehousePortal() {
   }, [scopedReplacements])
 
   const lowStockCount = useMemo(
-    () => scopedInventory.filter((item) => (item.quantity ?? 0) <= (item.minStock ?? 0)).length,
+    () => scopedInventory.filter((item) => (item.quantity ?? 0) <= getItemThreshold(item)).length,
     [scopedInventory]
   )
 
@@ -1231,7 +1241,7 @@ export function WarehousePortal() {
     const totalCapacity = configuredCapacity > 0 ? configuredCapacity : Math.max(1000, usedCapacity + 250)
     const usagePercent = Math.min(100, Math.round((usedCapacity / totalCapacity) * 100))
     const availableCapacity = Math.max(totalCapacity - usedCapacity, 0)
-    const lowStockItems = scopedInventory.filter((item) => (item.quantity ?? 0) <= (item.minStock ?? 0)).length
+    const lowStockItems = scopedInventory.filter((item) => (item.quantity ?? 0) <= getItemThreshold(item)).length
     const pendingOrders = scopedOrders.filter((order) =>
       ['PENDING', 'CONFIRMED', 'PREPARING'].includes(String(order.status || '').toUpperCase())
     ).length
@@ -1246,7 +1256,7 @@ export function WarehousePortal() {
       .map((item) => {
         const qty = Number(item.quantity || 0)
         const reserved = Number(item.reservedQuantity || 0)
-        const minStock = Number(item.minStock || 0)
+        const minStock = getItemThreshold(item)
         const available = Math.max(0, qty - reserved)
         const pressure = Math.max(0, minStock - available)
         const velocity = reserved + pressure
@@ -1264,7 +1274,7 @@ export function WarehousePortal() {
       (acc, item) => {
         const qty = Number(item.quantity || 0)
         const reserved = Number(item.reservedQuantity || 0)
-        const minStock = Math.max(0, Number(item.minStock || 0))
+        const minStock = getItemThreshold(item)
         const available = Math.max(0, qty - reserved)
 
         if (minStock > 0 && available <= Math.max(1, Math.floor(minStock * 0.5))) {
@@ -2131,14 +2141,6 @@ export function WarehousePortal() {
     return () => window.clearInterval(intervalId)
   }, [activeView, trackingDate])
 
-  useEffect(() => {
-    if (!selectedProductId) return
-    const existsInWarehouse = availableExistingProducts.some((product) => product.id === selectedProductId)
-    if (!existsInWarehouse) {
-      setSelectedProductId('')
-    }
-  }, [availableExistingProducts, selectedProductId])
-
   const openOrderDetail = async (order: WarehouseOrderItem) => {
     setSelectedOrder(order)
     const hasItems = Array.isArray(order.items) && order.items.length > 0
@@ -2159,7 +2161,7 @@ export function WarehousePortal() {
 
   const getStockStatus = (item: InventoryItem) => {
     const qty = item.quantity ?? 0
-    const min = item.minStock ?? 0
+    const min = getItemThreshold(item)
     return qty <= min * 1.5 ? 'restock' : 'healthy'
   }
 
@@ -2167,12 +2169,8 @@ export function WarehousePortal() {
     setEditingItem(item)
     setDeleteEditOpen(false)
     setEditName(item.product?.name || '')
-    setEditSku(item.product?.sku || '')
-    setEditUnit(item.product?.unit || 'case')
     setEditImageUrl(item.product?.imageUrl || '')
     setEditImageFile(null)
-    setEditPrice(String(item.product?.price ?? 0))
-    setEditThreshold(String(item.minStock ?? 0))
     setEditQuantity(String(item.quantity ?? 0))
   }
 
@@ -2197,24 +2195,14 @@ export function WarehousePortal() {
       return
     }
 
-    const nextPrice = Number(editPrice)
-    const nextThreshold = Number(editThreshold)
     const nextQuantity = Number(editQuantity)
 
-    if (!Number.isFinite(nextPrice) || nextPrice < 0) {
-      toast.error('Price must be a non-negative number')
-      return
-    }
-    if (!Number.isFinite(nextThreshold) || nextThreshold < 0) {
-      toast.error('Threshold must be a non-negative number')
-      return
-    }
     if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
       toast.error('Quantity must be a non-negative number')
       return
     }
-    if (!editName.trim() || !editSku.trim() || !editUnit.trim()) {
-      toast.error('Name, SKU, and unit are required')
+    if (!editName.trim()) {
+      toast.error('Product name is required')
       return
     }
 
@@ -2227,10 +2215,7 @@ export function WarehousePortal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: editName.trim(),
-          sku: editSku.trim(),
-          unit: editUnit.trim(),
           imageUrl: uploadedImageUrl,
-          price: nextPrice,
         }),
       })
       const productPayload = await productResponse.json().catch(() => ({}))
@@ -2243,7 +2228,6 @@ export function WarehousePortal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quantity: nextQuantity,
-          minStock: nextThreshold,
         }),
       })
       const inventoryPayload = await inventoryResponse.json().catch(() => ({}))
@@ -2297,20 +2281,126 @@ export function WarehousePortal() {
   }
 
   const resetStockInForm = () => {
-    setIsNewProduct(false)
-    if (isWarehouseScopedUser && assignedWarehouse?.id) {
-      setStockInWarehouseId(assignedWarehouse.id)
+    setStockRows([
+      { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
+    ])
+    if (!isWarehouseScopedUser || !assignedWarehouse?.id) {
+      setStockInWarehouseId('')
     }
-    setSelectedProductId('')
-    setStockInQty('')
-    setStockInExpiryDate('')
-    setStockInThreshold('')
-    setNewProductName('')
-    setNewProductDescription('')
-    setNewProductPrice('')
-    setNewProductUnit('case')
-    setNewProductImageFile(null)
   }
+
+  // Row management functions
+  const addStockRow = () => {
+    const newRow: StockRow = {
+      id: `row-${Date.now()}-${Math.random()}`,
+      productId: '',
+      quantity: '',
+      expiryDate: '',
+      validationErrors: {}
+    }
+    setStockRows([...stockRows, newRow])
+  }
+
+  const removeStockRow = (rowId: string) => {
+    if (stockRows.length > 1) {
+      setStockRows(stockRows.filter(r => r.id !== rowId))
+    }
+  }
+
+  const updateStockRow = (rowId: string, field: keyof Omit<StockRow, 'id' | 'validationErrors'>, value: string) => {
+    setStockRows((prevRows) => prevRows.map((row) => {
+      if (row.id === rowId) {
+        const updatedRow = { ...row, [field]: value, validationErrors: {} }
+        return updatedRow
+      }
+      return row
+    }))
+  }
+
+  const validateStockRow = (row: StockRow) => {
+    const errors: StockRow['validationErrors'] = {}
+    if (!row.productId.trim()) errors.productId = 'Product is required'
+    if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
+    else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
+    return errors
+  }
+
+  const validateAllStockRows = () => {
+    let hasErrors = false
+    const selectedCounts = stockRows.reduce<Record<string, number>>((acc, row) => {
+      const key = row.productId.trim()
+      if (!key) return acc
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+
+    const updatedRows = stockRows.map(row => {
+      const errors = validateStockRow(row)
+      const key = row.productId.trim()
+      if (key && (selectedCounts[key] || 0) > 1) {
+        errors.productId = 'Product already selected in another row'
+      }
+      if (Object.keys(errors).length > 0) hasErrors = true
+      return { ...row, validationErrors: errors }
+    })
+    setStockRows(updatedRows)
+    return !hasErrors
+  }
+
+  // CSV parsing function
+  const parseCSVData = (csvText: string): StockRow[] => {
+    const lines = csvText.trim().split('\n').filter(line => line.trim())
+    const newRows: StockRow[] = []
+
+    for (const line of lines) {
+      const parts = line.split(',').map(p => p.trim())
+      if (parts.length < 2) continue
+
+      const productIdentifier = parts[0]
+      const quantity = parts[1]
+      const expiryDate = parts[2] || ''
+
+      // Find product by SKU or name
+      const matchedProduct = availableExistingProducts.find(
+        p => p.sku === productIdentifier || p.name === productIdentifier || p.id === productIdentifier
+      )
+
+      if (matchedProduct && quantity) {
+        newRows.push({
+          id: `row-${Date.now()}-${Math.random()}`,
+          productId: matchedProduct.id,
+          quantity: quantity,
+          expiryDate: expiryDate,
+          validationErrors: {}
+        })
+      }
+    }
+
+    return newRows
+  }
+
+  // Keyboard navigation
+  const handleStockModalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && !isSubmittingStockIn) {
+      setAddStockOpen(false)
+    }
+
+    // Handle Ctrl+V / Cmd+V for CSV paste
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v' && e.target instanceof HTMLDivElement) {
+      e.preventDefault()
+      navigator.clipboard.readText().then(text => {
+        const parsedRows = parseCSVData(text)
+        if (parsedRows.length > 0) {
+          setStockRows(parsedRows)
+          toast.success(`${parsedRows.length} rows imported from clipboard`)
+        }
+      }).catch(() => {
+        toast.error('Failed to read clipboard')
+      })
+    }
+  }
+
+
 
   const openAddStockDialog = () => {
     if (isWarehouseScopedUser && assignedWarehouse?.id) {
@@ -2322,46 +2412,32 @@ export function WarehousePortal() {
   }
 
   const addStockInBatch = async () => {
-    const qty = Number(stockInQty)
     if (!stockInWarehouseId) {
       toast.error('Please select a warehouse')
       return
     }
-    if (!Number.isFinite(qty) || qty <= 0) {
-      toast.error('Quantity should be greater than 0')
+
+    // Validate all rows before submitting
+    if (!validateAllStockRows()) {
+      toast.error('Please fix errors in the form')
       return
     }
-    if (isNewProduct && !newProductName.trim()) {
-      toast.error('New product name is required')
-      return
-    }
-    if (!isNewProduct && !selectedProductId) {
-      toast.error('Please select an existing product')
-      return
-    }
-    if (!isNewProduct && !availableExistingProducts.some((product) => product.id === selectedProductId)) {
-      toast.error('Selected product is not in this warehouse inventory')
-      return
-    }
+
+    // Prepare batches
+    const batches = stockRows.map(row => ({
+      productId: row.productId,
+      quantity: Number(row.quantity),
+      expiryDate: row.expiryDate || null
+    }))
 
     setIsSubmittingStockIn(true)
     try {
-      const uploadedImageUrl = isNewProduct && newProductImageFile ? await uploadProductImage(newProductImageFile) : null
-
-      const response = await fetch('/api/stock-batches', {
+      const response = await fetch('/api/stock-batches/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           warehouseId: stockInWarehouseId,
-          quantity: qty,
-          expiryDate: stockInExpiryDate || null,
-          isNewProduct,
-          productId: isNewProduct ? undefined : selectedProductId,
-          productName: isNewProduct ? newProductName.trim() : undefined,
-          description: isNewProduct ? newProductDescription.trim() || null : undefined,
-          unit: isNewProduct ? newProductUnit : undefined,
-          price: isNewProduct ? Number(newProductPrice || 0) : undefined,
-          imageUrl: isNewProduct ? uploadedImageUrl : undefined,
+          batches: batches
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -2369,7 +2445,16 @@ export function WarehousePortal() {
         throw new Error(payload?.error || 'Failed to add stock')
       }
 
-      toast.success('Stock added successfully')
+      const created = payload?.created || 0
+      const failed = payload?.failed || 0
+
+      if (created > 0) {
+        toast.success(`${created} of ${created + failed} stock entries added successfully`)
+      }
+      if (failed > 0) {
+        toast.error(`${failed} entries failed`)
+      }
+
       setAddStockOpen(false)
       resetStockInForm()
       await fetchInventoryData()
@@ -3393,21 +3478,13 @@ export function WarehousePortal() {
           resetStockInForm()
         }}
       >
-        <DialogContent className="max-w-4xl w-full">
-          <DialogHeader>
-            <DialogTitle>Add Stock</DialogTitle>
-            <DialogDescription>Add stock by batch. Existing product requires expiry date only.</DialogDescription>
+        <DialogContent className="flex h-[85vh] w-[95vw] max-w-4xl flex-col overflow-hidden p-5">
+          <DialogHeader className="mb-2">
+            <DialogTitle className="text-3xl font-bold">Bulk Add Stock</DialogTitle>
+            <DialogDescription className="text-lg mt-2">Add multiple stock entries by batch</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <Button type="button" variant={!isNewProduct ? 'default' : 'outline'} className="flex-1" onClick={() => setIsNewProduct(false)}>
-                Existing Product
-              </Button>
-              <Button type="button" variant={isNewProduct ? 'default' : 'outline'} className="flex-1" onClick={() => setIsNewProduct(true)}>
-                New Product
-              </Button>
-            </div>
-
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 pr-1">
             {!(isWarehouseScopedUser && assignedWarehouse?.id) ? (
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">Warehouse</label>
@@ -3426,85 +3503,123 @@ export function WarehousePortal() {
               </div>
             ) : null}
 
-            {!isNewProduct ? (
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Product</label>
-                <select
-                  id="stock-product"
-                  title="Select Product"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={selectedProductId}
-                  onChange={(e) => setSelectedProductId(e.target.value)}
-                >
-                  <option value="">
-                    {availableExistingProducts.length > 0 ? 'Select product' : 'No products in this warehouse inventory'}
-                  </option>
-                  {availableExistingProducts.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.sku} - {product.name}
-                    </option>
-                  ))}
-                </select>
+            {/* Stock Rows Table */}
+            <div className="border rounded-md overflow-hidden">
+              {/* Sticky Header */}
+              <div className="sticky top-0 z-20 grid grid-cols-[2fr_0.9fr_1.2fr_36px] gap-2 bg-gray-100 border-b p-3 font-semibold text-sm text-gray-700">
+                <div className="px-2.5">Product</div>
+                <div className="px-2.5">Quantity</div>
+                <div className="px-2.5">Expiry Date</div>
+                <div></div>
               </div>
-            ) : (
-              <div className="space-y-3 rounded-md border p-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Product Image</label>
-                  <Input id="new-product-image" type="file" accept="image/*" onChange={(e) => setNewProductImageFile(e.target.files?.[0] || null)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Product Name</label>
-                  <Input id="new-product-name" value={newProductName} onChange={(e) => setNewProductName(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Description</label>
-                  <Input
-                    id="new-product-description"
-                    value={newProductDescription}
-                    onChange={(e) => setNewProductDescription(e.target.value)}
-                    placeholder="Product description"
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Price</label>
-                    <Input id="new-product-price" type="number" step="0.01" value={newProductPrice} onChange={(e) => setNewProductPrice(e.target.value)} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Unit</label>
-                    <select
-                      id="new-product-unit"
-                      aria-label="New product unit"
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={newProductUnit}
-                      onChange={(e) => setNewProductUnit(e.target.value)}
-                    >
-                      {PRODUCT_UNIT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Quantity</label>
-                <Input id="stock-qty" type="number" value={stockInQty} onChange={(e) => setStockInQty(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Expiry Date</label>
-                <Input id="stock-expiry" type="date" value={stockInExpiryDate} onChange={(e) => setStockInExpiryDate(e.target.value)} />
+              {/* Rows */}
+              <div className="max-h-[45vh] overflow-y-auto">
+                {stockRows.map((row, idx) => (
+                  <div key={row.id} className="grid grid-cols-[2fr_0.9fr_1.2fr_36px] gap-2 border-b p-3 items-start bg-white hover:bg-gray-50 transition">
+                    {/* Product Select */}
+                    <div className="min-w-0 space-y-1">
+                      <select
+                        title="Select Product"
+                        className={`h-9 w-full rounded-md border px-2.5 py-1.5 text-xs font-medium ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
+                        value={row.productId}
+                        onChange={(e) => updateStockRow(row.id, 'productId', e.target.value)}
+                      >
+                        <option value="">Select product</option>
+                        {availableExistingProducts.map((product) => {
+                          const selectedInAnotherRow = stockRows.some(
+                            (r) => r.id !== row.id && r.productId === product.id
+                          )
+                          const sizeString = product.sizes && product.sizes.length > 0
+                            ? ` (${product.sizes.join(', ')})`
+                            : ''
+                          return (
+                            <option key={product.id} value={product.id} disabled={selectedInAnotherRow}>
+                              {product.name}{sizeString}
+                            </option>
+                          )
+                        })}
+                      </select>
+                      {row.validationErrors.productId && (
+                        <p className="text-xs text-red-600">{row.validationErrors.productId}</p>
+                      )}
+                    </div>
+
+                    {/* Quantity Input */}
+                    <div className="min-w-0 space-y-1">
+                      <Input
+                        id={`qty-${row.id}`}
+                        type="number"
+                        placeholder="0"
+                        className={`h-9 text-xs ${row.validationErrors.quantity ? 'border-red-500 bg-red-50' : ''}`}
+                        value={row.quantity}
+                        onChange={(e) => updateStockRow(row.id, 'quantity', e.target.value)}
+                      />
+                      {row.validationErrors.quantity && (
+                        <p className="text-xs text-red-600">{row.validationErrors.quantity}</p>
+                      )}
+                    </div>
+
+                    {/* Expiry Date Input */}
+                    <div className="min-w-0 space-y-1">
+                      <Input
+                        id={`expiry-${row.id}`}
+                        type="date"
+                        className={`h-9 text-xs ${row.validationErrors.expiryDate ? 'border-red-500 bg-red-50' : ''}`}
+                        value={row.expiryDate}
+                        onChange={(e) => updateStockRow(row.id, 'expiryDate', e.target.value)}
+                      />
+                      {row.validationErrors.expiryDate && (
+                        <p className="text-xs text-red-600">{row.validationErrors.expiryDate}</p>
+                      )}
+                    </div>
+
+                    {/* Remove Button */}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={`h-9 w-9 mt-0.5 ${stockRows.length === 1 ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-red-600 hover:text-red-700 hover:bg-red-50'}`}
+                      onClick={() => removeStockRow(row.id)}
+                      disabled={stockRows.length === 1}
+                      title={stockRows.length === 1 ? 'Cannot remove last row' : 'Remove row'}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <Button className="w-full" onClick={addStockInBatch} disabled={isSubmittingStockIn}>
-              {isSubmittingStockIn ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Add Stock
-            </Button>
+            </div>
+            {/* Bottom Actions */}
+            <div className="mt-3 shrink-0 space-y-3 border-t bg-white pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-dashed text-xs py-2"
+                onClick={addStockRow}
+              >
+                <Plus className="h-3.5 w-3.5 mr-2" />
+                Add Row
+              </Button>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 text-base py-3"
+                  onClick={() => setAddStockOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-black text-white hover:bg-black/90 text-base py-3"
+                  onClick={addStockInBatch}
+                  disabled={isSubmittingStockIn}
+                >
+                  {isSubmittingStockIn ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : null}
+                  Add Stock ({stockRows.length} {stockRows.length === 1 ? 'item' : 'items'})
+                </Button>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -3521,37 +3636,9 @@ export function WarehousePortal() {
               <Input id="edit-name" value={editName} onChange={(e) => setEditName(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="edit-sku">SKU</Label>
-              <Input id="edit-sku" value={editSku} onChange={(e) => setEditSku(e.target.value)} />
-            </div>
-            <div className="space-y-1">
               <Label htmlFor="edit-image-file">Photo</Label>
               <Input id="edit-image-file" type="file" accept="image/*" onChange={(e) => setEditImageFile(e.target.files?.[0] || null)} />
               {editImageUrl && <p className="text-xs text-gray-500">Current photo is set.</p>}
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-unit">Unit</Label>
-              <select
-                id="edit-unit"
-                aria-label="Edit product unit"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={editUnit}
-                onChange={(e) => setEditUnit(e.target.value)}
-              >
-                {PRODUCT_UNIT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-price">Price</Label>
-              <Input id="edit-price" type="number" min="0" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-threshold">Threshold</Label>
-              <Input id="edit-threshold" type="number" min="0" step="1" value={editThreshold} onChange={(e) => setEditThreshold(e.target.value)} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="edit-quantity">In Stock Quantity</Label>

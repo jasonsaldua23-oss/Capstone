@@ -76,20 +76,6 @@ class ReplacementStatus(models.TextChoices):
     COMPLETED = "COMPLETED", "Completed"
 
 
-class FeedbackType(models.TextChoices):
-    COMPLIMENT = "COMPLIMENT", "Compliment"
-    COMPLAINT = "COMPLAINT", "Complaint"
-    SUGGESTION = "SUGGESTION", "Suggestion"
-    QUESTION = "QUESTION", "Question"
-
-
-class FeedbackStatus(models.TextChoices):
-    OPEN = "OPEN", "Open"
-    IN_PROGRESS = "IN_PROGRESS", "In Progress"
-    RESOLVED = "RESOLVED", "Resolved"
-    CLOSED = "CLOSED", "Closed"
-
-
 class User(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     email = models.EmailField()
@@ -136,6 +122,21 @@ class Customer(models.Model):
         db_table = "Customer"
 
 
+class Feedback(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="feedback")
+    order = models.ForeignKey("Order", on_delete=models.SET_NULL, related_name="feedback", blank=True, null=True)
+    type = models.CharField(max_length=50, default="SUGGESTION")
+    subject = models.CharField(max_length=255, default="General Feedback")
+    message = models.TextField(default="")
+    rating = models.IntegerField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "Feedback"
+
+
 class Warehouse(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     name = models.CharField(max_length=255)
@@ -162,7 +163,6 @@ class Product(models.Model):
     sku = models.CharField(max_length=120, unique=True)
     name = models.CharField(max_length=255)
     image_url = models.TextField(blank=True, null=True)
-    description = models.TextField(blank=True, null=True)
     unit = models.CharField(max_length=50, default="case")
     weight = models.FloatField(blank=True, null=True)
     price = models.FloatField(default=0)
@@ -472,25 +472,6 @@ class Replacement(models.Model):
 
     class Meta:
         db_table = "Replacement"
-
-
-class Feedback(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="feedbacks")
-    order = models.ForeignKey(Order, on_delete=models.SET_NULL, blank=True, null=True, related_name="feedbacks")
-    type = models.CharField(max_length=50, choices=FeedbackType.choices)
-    subject = models.CharField(max_length=255)
-    message = models.TextField()
-    rating = models.IntegerField(blank=True, null=True)
-    status = models.CharField(max_length=50, choices=FeedbackStatus.choices, default=FeedbackStatus.OPEN)
-    response = models.TextField(blank=True, null=True)
-    responded_at = models.DateTimeField(blank=True, null=True)
-    responded_by = models.CharField(max_length=100, blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "Feedback"
 
 
 class Notification(models.Model):

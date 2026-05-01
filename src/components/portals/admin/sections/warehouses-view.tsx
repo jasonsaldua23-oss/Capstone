@@ -105,34 +105,22 @@ export function WarehousesView() {
 
   const fetchWarehouseStaffUsers = async () => {
     try {
-      const [usersResponse, rolesResponse] = await Promise.all([
-        fetch('/api/users?page=1&pageSize=500'),
-        fetch('/api/roles'),
-      ])
+      const usersResponse = await fetch('/api/users?page=1&pageSize=500')
 
-      if (!usersResponse.ok || !rolesResponse.ok) {
+      if (!usersResponse.ok) {
         throw new Error('Failed to fetch warehouse staff users')
       }
 
       const usersPayload = await usersResponse.json()
-      const rolesPayload = await rolesResponse.json()
       const users = toArray<any>(usersPayload?.data ?? usersPayload?.users ?? usersPayload)
-      const roles = toArray<any>(rolesPayload?.data ?? rolesPayload?.roles ?? rolesPayload)
 
-      const warehouseRoles = roles.filter((role) => String(role?.name || '').toUpperCase().includes('WAREHOUSE'))
-      const warehouseRoleIds = new Set(warehouseRoles.map((role) => String(role?.id || '')).filter(Boolean))
       const scopedUsers = users.filter((entry) => {
         if (entry?.isActive === false) return false
 
-        const userRoleId = String(entry?.roleId || entry?.role?.id || '')
-        const userRoleName = String(entry?.role?.name || '').toUpperCase()
+        const userRole = String(entry?.role || entry?.roleId || '').toUpperCase()
 
-        if (warehouseRoleIds.size > 0) {
-          if (userRoleId && warehouseRoleIds.has(userRoleId)) return true
-          return userRoleName.includes('WAREHOUSE')
-        }
-
-        return userRoleName.includes('WAREHOUSE')
+        // Check for WAREHOUSE_STAFF role
+        return userRole === 'WAREHOUSE_STAFF' || userRole.includes('WAREHOUSE')
       })
 
       setWarehouseStaffUsers(scopedUsers)

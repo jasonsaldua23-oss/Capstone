@@ -179,7 +179,19 @@ async function fetchJsonWithRetry(
         signal: controller.signal,
       })
       const raw = await response.text()
-      const data = raw ? JSON.parse(raw) : {}
+      let data: any = {}
+      if (raw) {
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+        const isJson = contentType.includes('application/json')
+        const looksLikeHtml = /^\s*</.test(raw)
+        if (isJson) {
+          data = JSON.parse(raw)
+        } else if (looksLikeHtml) {
+          data = { error: `Non-JSON response received (status ${response.status}).` }
+        } else {
+          data = { error: raw }
+        }
+      }
       lastResponse = response
       lastData = data
       lastRaw = raw
@@ -292,6 +304,43 @@ export function useDriverPortalState() {
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoTrackingTripIdRef = useRef<string | null>(null)
   const trackingLifecycleLockRef = useRef(false)
+  const currentDriverUserIdRef = useRef<string | null>(null)
+
+  const extractTripDriverId = useCallback((trip: any): string | null => {
+    const value =
+      trip?.driver?.id ??
+      trip?.driver_id ??
+      trip?.driverId ??
+      trip?.driver?.userId ??
+      trip?.driver?.user?.id ??
+      null
+    const normalized = String(value || '').trim()
+    return normalized || null
+  }, [])
+
+  const resolveCurrentDriverUserId = useCallback(async (): Promise<string | null> => {
+    if (currentDriverUserIdRef.current) return currentDriverUserIdRef.current
+    const me = await fetchJsonWithRetry('/api/auth/me', { cache: 'no-store', credentials: 'include' }, { retries: 1, timeoutMs: 8000 })
+    if (!me.response?.ok || me.data?.success === false) return null
+    const role = String(me.data?.user?.role || '').toUpperCase()
+    const userId = String(me.data?.user?.id || me.data?.user?.userId || '').trim()
+    if (role !== 'DRIVER' || !userId) return null
+    currentDriverUserIdRef.current = userId
+    return userId
+  }, [])
+
+  const fetchTripsFallback = useCallback(async (): Promise<Trip[]> => {
+    const driverUserId = await resolveCurrentDriverUserId()
+    if (!driverUserId) return []
+    const allTrips = await fetchJsonWithRetry(
+      '/api/trips?page=1&pageSize=200',
+      { cache: 'no-store', credentials: 'include' },
+      { retries: 1, timeoutMs: 10000 }
+    )
+    if (!allTrips.response?.ok || allTrips.data?.success === false) return []
+    const rows = Array.isArray(allTrips.data?.trips) ? allTrips.data.trips : []
+    return rows.filter((trip: any) => extractTripDriverId(trip) === driverUserId)
+  }, [extractTripDriverId, resolveCurrentDriverUserId])
 
   // Fetches driver trips and keeps both state and refs in sync.
   const fetchTrips = useCallback(async (_silent = false): Promise<Trip[]> => {
@@ -304,18 +353,24 @@ export function useDriverPortalState() {
         { retries: 2, timeoutMs: 10000 }
       )
 
-      if (!response?.ok || data?.success === false) {
-        const rawMessage = typeof data?.error === 'string' ? data.error : ''
-        const status = response?.status || 0
-        const fallbackMessage =
-          status >= 500
-            ? `Server error (${status}).`
-            : `Request failed (${status}).`
-        const detail = !rawMessage && raw ? ` ${raw.slice(0, 180)}` : ''
-        throw new Error((rawMessage || fallbackMessage) + detail)
+      let nextTrips = Array.isArray(data?.trips) ? data.trips : []
+      const primaryFailed = !response?.ok || data?.success === false
+      if (primaryFailed) {
+        const fallbackTrips = await fetchTripsFallback()
+        if (fallbackTrips.length > 0) {
+          nextTrips = fallbackTrips
+        } else {
+          const rawMessage = typeof data?.error === 'string' ? data.error : ''
+          const status = response?.status || 0
+          const fallbackMessage =
+            status >= 500
+              ? `Server error (${status}).`
+              : `Request failed (${status}).`
+          const detail = !rawMessage && raw ? ` ${raw.slice(0, 180)}` : ''
+          throw new Error((rawMessage || fallbackMessage) + detail)
+        }
       }
 
-      const nextTrips = Array.isArray(data.trips) ? data.trips : []
       latestTripsRef.current = nextTrips
       setTrips(nextTrips)
       return nextTrips
@@ -326,7 +381,7 @@ export function useDriverPortalState() {
       isFetchingTripsRef.current = false
       setIsLoading(false)
     }
-  }, [])
+  }, [fetchTripsFallback])
 
   // Applies a local optimistic patch to a specific trip.
   const applyTripUpdate = useCallback((tripId: string, updater: (trip: Trip) => Trip) => {
@@ -669,21 +724,46 @@ export function useDriverPortalState() {
       applyGpsLocation(location, getActiveTripId())
     } catch (error: any) {
       const geolocationErrorCode = Number(error?.code)
-      if (geolocationErrorCode === 1) {
+      if (geolocationErrorCode === 3) {
+        // Timeout fallback: retry with lower accuracy and longer timeout.
+        try {
+          const fallback = await readCurrentPosition({
+            enableHighAccuracy: false,
+            maximumAge: 60000,
+            timeout: 25000,
+          })
+          const fallbackLocation = gpsFromPosition(fallback)
+          if (fallbackLocation) {
+            applyGpsLocation(fallbackLocation, getActiveTripId())
+          }
+        } catch {
+          // Continue to normal timeout handling below.
+        }
+      }
+
+      if (latestGpsRef.current) {
+        // Recovery succeeded from fallback read.
+        setLocationPermission('granted')
+      } else if (geolocationErrorCode === 1) {
         setLocationPermission('denied')
       } else {
         setLocationPermission('prompt')
       }
-      setIsTracking(false)
-      if (geolocationErrorCode === 1) {
-        toast.error('Location is required to start trip. Please enable location access in settings.')
-        void openLocationSettings()
-      } else if (geolocationErrorCode === 3) {
-        toast.error('Location request timed out. Please move to open sky and try again.')
+
+      if (latestGpsRef.current) {
+        // Continue startup; watchPosition setup below will run normally.
       } else {
-        toast.error('Unable to get current location right now. Please try again.')
+        setIsTracking(false)
+        if (geolocationErrorCode === 1) {
+          toast.error('Location is required to start trip. Please enable location access in settings.')
+          void openLocationSettings()
+        } else if (geolocationErrorCode === 3) {
+          toast.error('Location request timed out. Please move to open sky and try again.')
+        } else {
+          toast.error('Unable to get current location right now. Please try again.')
+        }
+        return false
       }
-      return false
     }
 
     if (watchIdRef.current !== null) {

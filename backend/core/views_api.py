@@ -126,7 +126,7 @@ def _real_customers(qs):
 def _real_products(qs):
     if not _hide_sample_data():
         return qs
-    return qs.exclude(_sample_text_query("name", "sku", "description"))
+    return qs.exclude(_sample_text_query("name", "sku"))
 
 
 def _real_warehouses(qs):
@@ -2850,7 +2850,6 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 sku=str(body["sku"]).strip(),
                 name=str(body["name"]).strip(),
                 image_url=body.get("imageUrl"),
-                description=body.get("description"),
                 unit=product_unit,
                 weight=body.get("weight"),
                 price=float(body.get("price") or 0),
@@ -2898,7 +2897,7 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             prod.unit = _normalize_product_unit(body.get("unit"))
         except ValueError as exc:
             return _err(str(exc), 400)
-    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("description", "description"), ("weight", "weight"), ("price", "price")]
+    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("weight", "weight"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
@@ -2966,12 +2965,13 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
     item, created = Inventory.objects.get_or_create(
         warehouse=warehouse,
         product=product,
-        defaults={"quantity": qty, "reserved_quantity": 0, "threshold": _int(body.get("threshold"), 10), "last_restocked_at": timezone.now()},
+        defaults={"quantity": qty, "reserved_quantity": 0, "threshold": max(1, int(qty * 0.15)), "last_restocked_at": timezone.now()},
     )
     if not created:
         item.quantity += qty
-        item.last_restocked_at = timezone.now()
-        item.save()
+    item.threshold = max(1, int(item.quantity * 0.15))
+    item.last_restocked_at = timezone.now()
+    item.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
     InventoryTransaction.objects.create(
         warehouse=warehouse,
         product=product,
@@ -2996,7 +2996,9 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
     except Inventory.DoesNotExist:
         return _err("Inventory not found", 404)
     body = _json_body(request)
-    mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity"), ("threshold", "threshold")]
+    # Threshold is intentionally excluded from manual edits.
+    # It is recalculated only after restock operations.
+    mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity")]
     for key, attr in mapping:
         if key in body:
             setattr(item, attr, _int(body.get(key), getattr(item, attr)))
@@ -3122,7 +3124,6 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                         sku=sku,
                         name=name,
                         image_url=body.get("imageUrl"),
-                        description=body.get("description"),
                         unit=product_unit,
                         price=float(body.get("price") or 0),
                         is_active=True,
@@ -3134,20 +3135,16 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     if not product:
                         return _err("Product not found", 404)
 
-                threshold = max(1, int(qty * 0.15))
                 inv, created = Inventory.objects.select_related("warehouse", "product").get_or_create(
                     warehouse=warehouse,
                     product=product,
                     defaults={
                         "quantity": 0,
                         "reserved_quantity": 0,
-                        "threshold": threshold,
+                        "threshold": max(1, int(qty * 0.15)),
                         "last_restocked_at": timezone.now(),
                     },
                 )
-
-                if not created:
-                    inv.threshold = threshold
 
             batch = StockBatch.objects.create(
                 batch_number=str(body.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}"),
@@ -3161,6 +3158,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             )
 
             inv.quantity += qty
+            inv.threshold = max(1, int(inv.quantity * 0.15))
             inv.last_restocked_at = timezone.now()
             inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
 
@@ -3178,6 +3176,133 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             return _ok({"success": True, "stockBatch": _serialize_model(batch)}, 201)
     except Exception as e:
         return _err(str(e), 500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
+    """Bulk add multiple stock batches in a single atomic transaction"""
+    _, err = _require_staff(request)
+    if err:
+        return err
+
+    body = _json_body(request)
+    warehouse_id = str(body.get("warehouseId") or "").strip()
+    batches = body.get("batches") or []
+
+    if not warehouse_id:
+        return _err("warehouseId is required", 400)
+    if not isinstance(batches, list) or len(batches) == 0:
+        return _err("batches must be a non-empty array", 400)
+
+    warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+    if not warehouse:
+        return _err("Warehouse not found", 404)
+
+    # Validate all batches before creating any
+    validated_batches = []
+    for idx, batch_item in enumerate(batches):
+        if not isinstance(batch_item, dict):
+            return _err(f"Batch {idx} is not a dictionary", 400)
+
+        product_id = str(batch_item.get("productId") or "").strip()
+        qty = _int(batch_item.get("quantity"), 0)
+        expiry_raw = str(batch_item.get("expiryDate") or "").strip()
+
+        if not product_id:
+            return _err(f"Batch {idx}: productId is required", 400)
+        if qty <= 0:
+            return _err(f"Batch {idx}: quantity must be > 0", 400)
+
+        product = Product.objects.filter(id=product_id).first()
+        if not product:
+            return _err(f"Batch {idx}: Product not found", 404)
+
+        expiry_date = None
+        if expiry_raw:
+            try:
+                expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+            except ValueError:
+                return _err(f"Batch {idx}: Invalid expiryDate format", 400)
+
+        validated_batches.append({
+            "product_id": product_id,
+            "product": product,
+            "quantity": qty,
+            "expiry_date": expiry_date,
+            "batch_number": str(batch_item.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}-{idx}"),
+            "location_label": batch_item.get("locationLabel"),
+            "status": batch_item.get("status") or "ACTIVE",
+        })
+
+    created_by = (_payload(request) or {}).get("userId")
+
+    try:
+        with transaction.atomic():
+            created_stock_batches = []
+
+            for batch_data in validated_batches:
+                product_id = batch_data["product_id"]
+                product = batch_data["product"]
+                qty = batch_data["quantity"]
+                expiry_date = batch_data["expiry_date"]
+
+                # Get or create inventory
+                inv, created = Inventory.objects.select_related("warehouse", "product").get_or_create(
+                    warehouse=warehouse,
+                    product=product,
+                    defaults={
+                        "quantity": 0,
+                        "reserved_quantity": 0,
+                        "threshold": max(1, int(qty * 0.15)),
+                        "last_restocked_at": timezone.now(),
+                    },
+                )
+
+                # Create stock batch
+                batch = StockBatch.objects.create(
+                    batch_number=batch_data["batch_number"],
+                    inventory=inv,
+                    quantity=qty,
+                    receipt_date=timezone.now(),
+                    expiry_date=expiry_date,
+                    location_label=batch_data["location_label"],
+                    status=batch_data["status"],
+                    created_by=created_by,
+                )
+
+                # Update inventory quantity
+                inv.quantity += qty
+                inv.threshold = max(1, int(inv.quantity * 0.15))
+                inv.last_restocked_at = timezone.now()
+                inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
+
+                # Create inventory transaction
+                InventoryTransaction.objects.create(
+                    warehouse=inv.warehouse,
+                    product=inv.product,
+                    type="IN",
+                    quantity=qty,
+                    reference_type="stock_batch",
+                    reference_id=batch.id,
+                    notes="Bulk stock batch added",
+                    performed_by=created_by,
+                )
+
+                created_stock_batches.append(batch)
+
+            serialized_batches = [_serialize_model(b, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for b in created_stock_batches]
+
+            return _ok({
+                "success": True,
+                "created": len(created_stock_batches),
+                "failed": 0,
+                "stockBatches": serialized_batches,
+                "errors": []
+            }, 201)
+    except Exception as e:
+        return _err(str(e), 500)
+
 
 
 @csrf_exempt
@@ -3484,7 +3609,6 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
             subject=str(body.get("subject") or "General Feedback"),
             message=str(body.get("message") or ""),
             rating=body.get("rating"),
-            status="OPEN",
         )
         return _ok({"success": True, "feedback": _serialize_model(f)}, 201)
     _, err = _require_staff(request)
@@ -3498,12 +3622,6 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
         f = Feedback.objects.get(id=feedback_id)
     except Feedback.DoesNotExist:
         return _err("Feedback not found", 404)
-    if "status" in body:
-        f.status = body.get("status")
-    if "response" in body:
-        f.response = body.get("response")
-        f.responded_at = timezone.now()
-        f.responded_by = (_payload(request) or {}).get("userId")
     f.save()
     return _ok({"success": True})
 

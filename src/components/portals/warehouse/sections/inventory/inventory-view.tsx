@@ -25,6 +25,9 @@ export function WarehouseInventoryView({
   loadingInventoryTransactions,
   filteredInventoryTransactions,
 }: WarehouseInventoryViewProps) {
+  const getThresholdValue = (item: any) =>
+    Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0) || 0)
+
   return (
     <div className="space-y-6">
       <Card>
@@ -58,6 +61,7 @@ export function WarehouseInventoryView({
                     <th className="text-left p-4 font-medium text-gray-600">Price</th>
                     <th className="text-left p-4 font-medium text-gray-600">Threshold</th>
                     <th className="text-left p-4 font-medium text-gray-600">Available</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Reserved</th>
                     <th className="text-left p-4 font-medium text-gray-600">Location</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
                     <th className="text-left p-4 font-medium text-gray-600">Actions</th>
@@ -67,6 +71,8 @@ export function WarehouseInventoryView({
                   {scopedInventory.map((item) => {
                     const status = getStockStatus(item)
                     const availableQty = getAvailableQty(item)
+                    const sizes = Array.isArray(item.product?.sizes) ? item.product.sizes.filter(Boolean) : []
+                    const sizeLabel = sizes.length > 0 ? sizes.join(', ') : 'No size'
                     return (
                       <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="p-4 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
@@ -84,14 +90,15 @@ export function WarehouseInventoryView({
                             />
                             <div>
                               <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
-                              <p className="text-xs text-gray-500">{item.product?.category?.name || 'General'}</p>
+                              <p className="text-xs text-gray-500">{sizeLabel}</p>
                             </div>
                           </div>
                         </td>
                         <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
                         <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
-                        <td className="p-4 font-semibold text-gray-900">{item.minStock ?? 0}</td>
+                        <td className="p-4 font-semibold text-gray-900">{getThresholdValue(item)}</td>
                         <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
+                        <td className="p-4 font-semibold text-orange-600">{item.reserved_quantity ?? 0}</td>
                         <td className="p-4 text-gray-600">
                           {item.warehouse?.name || item.warehouse?.code || 'N/A'}
                         </td>

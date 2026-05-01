@@ -1122,7 +1122,9 @@ export function CustomerPortal() {
       }
 
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to submit rating')
+        const backendMessage = String(payload?.error || payload?.message || '').trim()
+        const statusHint = response?.status ? ` (${response.status})` : ''
+        throw new Error((backendMessage || 'Failed to submit rating') + statusHint)
       }
 
       setReviewedOrderIds((prev) => {
@@ -1979,12 +1981,11 @@ export function CustomerPortal() {
           const createdAtText = review?.createdAt ? new Date(review.createdAt).toLocaleString() : 'N/A'
           const subject = String(review?.subject || '').trim()
           const message = String(review?.message || '').trim()
-          const adminResponse = String(review?.response || '').trim()
           return (
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Review Details - {reviewDetailsOrder.orderNumber}</DialogTitle>
-                <DialogDescription>Submitted review and admin response</DialogDescription>
+                <DialogDescription>Submitted review details</DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
                 <div className="rounded-md border bg-slate-50 px-3 py-2">
@@ -1998,10 +1999,6 @@ export function CustomerPortal() {
                   <p className="text-xs text-slate-500">Your Feedback</p>
                   {subject ? <p className="font-medium text-slate-900">{subject}</p> : null}
                   <p className="mt-1 whitespace-pre-wrap text-slate-800">{message || 'No feedback message'}</p>
-                </div>
-                <div className="rounded-md border bg-blue-50 px-3 py-2">
-                  <p className="text-xs text-slate-500">Admin Response</p>
-                  <p className="mt-1 whitespace-pre-wrap text-slate-900">{adminResponse || 'No admin response yet.'}</p>
                 </div>
               </div>
             </DialogContent>

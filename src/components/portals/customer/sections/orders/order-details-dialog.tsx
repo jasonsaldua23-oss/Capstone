@@ -121,7 +121,11 @@ export function CustomerOrderDetailsDialog(props: any) {
                     )
                   })}
               </div>
-            ) : null}
+            ) : (
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                No replacement case filed for this order.
+              </div>
+            )}
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               {isOrderDelivered(selectedOrder) ? (

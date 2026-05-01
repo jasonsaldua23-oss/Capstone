@@ -33,7 +33,7 @@ export function AdminLoginPage() {
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'admin') router.replace('/')
+        router.replace('/')
       } catch (error) {
         console.warn('Admin session check timed out or failed:', error)
       } finally {

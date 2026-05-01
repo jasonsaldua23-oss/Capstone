@@ -55,6 +55,7 @@ const AddressMapPicker = dynamic(
 )
 
 export function OrdersView() {
+  const ORDERS_CACHE_KEY = 'admin_orders_cache_v1'
   const [orders, setOrders] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
@@ -76,6 +77,29 @@ export function OrdersView() {
   useEffect(() => {
     let isMounted = true
     let isFetchingOrders = false
+
+    const loadCachedOrders = () => {
+      try {
+        const raw = localStorage.getItem(ORDERS_CACHE_KEY)
+        if (!raw) return
+        const parsed = JSON.parse(raw)
+        const cached = Array.isArray(parsed) ? parsed : []
+        if (cached.length > 0 && isMounted) {
+          setOrders(cached)
+          latestOrderUpdatedAtRef.current = getMaxUpdatedAt(cached)
+        }
+      } catch {
+        // ignore corrupted cache
+      }
+    }
+
+    const saveCachedOrders = (rows: any[]) => {
+      try {
+        localStorage.setItem(ORDERS_CACHE_KEY, JSON.stringify(rows))
+      } catch {
+        // best effort only
+      }
+    }
 
     const getMaxUpdatedAt = (rows: any[]) =>
       rows.reduce((latest, row) => {
@@ -133,12 +157,22 @@ export function OrdersView() {
         )
 
         if (!result.ok) {
+          // Fallback: try a simpler single-page request before failing.
+          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=200', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+          if (fallback.ok && isMounted) {
+            const fallbackOrders = getCollection<any>(fallback.data, ['orders'])
+            if (fallbackOrders.length > 0) {
+              setOrders(fallbackOrders)
+              latestOrderUpdatedAtRef.current = getMaxUpdatedAt(fallbackOrders)
+              saveCachedOrders(fallbackOrders)
+              return
+            }
+          }
+
           if (result.status === 401 || result.status === 403) {
             clearTabAuthToken()
           }
-          if (isMounted) {
-            setOrders([])
-          }
+          // Keep current/cached orders visible instead of clearing table.
           if (!silent) {
             console.error('Failed to fetch orders:', result.data?.error || 'Request failed')
           }
@@ -149,6 +183,7 @@ export function OrdersView() {
           const fullOrders = getCollection<any>(result.data, ['orders'])
           setOrders(fullOrders)
           latestOrderUpdatedAtRef.current = getMaxUpdatedAt(fullOrders)
+          saveCachedOrders(fullOrders)
         }
       } catch (error) {
         if (!silent) {
@@ -215,6 +250,7 @@ export function OrdersView() {
       }
     }
 
+    loadCachedOrders()
     void fetchOrdersFull()
 
     const unsubscribe = subscribeDataSync((message) => {
