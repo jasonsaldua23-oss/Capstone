@@ -105,7 +105,9 @@ export function WarehouseReplacementsView({
                     const meta = parseIssueMeta(ret?.notes)
                     const issueReason = String(ret?.description || ret?.reason || 'No details provided')
                     const replacementQty = Number(ret?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
-                    const hasEvidence = Boolean(String(ret?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
+                    const evidenceUrls = Array.isArray(ret?.damagePhotoUrls) ? ret.damagePhotoUrls : []
+                    const evidenceUrl = String(evidenceUrls[0] || ret?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+                    const hasEvidence = Boolean(evidenceUrl)
                     const statusLabel = formatIssueStatus(ret)
                     return (
                       <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
@@ -173,7 +175,8 @@ export function WarehouseReplacementsView({
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           {selectedReplacement ? (() => {
             const meta = parseIssueMeta(selectedReplacement.notes)
-            const evidenceUrl = String(selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+            const evidenceUrls = Array.isArray(selectedReplacement.damagePhotoUrls) ? selectedReplacement.damagePhotoUrls : []
+            const evidenceUrl = String(evidenceUrls[0] || selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)

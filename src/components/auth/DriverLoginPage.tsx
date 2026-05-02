@@ -1,8 +1,7 @@
 ﻿'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Script from 'next/script'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
@@ -14,106 +13,14 @@ import { Toaster } from '@/components/ui/sonner'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-declare global {
-  interface Window {
-    google?: {
-      accounts?: {
-        id?: {
-          initialize: (config: { client_id: string; callback: (response: { credential?: string }) => void }) => void
-          renderButton: (element: HTMLElement, options: Record<string, unknown>) => void
-        }
-      }
-    }
-  }
-}
-
 export function DriverLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
-  const [isGoogleReady, setIsGoogleReady] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const googleButtonRef = useRef<HTMLDivElement | null>(null)
-  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
-
-  const handleGoogleCredential = async (credential: string) => {
-    if (!credential) {
-      toast.error('Invalid credentials')
-      return
-    }
-
-    setIsLoading(true)
-    try {
-      const response = await fetch('/api/auth/staff/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, portal: 'driver', rememberMe }),
-      })
-      const rawBody = await response.text()
-      let data: any = null
-      try {
-        data = rawBody ? JSON.parse(rawBody) : null
-      } catch {
-        data = null
-      }
-
-      if (!response.ok || !data?.success || !data?.user) {
-        const apiError = String(data?.error || data?.message || '').trim()
-        const fallbackError = response.status >= 500
-          ? 'Google sign-in is temporarily unavailable. Please use email/password for now.'
-          : 'Invalid credentials'
-        toast.error(apiError || fallbackError)
-        return
-      }
-
-      if (resolvePortalFromUser(data.user) !== 'driver') {
-        if (data.token) clearTabAuthToken()
-        await fetch('/api/auth/logout', { method: 'POST' })
-        toast.error('Invalid credentials')
-        return
-      }
-
-      if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to AnnDrive')
-      router.replace('/')
-    } catch {
-      toast.error('Unable to reach authentication service. Please check your connection and try again.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const renderGoogleButton = () => {
-    if (!googleClientId) return
-    if (!window.google?.accounts?.id) return
-    if (!googleButtonRef.current) return
-
-    const availableWidth = googleButtonRef.current.parentElement?.clientWidth ?? googleButtonRef.current.clientWidth ?? 0
-    const buttonWidth = Math.max(220, Math.min(360, Math.floor(availableWidth || 280)))
-
-    googleButtonRef.current.innerHTML = ''
-    window.google.accounts.id.initialize({
-      client_id: googleClientId,
-      callback: (response) => {
-        if (response.credential) {
-          void handleGoogleCredential(response.credential)
-        } else {
-          toast.error('Invalid credentials')
-        }
-      },
-    })
-    window.google.accounts.id.renderButton(googleButtonRef.current, {
-      theme: 'outline',
-      size: 'large',
-      text: 'continue_with',
-      shape: 'pill',
-      logo_alignment: 'left',
-      width: buttonWidth,
-    })
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -140,24 +47,6 @@ export function DriverLoginPage() {
       cancelled = true
     }
   }, [router])
-
-  useEffect(() => {
-    if (!isGoogleReady) return
-    renderGoogleButton()
-  }, [googleClientId, isGoogleReady])
-
-  useEffect(() => {
-    if (!googleClientId || !isGoogleReady) return
-
-    const handleResize = () => {
-      renderGoogleButton()
-    }
-
-    window.addEventListener('resize', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [googleClientId, isGoogleReady])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -220,13 +109,6 @@ export function DriverLoginPage() {
         <div className="absolute -left-8 top-6 h-32 w-32 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl sm:-left-16 sm:top-12 sm:h-64 sm:w-64" />
         <div className="absolute -right-8 bottom-4 h-32 w-32 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl sm:-right-20 sm:bottom-6 sm:h-64 sm:w-64" />
       </div>
-      {googleClientId ? (
-        <Script
-          src="https://accounts.google.com/gsi/client"
-          strategy="afterInteractive"
-          onLoad={() => setIsGoogleReady(true)}
-        />
-      ) : null}
       <Toaster position="top-right" />
       <div className="relative z-[1] mx-auto flex w-full max-w-md items-center justify-center">
         <Card className="w-full overflow-hidden rounded-[20px] border-emerald-200/80 bg-white/96 py-0 shadow-[0_14px_36px_rgba(5,150,105,0.12)] backdrop-blur-md sm:rounded-[30px] sm:shadow-[0_18px_50px_rgba(5,150,105,0.14)]">
@@ -275,21 +157,6 @@ export function DriverLoginPage() {
               initialEmail={email}
               triggerClassName="w-full text-center text-[12px] text-zinc-600 transition-colors hover:text-zinc-800 sm:text-sm"
             />
-            <div className="relative py-0.5 sm:py-1">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-zinc-200" />
-              </div>
-              <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
-                <span className="bg-white px-2 text-zinc-500">Or continue with</span>
-              </div>
-            </div>
-            {googleClientId ? (
-              <div className="flex justify-center">
-                <div ref={googleButtonRef} className="flex w-full max-w-xs justify-center" />
-              </div>
-            ) : (
-              <p className="text-center text-xs text-zinc-500">Google sign-in is not configured yet.</p>
-            )}
           </form>
           </CardContent>
         </Card>

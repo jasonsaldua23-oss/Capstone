@@ -341,7 +341,9 @@ export function ReplacementsView() {
                     const meta = parseMeta(item?.notes)
                     const issueReason = String(item?.description || item?.reason || 'No details provided')
                     const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
-                    const hasEvidence = Boolean(String(item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim())
+                    const evidenceUrls = Array.isArray(item?.damagePhotoUrls) ? item.damagePhotoUrls : []
+                    const evidenceUrl = String(evidenceUrls[0] || item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+                    const hasEvidence = Boolean(evidenceUrl)
                     const replacementMode = String(item?.replacementMode || meta?.replacementMode || '').toUpperCase()
                     const statusLabel = formatIssueStatus(item)
 
@@ -417,7 +419,8 @@ export function ReplacementsView() {
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           {selectedReplacement ? (() => {
             const meta = parseMeta(selectedReplacement.notes)
-            const evidenceUrl = String(selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+            const evidenceUrls = Array.isArray(selectedReplacement.damagePhotoUrls) ? selectedReplacement.damagePhotoUrls : []
+            const evidenceUrl = String(evidenceUrls[0] || selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)

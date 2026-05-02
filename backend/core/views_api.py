@@ -602,6 +602,7 @@ def _normalize_order_status(value: Any) -> str:
         OrderStatus.PENDING,
         OrderStatus.CONFIRMED,
         OrderStatus.PREPARING,
+        OrderStatus.RESCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
         OrderStatus.DELIVERED,
         OrderStatus.CANCELLED,
@@ -896,6 +897,11 @@ def _serialize_order(
     data["isDriverAssigned"] = bool(assigned_driver)
     data["assignedDriverName"] = assigned_driver_name or None
     data["assignedTripId"] = getattr(assigned_trip, "id", None)
+    data["pod"] = {
+        "recipientName": getattr(order, "pod_recipient_name", None),
+        "deliveryPhoto": getattr(order, "pod_photo_url", None),
+        "submittedAt": order.pod_submitted_at.isoformat() if getattr(order, "pod_submitted_at", None) else None,
+    }
     if include_progress:
         progress_trip = _select_trip_for_order(order.id, require_driver=False)
         if progress_trip:
@@ -1034,6 +1040,23 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         data["replacementProduct"] = _serialize_model(replacement_product)
         data["replacementProductName"] = replacement_product.name
         data["replacementProductSku"] = replacement_product.sku
+    damage_photo_urls: list[str] = []
+    raw_damage_photo_urls = str(getattr(entry, "damage_photo_urls", "") or "").strip()
+    if raw_damage_photo_urls:
+        try:
+            parsed_urls = json.loads(raw_damage_photo_urls)
+            if isinstance(parsed_urls, list):
+                damage_photo_urls = [str(url).strip() for url in parsed_urls if str(url).strip()]
+        except (TypeError, ValueError):
+            damage_photo_urls = []
+    if not damage_photo_urls:
+        meta_damage_photos = meta.get("damagePhotos") if isinstance(meta.get("damagePhotos"), list) else []
+        damage_photo_urls = [str(url).strip() for url in meta_damage_photos if str(url).strip()]
+    if not damage_photo_urls and str(getattr(entry, "damage_photo_url", "") or "").strip():
+        damage_photo_urls = [str(getattr(entry, "damage_photo_url", "")).strip()]
+    data["damagePhotoUrls"] = damage_photo_urls
+    if damage_photo_urls and not data.get("damagePhotoUrl"):
+        data["damagePhotoUrl"] = damage_photo_urls[0]
     return data
 
 
@@ -2305,48 +2328,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def auth_staff_google(request: HttpRequest) -> JsonResponse:
-    body = _json_body(request)
-    credential = str(body.get("credential") or body.get("idToken") or "").strip()
-    portal = str(body.get("portal") or "").strip().lower()
-    remember_me = bool(body.get("rememberMe", False))
-
-    if not credential or portal not in {"driver", "warehouse"}:
-        return _err("Invalid credentials", 401)
-
-    if not getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", ""):
-        return _err("Google OAuth is not configured on the server", 500)
-
-    try:
-        claims = _verify_google_token(credential)
-    except ValueError:
-        return _err("Invalid credentials", 401)
-    except Exception:
-        logger.exception("Google staff token verification failed")
-        return _err("Google authentication service is temporarily unavailable", 503)
-
-    email = _normalize_email(claims.get("email"))
-    if not email or not bool(claims.get("email_verified")):
-        return _err("Invalid credentials", 401)
-    if not _is_gmail_email(email):
-        return _err("Invalid credentials", 401)
-
-    expected_roles = {"driver": {"DRIVER"}, "warehouse": {"WAREHOUSE_STAFF"}}
-    user = User.objects.filter(email=email, is_active=True, role__in=expected_roles[portal]).first()
-    if not user:
-        return _err("Invalid credentials", 401)
-
-    user.last_login_at = timezone.now()
-    user.save(update_fields=["last_login_at", "updated_at"])
-    payload = _user_payload(user)
-    if portal == "warehouse" and user.role != "WAREHOUSE_STAFF":
-        return _err("Invalid credentials", 401)
-    if portal == "driver" and user.role != "DRIVER":
-        return _err("Invalid credentials", 401)
-
-    token = create_token(payload, 24 * 30 if remember_me else 24)
-    resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
-    _set_auth_cookie(resp, token, remember_me)
-    return resp
+    return _err("Google sign-in is disabled for warehouse staff and drivers", 403)
 
 
 @csrf_exempt
@@ -2843,6 +2825,9 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         product_unit = _normalize_product_unit(body.get("unit"))
     except ValueError as exc:
         return _err(str(exc), 400)
+    initial_quantity = _int(body.get("initialQuantity"), 0)
+    if initial_quantity < 0:
+        return _err("initialQuantity must be a non-negative integer", 400)
 
     try:
         with transaction.atomic():
@@ -2862,9 +2847,9 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             Inventory.objects.create(
                 warehouse=warehouse,
                 product=prod,
-                quantity=0,
+                quantity=initial_quantity,
                 reserved_quantity=0,
-                threshold=0,
+                threshold=max(1, int(initial_quantity * 0.15)) if initial_quantity > 0 else 0,
                 last_restocked_at=timezone.now(),
             )
 
@@ -3858,6 +3843,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         OrderStatus.PENDING,
         OrderStatus.CONFIRMED,
         OrderStatus.PREPARING,
+        OrderStatus.RESCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
         OrderStatus.DELIVERED,
         OrderStatus.CANCELLED,
@@ -3882,6 +3868,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.CANCELLED},
         OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.CANCELLED},
         OrderStatus.PREPARING: {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED},
+        OrderStatus.RESCHEDULED: {OrderStatus.PREPARING, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED},
         OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.CANCELLED},
         OrderStatus.DELIVERED: set(),
         OrderStatus.CANCELLED: set(),
@@ -4610,6 +4597,7 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         ("emergencyContact", "emergency_contact"),
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
+        ("licensePhotoUrl", "license_photo_url"),
     ]:
         if key in body:
             setattr(d, attr, body.get(key))
@@ -4817,6 +4805,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                     pickup_province=body.get("pickupProvince") or "",
                     pickup_zip_code=body.get("pickupZipCode") or "",
                     damage_photo_url=damage_photos[0],
+                    damage_photo_urls=json.dumps(damage_photos),
                     processed_at=timezone.now() if resolved_on_delivery else None,
                     processed_by=p.get("userId") if resolved_on_delivery else None,
                     notes=f"{'Immediate replacement completed by driver' if resolved_on_delivery else 'Partial replacement reported by driver'}\nMeta: {json.dumps(meta)}",
@@ -4946,6 +4935,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             follow_up_return.replacement_mode = follow_up_return.replacement_mode or replacement_mode
             follow_up_return.replacement_quantity = previously_replaced_qty + quantity_replaced
             follow_up_return.damage_photo_url = damage_photos[0]
+            follow_up_return.damage_photo_urls = json.dumps(damage_photos)
             follow_up_return.processed_at = timezone.now()
             follow_up_return.processed_by = p.get("userId")
             follow_up_return.notes = (
@@ -4974,6 +4964,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 pickup_province=body.get("pickupProvince") or "",
                 pickup_zip_code=body.get("pickupZipCode") or "",
                 damage_photo_url=damage_photos[0],
+                damage_photo_urls=json.dumps(damage_photos),
                 processed_at=timezone.now() if resolved_on_delivery else None,
                 processed_by=p.get("userId") if resolved_on_delivery else None,
                 notes=f"{'Immediate replacement completed by driver' if resolved_on_delivery else 'Partial replacement reported by driver'}\nMeta: {json.dumps(meta)}",
@@ -5225,6 +5216,10 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     if next_status == "COMPLETED" and dp.order_id:
         delivered_order = Order.objects.select_related("timeline").filter(id=dp.order_id).first()
         if delivered_order:
+            delivered_order.pod_recipient_name = str(getattr(dp, "recipient_name", "") or "").strip() or None
+            delivered_order.pod_photo_url = str(getattr(dp, "delivery_photo", "") or "").strip() or None
+            delivered_order.pod_submitted_at = now
+            delivered_order.save(update_fields=["pod_recipient_name", "pod_photo_url", "pod_submitted_at", "updated_at"])
             try:
                 with transaction.atomic():
                     _mark_order_delivered(delivered_order, str(p.get("userId") or "").strip() or None, now)
@@ -5263,7 +5258,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         if order:
             timeline = getattr(order, "timeline", None)
             if next_status == "FAILED" and reschedule_requested:
-                order.status = OrderStatus.PREPARING
+                order.status = OrderStatus.RESCHEDULED
                 order.warehouse_stage = WarehouseStage.READY_TO_LOAD
                 order.loaded_at = None
                 order.warehouse_dispatched_at = None
@@ -5384,6 +5379,17 @@ def upload_damage_image(request: HttpRequest) -> JsonResponse:
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
     return _handle_image_upload(request, "damages", "damage")
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def upload_driver_license_image(request: HttpRequest) -> JsonResponse:
+    p, err = _require_staff(request)
+    if err:
+        return err
+    if p.get("role") != "DRIVER":
+        return _err("Forbidden", 403)
+    return _handle_image_upload(request, "licenses", "license")
 
 
 @csrf_exempt

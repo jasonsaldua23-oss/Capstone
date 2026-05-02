@@ -12,6 +12,7 @@ export type WarehouseView =
   | 'inventory'
   | 'warehouses'
   | 'transactions'
+  | 'settings'
 
 export interface PortalNotification {
   id: string
@@ -102,4 +103,3 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
     handleLogout,
   }
 }
-

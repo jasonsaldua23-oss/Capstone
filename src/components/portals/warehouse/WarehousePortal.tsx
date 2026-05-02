@@ -6,6 +6,7 @@ import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -35,15 +36,16 @@ import { WarehouseWarehousesView } from './sections/warehouses/warehouses-view'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
+import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
 import {
   Boxes,
   PackageCheck,
   Truck,
   MapPin,
-  ClipboardList,
   Warehouse,
   PackageOpen,
   AlertTriangle,
+  Settings,
   Loader2,
   Plus,
   Pencil,
@@ -413,11 +415,11 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
   { id: 'liveTracking', label: 'Live Tracking', icon: MapPin },
   { id: 'inventory', label: 'Inventory', icon: PackageOpen },
   { id: 'warehouses', label: 'Warehouse', icon: Warehouse },
-  { id: 'transactions', label: 'Stocks', icon: ClipboardList },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 export function WarehousePortal() {
-  const { user, logout } = useAuth()
+  const { user, setUser, logout } = useAuth()
   const {
     activeView,
     setActiveView,
@@ -452,6 +454,7 @@ export function WarehousePortal() {
   const [trackingDate, setTrackingDate] = useState('')
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('stocks')
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [loadingWarehouses, setLoadingWarehouses] = useState(true)
   const [loadingBatches, setLoadingBatches] = useState(true)
@@ -493,6 +496,12 @@ export function WarehousePortal() {
   const [stockRows, setStockRows] = useState<StockRow[]>([
     { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
   ])
+  const [profileName, setProfileName] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
 
   const getItemThreshold = (item: InventoryItem | null | undefined) =>
     Math.max(
@@ -517,6 +526,75 @@ export function WarehousePortal() {
     if (warehouseCode && assignedWarehouse.code && warehouseCode.toLowerCase() === assignedWarehouse.code.toLowerCase()) return true
     if (warehouseName && assignedWarehouse.name && warehouseName.toLowerCase() === assignedWarehouse.name.toLowerCase()) return true
     return false
+  }
+
+  useEffect(() => {
+    setProfileName(String((user as any)?.name || ''))
+    setProfileEmail(String((user as any)?.email || ''))
+    setProfilePhone(String((user as any)?.phone || ''))
+    setNewPassword('')
+    setConfirmPassword('')
+  }, [user])
+
+  const saveProfileSettings = async () => {
+    const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
+    if (!userId) {
+      toast.error('Unable to resolve account ID')
+      return
+    }
+    if (!profileName.trim() || !profileEmail.trim()) {
+      toast.error('Name and email are required')
+      return
+    }
+    const hasPasswordInput = newPassword.trim().length > 0 || confirmPassword.trim().length > 0
+    if (hasPasswordInput) {
+      if (!newPassword.trim()) {
+        toast.error('New password is required')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        toast.error('Passwords do not match')
+        return
+      }
+      const passwordError = validatePasswordPolicy(newPassword)
+      if (passwordError) {
+        toast.error(passwordError)
+        return
+      }
+    }
+
+    setIsSavingProfile(true)
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: profileName.trim(),
+          email: profileEmail.trim(),
+          phone: profilePhone.trim() || null,
+          password: hasPasswordInput ? newPassword : undefined,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to update profile')
+      }
+
+      const nextUser = payload?.user || {}
+      setUser((prev: any) => ({
+        ...(prev || {}),
+        name: nextUser.name ?? profileName.trim(),
+        email: nextUser.email ?? profileEmail.trim(),
+        phone: nextUser.phone ?? (profilePhone.trim() || ''),
+      }))
+      setNewPassword('')
+      setConfirmPassword('')
+      toast.success('Profile updated')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update profile')
+    } finally {
+      setIsSavingProfile(false)
+    }
   }
 
   const selectedRouteGroup = useMemo(
@@ -2733,14 +2811,16 @@ export function WarehousePortal() {
         <div className="absolute right-[-4rem] top-28 h-72 w-72 rounded-full bg-sky-300/15 blur-3xl" />
         <div className="absolute bottom-[-5rem] left-1/3 h-80 w-80 rounded-full bg-emerald-200/20 blur-3xl" />
       </div>
-      <aside className="relative z-[1] hidden w-64 flex-col border-r border-white/25 bg-white/38 shadow-[0_24px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-[20] hidden w-64 flex-col border-r border-white/25 bg-white/38 shadow-[0_24px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl lg:flex">
         <WarehouseSidebar
           navItems={sidebarNavItems}
           activeView={activeView}
           onSelectView={(viewId) => {
             setActiveView(viewId as WarehouseView)
+            if (viewId === 'inventory') setInventorySubView('stocks')
             setSidebarOpen(false)
           }}
+          onLogout={handleLogout}
         />
       </aside>
 
@@ -2751,13 +2831,15 @@ export function WarehousePortal() {
             activeView={activeView}
             onSelectView={(viewId) => {
               setActiveView(viewId as WarehouseView)
+              if (viewId === 'inventory') setInventorySubView('stocks')
               setSidebarOpen(false)
             }}
+            onLogout={handleLogout}
           />
         </SheetContent>
       </Sheet>
 
-      <div className="relative z-[1] flex min-h-screen flex-1 flex-col">
+      <div className="relative z-[1] flex min-h-screen flex-1 flex-col lg:pl-64">
         <WarehouseHeader
           unreadNotifications={unreadNotifications}
           notificationsLoading={notificationsLoading}
@@ -2884,24 +2966,51 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'inventory' && (
-            <WarehouseInventoryView
-              openAddStockDialog={openAddStockDialog}
-              loadingInventory={loadingInventory}
-              scopedInventory={scopedInventory}
-              getStockStatus={getStockStatus}
-              getAvailableQty={getAvailableQty}
-              formatPeso={formatPeso}
-              openEditDialog={openEditDialog}
-              transactionDateFrom={transactionDateFrom}
-              setTransactionDateFrom={setTransactionDateFrom}
-              transactionDatePreset={transactionDatePreset}
-              setTransactionDatePreset={setTransactionDatePreset}
-              transactionTypeFilter={transactionTypeFilter}
-              setTransactionTypeFilter={setTransactionTypeFilter}
-              availableInventoryTransactionTypes={availableInventoryTransactionTypes}
-              loadingInventoryTransactions={loadingInventoryTransactions}
-              filteredInventoryTransactions={filteredInventoryTransactions}
-            />
+            <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
+              <TabsList className="h-auto rounded-xl border border-slate-200 bg-white p-1">
+                <TabsTrigger
+                  value="stocks"
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                >
+                  Stock Batches
+                </TabsTrigger>
+                <TabsTrigger
+                  value="inventory"
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                >
+                  Inventory
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="stocks" className="mt-0">
+                <WarehouseStocksView
+                  loadingBatches={loadingBatches}
+                  stockBatches={stockBatches}
+                  getDaysLeft={getDaysLeft}
+                />
+              </TabsContent>
+
+              <TabsContent value="inventory" className="mt-0">
+                <WarehouseInventoryView
+                  openAddStockDialog={openAddStockDialog}
+                  loadingInventory={loadingInventory}
+                  scopedInventory={scopedInventory}
+                  getStockStatus={getStockStatus}
+                  getAvailableQty={getAvailableQty}
+                  formatPeso={formatPeso}
+                  openEditDialog={openEditDialog}
+                  transactionDateFrom={transactionDateFrom}
+                  setTransactionDateFrom={setTransactionDateFrom}
+                  transactionDatePreset={transactionDatePreset}
+                  setTransactionDatePreset={setTransactionDatePreset}
+                  transactionTypeFilter={transactionTypeFilter}
+                  setTransactionTypeFilter={setTransactionTypeFilter}
+                  availableInventoryTransactionTypes={availableInventoryTransactionTypes}
+                  loadingInventoryTransactions={loadingInventoryTransactions}
+                  filteredInventoryTransactions={filteredInventoryTransactions}
+                />
+              </TabsContent>
+            </Tabs>
           )}
 
           {activeView === 'warehouses' && (
@@ -2919,6 +3028,54 @@ export function WarehousePortal() {
               stockBatches={stockBatches}
               getDaysLeft={getDaysLeft}
             />
+          )}
+
+          {activeView === 'settings' && (
+            <Card className="max-w-2xl">
+              <CardHeader>
+                <CardTitle>Profile Settings</CardTitle>
+                <CardDescription>Edit your warehouse account information.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="warehouse-profile-name">Full Name</Label>
+                  <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="warehouse-profile-email">Email</Label>
+                  <Input id="warehouse-profile-email" type="email" value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="warehouse-profile-phone">Phone</Label>
+                  <Input id="warehouse-profile-phone" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="warehouse-profile-new-password">New Password</Label>
+                  <Input
+                    id="warehouse-profile-new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Leave blank to keep current password"
+                  />
+                  <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="warehouse-profile-confirm-password">Confirm New Password</Label>
+                  <Input
+                    id="warehouse-profile-confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                  />
+                </div>
+                <Button onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
+                  {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Save Changes
+                </Button>
+              </CardContent>
+            </Card>
           )}
 
             </>

@@ -1139,14 +1139,14 @@ export default function LiveTrackingMap({
       : center;
 
   return (
-    <div className={`bg-white ${className}`}>
+    <div className={`relative overflow-hidden ${className}`}>
       <MapContainerUnsafe
         center={resolvedCenter}
         zoom={zoom}
         scrollWheelZoom={true}
         inertia={false}
         bounceAtZoomLimits={false}
-        className="w-full h-full z-0"
+        className="absolute inset-0 h-full w-full z-0"
         zoomControl={showZoomControls}
         zoomAnimation={false}
         markerZoomAnimation={false}

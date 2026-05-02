@@ -13,8 +13,6 @@ export function CustomerRatingDialog(props: any) {
     setRatingDialogOrder,
     deliveryRatingValue,
     setDeliveryRatingValue,
-    satisfactionRatingValue,
-    setSatisfactionRatingValue,
     ratingComment,
     setRatingComment,
     isSubmittingRating,
@@ -32,11 +30,11 @@ export function CustomerRatingDialog(props: any) {
           >
             <DialogHeader>
               <DialogTitle>Review Order {ratingDialogOrder.orderNumber}</DialogTitle>
-              <DialogDescription>Rate delivery and satisfaction, then leave feedback.</DialogDescription>
+              <DialogDescription>Rate delivery, then leave feedback.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div className="space-y-1">
-                <Label>Delivery</Label>
+                <Label>Delivery Rating</Label>
                 <div className="flex items-center gap-1 text-amber-500">
                   {Array.from({ length: 5 }).map((_, index) => {
                     const value = index + 1
@@ -54,27 +52,6 @@ export function CustomerRatingDialog(props: any) {
                     )
                   })}
                   <span className="ml-2 text-sm font-medium text-slate-700">{deliveryRatingValue}/5</span>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label>Satisfaction</Label>
-                <div className="flex items-center gap-1 text-amber-500">
-                  {Array.from({ length: 5 }).map((_, index) => {
-                    const value = index + 1
-                    const isActive = value <= satisfactionRatingValue
-                    return (
-                      <button
-                        key={`satisfaction-${value}`}
-                        type="button"
-                        onClick={() => setSatisfactionRatingValue(value)}
-                        className={`rounded p-1 ${isActive ? 'text-amber-500' : 'text-gray-300'}`}
-                        title={`${value} star${value > 1 ? 's' : ''}`}
-                      >
-                        <Star className="h-6 w-6 fill-current" />
-                      </button>
-                    )
-                  })}
-                  <span className="ml-2 text-sm font-medium text-slate-700">{satisfactionRatingValue}/5</span>
                 </div>
               </div>
               <div className="space-y-1">

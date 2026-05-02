@@ -208,8 +208,6 @@ export function CustomerPortal() {
     setRatingDialogOrder,
     deliveryRatingValue,
     setDeliveryRatingValue,
-    satisfactionRatingValue,
-    setSatisfactionRatingValue,
     ratingComment,
     setRatingComment,
     isSubmittingRating,
@@ -1068,14 +1066,13 @@ export function CustomerPortal() {
   }
 
 
-  const openRatingDialog = (order: Order, initialDeliveryRating = 5, initialSatisfactionRating = 5) => {
+  const openRatingDialog = (order: Order, initialDeliveryRating = 5) => {
     if (reviewedOrderIds.has(order.id)) {
       setReviewDetailsOrder(order)
       return
     }
     setRatingDialogOrder(order)
     setDeliveryRatingValue(Math.max(1, Math.min(5, Math.round(initialDeliveryRating))))
-    setSatisfactionRatingValue(Math.max(1, Math.min(5, Math.round(initialSatisfactionRating))))
     setRatingComment('')
   }
 
@@ -1093,12 +1090,9 @@ export function CustomerPortal() {
 
     setIsSubmittingRating(true)
     try {
-      const overallRating = Math.max(
-        1,
-        Math.min(5, Math.round((deliveryRatingValue + satisfactionRatingValue) / 2))
-      )
+      const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
       const comment = ratingComment.trim()
-      const composedMessage = `Delivery: ${deliveryRatingValue}/5\nSatisfaction: ${satisfactionRatingValue}/5\nFeedback: ${comment}`
+      const composedMessage = `Delivery: ${deliveryRatingValue}/5\nFeedback: ${comment}`
       const { response, payload } = await submitOrderFeedback({
         orderId: ratingDialogOrder.id,
         rating: overallRating,
@@ -1117,7 +1111,6 @@ export function CustomerPortal() {
         setRatingDialogOrder(null)
         setRatingComment('')
         setDeliveryRatingValue(5)
-        setSatisfactionRatingValue(5)
         return
       }
 
@@ -1137,7 +1130,6 @@ export function CustomerPortal() {
       setRatingDialogOrder(null)
       setRatingComment('')
       setDeliveryRatingValue(5)
-      setSatisfactionRatingValue(5)
     } catch (error: any) {
       toast.error(error?.message || 'Failed to submit rating')
     } finally {
@@ -1965,8 +1957,6 @@ export function CustomerPortal() {
         setRatingDialogOrder={setRatingDialogOrder}
         deliveryRatingValue={deliveryRatingValue}
         setDeliveryRatingValue={setDeliveryRatingValue}
-        satisfactionRatingValue={satisfactionRatingValue}
-        setSatisfactionRatingValue={setSatisfactionRatingValue}
         ratingComment={ratingComment}
         setRatingComment={setRatingComment}
         isSubmittingRating={isSubmittingRating}

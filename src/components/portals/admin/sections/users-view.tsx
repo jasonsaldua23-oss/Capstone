@@ -71,10 +71,15 @@ export function UsersView() {
       const [usersResponse, rolesResponse] = await Promise.all([fetch('/api/users?pageSize=200'), fetch('/api/roles')])
       if (usersResponse.ok) {
         const data = await usersResponse.json()
-        const rows = toArray<any>(data?.data ?? data?.users ?? data).map((row) => ({
-          ...row,
-          roleId: resolveRoleCode(row),
-        }))
+        const rows = toArray<any>(data?.data ?? data?.users ?? data)
+          .map((row) => ({
+            ...row,
+            roleId: resolveRoleCode(row),
+          }))
+          .filter((row) => {
+            const roleCode = String(row?.roleId || '').trim().toUpperCase()
+            return roleCode !== 'SUPER_ADMIN' && roleCode !== 'ADMIN'
+          })
         setUsers(rows)
       }
       if (rolesResponse.ok) {

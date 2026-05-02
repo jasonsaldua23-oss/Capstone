@@ -593,7 +593,7 @@ export function WarehousesView() {
                   <p className="text-gray-500">Assigned Staff: {getAssignedStaffName(warehouse.managerId)}</p>
                 </div>
                 <div className="mt-4 flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1" onClick={() => openManage(warehouse)}>Manage</Button>
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => openManage(warehouse)}>Edit</Button>
                   <Button variant="outline" size="sm" onClick={() => openInsights(warehouse)}>Insights</Button>
                 </div>
               </CardContent>

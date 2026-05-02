@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts';
 import type { DashboardStats } from '@/types';
@@ -407,6 +407,7 @@ export function AdminPortal() {
   const { user, logout } = useAuth()
   const [activeView, setActiveView] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('stocks')
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
@@ -505,7 +506,6 @@ export function AdminPortal() {
       { id: 'tracking', label: 'Live Tracking', icon: MapPin },
       { id: 'inventory', label: 'Inventory', icon: Archive },
       { id: 'warehouses', label: 'Warehouses', icon: Building2 },
-      { id: 'stocks', label: 'Stocks', icon: Database },
       { id: 'feedback', label: 'Feedback', icon: MessageSquare },
       { id: 'reports', label: 'Reports', icon: FileText },
       { id: 'customers', label: 'Registered Customers', icon: Users },
@@ -530,7 +530,7 @@ export function AdminPortal() {
         </div>
 
         {/* Navigation Menu */}
-        <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
+        <nav className="flex-1 overflow-hidden px-2 py-4 space-y-1">
           {navItems.map((item) => {
             const IconComponent = item.icon
             return (
@@ -544,6 +544,7 @@ export function AdminPortal() {
                 }`}
                 onClick={() => {
                   setActiveView(item.id)
+                  if (item.id === 'inventory') setInventorySubView('stocks')
                   setSidebarOpen(false)
                 }}
               >
@@ -582,9 +583,30 @@ export function AdminPortal() {
       case 'warehouses':
         return <WarehousesView />
       case 'inventory':
-        return <InventoryView />
-      case 'stocks':
-        return <StocksView />
+        return (
+          <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
+            <TabsList className="h-auto rounded-xl border border-slate-200 bg-white p-1">
+              <TabsTrigger
+                value="stocks"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+              >
+                Stock Batches
+              </TabsTrigger>
+              <TabsTrigger
+                value="inventory"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+              >
+                Inventory
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="stocks" className="mt-0">
+              <StocksView />
+            </TabsContent>
+            <TabsContent value="inventory" className="mt-0">
+              <InventoryView />
+            </TabsContent>
+          </Tabs>
+        )
       case 'replacements':
         return <ReplacementsView />
       case 'tracking':
@@ -612,7 +634,7 @@ export function AdminPortal() {
         <div className="absolute bottom-[-5rem] left-1/3 h-72 w-72 rounded-full bg-emerald-200/20 blur-3xl" />
       </div>
       {/* Desktop Sidebar */}
-      <aside className="relative z-[1] hidden w-64 flex-col border-r border-white/25 bg-white/38 shadow-[0_24px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-[20] hidden w-64 flex-col border-r border-white/25 bg-white/38 shadow-[0_24px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl lg:flex">
         <SidebarContent />
       </aside>
 
@@ -624,7 +646,7 @@ export function AdminPortal() {
       </Sheet>
 
       {/* Main Content */}
-      <div className="relative z-[1] flex min-h-screen flex-1 flex-col">
+      <div className="relative z-[1] flex min-h-screen flex-1 flex-col lg:pl-64">
         {/* Top Header */}
         <header className="sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
           <div className="flex items-center justify-between px-4 py-3">
@@ -721,5 +743,3 @@ export function AdminPortal() {
 // Dashboard View Component
 
 // Placeholder views for other sections
-
-

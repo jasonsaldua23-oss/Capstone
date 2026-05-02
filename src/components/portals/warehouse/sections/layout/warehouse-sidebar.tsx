@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { LogOut } from 'lucide-react'
 
 type SidebarNavItem = {
   id: string
@@ -13,9 +14,10 @@ type WarehouseSidebarProps = {
   navItems: SidebarNavItem[]
   activeView: string
   onSelectView: (viewId: string) => void
+  onLogout: () => void
 }
 
-export function WarehouseSidebar({ navItems, activeView, onSelectView }: WarehouseSidebarProps) {
+export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout }: WarehouseSidebarProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="border-b border-white/20 bg-white/10 p-4 backdrop-blur-xl">
@@ -51,7 +53,17 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView }: Warehou
           ))}
         </nav>
       </ScrollArea>
+
+      <div className="border-t border-white/25 p-3">
+        <Button
+          variant="ghost"
+          className="w-full justify-start gap-3 text-slate-700 hover:bg-white/45 hover:text-red-600"
+          onClick={onLogout}
+        >
+          <LogOut className="h-4 w-4" />
+          Logout
+        </Button>
+      </div>
     </div>
   )
 }
-

@@ -800,7 +800,7 @@ export function ReportsView() {
                               <span className="text-gray-600">{count} ({percent}%)</span>
                             </div>
                             <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                              <div className={`h-full rounded-full bg-blue-600 ${getWidthClass(percent)}`} />
+                              <div className="h-full rounded-full bg-blue-600" style={{ width: `${percent}%` }} />
                             </div>
                           </div>
                         )

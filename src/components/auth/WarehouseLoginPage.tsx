@@ -1,8 +1,7 @@
 ﻿'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Script from 'next/script'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
@@ -14,19 +13,6 @@ import { Toaster } from '@/components/ui/sonner'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-declare global {
-  interface Window {
-    google?: {
-      accounts?: {
-        id?: {
-          initialize: (config: { client_id: string; callback: (response: { credential?: string }) => void }) => void
-          renderButton: (element: HTMLElement, options: Record<string, unknown>) => void
-        }
-      }
-    }
-  }
-}
-
 export function WarehouseLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -35,81 +21,6 @@ export function WarehouseLoginPage() {
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const googleButtonRef = useRef<HTMLDivElement | null>(null)
-  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
-
-  const handleGoogleCredential = async (credential: string) => {
-    if (!credential) {
-      toast.error('Invalid credentials')
-      return
-    }
-
-    setIsLoading(true)
-    try {
-      const response = await fetch('/api/auth/staff/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, portal: 'warehouse', rememberMe }),
-      })
-      const rawBody = await response.text()
-      let data: any = null
-      try {
-        data = rawBody ? JSON.parse(rawBody) : null
-      } catch {
-        data = null
-      }
-
-      if (!response.ok || !data?.success || !data?.user) {
-        const apiError = String(data?.error || data?.message || '').trim()
-        const fallbackError = response.status >= 500
-          ? 'Google sign-in is temporarily unavailable. Please use email/password for now.'
-          : 'Invalid credentials'
-        toast.error(apiError || fallbackError)
-        return
-      }
-
-      if (resolvePortalFromUser(data.user) !== 'warehouse') {
-        if (data.token) clearTabAuthToken()
-        await fetch('/api/auth/logout', { method: 'POST' })
-        toast.error('Invalid credentials')
-        return
-      }
-
-      if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Warehouse Portal')
-      router.replace('/')
-    } catch {
-      toast.error('Unable to reach authentication service. Please check your connection and try again.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const renderGoogleButton = () => {
-    if (!googleClientId) return
-    if (!window.google?.accounts?.id) return
-    if (!googleButtonRef.current) return
-
-    googleButtonRef.current.innerHTML = ''
-    window.google.accounts.id.initialize({
-      client_id: googleClientId,
-      callback: (response) => {
-        if (response.credential) {
-          void handleGoogleCredential(response.credential)
-        } else {
-          toast.error('Invalid credentials')
-        }
-      },
-    })
-    window.google.accounts.id.renderButton(googleButtonRef.current, {
-      theme: 'outline',
-      size: 'large',
-      text: 'continue_with',
-      shape: 'pill',
-      logo_alignment: 'left',
-      width: 360,
-    })
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -136,10 +47,6 @@ export function WarehouseLoginPage() {
       cancelled = true
     }
   }, [router])
-
-  useEffect(() => {
-    renderGoogleButton()
-  }, [googleClientId])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -195,9 +102,6 @@ export function WarehouseLoginPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
-      {googleClientId ? (
-        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
-      ) : null}
       <Toaster position="top-right" />
       <Card className="w-full max-w-md border-slate-200 bg-white shadow-xl">
         <CardHeader className="space-y-3">
@@ -238,21 +142,6 @@ export function WarehouseLoginPage() {
             <Button type="submit" className="w-full h-11 bg-indigo-600 text-white hover:bg-indigo-700" disabled={isLoading}>
               {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
             </Button>
-            <div className="relative py-1">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-slate-200" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-slate-400">Or continue with</span>
-              </div>
-            </div>
-            {googleClientId ? (
-              <div className="flex justify-center">
-                <div ref={googleButtonRef} className="w-full flex justify-center" />
-              </div>
-            ) : (
-              <p className="text-center text-xs text-slate-400">Google sign-in is not configured yet.</p>
-            )}
             <ForgotPasswordDialog
               accountType="staff"
               initialEmail={email}

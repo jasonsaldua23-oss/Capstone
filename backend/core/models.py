@@ -21,6 +21,7 @@ class OrderStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
     CONFIRMED = "CONFIRMED", "Confirmed"
     PREPARING = "PREPARING", "Preparing"
+    RESCHEDULED = "RESCHEDULED", "Rescheduled"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY", "Out For Delivery"
     DELIVERED = "DELIVERED", "Delivered"
     CANCELLED = "CANCELLED", "Cancelled"
@@ -83,6 +84,7 @@ class User(models.Model):
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=50, blank=True, null=True)
     avatar = models.TextField(blank=True, null=True)
+    license_photo_url = models.TextField(blank=True, null=True)
     role = models.CharField(max_length=50, choices=RoleType.choices, default=RoleType.CUSTOMER)
     license_number = models.CharField(max_length=120, blank=True, null=True, unique=True)
     license_type = models.CharField(max_length=20, blank=True, null=True)
@@ -250,6 +252,9 @@ class Order(models.Model):
     shipping_longitude = models.FloatField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     special_instructions = models.TextField(blank=True, null=True)
+    pod_recipient_name = models.CharField(max_length=255, blank=True, null=True)
+    pod_photo_url = models.TextField(blank=True, null=True)
+    pod_submitted_at = models.DateTimeField(blank=True, null=True)
 
     # Warehouse load and dispatch controls
     warehouse_stage = models.CharField(max_length=50, choices=WarehouseStage.choices, default=WarehouseStage.READY_TO_LOAD)
@@ -457,6 +462,7 @@ class Replacement(models.Model):
     replacement_product_id = models.CharField(max_length=25, blank=True, null=True)
     replacement_quantity = models.IntegerField(blank=True, null=True)
     damage_photo_url = models.TextField(blank=True, null=True)
+    damage_photo_urls = models.TextField(blank=True, null=True)
     trip_id = models.CharField(max_length=25, blank=True, null=True)
     drop_point_id = models.CharField(max_length=25, blank=True, null=True)
     pickup_address = models.TextField()

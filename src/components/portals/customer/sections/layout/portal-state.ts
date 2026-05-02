@@ -70,7 +70,6 @@ export function useCustomerPortalState(user: any) {
   const [deliveryIssueRecords, setDeliveryIssueRecords] = useState<any[]>([])
   const [ratingDialogOrder, setRatingDialogOrder] = useState<any | null>(null)
   const [deliveryRatingValue, setDeliveryRatingValue] = useState(5)
-  const [satisfactionRatingValue, setSatisfactionRatingValue] = useState(5)
   const [ratingComment, setRatingComment] = useState('')
   const [isSubmittingRating, setIsSubmittingRating] = useState(false)
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false)
@@ -216,8 +215,6 @@ export function useCustomerPortalState(user: any) {
     setRatingDialogOrder,
     deliveryRatingValue,
     setDeliveryRatingValue,
-    satisfactionRatingValue,
-    setSatisfactionRatingValue,
     ratingComment,
     setRatingComment,
     isSubmittingRating,

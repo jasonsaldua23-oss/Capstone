@@ -70,17 +70,6 @@ export function CustomerTrackView(props: any) {
               const currentStatusLabel = formatOrderStatus(order.status, order.paymentStatus)
               const isDestinationCompleted = String(normalizeDeliveryStatus(order.status, order.paymentStatus)) === 'DELIVERED'
               const hasTrackingCoordinates = mapLat !== null && mapLng !== null
-              const isOutForDelivery = normalizedStatus === 'OUT_FOR_DELIVERY'
-              const etaMinutes = Number(tracking?.etaMinutes)
-              const hasComputedEta = Number.isFinite(etaMinutes) && etaMinutes > 0
-              const etaSummary = hasComputedEta ? `${Math.round(etaMinutes)} min` : 'Calculating...'
-              const nextWindowLabel = isDestinationCompleted
-                ? 'Completed'
-                : isOutForDelivery && tracking?.etaArrivalAt
-                  ? new Date(tracking.etaArrivalAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                : order.deliveryDate
-                  ? new Date(order.deliveryDate).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                  : new Date(Date.now() + 30 * 60 * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
               const timelineRows = [
                 {
                   key: 'pending',
@@ -140,19 +129,11 @@ export function CustomerTrackView(props: any) {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        {isOutForDelivery ? (
-                          <>
-                            <p className="text-xs text-white/80 md:text-sm">Estimated arrival</p>
-                            <p className="text-xl font-bold tracking-tight md:text-3xl">{etaSummary}</p>
-                            <p className="text-xs text-white/80 md:text-sm">Arriving around {nextWindowLabel}</p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-xs text-white/80 md:text-sm">Order status</p>
-                            <p className="text-xl font-bold tracking-tight md:text-3xl">{currentStatusLabel.toUpperCase()}</p>
-                            <p className="text-xs text-white/80 md:text-sm">ETA appears once rider is out for delivery.</p>
-                          </>
-                        )}
+                        <p className="text-xs text-white/80 md:text-sm">Order status</p>
+                        <p className="text-xl font-bold tracking-tight md:text-3xl">{currentStatusLabel.toUpperCase()}</p>
+                        <p className="text-xs text-white/80 md:text-sm">
+                          {isDestinationCompleted ? 'Delivery completed.' : 'Tracking is live.'}
+                        </p>
                       </div>
                       <div className="border-l border-white/20 pl-3 md:pl-5">
                         <p className="text-xs text-white/80 md:text-sm">Order ID</p>

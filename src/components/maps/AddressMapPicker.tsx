@@ -62,6 +62,28 @@ function RecenterMap({ latitude, longitude }: { latitude: number | null; longitu
   return null
 }
 
+function MapAutoResizeFix() {
+  const map = useMap()
+
+  useEffect(() => {
+    const refresh = () => map.invalidateSize({ pan: false, animate: false })
+    const timer = window.setTimeout(refresh, 0)
+    const timer2 = window.setTimeout(refresh, 140)
+
+    const container = map.getContainer()
+    const observer = new ResizeObserver(() => refresh())
+    observer.observe(container)
+
+    return () => {
+      window.clearTimeout(timer)
+      window.clearTimeout(timer2)
+      observer.disconnect()
+    }
+  }, [map])
+
+  return null
+}
+
 export function AddressMapPicker({ latitude, longitude, onChange }: AddressMapPickerProps) {
   const hasPin =
     typeof latitude === 'number' &&
@@ -71,20 +93,21 @@ export function AddressMapPicker({ latitude, longitude, onChange }: AddressMapPi
 
   return (
     <div className="space-y-2">
-      <div className="h-64 w-full overflow-hidden rounded-md border">
+      <div className="relative h-64 w-full overflow-hidden rounded-md bg-sky-100">
         <MapContainerUnsafe
           center={center}
           zoom={hasPin ? 15 : 10}
           minZoom={9}
           maxBounds={NEGROS_OCCIDENTAL_BOUNDS}
           maxBoundsViscosity={1}
-          className="h-full w-full z-0"
+          className="absolute inset-0 z-0 h-full w-full"
         >
           <TileLayerUnsafe
             attribution='&copy; OpenStreetMap contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapClickHandler onChange={onChange} />
+          <MapAutoResizeFix />
           <RecenterMap latitude={latitude} longitude={longitude} />
           {hasPin && <MarkerUnsafe position={[latitude as number, longitude as number]} icon={PickerPinIcon} />}
         </MapContainerUnsafe>

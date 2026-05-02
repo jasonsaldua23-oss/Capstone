@@ -136,108 +136,116 @@ export function WarehouseDashboardView({
       </div>
 
       {/* Order Status Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="relative overflow-hidden rounded-2xl border-0 shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
-          <CardContent className="flex min-h-[120px] flex-col justify-between p-5">
-            <div className="inline-flex w-fit rounded-xl border-0 p-2.5 bg-blue-50 text-blue-600">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-100 shadow-[0_18px_40px_rgba(37,99,235,0.16)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(37,99,235,0.22)]">
+          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-blue-300/25 blur-2xl" />
+          <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
+            <div className="inline-flex w-fit rounded-2xl border border-blue-200/60 bg-white/70 p-2.5 text-blue-700 backdrop-blur">
               <ShoppingCart className="h-5 w-5" />
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold leading-none text-blue-900">{dashboardOrderStats.totalOrders.toLocaleString()}</p>
-              <p className="mt-2 text-sm leading-tight text-gray-600">Total Orders</p>
+              <p className="text-4xl font-extrabold leading-none tracking-tight text-blue-900">{dashboardOrderStats.totalOrders.toLocaleString()}</p>
+              <p className="mt-2 text-sm leading-tight font-medium text-blue-900/70">Total Orders</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden rounded-2xl border-0 shadow-sm bg-gradient-to-br from-red-50 to-rose-50">
-          <CardContent className="flex min-h-[120px] flex-col justify-between p-5">
-            <div className="inline-flex w-fit rounded-xl border-0 p-2.5 bg-red-50 text-red-600">
+        <Card className="group relative overflow-hidden rounded-3xl border border-rose-100/70 bg-gradient-to-br from-rose-50 via-pink-50 to-red-100 shadow-[0_18px_40px_rgba(225,29,72,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(225,29,72,0.2)]">
+          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-rose-300/25 blur-2xl" />
+          <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
+            <div className="inline-flex w-fit rounded-2xl border border-rose-200/60 bg-white/70 p-2.5 text-rose-700 backdrop-blur">
               <MapPin className="h-5 w-5" />
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold leading-none text-red-900">{dashboardOrderStats.outForDelivery.toLocaleString()}</p>
-              <p className="mt-2 text-sm leading-tight text-gray-600">Out for Delivery</p>
+              <p className="text-4xl font-extrabold leading-none tracking-tight text-rose-900">{dashboardOrderStats.outForDelivery.toLocaleString()}</p>
+              <p className="mt-2 text-sm leading-tight font-medium text-rose-900/70">Out for Delivery</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden rounded-2xl border-0 shadow-sm bg-gradient-to-br from-green-50 to-emerald-50">
-          <CardContent className="flex min-h-[120px] flex-col justify-between p-5">
-            <div className="inline-flex w-fit rounded-xl border-0 p-2.5 bg-green-50 text-green-600">
+        <Card className="group relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-100 shadow-[0_18px_40px_rgba(5,150,105,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(5,150,105,0.2)]">
+          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-emerald-300/25 blur-2xl" />
+          <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
+            <div className="inline-flex w-fit rounded-2xl border border-emerald-200/60 bg-white/70 p-2.5 text-emerald-700 backdrop-blur">
               <CircleCheck className="h-5 w-5" />
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold leading-none text-green-900">{dashboardOrderStats.delivered.toLocaleString()}</p>
-              <p className="mt-2 text-sm leading-tight text-gray-600">Delivered</p>
+              <p className="text-4xl font-extrabold leading-none tracking-tight text-emerald-900">{dashboardOrderStats.delivered.toLocaleString()}</p>
+              <p className="mt-2 text-sm leading-tight font-medium text-emerald-900/70">Delivered</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden rounded-2xl border-0 shadow-sm bg-gradient-to-br from-indigo-50 to-blue-50">
-          <CardContent className="flex min-h-[120px] flex-col justify-between p-5">
-            <div className="inline-flex w-fit rounded-xl border-0 p-2.5 bg-indigo-50 text-indigo-600">
+        <Card className="group relative overflow-hidden rounded-3xl border border-indigo-100/70 bg-gradient-to-br from-indigo-50 via-blue-50 to-violet-100 shadow-[0_18px_40px_rgba(79,70,229,0.15)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(79,70,229,0.22)]">
+          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-indigo-300/25 blur-2xl" />
+          <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
+            <div className="inline-flex w-fit rounded-2xl border border-indigo-200/60 bg-white/70 p-2.5 text-indigo-700 backdrop-blur">
               <Truck className="h-5 w-5" />
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold leading-none text-indigo-900">0</p>
-              <p className="mt-2 text-sm leading-tight text-gray-600">Active Trips</p>
+              <p className="text-4xl font-extrabold leading-none tracking-tight text-indigo-900">0</p>
+              <p className="mt-2 text-sm leading-tight font-medium text-indigo-900/70">Active Trips</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Enhanced Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="rounded-2xl border-0 shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-blue-500/10 p-2.5 text-blue-600">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-gradient-to-br from-white via-blue-50/70 to-indigo-100/60 shadow-[0_14px_32px_rgba(37,99,235,0.12)] transition-all duration-300 hover:-translate-y-0.5">
+          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-blue-300/20 blur-2xl" />
+          <CardContent className="relative flex h-full items-start gap-3 p-6">
+            <div className="rounded-2xl border border-blue-200/60 bg-white/80 p-2.5 text-blue-700 backdrop-blur">
               <Warehouse className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-600">Assigned Warehouse</p>
-              <p className="mt-2 text-3xl font-bold leading-none text-blue-900">{assignedWarehouse ? 1 : 0}</p>
-              <p className="mt-1 text-xs text-gray-500 truncate">
+              <p className="text-sm font-medium text-blue-900/75">Assigned Warehouse</p>
+              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-blue-900">{assignedWarehouse ? 1 : 0}</p>
+              <p className="mt-2 text-xs text-blue-900/60 truncate">
                 {assignedWarehouse ? `${assignedWarehouse.name}` : 'No warehouse'}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-teal-50">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-600">
+        <Card className="group relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-gradient-to-br from-white via-emerald-50/70 to-teal-100/60 shadow-[0_14px_32px_rgba(5,150,105,0.11)] transition-all duration-300 hover:-translate-y-0.5">
+          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-emerald-300/20 blur-2xl" />
+          <CardContent className="relative flex h-full items-start gap-3 p-6">
+            <div className="rounded-2xl border border-emerald-200/60 bg-white/80 p-2.5 text-emerald-700 backdrop-blur">
               <Boxes className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-600">Inventory Items</p>
-              <p className="mt-2 text-3xl font-bold leading-none text-emerald-900">{scopedInventory.length}</p>
-              <p className="mt-1 text-xs text-gray-500">Total SKUs tracked</p>
+              <p className="text-sm font-medium text-emerald-900/75">Inventory Items</p>
+              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-emerald-900">{scopedInventory.length}</p>
+              <p className="mt-2 text-xs text-emerald-900/60">Total SKUs tracked</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-0 shadow-sm bg-gradient-to-br from-rose-50 to-pink-50">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-rose-500/10 p-2.5 text-rose-600">
+        <Card className="group relative overflow-hidden rounded-3xl border border-rose-100/70 bg-gradient-to-br from-white via-rose-50/70 to-pink-100/60 shadow-[0_14px_32px_rgba(225,29,72,0.12)] transition-all duration-300 hover:-translate-y-0.5">
+          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-rose-300/20 blur-2xl" />
+          <CardContent className="relative flex h-full items-start gap-3 p-6">
+            <div className="rounded-2xl border border-rose-200/60 bg-white/80 p-2.5 text-rose-700 backdrop-blur">
               <AlertTriangle className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-600">Low Stock Items</p>
-              <p className="mt-2 text-3xl font-bold leading-none text-rose-900">{lowStockCount}</p>
-              <p className="mt-1 text-xs text-gray-500">{stockHealthPercentage}% of inventory</p>
+              <p className="text-sm font-medium text-rose-900/75">Low Stock Items</p>
+              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-rose-900">{lowStockCount}</p>
+              <p className="mt-2 text-xs text-rose-900/60">{stockHealthPercentage}% of inventory</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-0 shadow-sm bg-gradient-to-br from-amber-50 to-orange-50">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-600">
+        <Card className="group relative overflow-hidden rounded-3xl border border-amber-100/70 bg-gradient-to-br from-white via-amber-50/70 to-orange-100/60 shadow-[0_14px_32px_rgba(217,119,6,0.12)] transition-all duration-300 hover:-translate-y-0.5">
+          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-amber-300/20 blur-2xl" />
+          <CardContent className="relative flex h-full items-start gap-3 p-6">
+            <div className="rounded-2xl border border-amber-200/60 bg-white/80 p-2.5 text-amber-700 backdrop-blur">
               <Package className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-600">Avg Stock Level</p>
-              <p className="mt-2 text-3xl font-bold leading-none text-amber-900">{averageStockLevel}</p>
-              <p className="mt-1 text-xs text-gray-500">Units per item</p>
+              <p className="text-sm font-medium text-amber-900/75">Avg Stock Level</p>
+              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-amber-900">{averageStockLevel}</p>
+              <p className="mt-2 text-xs text-amber-900/60">Units per item</p>
             </div>
           </CardContent>
         </Card>
@@ -285,38 +293,56 @@ export function WarehouseDashboardView({
       </div>
 
       {/* Inventory Status Breakdown */}
-      <Card className="rounded-2xl border-0 shadow-sm">
+      <Card className="relative overflow-hidden rounded-3xl border border-white/70 bg-white/70 shadow-[0_24px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(16,185,129,0.08),transparent_30%),radial-gradient(circle_at_88%_22%,rgba(244,63,94,0.08),transparent_28%),radial-gradient(circle_at_50%_100%,rgba(245,158,11,0.07),transparent_35%)]" />
+        <div className="relative h-1.5 w-full bg-linear-to-r from-emerald-400 via-amber-400 to-rose-400" />
         <CardHeader>
-          <CardTitle className="text-base">Inventory Status Overview</CardTitle>
-          <CardDescription>Quick view of stock levels across all items</CardDescription>
+          <CardTitle className="text-xl font-bold text-slate-900">Inventory Status Overview</CardTitle>
+          <CardDescription className="text-base text-slate-500">Quick view of stock levels across all items</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-              <p className="text-xs text-gray-600 mb-2">Healthy Stock</p>
-              <p className="text-3xl font-bold text-emerald-600">{inventoryStatusBreakdown.healthy}</p>
-              <p className="text-xs text-gray-500 mt-1">Good levels</p>
+            <div className="relative overflow-hidden rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 to-teal-100/70 p-5 shadow-[0_10px_24px_rgba(16,185,129,0.14)]">
+              <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-emerald-300/30 blur-xl" />
+              <div className="mb-3 inline-flex rounded-xl bg-white/65 p-2 text-emerald-700">
+                <CircleCheck className="h-4 w-4" />
+              </div>
+              <p className="text-sm font-medium text-emerald-900/75">Healthy Stock</p>
+              <p className="mt-3 text-5xl font-extrabold leading-none tracking-tight text-emerald-700">{inventoryStatusBreakdown.healthy}</p>
+              <p className="mt-3 text-sm text-emerald-900/70">Good levels</p>
             </div>
-            <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-              <p className="text-xs text-gray-600 mb-2">Low Stock</p>
-              <p className="text-3xl font-bold text-yellow-600">{inventoryStatusBreakdown.lowStock}</p>
-              <p className="text-xs text-gray-500 mt-1">Needs order soon</p>
+            <div className="relative overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50 to-yellow-100/70 p-5 shadow-[0_10px_24px_rgba(245,158,11,0.14)]">
+              <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-amber-300/30 blur-xl" />
+              <div className="mb-3 inline-flex rounded-xl bg-white/65 p-2 text-amber-700">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <p className="text-sm font-medium text-amber-900/75">Low Stock</p>
+              <p className="mt-3 text-5xl font-extrabold leading-none tracking-tight text-amber-700">{inventoryStatusBreakdown.lowStock}</p>
+              <p className="mt-3 text-sm text-amber-900/70">Needs order soon</p>
             </div>
-            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-              <p className="text-xs text-gray-600 mb-2">Critical</p>
-              <p className="text-3xl font-bold text-orange-600">{inventoryStatusBreakdown.critical}</p>
-              <p className="text-xs text-gray-500 mt-1">Below minimum</p>
+            <div className="relative overflow-hidden rounded-2xl border border-orange-200/70 bg-gradient-to-br from-orange-50 to-amber-100/70 p-5 shadow-[0_10px_24px_rgba(249,115,22,0.14)]">
+              <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-orange-300/30 blur-xl" />
+              <div className="mb-3 inline-flex rounded-xl bg-white/65 p-2 text-orange-700">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <p className="text-sm font-medium text-orange-900/75">Critical</p>
+              <p className="mt-3 text-5xl font-extrabold leading-none tracking-tight text-orange-700">{inventoryStatusBreakdown.critical}</p>
+              <p className="mt-3 text-sm text-orange-900/70">Below minimum</p>
             </div>
-            <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-              <p className="text-xs text-gray-600 mb-2">Out of Stock</p>
-              <p className="text-3xl font-bold text-red-600">{inventoryStatusBreakdown.outOfStock}</p>
-              <p className="text-xs text-gray-500 mt-1">Urgent reorder</p>
+            <div className="relative overflow-hidden rounded-2xl border border-rose-200/70 bg-gradient-to-br from-rose-50 to-pink-100/70 p-5 shadow-[0_10px_24px_rgba(244,63,94,0.14)]">
+              <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-rose-300/30 blur-xl" />
+              <div className="mb-3 inline-flex rounded-xl bg-white/65 p-2 text-rose-700">
+                <Package className="h-4 w-4" />
+              </div>
+              <p className="text-sm font-medium text-rose-900/75">Out of Stock</p>
+              <p className="mt-3 text-5xl font-extrabold leading-none tracking-tight text-rose-700">{inventoryStatusBreakdown.outOfStock}</p>
+              <p className="mt-3 text-sm text-rose-900/70">Urgent reorder</p>
             </div>
           </div>
-          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">Total Items:</span>
-              <span className="font-bold text-gray-900">{scopedInventory.length}</span>
+          <div className="mt-5 rounded-2xl border border-slate-200/70 bg-white/75 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+            <div className="flex items-center justify-between text-base">
+              <span className="font-medium text-slate-600">Total Items</span>
+              <span className="text-2xl font-extrabold leading-none text-slate-900">{scopedInventory.length}</span>
             </div>
           </div>
         </CardContent>

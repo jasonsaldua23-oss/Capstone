@@ -93,7 +93,40 @@ export function FeedbackView() {
     label: `${score} Star${score > 1 ? 's' : ''}`,
     value: rated.filter((item) => item.rating === score).length,
   }))
-  const maxDistribution = Math.max(...ratingDistribution.map((item) => item.value), 1)
+
+  const satisfactionTrend = useMemo(() => {
+    const now = new Date()
+    const months = Array.from({ length: 6 }).map((_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1)
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      return {
+        key,
+        label: date.toLocaleString('en-US', { month: 'short' }),
+      }
+    })
+
+    return months.map((month) => {
+      const monthRatings = rated
+        .filter((item) => {
+          if (!item?.createdAt) return false
+          const createdAt = new Date(String(item.createdAt))
+          if (Number.isNaN(createdAt.getTime())) return false
+          const itemKey = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`
+          return itemKey === month.key
+        })
+        .map((item) => Number(item.rating || 0))
+        .filter((value) => Number.isFinite(value) && value > 0)
+
+      const avgScore = monthRatings.length
+        ? Number((monthRatings.reduce((sum, value) => sum + value, 0) / monthRatings.length).toFixed(2))
+        : null
+
+      return {
+        month: month.label,
+        avgScore,
+      }
+    })
+  }, [rated])
 
   const detectCategory = (item: any) => {
     const text = `${item.subject || ''} ${item.message || ''}`.toLowerCase()
@@ -181,7 +214,7 @@ export function FeedbackView() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-md bg-amber-50 flex items-center justify-center">
-                {/* Star icon removed */}
+                <Star className="h-5 w-5 text-amber-500" />
               </div>
               <div>
                 <p className="text-sm text-gray-500">Avg Rating</p>
@@ -207,7 +240,7 @@ export function FeedbackView() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-md bg-green-50 flex items-center justify-center">
-                {/* ThumbsUp icon removed */}
+                <CircleCheck className="h-5 w-5 text-green-600" />
               </div>
               <div>
                 <p className="text-sm text-gray-500">Response Rate</p>
@@ -236,19 +269,16 @@ export function FeedbackView() {
           <CardHeader>
             <CardTitle>Rating Distribution</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {ratingDistribution.map((row) => (
-              <div key={row.label} className="grid grid-cols-[80px_1fr_40px] items-center gap-3">
-                <span className="text-gray-600">{row.label}</span>
-                <div className="h-3 rounded-md bg-gray-100 overflow-hidden">
-                  <div
-                    className="h-full min-w-[4px] bg-blue-500 transition-all"
-                    style={{ width: `${Math.max((row.value / maxDistribution) * 100, row.value > 0 ? 4 : 0)}%` }}
-                  />
-                </div>
-                <span className="text-sm text-gray-600 text-right">{row.value}</span>
-              </div>
-            ))}
+          <CardContent className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={ratingDistribution} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 24 }}>
+                <CartesianGrid strokeDasharray="4 4" horizontal={true} vertical={true} />
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="label" width={80} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#3b82f6" radius={[2, 2, 2, 2]} />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
@@ -257,7 +287,24 @@ export function FeedbackView() {
             <CardTitle>Satisfaction Trend</CardTitle>
           </CardHeader>
           <CardContent className="h-[280px]">
-            {/* Chart removed for missing components */}
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={satisfactionTrend} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                <CartesianGrid strokeDasharray="4 4" />
+                <XAxis dataKey="month" />
+                <YAxis domain={[0, 5]} ticks={[0, 2, 5]} allowDecimals={false} />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="avgScore"
+                  name="Avg Score"
+                  stroke="#10b981"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, strokeWidth: 2, fill: '#ffffff' }}
+                  connectNulls
+                />
+                <Legend />
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
