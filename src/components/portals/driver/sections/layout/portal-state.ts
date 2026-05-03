@@ -538,6 +538,14 @@ export function useDriverPortalState() {
       navigator.geolocation.getCurrentPosition(resolve, reject, options)
     })
 
+  const readCurrentPositionSafe = async (options?: PositionOptions) => {
+    try {
+      return await readCurrentPosition(options)
+    } catch {
+      return null
+    }
+  }
+
   const gpsFromPosition = (position: GeolocationPosition): DriverGpsLocation | null => {
     const lat = Number(position.coords.latitude)
     const lng = Number(position.coords.longitude)
@@ -668,13 +676,13 @@ export function useDriverPortalState() {
 
   // Attempts two high-accuracy position reads and picks the best sample.
   const getAccurateCurrentPosition = async () => {
-    const first = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 0, timeout: 18000 })
-    let best = gpsFromPosition(first)
+    const first = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 8000, timeout: 12000 })
+    let best = first ? gpsFromPosition(first) : null
     if (best && Number(best.accuracy ?? Number.POSITIVE_INFINITY) <= DRIVER_GPS_GOOD_ACCURACY_METERS) {
       return best
     }
 
-    const second = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }).catch(() => null)
+    const second = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 })
     const next = second ? gpsFromPosition(second) : null
     if (!best) return next
     if (next && Number(next.accuracy ?? Number.POSITIVE_INFINITY) < Number(best.accuracy ?? Number.POSITIVE_INFINITY)) {
@@ -797,19 +805,27 @@ export function useDriverPortalState() {
         applyGpsLocation(location, getActiveTripId())
       },
       (error) => {
-        if (Number(error?.code) === 1) {
+        const errorCode = Number(error?.code)
+        if (errorCode === 1) {
           setLocationPermission('denied')
         } else {
           setLocationPermission('prompt')
         }
-        setIsTracking(false)
-        if (heartbeatIntervalRef.current !== null) {
-          clearInterval(heartbeatIntervalRef.current)
-          heartbeatIntervalRef.current = null
-        }
-        if (Number(error?.code) === 1) {
+        if (errorCode === 1) {
+          setIsTracking(false)
+          if (heartbeatIntervalRef.current !== null) {
+            clearInterval(heartbeatIntervalRef.current)
+            heartbeatIntervalRef.current = null
+          }
           toast.error('Location permission denied. Please enable location access.')
+          return
         }
+        if (errorCode === 3) {
+          // Geolocation timeout is often transient (indoors, weak signal). Keep session alive.
+          setIsTracking(true)
+          return
+        }
+        setIsTracking(false)
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     )

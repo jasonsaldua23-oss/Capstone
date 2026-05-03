@@ -56,7 +56,7 @@ export function CustomerAddressDialog(props: any) {
 
   return (
     <Dialog open={isAddressDialogOpen} onOpenChange={setIsAddressDialogOpen}>
-      <DialogContent showCloseButton={false} className="max-w-md max-h-[95vh] overflow-y-auto p-0">
+      <DialogContent showCloseButton={false} className="max-w-md max-h-[95vh] overflow-y-auto rounded-3xl border border-emerald-100 bg-white p-0 shadow-xl">
         <DialogHeader className="sr-only">
           <DialogTitle>Edit Address</DialogTitle>
           <DialogDescription>Set your address in Negros Occidental, Philippines.</DialogDescription>
@@ -66,17 +66,17 @@ export function CustomerAddressDialog(props: any) {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.22, ease: 'easeOut' }}
         >
-          <div className="border-b px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
             <DialogClose asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-600 hover:bg-emerald-50 hover:text-emerald-700">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </DialogClose>
-            <h2 className="text-base font-semibold">Edit Address</h2>
+            <h2 className="text-base font-semibold text-slate-900">Edit Address</h2>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 rounded-full text-slate-600 hover:bg-rose-50 hover:text-rose-700"
               onClick={() => {
                 setShippingHouseNumber('')
                 setShippingStreetName('')
@@ -95,7 +95,7 @@ export function CustomerAddressDialog(props: any) {
             </Button>
           </div>
 
-          <div className="p-4 space-y-4">
+          <div className="space-y-4 p-4">
             <div className="space-y-2">
               <Label>Name</Label>
               <Input placeholder="Full name" value={shippingName} onChange={(e) => setShippingName(e.target.value)} />
@@ -103,10 +103,10 @@ export function CustomerAddressDialog(props: any) {
 
             <div className="space-y-2">
               <Label>Phone number</Label>
-              <div className="flex rounded-md border bg-white">
-                <div className="px-3 py-2 text-sm text-gray-600 border-r">PH +63</div>
+              <div className="flex h-11 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="flex items-center whitespace-nowrap border-r border-slate-200 px-3 text-sm font-medium text-slate-600">PH +63</div>
                 <Input
-                  className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="h-11 rounded-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                   placeholder="9460056944"
                   value={shippingPhone}
                   onChange={(e) => setShippingPhone(e.target.value.replace(/[^\d]/g, ''))}
@@ -116,11 +116,11 @@ export function CustomerAddressDialog(props: any) {
 
             <div className="space-y-2">
               <Label>Address</Label>
-              <div className="rounded-md border bg-gray-50 p-3 space-y-3">
-                <p className="text-xs text-gray-500">Fill up manually, or use Search Address, or pin on the map.</p>
+              <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+                <p className="text-xs text-slate-500">Fill up manually, or use Search Address, or pin on the map.</p>
 
                 <div className="space-y-2">
-                  <Label className="text-xs text-gray-600">Search Address (Alternative)</Label>
+                  <Label className="text-xs text-slate-600">Search Address (Alternative)</Label>
                   <div className="flex gap-2">
                     <Input
                       placeholder="Search street, barangay, or city in Negros Occidental"
@@ -139,7 +139,7 @@ export function CustomerAddressDialog(props: any) {
                   </div>
                   {addressSearchResults.length > 0 && (
                     <div className="space-y-3">
-                      <p className="text-sm font-medium text-gray-500">Nearby locations</p>
+                      <p className="text-sm font-medium text-slate-500">Nearby locations</p>
                       <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
                         {addressSearchResults.map((item: any, index: number) => {
                           const parts = item.displayName.split(',')
@@ -156,10 +156,10 @@ export function CustomerAddressDialog(props: any) {
                                 void handlePinnedLocation(item.latitude, item.longitude)
                               }}
                             >
-                              <MapPin className="h-5 w-5 text-gray-500 mt-1 shrink-0" />
+                              <MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />
                               <span className="block">
-                                <span className="block font-semibold text-sm text-gray-900">{title}</span>
-                                <span className="block text-sm text-gray-500">{subtitle}</span>
+                                <span className="block text-sm font-semibold text-slate-900">{title}</span>
+                                <span className="block text-sm text-slate-500">{subtitle}</span>
                               </span>
                             </button>
                           )
@@ -171,75 +171,75 @@ export function CustomerAddressDialog(props: any) {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">House number (optional)</Label>
+                    <Label className="text-xs text-slate-600">House number (optional)</Label>
                     <Input placeholder="House number" value={shippingHouseNumber} onChange={(e) => setShippingHouseNumber(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">Street name</Label>
+                    <Label className="text-xs text-slate-600">Street name</Label>
                     <Input placeholder="Street name" value={shippingStreetName} onChange={(e) => setShippingStreetName(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">Subdivision (optional)</Label>
+                    <Label className="text-xs text-slate-600">Subdivision (optional)</Label>
                     <Input placeholder="Subdivision" value={shippingSubdivision} onChange={(e) => setShippingSubdivision(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">Barangay</Label>
+                    <Label className="text-xs text-slate-600">Barangay</Label>
                     <Input placeholder="Barangay" value={shippingBarangay} onChange={(e) => setShippingBarangay(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">City / Municipality</Label>
+                    <Label className="text-xs text-slate-600">City / Municipality</Label>
                     <Input placeholder="City / Municipality" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">Province</Label>
+                    <Label className="text-xs text-slate-600">Province</Label>
                     <Input placeholder="Province" value={shippingProvince} onChange={(e) => setShippingProvince(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">Postal code</Label>
+                    <Label className="text-xs text-slate-600">Postal code</Label>
                     <Input placeholder="Postal code" value={shippingZipCode} onChange={(e) => setShippingZipCode(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-600">Country</Label>
+                    <Label className="text-xs text-slate-600">Country</Label>
                     <Input value={shippingCountry} disabled readOnly />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-slate-500">
                   Full address: {composedShippingAddress || 'Not complete yet'}
                 </p>
               </div>
             </div>
 
-            <div className="rounded-md border p-3 space-y-2">
+            <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-1">
                   <MapPin className="h-4 w-4" />
                   Pin Address on Map
                 </Label>
-                <Button type="button" variant="outline" size="sm" onClick={useCurrentLocation}>
+                <Button type="button" variant="outline" size="sm" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={useCurrentLocation}>
                   <MapPin className="h-4 w-4 mr-1" />
                   Use Current Location
                 </Button>
               </div>
               <AddressMapPicker latitude={shippingLatitude} longitude={shippingLongitude} onChange={handlePinnedLocation} />
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-slate-600">
                 {shippingLatitude !== null && shippingLongitude !== null
                   ? `Pinned: ${shippingLatitude.toFixed(6)}, ${shippingLongitude.toFixed(6)}`
                   : 'No location pinned yet'}
               </p>
               {isResolvingPinnedAddress && (
-                <p className="text-xs text-gray-500 flex items-center gap-1">
+                <p className="flex items-center gap-1 text-xs text-slate-500">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Auto-filling address from pinned location...
                 </p>
               )}
             </div>
 
-            <p className="text-xs text-center text-gray-500">
+            <p className="text-center text-xs text-slate-500">
               By clicking Save, you acknowledge that you have read the Privacy Policy.
             </p>
 
             <Button
-              className="w-full rounded-full bg-rose-600 hover:bg-rose-700"
+              className="w-full rounded-full bg-emerald-600 hover:bg-emerald-700"
               onClick={async () => {
                 const saved = await saveAddressToProfile()
                 if (saved) setIsAddressDialogOpen(false)

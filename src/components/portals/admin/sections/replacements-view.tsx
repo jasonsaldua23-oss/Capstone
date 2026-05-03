@@ -55,6 +55,7 @@ const AddressMapPicker = dynamic(
 
 export function ReplacementsView() {
   const [replacements, setReplacements] = useState<any[]>([])
+  const [ordersForPricing, setOrdersForPricing] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [selectedStatus, setSelectedStatus] = useState('all')
@@ -79,6 +80,17 @@ export function ReplacementsView() {
     }
   }
 
+  const fetchOrdersForPricing = async () => {
+    try {
+      const response = await fetch('/api/orders?limit=500', { cache: 'no-store', credentials: 'include' })
+      if (!response.ok) return
+      const data = await response.json().catch(() => ({}))
+      setOrdersForPricing(getCollection(data, ['orders']))
+    } catch (error) {
+      console.error('Failed to fetch orders for replacement pricing:', error)
+    }
+  }
+
   const fetchWarehouses = async () => {
     try {
       const response = await fetch('/api/warehouses?page=1&pageSize=200', { cache: 'no-store', credentials: 'include' })
@@ -93,6 +105,7 @@ export function ReplacementsView() {
   useEffect(() => {
     fetchReplacements()
     fetchWarehouses()
+    fetchOrdersForPricing()
   }, [])
 
   const parseMeta = (notes: string | null | undefined) => {
@@ -198,6 +211,17 @@ export function ReplacementsView() {
     if (selectedStatus === 'all') return warehouseFilteredReplacements
     return warehouseFilteredReplacements.filter((item) => getNormalizedIssueStatus(item) === selectedStatus)
   }, [warehouseFilteredReplacements, selectedStatus])
+
+  const orderItemsByOrderNumber = useMemo(() => {
+    const index = new Map<string, any[]>()
+    ordersForPricing.forEach((order) => {
+      const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
+      if (!orderNumber) return
+      const items = Array.isArray(order?.items) ? order.items : []
+      index.set(orderNumber, items)
+    })
+    return index
+  }, [ordersForPricing])
 
   const totalIssues = filteredReplacements.length
   const totalReplacedQty = filteredReplacements.reduce((sum, item) => {
@@ -341,6 +365,52 @@ export function ReplacementsView() {
                     const meta = parseMeta(item?.notes)
                     const issueReason = String(item?.description || item?.reason || 'No details provided')
                     const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                    const replacementLines = buildReplacementLines(item, meta)
+                    const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
+                    const orderItems =
+                      (Array.isArray(item?.order?.items) ? item.order.items : []).length > 0
+                        ? item.order.items
+                        : (orderItemsByOrderNumber.get(orderNumberKey) || [])
+                    const totalLoss = replacementLines.reduce((sum, line, index) => {
+                      const sourceLine =
+                        (Array.isArray(item?.replacementLines) ? item.replacementLines[index] : undefined) ||
+                        (Array.isArray(item?.replacementItems) ? item.replacementItems[index] : undefined) ||
+                        (Array.isArray(meta?.replacementLines) ? meta.replacementLines[index] : undefined) ||
+                        (Array.isArray(meta?.replacementItems) ? meta.replacementItems[index] : undefined) ||
+                        {}
+                      const matchedOrderItem = orderItems.find((orderItem: any) => {
+                        const srcOrderItemId = String(sourceLine?.orderItemId ?? '').trim()
+                        const oiId = String(orderItem?.id ?? '').trim()
+                        if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
+
+                        const srcProductId = String(
+                          sourceLine?.productId ??
+                          sourceLine?.originalProductId ??
+                          sourceLine?.replacementProductId ??
+                          ''
+                        ).trim()
+                        const oiProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
+                        if (srcProductId && oiProductId && srcProductId === oiProductId) return true
+
+                        const srcName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
+                        const oiName = String(orderItem?.product?.name ?? orderItem?.name ?? '').trim().toLowerCase()
+                        return Boolean(srcName && oiName && srcName === oiName)
+                      })
+
+                      const unitPrice = Number(
+                        sourceLine?.unitPrice ??
+                        sourceLine?.price ??
+                        sourceLine?.sellingPrice ??
+                        sourceLine?.replacementUnitPrice ??
+                        sourceLine?.originalUnitPrice ??
+                        matchedOrderItem?.unitPrice ??
+                        matchedOrderItem?.price ??
+                        matchedOrderItem?.product?.price ??
+                        0
+                      )
+                      const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
+                      return sum + (Number.isFinite(unitPrice) ? unitPrice : 0) * qty
+                    }, 0)
                     const evidenceUrls = Array.isArray(item?.damagePhotoUrls) ? item.damagePhotoUrls : []
                     const evidenceUrl = String(evidenceUrls[0] || item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
                     const hasEvidence = Boolean(evidenceUrl)
@@ -361,6 +431,7 @@ export function ReplacementsView() {
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                             {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
                           </div>
+                          <p className="mt-1 text-sm font-semibold text-red-600">- Total loss: {formatPeso(totalLoss)}</p>
                         </td>
                         <td className="p-4">
                           <Badge variant={hasEvidence ? 'default' : 'secondary'}>
@@ -424,6 +495,48 @@ export function ReplacementsView() {
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+            const sourceLines =
+              Array.isArray(selectedReplacement?.replacementLines) && selectedReplacement.replacementLines.length
+                ? selectedReplacement.replacementLines
+                : Array.isArray(selectedReplacement?.replacementItems) && selectedReplacement.replacementItems.length
+                  ? selectedReplacement.replacementItems
+                  : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
+                    ? meta.replacementLines
+                    : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
+                      ? meta.replacementItems
+                      : []
+            const orderNumberKey = String(selectedReplacement?.orderNumber || selectedReplacement?.order?.orderNumber || '').trim().toUpperCase()
+            const pricingOrder = ordersForPricing.find(
+              (order) => String(order?.orderNumber || '').trim().toUpperCase() === orderNumberKey
+            )
+            const orderItems = (Array.isArray(selectedReplacement?.order?.items) && selectedReplacement.order.items.length
+              ? selectedReplacement.order.items
+              : Array.isArray(pricingOrder?.items)
+                ? pricingOrder.items
+                : []) as any[]
+            const replacementLineLoss = replacementLines.map((line, index) => {
+              const sourceLine = sourceLines[index] || {}
+              const matchedOrderItem = orderItems.find((orderItem: any) => {
+                const srcOrderItemId = String(sourceLine?.orderItemId ?? '').trim()
+                const oiId = String(orderItem?.id ?? '').trim()
+                if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
+                const srcName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
+                const oiName = String(orderItem?.product?.name ?? '').trim().toLowerCase()
+                return Boolean(srcName && oiName && srcName === oiName)
+              })
+              const unitPrice = Number(
+                sourceLine?.unitPrice ??
+                sourceLine?.price ??
+                sourceLine?.sellingPrice ??
+                matchedOrderItem?.unitPrice ??
+                matchedOrderItem?.price ??
+                matchedOrderItem?.product?.price ??
+                0
+              )
+              const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
+              return (Number.isFinite(unitPrice) ? unitPrice : 0) * qty
+            })
+            const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
             const isResolvedCase = Boolean(
               selectedReplacement?.isClosed ||
@@ -431,14 +544,6 @@ export function ReplacementsView() {
               rawStatus === 'RESOLVED_ON_DELIVERY' ||
               (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
             )
-            const baseResolution = String(selectedReplacement.description || '').trim()
-            const effectiveResolution = isResolvedCase
-              ? (baseResolution.replace(/;?\s*follow-?up required\.?/i, '').trim() || 'Resolved')
-              : (baseResolution || 'N/A')
-            const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
-            const effectiveMode = isResolvedCase && /PARTIAL/i.test(rawMode)
-              ? rawMode.replace(/PARTIAL/ig, 'RESOLVED')
-              : rawMode
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber || 'N/A'],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
@@ -448,8 +553,6 @@ export function ReplacementsView() {
               ['Status', formatIssueStatus(selectedReplacement)],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
-              ['Resolution', effectiveResolution],
-              ['Replacement Mode', effectiveMode.replace(/_/g, ' ')],
             ] as Array<[string, string]>
             return (
               <>
@@ -477,6 +580,7 @@ export function ReplacementsView() {
                           <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
+                          <th className="px-3 py-2 text-left font-medium">Total Loss</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -486,8 +590,13 @@ export function ReplacementsView() {
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplace}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplaced}</td>
+                            <td className="px-3 py-2 font-semibold text-red-600">- {formatPeso(replacementLineLoss[index] || 0)}</td>
                           </tr>
                         ))}
+                        <tr className="border-t bg-slate-50">
+                          <td className="px-3 py-2 font-semibold text-slate-700" colSpan={4}>Total Loss</td>
+                          <td className="px-3 py-2 font-bold text-red-600">- {formatPeso(totalLoss)}</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>

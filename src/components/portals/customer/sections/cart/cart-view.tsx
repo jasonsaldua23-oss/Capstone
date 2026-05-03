@@ -41,7 +41,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
   } = props
 
   return (
-<section className="-mx-4 -mt-4 min-h-[calc(100dvh-9.5rem)] bg-[linear-gradient(180deg,#f5f8fc_0%,#ebf3fb_55%,#e9f0f6_100%)] pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-emerald-100/70 md:pb-4 md:shadow-[0_14px_32px_rgba(5,150,105,0.08)] md:backdrop-blur-md">
+<section className="-mx-4 -mt-4 flex min-h-[calc(100dvh-9.5rem)] flex-col bg-[#f8fafc] pb-28 md:mx-0 md:mt-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:pb-4">
             <div className="border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur md:rounded-t-[1.6rem]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -69,11 +69,11 @@ export function CustomerCartView(props: CustomerCartViewProps) {
               </div>
             </div>
 
-            <div className="space-y-3 px-3 pt-3">
+            <div className="flex-1 space-y-3 px-3 pt-3">
               {cart.map((item) => {
                 const selected = selectedCartIds.has(item.productId)
                 return (
-                  <Card key={item.productId} className="rounded-3xl border border-white/80 bg-[linear-gradient(120deg,#f6f2e8_0%,#edf5fd_65%,#e9f2fc_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.12)]">
+                  <Card key={item.productId} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-3">
                         <button
@@ -94,7 +94,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                         <img
                           src={getProductImage(item.imageUrl)}
                           alt={item.name}
-                          className="h-[96px] w-[96px] rounded-2xl border border-white/90 object-cover bg-white shadow-[0_8px_16px_rgba(15,23,42,0.10)]"
+                          className="h-[96px] w-[96px] rounded-xl border border-slate-200 object-cover bg-white"
                         />
                         <div className="min-w-0 flex-1 space-y-1">
                           <p className="truncate text-[1.05rem] font-semibold text-slate-900">{item.name}</p>
@@ -124,8 +124,8 @@ export function CustomerCartView(props: CustomerCartViewProps) {
             </div>
 
             {cart.length > 0 ? (
-              <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200/70 bg-white/95 px-3 py-2 backdrop-blur md:static md:mt-3 md:rounded-b-2xl md:border md:border-slate-200">
-                <div className="flex items-center gap-2 rounded-2xl bg-[#f3efe4] px-2 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+              <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white px-3 py-2 md:static md:mt-auto md:rounded-b-2xl md:border md:border-slate-200">
+                <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-2 py-2">
                   <button
                     type="button"
                     className={`grid h-6 w-6 place-items-center rounded-full border transition-all ${allCartSelected ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}
@@ -140,25 +140,27 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                     <p className="text-sm font-medium text-slate-700">All selected</p>
                     <p className="text-xs text-slate-500">({selectedCount} item{selectedCount > 1 ? 's' : ''})</p>
                   </div>
-                  <div className="pr-1 text-right leading-tight">
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Sub-total</p>
-                    <p className="text-xl font-bold text-slate-900">{formatPeso(selectedSubtotal)}</p>
+                  <div className="ml-auto flex items-center gap-3 md:gap-4">
+                    <div className="pr-1 text-right leading-tight">
+                      <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Sub-total</p>
+                      <p className="text-xl font-bold text-slate-900">{formatPeso(selectedSubtotal)}</p>
+                    </div>
+                    {selectedCount > 0 ? (
+                      <Button
+                        className="h-11 rounded-2xl bg-emerald-600 px-6 text-white hover:bg-emerald-500"
+                        onClick={() => setActiveView('checkout')}
+                      >
+                        Check out
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled
+                        className="h-11 rounded-2xl bg-slate-300 px-6 text-white"
+                      >
+                        Check out
+                      </Button>
+                    )}
                   </div>
-                  {selectedCount > 0 ? (
-                    <Button
-                      className="h-11 rounded-2xl bg-gradient-to-r from-rose-600 to-rose-500 px-6 text-white shadow-[0_8px_18px_rgba(244,63,94,0.36)] hover:from-rose-700 hover:to-rose-600"
-                      onClick={() => setActiveView('checkout')}
-                    >
-                      Check out
-                    </Button>
-                  ) : (
-                    <Button
-                      disabled
-                      className="h-11 rounded-2xl bg-slate-300 px-6 text-white"
-                    >
-                      Check out
-                    </Button>
-                  )}
                 </div>
               </div>
             ) : null}

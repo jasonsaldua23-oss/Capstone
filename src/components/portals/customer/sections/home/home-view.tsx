@@ -1,9 +1,11 @@
-'use client'
+﻿'use client'
 
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Loader2, Package, Search, ShoppingCart } from 'lucide-react'
+import { Heart, Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
   productSearch: string
@@ -11,9 +13,11 @@ type CustomerHomeViewProps = {
   isProductsLoading: boolean
   filteredProducts: any[]
   getAvailableQty: (product: any) => number
-  openAddToCartDialog: (product: any) => void
+  addToCartDirect: (product: any, qty: number) => void
   getProductImage: (imageUrl?: string | null) => string
   formatPeso: (value: number) => string
+  cart: any[]
+  onOpenCart: () => void
 }
 
 export function CustomerHomeView({
@@ -22,97 +26,235 @@ export function CustomerHomeView({
   isProductsLoading,
   filteredProducts,
   getAvailableQty,
-  openAddToCartDialog,
+  addToCartDirect,
   getProductImage,
   formatPeso,
+  cart,
+  onOpenCart,
 }: CustomerHomeViewProps) {
+  const [cardQtyByProductId, setCardQtyByProductId] = useState<Record<string, number>>({})
+  const totalUnits = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+  const estimatedTotal = cart.reduce(
+    (sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0),
+    0
+  )
+
+  const getCardQty = (productId: string) => {
+    const raw = Number(cardQtyByProductId[productId])
+    return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 24
+  }
+
+  const setCardQty = (productId: string, next: number, maxQty: number) => {
+    const safeMaxQty = Number.isFinite(Number(maxQty)) && Number(maxQty) > 0 ? Math.floor(Number(maxQty)) : 100
+    const safeNext = Number.isFinite(Number(next)) ? Math.floor(Number(next)) : 1
+    const clamped = Math.max(1, Math.min(Math.max(1, safeMaxQty), safeNext))
+    setCardQtyByProductId((prev) => ({ ...prev, [productId]: clamped }))
+  }
+
   return (
-    <section className="-mx-4 -mt-0 min-h-[calc(100dvh-9.5rem)] bg-[linear-gradient(180deg,#d8edf7_0%,#d9eef8_38%,#dce8dc_100%)] pb-6 md:mx-0 md:mt-0 md:rounded-[1.2rem] md:border md:border-slate-200/70 md:pb-4">
-      <div className="border-b border-slate-200/70 bg-[#f1f3f6]/95 px-3 py-2.5 md:rounded-t-[1.2rem]">
-        <div className="flex items-center gap-2 rounded-2xl border border-slate-300/85 bg-[#eef0f4] px-3 py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
-          <Search className="h-4 w-4 text-slate-500" />
-          <Input
-            value={productSearch}
-            onChange={(e) => setProductSearch(e.target.value)}
-            placeholder="Search products"
-            className="h-auto border-0 bg-transparent p-0 text-sm text-slate-700 shadow-none focus-visible:ring-0 placeholder:text-slate-500"
-          />
-        </div>
-      </div>
-      <div className="mx-4 mt-3 rounded-[1.15rem] bg-[#d8edf7]/95 px-0.5 pb-0.5 pt-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]">
-        <div className="relative h-[76px] overflow-hidden rounded-[1rem]">
-          <div className="absolute inset-x-0 top-0 grid h-10 grid-cols-5 [clip-path:polygon(4%_0,96%_0,100%_100%,0_100%)]">
-            <div className="bg-[#ea8580]" />
-            <div className="bg-[#f0cf73]" />
-            <div className="bg-[#a8d46c]" />
-            <div className="bg-[#72d2df]" />
-            <div className="bg-[#88a9d8]" />
-          </div>
-          <div className="absolute inset-x-0 top-7 grid h-10 grid-cols-5">
-            <div className="rounded-b-full bg-[#ea8580]" />
-            <div className="rounded-b-full bg-[#f0cf73]" />
-            <div className="rounded-b-full bg-[#a8d46c]" />
-            <div className="rounded-b-full bg-[#72d2df]" />
-            <div className="rounded-b-full bg-[#88a9d8]" />
-          </div>
-        </div>
-      </div>
+    <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f5f8f6] pb-5 md:mx-0 md:min-h-[calc(100dvh-9rem)] md:pb-4">
+      <div className="grid gap-4 px-3 pt-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-emerald-100 bg-white p-3">
+            <div className="flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-[#f9fbfa] px-3 py-2">
+                <Search className="h-4 w-4 text-slate-500" />
+                <Input
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Search products..."
+                  className="h-auto border-0 bg-transparent p-0 text-sm text-slate-700 shadow-none focus-visible:ring-0 placeholder:text-slate-400"
+                />
+              </div>
+            </div>
 
-      {isProductsLoading ? (
-        <div className="flex items-center justify-center py-10">
-          <Loader2 className="h-6 w-6 animate-spin text-cyan-700" />
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 px-4 pb-2 pt-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {filteredProducts.map((p, index) => {
-            const availableQty = p ? getAvailableQty(p) : 0
-            return (
-              <Card
-                key={p?.id || `placeholder-${index}`}
-                className={`overflow-hidden rounded-[1.15rem] border border-white/75 bg-[#f1f6fc]/92 shadow-[0_10px_22px_rgba(15,23,42,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(15,23,42,0.18)] ${p ? 'cursor-pointer' : ''}`}
-                onClick={() => {
-                  if (p) openAddToCartDialog(p)
-                }}
-              >
-                <div className="relative m-2.5 rounded-xl bg-[#dbead9] p-3">
-                  {p?.imageUrl ? (
-                    <img
-                      src={getProductImage(p.imageUrl)}
-                      alt={p.name}
-                      className="aspect-[11/10] w-full rounded-lg object-contain"
-                    />
-                  ) : (
-                    <div className="grid aspect-[11/10] w-full place-items-center rounded-lg bg-[#dcebd8]">
-                      <Package className="h-16 w-16 text-slate-400/60" />
-                    </div>
-                  )}
-                </div>
+            <div className="mt-3">
+              <p className="text-[1.55rem] font-extrabold leading-tight tracking-[-0.02em] text-slate-900 md:text-xl">
+                Welcome back!
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Place your order and we&apos;ll deliver it to your store.
+              </p>
+            </div>
 
-                <CardContent className="space-y-1 px-4 pb-4 pt-1">
-                  <p className="line-clamp-1 text-[1.05rem] font-medium leading-tight tracking-[-0.01em] text-slate-900">{p?.name || 'Product Name'}</p>
-                  <p className="text-[0.98rem] font-medium leading-tight text-slate-500">{p ? formatPeso(p.price || 0) : '$ Price'}</p>
-                  <p className="text-xs text-slate-500">{availableQty > 0 ? `${availableQty} available` : 'Out of stock'}</p>
-                  <div className="flex items-center justify-end pt-1">
-                    <Button
-                      size="sm"
-                      className="h-7 rounded-full bg-sky-600 px-3 text-[11px] font-semibold text-white shadow-sm shadow-sky-700/20 transition-all hover:bg-sky-500 hover:shadow-md hover:shadow-sky-700/30"
-                      disabled={!p || availableQty <= 0}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        if (p) openAddToCartDialog(p)
-                      }}
-                    >
-                      <ShoppingCart className="mr-1 h-3 w-3" />
-                      {availableQty > 0 ? 'Add to Cart' : 'Out of Stock'}
-                    </Button>
+          </div>
+
+          {isProductsLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
+              {filteredProducts.map((p, index) => {
+                const availableQty = p ? getAvailableQty(p) : 0
+                const sizeLabel = p
+                  ? (Array.isArray(p.sizes) && p.sizes.length > 0 ? String(p.sizes[0]) : 'N/A')
+                  : 'N/A'
+                const quantityPerUnit = p
+                  ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
+                  : 0
+                const currentQty = p ? getCardQty(p.id) : 24
+
+                return (
+                  <Card
+                    key={p?.id || `placeholder-${index}`}
+                    className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_8px_20px_rgba(16,24,40,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(16,24,40,0.12)] md:rounded-2xl"
+                  >
+                    <CardContent className="p-1 md:p-6">
+                      <div className="flex gap-1.5 md:gap-5">
+                        <div className="relative w-[42%] shrink-0 rounded-lg bg-[#f3f8f3] p-0.5 md:rounded-xl md:p-3">
+                          <button
+                            type="button"
+                            className="absolute right-2 top-2 text-slate-400 hover:text-emerald-600"
+                          >
+                            <Heart className="h-4 w-4" />
+                          </button>
+                          {p?.imageUrl ? (
+                            <img
+                              src={getProductImage(p.imageUrl)}
+                              alt={p.name}
+                              className="h-[88px] w-full rounded-md object-contain md:h-[160px] md:rounded-lg md:object-contain"
+                            />
+                          ) : (
+                            <div className="grid h-[88px] w-full place-items-center rounded-md bg-[#edf7ef] md:h-[160px] md:rounded-lg">
+                              <Package className="h-8 w-8 text-slate-400/60 md:h-12 md:w-12" />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1 space-y-0 leading-tight">
+                          <p className="line-clamp-1 text-[0.8rem] font-semibold leading-tight text-slate-900 md:text-[1.2rem] md:font-semibold">
+                            {p?.name || 'Product Name'}
+                          </p>
+                          <p className="text-[0.8rem] font-semibold leading-tight text-slate-900 md:text-[1.15rem] md:font-semibold md:text-slate-900">
+                            {p ? formatPeso(p.price || 0) : '$ Price'}
+                          </p>
+                          <p className="text-[9px] text-slate-500">Size: {sizeLabel}</p>
+                          <p className="text-[9px] text-slate-500">
+                            Qty/Unit: {quantityPerUnit > 0 ? quantityPerUnit : 'N/A'}
+                          </p>
+                          <p className="text-[9px] text-emerald-700">
+                            {availableQty > 0 ? `${availableQty} available` : 'Out of stock'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-0.5 pt-0">
+                        <p className="mb-0.5 text-[8px] font-medium text-slate-500">Quantity</p>
+                        <div className="mb-0.5 flex items-center justify-between rounded-md border border-emerald-100 bg-white px-1 py-0.5">
+                          <button
+                            type="button"
+                            className="px-1.5 text-emerald-700 disabled:opacity-40"
+                            disabled={!p || availableQty <= 0}
+                            onClick={() => p && setCardQty(p.id, currentQty - 1, availableQty)}
+                          >
+                            −
+                          </button>
+                          <span className="text-[11px] font-semibold text-slate-900">{currentQty}</span>
+                          <button
+                            type="button"
+                            className="px-1.5 text-emerald-700 disabled:opacity-40"
+                            disabled={!p || availableQty <= 0}
+                            onClick={() => p && setCardQty(p.id, currentQty + 1, availableQty)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="relative z-10 mb-0.5 grid grid-cols-4 gap-1">
+                          {['24', '48', '72', '100'].map((qty) => {
+                            const parsed = Number(qty)
+                            const isActive = currentQty === parsed
+                            const exceedsAvailable = parsed > Math.max(0, Number(availableQty || 0))
+                            return (
+                              <button
+                                type="button"
+                                key={qty}
+                                disabled={!p || availableQty <= 0}
+                                onClick={() => {
+                                  if (!p) return
+                                  if (exceedsAvailable) {
+                                    setCardQty(p.id, availableQty, availableQty)
+                                    toast.message(`Only ${availableQty} available`)
+                                    return
+                                  }
+                                  setCardQty(p.id, parsed, availableQty)
+                                }}
+                                className={`pointer-events-auto rounded px-0.5 py-1 text-center text-[10px] font-medium md:text-[11px] ${
+                                  isActive
+                                    ? 'bg-emerald-600 text-white'
+                                    : exceedsAvailable
+                                      ? 'bg-slate-100 text-slate-400'
+                                      : 'bg-slate-100 text-slate-600'
+                                } disabled:cursor-not-allowed disabled:opacity-50`}
+                                title={exceedsAvailable ? `Sets to max available (${availableQty})` : undefined}
+                              >
+                                {qty}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-7 w-full rounded-md bg-emerald-600 px-1.5 text-[10px] font-semibold text-white shadow-sm transition-all hover:bg-emerald-500 md:h-10 md:text-[13px]"
+                          disabled={!p || availableQty <= 0}
+                          onClick={() => p && addToCartDirect(p, currentQty)}
+                        >
+                          <ShoppingCart className="mr-1 h-3 w-3 md:h-4 md:w-4" />
+                          {availableQty > 0 ? 'Add to Order' : 'Out of Stock'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="hidden h-fit rounded-xl border border-emerald-100 bg-white p-4 lg:block">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">Current Order ({cart.length} items)</h3>
+            <button
+              type="button"
+              className="text-xs font-medium text-emerald-600 hover:text-emerald-700"
+              onClick={onOpenCart}
+            >
+              Edit
+            </button>
+          </div>
+          <div className="space-y-3">
+            {cart.length === 0 ? (
+              <p className="text-sm text-slate-500">No items yet</p>
+            ) : (
+              cart.slice(0, 8).map((item) => (
+                <div key={item.productId} className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900">{item.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.quantity} x {formatPeso(item.unitPrice || 0)}
+                    </p>
                   </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
+                  <p className="text-sm font-semibold text-slate-900">
+                    {formatPeso((item.quantity || 0) * (item.unitPrice || 0))}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="mt-4 border-t pt-3">
+            <p className="text-xs text-slate-500">Total items</p>
+            <p className="text-sm font-semibold text-slate-900">{totalUnits} units</p>
+            <p className="mt-2 text-xs text-slate-500">Estimated Total</p>
+            <p className="text-2xl font-bold text-emerald-700">{formatPeso(estimatedTotal)}</p>
+            <Button
+              className="mt-3 h-10 w-full rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
+              onClick={onOpenCart}
+            >
+              Continue to Checkout
+            </Button>
+          </div>
+        </aside>
+      </div>
     </section>
   )
 }
-

@@ -1,11 +1,12 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Loader2, Star } from 'lucide-react'
+import { Loader2, Star, CheckCircle2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useState } from 'react'
 
 export function CustomerRatingDialog(props: any) {
   const {
@@ -19,59 +20,146 @@ export function CustomerRatingDialog(props: any) {
     submitRating,
   } = props
 
+  const [showSuccess, setShowSuccess] = useState(false)
+
+  const handleSubmit = async () => {
+    const submitted = await submitRating()
+    if (!submitted) return
+    setShowSuccess(true)
+    setTimeout(() => {
+      setShowSuccess(false)
+      setRatingDialogOrder(null)
+    }, 1500)
+  }
+
+  const getRatingLabel = (rating: number) => {
+    const labels: Record<number, string> = {
+      1: 'Poor',
+      2: 'Fair',
+      3: 'Good',
+      4: 'Very Good',
+      5: 'Excellent!',
+    }
+    return labels[rating] || ''
+  }
+
   return (
     <Dialog open={!!ratingDialogOrder} onOpenChange={(open) => !open && setRatingDialogOrder(null)}>
       {ratingDialogOrder && (
-        <DialogContent>
+        <DialogContent className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-md p-3 md:w-full md:max-h-[92vh] md:p-6">
           <motion.div
             initial={{ opacity: 0, y: 8, scale: 0.99 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="space-y-2.5 md:space-y-4"
           >
-            <DialogHeader>
-              <DialogTitle>Review Order {ratingDialogOrder.orderNumber}</DialogTitle>
-              <DialogDescription>Rate delivery, then leave feedback.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <Label>Delivery Rating</Label>
-                <div className="flex items-center gap-1 text-amber-500">
-                  {Array.from({ length: 5 }).map((_, index) => {
-                    const value = index + 1
-                    const isActive = value <= deliveryRatingValue
-                    return (
-                      <button
-                        key={`delivery-${value}`}
-                        type="button"
-                        onClick={() => setDeliveryRatingValue(value)}
-                        className={`rounded p-1 ${isActive ? 'text-amber-500' : 'text-gray-300'}`}
-                        title={`${value} star${value > 1 ? 's' : ''}`}
-                      >
-                        <Star className="h-6 w-6 fill-current" />
-                      </button>
-                    )
-                  })}
-                  <span className="ml-2 text-sm font-medium text-slate-700">{deliveryRatingValue}/5</span>
+            {/* Close button */}
+            <button
+              onClick={() => setRatingDialogOrder(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"
+              disabled={isSubmittingRating}
+            >
+              <X className="h-4 w-4 md:h-5 md:w-5" />
+            </button>
+
+            {/* Header */}
+            <div className="pr-8">
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-emerald-100 p-1.5 md:p-2">
+                  <Star className="h-4 w-4 text-emerald-600 md:h-5 md:w-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-900 md:text-base">Review Order {ratingDialogOrder.orderNumber}</h3>
+                  <p className="text-xs text-slate-500">Rate delivery, then leave feedback.</p>
                 </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="rating-message">Feedback</Label>
-                <Textarea
-                  id="rating-message"
-                  placeholder="Add your comment..."
-                  value={ratingComment}
-                  onChange={(e) => setRatingComment(e.target.value)}
-                />
+            </div>
+
+            {/* Rating Section */}
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Delivery Rating</Label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: 5 }).map((_, index) => {
+                      const value = index + 1
+                      const isActive = value <= deliveryRatingValue
+                      return (
+                        <button
+                          key={`delivery-${value}`}
+                          type="button"
+                          onClick={() => setDeliveryRatingValue(value)}
+                          disabled={isSubmittingRating}
+                          className={`transition-transform hover:scale-110 ${isActive ? 'text-amber-500' : 'text-gray-300'}`}
+                          title={`${value} star${value > 1 ? 's' : ''}`}
+                        >
+                          <Star className="h-4.5 w-4.5 fill-current md:h-6 md:w-6" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-amber-500 md:text-lg">{deliveryRatingValue}/5</p>
+                    <p className="text-xs text-slate-500">{getRatingLabel(deliveryRatingValue)}</p>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={() => setRatingDialogOrder(null)} disabled={isSubmittingRating}>
-                  Cancel
-                </Button>
-                <Button onClick={() => void submitRating()} disabled={isSubmittingRating}>
-                  {isSubmittingRating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                  Submit Review
-                </Button>
-              </div>
+            </div>
+
+            {/* Textarea Section */}
+            <div className="space-y-2">
+              <Label htmlFor="rating-message" className="text-xs font-semibold text-slate-900 md:text-sm">Feedback (Optional)</Label>
+              <Textarea
+                id="rating-message"
+                placeholder="Add your comment..."
+                value={ratingComment}
+                onChange={(e) => setRatingComment(e.target.value)}
+                disabled={isSubmittingRating}
+                className="min-h-[60px] resize-none text-xs md:min-h-[80px] md:text-sm"
+                maxLength={500}
+              />
+              <p className="text-xs text-slate-400">{ratingComment.length}/500</p>
+            </div>
+
+            {/* Success message */}
+            {showSuccess && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 rounded-lg bg-emerald-50 p-2.5 text-emerald-700 md:p-3"
+              >
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                <p className="text-xs font-medium md:text-sm">Your feedback helps us improve our service</p>
+              </motion.div>
+            )}
+
+            {/* Buttons */}
+            <div className="flex gap-1.5 pt-1.5">
+              <Button
+                variant="outline"
+                onClick={() => setRatingDialogOrder(null)}
+                disabled={isSubmittingRating}
+                className="h-9 flex-1 text-xs md:h-10 md:text-sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleSubmit()}
+                disabled={isSubmittingRating || deliveryRatingValue === 0}
+                className="h-9 flex-1 bg-emerald-600 text-xs hover:bg-emerald-700 md:h-10 md:text-sm"
+              >
+                {isSubmittingRating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Submit Review
+                  </>
+                )}
+              </Button>
             </div>
           </motion.div>
         </DialogContent>

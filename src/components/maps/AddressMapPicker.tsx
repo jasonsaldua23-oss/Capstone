@@ -92,8 +92,8 @@ export function AddressMapPicker({ latitude, longitude, onChange }: AddressMapPi
   const center: [number, number] = hasPin ? [latitude as number, longitude as number] : NEGROS_OCCIDENTAL_CENTER
 
   return (
-    <div className="space-y-2">
-      <div className="relative h-64 w-full overflow-hidden rounded-md bg-sky-100">
+    <div className="portal-map-picker space-y-2">
+      <div className="relative h-64 w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
         <MapContainerUnsafe
           center={center}
           zoom={hasPin ? 15 : 10}
@@ -112,7 +112,44 @@ export function AddressMapPicker({ latitude, longitude, onChange }: AddressMapPi
           {hasPin && <MarkerUnsafe position={[latitude as number, longitude as number]} icon={PickerPinIcon} />}
         </MapContainerUnsafe>
       </div>
-      <p className="text-xs text-gray-500">Click on the map to pin your delivery location.</p>
+      <p className="text-xs text-slate-500">Click on the map to pin your delivery location.</p>
+      <style jsx global>{`
+        .portal-map-picker .leaflet-control-zoom {
+          border: 1px solid #d1fae5;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 6px 20px rgba(2, 132, 199, 0.08);
+        }
+        .portal-map-picker .leaflet-control-zoom a {
+          width: 34px;
+          height: 34px;
+          line-height: 34px;
+          color: #0f172a;
+          background: #ffffff;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .portal-map-picker .leaflet-control-zoom a:hover {
+          background: #ecfdf5;
+          color: #047857;
+        }
+        .portal-map-picker .leaflet-control-attribution {
+          background: rgba(255, 255, 255, 0.9);
+          color: #64748b;
+          border-top-left-radius: 10px;
+          padding: 2px 8px;
+        }
+        .portal-map-picker .leaflet-popup-content-wrapper {
+          border: 1px solid #d1fae5;
+          border-radius: 14px;
+          box-shadow: 0 10px 26px rgba(15, 23, 42, 0.14);
+          color: #0f172a;
+        }
+        .portal-map-picker .leaflet-popup-tip {
+          background: #ffffff;
+          border: 1px solid #d1fae5;
+          box-shadow: none;
+        }
+      `}</style>
     </div>
   )
 }

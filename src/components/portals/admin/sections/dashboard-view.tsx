@@ -116,37 +116,43 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   // Order Status Distribution
   const orderStatusData = useMemo(() => {
-    const statusMap = new Map<string, number>()
+    const statusMap = new Map<string, number>([
+      ['Cancelled', 0],
+      ['Rescheduled', 0],
+    ])
+
     for (const order of dashboardOrders) {
-      const status = String(order?.status || '').toUpperCase() || 'UNKNOWN'
-      statusMap.set(status, (statusMap.get(status) || 0) + 1)
+      const rawStatus = String(order?.status || '').toUpperCase()
+
+      if (['CANCELLED', 'CANCELED', 'FAILED', 'FAILED_DELIVERY', 'REJECTED', 'SKIPPED'].includes(rawStatus)) {
+        statusMap.set('Cancelled', (statusMap.get('Cancelled') || 0) + 1)
+        continue
+      }
+
+      if (rawStatus === 'RESCHEDULED') {
+        statusMap.set('Rescheduled', (statusMap.get('Rescheduled') || 0) + 1)
+      }
     }
-    return Array.from(statusMap.entries()).map(([name, value]) => ({
-      name: name.charAt(0) + name.slice(1).toLowerCase(),
-      value,
-    }))
+
+    return Array.from(statusMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .filter((entry) => entry.value > 0)
   }, [dashboardOrders])
 
   // Delivery Performance
   const deliveryPerformance = useMemo(() => {
     const delivered = dashboardOrderStats.delivered
-    const total = dashboardOrderStats.totalOrders
-    const pending = dashboardOrderStats.outForDelivery
+    const failed = Number(stats?.failedOrders || 0)
 
     return [
       { name: 'Delivered', value: delivered, color: '#10b981' },
-      { name: 'In Progress', value: pending, color: '#f59e0b' },
+      { name: 'Failed', value: failed, color: '#ef4444' },
     ]
-  }, [dashboardOrderStats])
+  }, [dashboardOrderStats.delivered, stats?.failedOrders])
 
   const statusColors: { [key: string]: string } = {
-    'Pending': '#ef4444',
-    'Processing': '#f59e0b',
-    'Loaded': '#8b5cf6',
-    'In_transit': '#3b82f6',
-    'Delivered': '#10b981',
-    'Cancelled': '#6b7280',
-    'Unknown': '#9ca3af',
+    'Cancelled': '#ef4444',
+    'Rescheduled': '#f59e0b',
   }
   if (isLoading) {
     return (
@@ -275,7 +281,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Order Status Distribution</CardTitle>
-            <CardDescription>Breakdown of orders by status</CardDescription>
+            <CardDescription>Cancelled vs Rescheduled orders</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px] flex items-center justify-center">
@@ -295,7 +301,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                       {orderStatusData.map((entry: any, index: number) => (
                         <Cell
                           key={`cell-${index}`}
-                          fill={Object.values(statusColors)[index % Object.values(statusColors).length]}
+                          fill={statusColors[String(entry?.name)] || Object.values(statusColors)[index % Object.values(statusColors).length]}
                         />
                       ))}
                     </Pie>
@@ -313,7 +319,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Delivery Performance</CardTitle>
-            <CardDescription>Delivered vs In Progress orders</CardDescription>
+            <CardDescription>Delivered vs Failed orders</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">

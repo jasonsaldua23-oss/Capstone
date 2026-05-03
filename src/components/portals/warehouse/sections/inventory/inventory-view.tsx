@@ -27,6 +27,7 @@ export function WarehouseInventoryView({
 }: WarehouseInventoryViewProps) {
   const getThresholdValue = (item: any) =>
     Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0) || 0)
+  const getReservedQty = (item: any) => Number(item?.reservedQuantity ?? item?.reserved_quantity ?? 0)
 
   return (
     <div className="space-y-6">
@@ -71,6 +72,7 @@ export function WarehouseInventoryView({
                   {scopedInventory.map((item) => {
                     const status = getStockStatus(item)
                     const availableQty = getAvailableQty(item)
+                    const reservedQty = getReservedQty(item)
                     const sizes = Array.isArray(item.product?.sizes) ? item.product.sizes.filter(Boolean) : []
                     const sizeLabel = sizes.length > 0 ? sizes.join(', ') : 'No size'
                     return (
@@ -98,7 +100,7 @@ export function WarehouseInventoryView({
                         <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
                         <td className="p-4 font-semibold text-gray-900">{getThresholdValue(item)}</td>
                         <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
-                        <td className="p-4 font-semibold text-orange-600">{item.reserved_quantity ?? 0}</td>
+                        <td className="p-4 font-semibold text-orange-600">{reservedQty}</td>
                         <td className="p-4 text-gray-600">
                           {item.warehouse?.name || item.warehouse?.code || 'N/A'}
                         </td>

@@ -1321,7 +1321,7 @@ export function WarehousePortal() {
     const availableCapacity = Math.max(totalCapacity - usedCapacity, 0)
     const lowStockItems = scopedInventory.filter((item) => (item.quantity ?? 0) <= getItemThreshold(item)).length
     const pendingOrders = scopedOrders.filter((order) =>
-      ['PENDING', 'CONFIRMED', 'PREPARING'].includes(String(order.status || '').toUpperCase())
+      ['PENDING', 'CONFIRMED', 'PREPARING', 'RESCHEDULED'].includes(String(order.status || '').toUpperCase())
     ).length
     const inTransitTrips = scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length
     const openReplacements = scopedReplacements.filter((entry) => {
@@ -1333,7 +1333,7 @@ export function WarehousePortal() {
     const skuVelocityData = scopedInventory
       .map((item) => {
         const qty = Number(item.quantity || 0)
-        const reserved = Number(item.reservedQuantity || 0)
+        const reserved = Number((item as any).reservedQuantity ?? (item as any).reserved_quantity ?? 0)
         const minStock = getItemThreshold(item)
         const available = Math.max(0, qty - reserved)
         const pressure = Math.max(0, minStock - available)
@@ -1351,7 +1351,7 @@ export function WarehousePortal() {
     const stockHealthCounts = scopedInventory.reduce(
       (acc, item) => {
         const qty = Number(item.quantity || 0)
-        const reserved = Number(item.reservedQuantity || 0)
+        const reserved = Number((item as any).reservedQuantity ?? (item as any).reserved_quantity ?? 0)
         const minStock = getItemThreshold(item)
         const available = Math.max(0, qty - reserved)
 
@@ -2235,7 +2235,8 @@ export function WarehousePortal() {
     }
   }
 
-  const getAvailableQty = (item: InventoryItem) => Math.max(0, (item.quantity ?? 0) - (item.reservedQuantity ?? 0))
+  const getAvailableQty = (item: InventoryItem) =>
+    Math.max(0, (item.quantity ?? 0) - Number((item as any).reservedQuantity ?? (item as any).reserved_quantity ?? 0))
 
   const getStockStatus = (item: InventoryItem) => {
     const qty = item.quantity ?? 0
@@ -2660,7 +2661,7 @@ export function WarehousePortal() {
 
   const updateWarehouseOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -3562,6 +3563,14 @@ export function WarehousePortal() {
                           disabled={updatingOrderId === selectedOrder.id}
                         >
                           Confirm Order
+                        </Button>
+                      ) : selectedOrderStatus === 'RESCHEDULED' ? (
+                        <Button
+                          className="bg-amber-600 text-white hover:bg-amber-700"
+                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
+                          disabled={updatingOrderId === selectedOrder.id}
+                        >
+                          Approve Rescheduled Order
                         </Button>
                       ) : (
                         <Button variant="outline" disabled>

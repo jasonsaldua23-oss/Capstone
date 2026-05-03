@@ -45,7 +45,7 @@ export function CustomerCheckoutView({
   canPlaceOrder,
 }: CustomerCheckoutViewProps) {
   return (
-    <section className="-mx-4 -mt-4 bg-white/55 pb-28 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
+    <section className="-mx-4 -mt-4 bg-white/55 pb-20 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
       <div className="border-b bg-white px-3 py-3 md:rounded-t-xl">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('cart')}>
@@ -131,14 +131,14 @@ export function CustomerCheckoutView({
       )}
 
       {selectedCartItems.length > 0 ? (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-3 py-2 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200">
-          <div className="flex items-center gap-3">
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
+          <div className="flex items-center gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-500">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
-              <p className="text-2xl font-semibold text-emerald-700">{formatPeso(selectedSubtotal)}</p>
+              <p className="text-xs text-gray-500 md:text-sm">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
+              <p className="text-lg font-semibold text-emerald-700 md:text-2xl">{formatPeso(selectedSubtotal)}</p>
             </div>
             <Button
-              className="h-11 rounded-xl bg-rose-500 px-8 text-white hover:bg-rose-600"
+              className="h-8 rounded-xl bg-rose-500 px-4 text-[11px] text-white hover:bg-rose-600 md:h-11 md:px-8 md:text-sm"
               onClick={placeOrder}
               disabled={isPlacingOrder || !canPlaceOrder}
             >

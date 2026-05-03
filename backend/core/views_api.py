@@ -794,6 +794,39 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     return p, None
 
 
+def _create_staff_notifications(
+    *,
+    title: str,
+    message: str,
+    notification_type: str = "INVENTORY",
+    reference_type: str | None = None,
+    reference_id: str | None = None,
+) -> None:
+    recipients = list(
+        User.objects.filter(
+            role__in=[RoleType.SUPER_ADMIN, RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
+            is_active=True,
+        ).only("id")
+    )
+    if not recipients:
+        return
+
+    Notification.objects.bulk_create(
+        [
+            Notification(
+                user=user,
+                title=title,
+                message=message,
+                type=notification_type,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                is_read=False,
+            )
+            for user in recipients
+        ]
+    )
+
+
 def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = False) -> None:
     cookie_kwargs = {
         "httponly": True,
@@ -1526,15 +1559,16 @@ def _return_unused_spare_products_for_delivered_order(
             )
 
             inventory.quantity = max(0, _int(inventory.quantity, 0) + transferable_qty)
-            inventory.save(update_fields=["quantity", "updated_at"])
+            inventory.reserved_quantity = max(0, _int(inventory.reserved_quantity, 0) - transferable_qty)
+            inventory.save(update_fields=["quantity", "reserved_quantity", "updated_at"])
             InventoryTransaction.objects.create(
                 warehouse=inventory.warehouse,
                 product=product,
-                type="IN",
+                type="UNRESERVE",
                 quantity=transferable_qty,
                 reference_type=SPARE_PRODUCTS_RETURN_REFERENCE_TYPE,
                 reference_id=order_item.id,
-                notes=f"Unused spare products returned from driver for {order.order_number}",
+                notes=f"Unused spare products released back to batch for {order.order_number}",
                 performed_by=performed_by,
             )
 
@@ -2414,7 +2448,7 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
 
     account = _get_reset_account(account_type, email)
     if not account:
-        return _err("Account not found for this email", 404)
+        return _err("Not registered", 404)
 
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, account_type, "password_reset", _otp_bucket(now))
@@ -2454,7 +2488,7 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
     else:
         account = Customer.objects.filter(email=email, is_active=True).first()
     if not account:
-        return _err("Invalid account", 404)
+        return _err("Not registered", 404)
 
     account.password = hash_password(new_password)
     account.save(update_fields=["password", "updated_at"])
@@ -2474,7 +2508,7 @@ def roles_list(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def users_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
@@ -2518,13 +2552,21 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         role=role,
         is_active=bool(body.get("isActive", True)),
     )
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="User added",
+        message=f"{actor_name} added user {user.name} ({user.email}) with role {user.role}.",
+        notification_type="USER",
+        reference_type="user",
+        reference_id=user.id,
+    )
     return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})}, 201)
 
 
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "DELETE"])
 def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     try:
@@ -2534,7 +2576,17 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     if request.method == "GET":
         return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
     if request.method == "DELETE":
+        actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        deleted_name = str(user.name or "User").strip() or "User"
+        deleted_email = str(user.email or "").strip()
         user.delete()
+        _create_staff_notifications(
+            title="User deleted",
+            message=f"{actor_name} deleted user {deleted_name}{f' ({deleted_email})' if deleted_email else ''}.",
+            notification_type="USER",
+            reference_type="user",
+            reference_id=user_id,
+        )
         return _ok({"success": True})
     body = _json_body(request)
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
@@ -2715,13 +2767,21 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         manager_id=body.get("managerId"),
         is_active=bool(body.get("isActive", True)),
     )
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Warehouse added",
+        message=f"{actor_name} added warehouse {w.name} ({w.code}).",
+        notification_type="WAREHOUSE",
+        reference_type="warehouse",
+        reference_id=w.id,
+    )
     return _ok({"success": True, "warehouse": _serialize_model(w)}, 201)
 
 
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "DELETE"])
 def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     try:
@@ -2733,6 +2793,14 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
     if request.method == "DELETE":
         w.is_active = False
         w.save(update_fields=["is_active", "updated_at"])
+        actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        _create_staff_notifications(
+            title="Warehouse deactivated",
+            message=f"{actor_name} deactivated warehouse {w.name} ({w.code}).",
+            notification_type="WAREHOUSE",
+            reference_type="warehouse",
+            reference_id=w.id,
+        )
         return _ok({"success": True})
     body = _json_body(request)
     mapping = [("name", "name"), ("code", "code"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("latitude", "latitude"), ("longitude", "longitude"), ("capacity", "capacity"), ("managerId", "manager_id")]
@@ -2852,6 +2920,13 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 threshold=max(1, int(initial_quantity * 0.15)) if initial_quantity > 0 else 0,
                 last_restocked_at=timezone.now(),
             )
+            actor_name = str(p.get("name") or "Staff").strip() or "Staff"
+            _create_staff_notifications(
+                title="New product registered",
+                message=f"{actor_name} registered {prod.name} ({prod.sku}) in {warehouse.name} with initial stock {initial_quantity}.",
+                reference_type="product",
+                reference_id=prod.id,
+            )
 
         return _ok({"success": True, "product": _serialize_model(prod)}, 201)
     except Exception as e:
@@ -2874,8 +2949,19 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
     if err:
         return err
     if request.method == "DELETE":
+        actor_name = str(p.get("name") or "Staff").strip() or "Staff"
+        product_name = str(prod.name or "Product").strip() or "Product"
+        product_sku = str(prod.sku or "").strip()
         prod.delete()
+        _create_staff_notifications(
+            title="Product deleted",
+            message=f"{actor_name} deleted {product_name}{f' ({product_sku})' if product_sku else ''}.",
+            reference_type="product",
+            reference_id=product_id,
+        )
         return _ok({"success": True})
+    previous_name = str(prod.name or "").strip()
+    previous_sku = str(prod.sku or "").strip()
     body = _json_body(request)
     if "unit" in body:
         try:
@@ -2889,6 +2975,16 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
     if "isActive" in body:
         prod.is_active = bool(body.get("isActive"))
     prod.save()
+    actor_name = str(p.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Product updated",
+        message=(
+            f"{actor_name} updated {previous_name or 'product'}"
+            f"{f' ({previous_sku})' if previous_sku else ''}."
+        ),
+        reference_type="product",
+        reference_id=prod.id,
+    )
     return _ok({"success": True, "product": _serialize_model(prod)})
 
 
@@ -2973,7 +3069,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["PUT"])
 def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     try:
@@ -3036,7 +3132,7 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def stock_batches_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
@@ -3157,6 +3253,13 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 notes="Stock batch added",
                 performed_by=created_by,
             )
+            actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+            _create_staff_notifications(
+                title="Stock batch added",
+                message=f"{actor_name} added batch {batch.batch_number} for {inv.product.name} (+{qty}) in {inv.warehouse.name}.",
+                reference_type="stock_batch",
+                reference_id=batch.id,
+            )
 
             return _ok({"success": True, "stockBatch": _serialize_model(batch)}, 201)
     except Exception as e:
@@ -3167,7 +3270,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
     """Bulk add multiple stock batches in a single atomic transaction"""
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
 
@@ -3277,6 +3380,13 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 created_stock_batches.append(batch)
 
             serialized_batches = [_serialize_model(b, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for b in created_stock_batches]
+            actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+            _create_staff_notifications(
+                title="Bulk stock import completed",
+                message=f"{actor_name} added {len(created_stock_batches)} stock batches in {warehouse.name}.",
+                reference_type="stock_batch",
+                reference_id=warehouse.id,
+            )
 
             return _ok({
                 "success": True,
@@ -3293,7 +3403,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["GET", "POST", "PATCH"])
 def vehicles_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
@@ -3326,6 +3436,14 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             if not driver:
                 return _err("Driver not found", 404)
             _assign_vehicle_to_driver(driver, v)
+        actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        _create_staff_notifications(
+            title="Vehicle added",
+            message=f"{actor_name} added vehicle {v.license_plate} ({v.type}).",
+            notification_type="TRANSPORT",
+            reference_type="vehicle",
+            reference_id=v.id,
+        )
         return _ok({"success": True, "vehicle": _serialize_model(v)}, 201)
     vehicle_id = str(body.get("id", "")).strip()
     if not vehicle_id:
@@ -3356,21 +3474,30 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def vehicle_detail(request: HttpRequest, vehicle_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     try:
         v = Vehicle.objects.get(id=vehicle_id)
     except Vehicle.DoesNotExist:
         return _err("Vehicle not found", 404)
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    plate = str(v.license_plate or "").strip()
     v.delete()
+    _create_staff_notifications(
+        title="Vehicle deleted",
+        message=f"{actor_name} deleted vehicle {plate or vehicle_id}.",
+        notification_type="TRANSPORT",
+        reference_type="vehicle",
+        reference_id=vehicle_id,
+    )
     return _ok({"success": True})
 
 
 @csrf_exempt
 @require_http_methods(["GET", "POST", "PUT"])
 def drivers_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
@@ -3409,6 +3536,14 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         user.emergency_contact = body.get("emergencyContact")
         user.is_active = bool(body.get("isActive", True))
         user.save()
+        actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        _create_staff_notifications(
+            title="Driver added",
+            message=f"{actor_name} added driver {user.name} ({user.email}).",
+            notification_type="TRANSPORT",
+            reference_type="driver",
+            reference_id=user.id,
+        )
         driver_payload = _serialize_model(user, exclude={"password"})
         driver_payload["user"] = _serialize_model(user, exclude={"password"})
         return _ok({"success": True, "driver": driver_payload}, 201)
@@ -3772,6 +3907,15 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             logger.exception("Order create integrity error")
             return _err("Unable to create order right now. Please try again.", 409)
         order = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order.id)
+        if p.get("type") == "staff":
+            actor_name = str(p.get("name") or "Staff").strip() or "Staff"
+            _create_staff_notifications(
+                title="Order created",
+                message=f"{actor_name} created order {order.order_number}.",
+                notification_type="ORDER",
+                reference_type="order",
+                reference_id=order.id,
+            )
         return _ok({"success": True, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
     if err:
@@ -3806,6 +3950,14 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         r.processed_by = staff.get("userId")
     r.notes = f"{r.notes or ''}\n{normalized_status}".strip()
     r.save()
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Replacement updated",
+        message=f"{actor_name} changed replacement {r.replacement_number} to {normalized_status}.",
+        notification_type="REPLACEMENT",
+        reference_type="replacement",
+        reference_id=r.id,
+    )
     return _ok({"success": True, "replacement": _serialize_replacement(r), "message": "Replacement status updated"})
 
 
@@ -3906,6 +4058,14 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err(str(e), 400)
 
     updated = Order.objects.select_related("customer", "timeline").get(id=o.id)
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Order status updated",
+        message=f"{actor_name} changed order {updated.order_number} status to {next_status}.",
+        notification_type="ORDER",
+        reference_type="order",
+        reference_id=updated.id,
+    )
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
 
 
@@ -4025,13 +4185,21 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         Order.objects.select_related("customer", "timeline").get(id=order.id),
         include_items=False,
     )
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Warehouse stage updated",
+        message=f"{actor_name} moved order {order.order_number} to warehouse stage {stage}.",
+        notification_type="ORDER",
+        reference_type="order",
+        reference_id=order.id,
+    )
     return _ok({"success": True, "order": serialized_order, "message": f"Warehouse stage moved to {stage}"})
 
 
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def trips_collection(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     if request.method == "GET":
@@ -4146,7 +4314,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
         if total_weight_after_assignment > max_capacity_allowed:
             return _err(
-                "This order cannot be assigned because it will exceed the vehicle's safe load capacity.",
+                "Exceed the maximum order weight allowed",
                 400,
             )
 
@@ -4177,13 +4345,21 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
     trip.total_drop_points = trip.drop_points.count()
     trip.save(update_fields=["total_drop_points", "updated_at"])
     trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Trip created",
+        message=f"{actor_name} created trip {trip.trip_number} for driver {driver.name}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
     return _ok({"success": True, "trip": _serialize_trip(trip)}, 201)
 
 
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
 
@@ -4195,6 +4371,14 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
 
     trip_number = trip.trip_number
     trip.delete()
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Trip deleted",
+        message=f"{actor_name} deleted trip {trip_number}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip_id,
+    )
     return _ok({"success": True, "message": f"Trip {trip_number} deleted"})
 
 
@@ -5150,6 +5334,14 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
             if not timeline.shipped_at:
                 timeline.shipped_at = now
                 timeline.save(update_fields=["shipped_at", "updated_at"])
+    actor_name = str(p.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Trip started",
+        message=f"{actor_name} started trip {t.trip_number}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=t.id,
+    )
     return _ok({"success": True, "trip": _serialize_model(t)})
 
 

@@ -457,7 +457,7 @@ export function OrdersView() {
 
   const updateOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -810,15 +810,23 @@ export function OrdersView() {
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="mb-2 font-medium">Proof Of Delivery</p>
-                  {selectedOrder.progress?.pod?.deliveryPhoto ? (
-                    <img
-                      src={selectedOrder.progress.pod.deliveryPhoto}
-                      alt="Proof of delivery"
-                      className="mt-3 h-56 w-full rounded-md border border-slate-200 object-cover"
-                    />
-                  ) : (
-                    <p className="mt-3 text-sm text-gray-500">No POD uploaded yet.</p>
-                  )}
+                  {(() => {
+                    const podUrl = String(
+                      selectedOrder.progress?.pod?.deliveryPhoto ||
+                      selectedOrder.deliveryPhoto ||
+                      selectedOrder.deliveryProofUrl ||
+                      selectedOrder.proofOfDeliveryUrl ||
+                      ''
+                    ).trim()
+                    if (!podUrl) return <p className="mt-3 text-sm text-gray-500">No POD uploaded yet.</p>
+                    return (
+                      <img
+                        src={podUrl}
+                        alt="Proof of delivery"
+                        className="mt-3 h-56 w-full rounded-md border border-slate-200 object-cover"
+                      />
+                    )
+                  })()}
                 </div>
                 <div className="sticky bottom-0 bg-white pb-1 pt-1">
                   <div className="flex gap-2">

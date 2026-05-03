@@ -271,10 +271,10 @@ export function FeedbackView() {
           </CardHeader>
           <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ratingDistribution} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 24 }}>
+              <BarChart data={ratingDistribution} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                 <CartesianGrid strokeDasharray="4 4" horizontal={true} vertical={true} />
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="label" width={80} />
+                <XAxis type="category" dataKey="label" />
+                <YAxis type="number" allowDecimals={false} domain={[0, 'auto']} />
                 <Tooltip />
                 <Bar dataKey="value" fill="#3b82f6" radius={[2, 2, 2, 2]} />
               </BarChart>

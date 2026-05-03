@@ -290,6 +290,14 @@ export function TripDetailView({
       })[0] || null
   }
 
+  const hasResolvedReplacementForDropPoint = (dropPoint: DropPoint | null) => {
+    const replacements = dropPoint?.order?.replacements || []
+    return replacements.some((entry: any) => {
+      const status = String(entry?.status || '').toUpperCase()
+      return status === 'RESOLVED' || status === 'RESOLVED_ON_DELIVERY'
+    })
+  }
+
   const getOpenReplacementQuantities = (openReplacement: any, orderedQuantity: number) => {
     const parseMeta = () => {
       const notes = String(openReplacement?.notes || '')
@@ -466,6 +474,10 @@ export function TripDetailView({
   }
 
   const openReplacementWarning = (dropPoint: DropPoint) => {
+    if (!getDropPointOpenReplacement(dropPoint) && hasResolvedReplacementForDropPoint(dropPoint)) {
+      toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
+      return
+    }
     setReplacementTargetDropPointId(String(dropPoint.id || ''))
     setReplacementTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
     setIsReplacementWarningOpen(true)
@@ -781,6 +793,10 @@ export function TripDetailView({
   const openSpareReplacement = (dropPoint: DropPoint) => {
     const items = getDropPointReplacementItems(dropPoint)
     const openReplacement = getDropPointOpenReplacement(dropPoint)
+    if (!openReplacement && hasResolvedReplacementForDropPoint(dropPoint)) {
+      toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
+      return
+    }
     const selectedItemId = openReplacement?.originalOrderItemId || items[0]?.id || ''
     const selectedItem = items.find((item) => item.id === selectedItemId) || null
     const openReplacementQuantities = openReplacement
@@ -911,6 +927,10 @@ export function TripDetailView({
       return
     }
     const openReplacement = getDropPointOpenReplacement(targetDropPoint)
+    if (!openReplacement && hasResolvedReplacementForDropPoint(targetDropPoint)) {
+      toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
+      return
+    }
     const orderId = String(targetDropPoint.order?.id || '').trim()
     if (!orderId) {
       toast.error('Order reference is missing for this drop point')
@@ -1457,9 +1477,15 @@ export function TripDetailView({
     : false
   const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
   const latestLocationAgeMs = (() => {
-    const rawRecordedAt = String((trip.latestLocation as any)?.recordedAt || '').trim()
-    if (!rawRecordedAt) return Number.POSITIVE_INFINITY
-    const parsed = new Date(rawRecordedAt).getTime()
+    const raw = (trip.latestLocation as any)?.recordedAt
+    if (raw === null || raw === undefined || String(raw).trim() === '') return Number.POSITIVE_INFINITY
+    const numeric = Number(raw)
+    if (Number.isFinite(numeric) && numeric > 0) {
+      // Accept both epoch milliseconds and epoch seconds payloads.
+      const epochMs = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+      return Date.now() - epochMs
+    }
+    const parsed = new Date(String(raw)).getTime()
     if (!Number.isFinite(parsed)) return Number.POSITIVE_INFINITY
     return Date.now() - parsed
   })()
@@ -1474,7 +1500,7 @@ export function TripDetailView({
       ? previewDriverLocation
       : null) ||
     (trip.latestLocation && Number.isFinite(Number(trip.latestLocation.latitude)) && Number.isFinite(Number(trip.latestLocation.longitude))
-      && latestLocationAgeMs <= MAX_LATEST_LOCATION_AGE_MS
+      && (latestLocationAgeMs <= MAX_LATEST_LOCATION_AGE_MS || !Number.isFinite(latestLocationAgeMs))
       && isReasonableGps(
         Number(trip.latestLocation.latitude),
         Number(trip.latestLocation.longitude),
@@ -1576,6 +1602,9 @@ export function TripDetailView({
   })
 
   const mapLocations = driverLocationMarker ? [driverLocationMarker, ...dropPointMapLocations] : dropPointMapLocations
+  const exactDriverLocationLabel = driverLocationMarker
+    ? `${driverLocationMarker.lat.toFixed(6)}, ${driverLocationMarker.lng.toFixed(6)}`
+    : null
   const fullRouteWaypoints = (() => {
     const start = warehouseRouteStart ? [warehouseRouteStart] : []
     const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
@@ -2026,7 +2055,12 @@ export function TripDetailView({
           {/* Route Map */}
           {!isMobileViewport ? (
             <div className="hidden rounded-2xl border border-sky-200/60 bg-white/90 p-4 pt-0 shadow-[0_14px_30px_rgba(15,23,42,0.12)] backdrop-blur md:block md:rounded-2xl md:border md:border-sky-200/60 md:bg-white/90 md:shadow-[0_14px_30px_rgba(15,23,42,0.12)] md:backdrop-blur">
-              <h3 className="font-semibold text-slate-900">Route Map</h3>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="font-semibold text-slate-900">Route Map</h3>
+                <p className="text-xs font-medium text-slate-700">
+                  Exact Driver Location: {exactDriverLocationLabel || 'Unavailable'}
+                </p>
+              </div>
               {mapLocations.length === 0 ? (
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
                   No map data for this trip yet. Add delivery coordinates to order shipping addresses.
@@ -2080,6 +2114,9 @@ export function TripDetailView({
               </button>
               <div className="absolute left-[3.6rem] top-4 z-20 rounded-full border border-white/80 bg-white/90 px-3 py-1.5 text-[12px] font-semibold text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur">
                 Route Map
+              </div>
+              <div className="absolute left-4 top-[3.35rem] z-20 max-w-[calc(100%-5rem)] rounded-full border border-white/80 bg-white/90 px-3 py-1 text-[11px] font-medium text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur">
+                Exact: {exactDriverLocationLabel || 'Unavailable'}
               </div>
               <button
                 type="button"
@@ -2213,22 +2250,29 @@ export function TripDetailView({
                                         {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
                                       </Button>
                                       {dropPoint.order ? (
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            if (getDropPointOpenReplacement(dropPoint)) {
-                                              openSpareReplacement(dropPoint)
-                                            } else {
-                                              openReplacementWarning(dropPoint)
-                                            }
-                                          }}
-                                          disabled={isUpdating || isSpareReplacing}
-                                        >
-                                          {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Replacement'}
-                                        </Button>
+                                        (() => {
+                                          const openReplacement = getDropPointOpenReplacement(dropPoint)
+                                          const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
+                                          const replacementLocked = !openReplacement && hasResolvedReplacement
+                                          return (
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              className={`w-full ${openReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (openReplacement) {
+                                                  openSpareReplacement(dropPoint)
+                                                } else {
+                                                  openReplacementWarning(dropPoint)
+                                                }
+                                              }}
+                                              disabled={isUpdating || isSpareReplacing || replacementLocked}
+                                            >
+                                              {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Resolved' : 'Report Replacement'}
+                                            </Button>
+                                          )
+                                        })()
                                       ) : null}
                                       <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
                                       {getDropPointOpenReplacement(dropPoint) ? (
@@ -2434,22 +2478,29 @@ export function TripDetailView({
                                 {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
                               </Button>
                               {dropPoint.order ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={`w-full ${getDropPointOpenReplacement(dropPoint) ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (getDropPointOpenReplacement(dropPoint)) {
-                                      openSpareReplacement(dropPoint)
-                                    } else {
-                                      openReplacementWarning(dropPoint)
-                                    }
-                                  }}
-                                  disabled={isUpdating || isSpareReplacing}
-                                >
-                                  {getDropPointOpenReplacement(dropPoint) ? 'Resolve Replacement' : 'Report Replacement'}
-                                </Button>
+                                (() => {
+                                  const openReplacement = getDropPointOpenReplacement(dropPoint)
+                                  const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
+                                  const replacementLocked = !openReplacement && hasResolvedReplacement
+                                  return (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className={`w-full ${openReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (openReplacement) {
+                                          openSpareReplacement(dropPoint)
+                                        } else {
+                                          openReplacementWarning(dropPoint)
+                                        }
+                                      }}
+                                      disabled={isUpdating || isSpareReplacing || replacementLocked}
+                                    >
+                                      {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Resolved' : 'Report Replacement'}
+                                    </Button>
+                                  )
+                                })()
                               ) : null}
                               <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
                               {getDropPointOpenReplacement(dropPoint) ? (

@@ -492,6 +492,19 @@ export function AdminPortal() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = subscribeDataSync((message) => {
+      const shouldRefreshNotifications = message.scopes.some((scope) =>
+        ['inventory', 'products', 'stock-batches', 'orders', 'trips', 'replacements', 'warehouses'].includes(scope)
+      )
+      if (shouldRefreshNotifications) {
+        void fetchNotifications({ silent: true })
+      }
+    })
+
+    return () => unsubscribe()
+  }, [])
+
   const handleLogout = async () => {
     await logout()
     toast.success('Logged out successfully')

@@ -77,21 +77,24 @@ export function CustomerProfileView({
           </div>
         </CardContent>
       </Card>
-      <Card>
+      <Card className="border-emerald-100 bg-white/90 shadow-sm">
         <CardHeader>
-          <CardTitle>Profile Preview</CardTitle>
-          <CardDescription>View your account details. Edit opens in a popup.</CardDescription>
+          <CardTitle className="text-slate-900">Profile Preview</CardTitle>
+          <CardDescription className="text-slate-500">View your account details. Edit opens in a popup.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="space-y-1 text-sm">
-            <p><span className="font-medium">Name:</span> {profileName || 'Not set'}</p>
-            <p><span className="font-medium">Email:</span> {profileEmail || 'Not set'}</p>
-            <p><span className="font-medium">Phone:</span> {profilePhone || 'Not set'}</p>
-            <p><span className="font-medium">Delivery Address:</span> {composedShippingAddress || 'Not set'}</p>
-            <p><span className="font-medium">City/Province:</span> {shippingCity ? `${shippingCity}, ${shippingProvince || 'Negros Occidental'}` : 'Not set'}</p>
-            <p><span className="font-medium">Postal Code:</span> {shippingZipCode || 'Not set'}</p>
+          <div className="space-y-1 text-sm text-slate-700">
+            <p><span className="font-semibold text-slate-900">Name:</span> {profileName || 'Not set'}</p>
+            <p><span className="font-semibold text-slate-900">Email:</span> {profileEmail || 'Not set'}</p>
+            <p><span className="font-semibold text-slate-900">Phone:</span> {profilePhone || 'Not set'}</p>
+            <p><span className="font-semibold text-slate-900">Delivery Address:</span> {composedShippingAddress || 'Not set'}</p>
+            <p><span className="font-semibold text-slate-900">City/Province:</span> {shippingCity ? `${shippingCity}, ${shippingProvince || 'Negros Occidental'}` : 'Not set'}</p>
+            <p><span className="font-semibold text-slate-900">Postal Code:</span> {shippingZipCode || 'Not set'}</p>
           </div>
-          <Button className="w-full" onClick={() => setIsProfileDialogOpen(true)}>
+          <Button
+            className="w-full bg-emerald-600 text-white hover:bg-emerald-500"
+            onClick={() => setIsProfileDialogOpen(true)}
+          >
             <User className="h-4 w-4 mr-2" />
             Edit Profile
           </Button>
@@ -100,4 +103,3 @@ export function CustomerProfileView({
     </div>
   )
 }
-

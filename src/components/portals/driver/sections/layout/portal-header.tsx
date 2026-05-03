@@ -25,7 +25,7 @@ export function DriverPortalHeader({
   onLogout,
 }: DriverPortalHeaderProps) {
   return (
-    <header className="sticky top-0 z-20 border-b border-sky-200/70 bg-[#edf5fb]/95 text-[#0f3d72] shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-md">
+    <header className="border-b border-sky-200/70 bg-[#edf5fb]/95 text-[#0f3d72] shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-md">
       <div className="px-4 pb-3 pt-[max(env(safe-area-inset-top),0.65rem)] md:py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -76,4 +76,3 @@ export function DriverPortalHeader({
     </header>
   )
 }
-

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { Home, Package, User } from 'lucide-react'
 import { Poppins } from 'next/font/google'
 import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
@@ -17,7 +18,6 @@ import { CustomerTrackView } from './sections/track/track-view'
 import { CustomerProfileDialog } from './sections/profile/profile-dialog'
 import { CustomerAvatarCropDialog } from './sections/profile/avatar-crop-dialog'
 import { CustomerAddressDialog } from './sections/checkout/address-dialog'
-import { CustomerAddToCartDialog } from './sections/cart/add-to-cart-dialog'
 import { CustomerOrderDetailsDialog } from './sections/orders/order-details-dialog'
 import { CustomerReceiptDialog } from './sections/orders/receipt-dialog'
 import { CustomerRatingDialog } from './sections/orders/rating-dialog'
@@ -89,6 +89,7 @@ export function CustomerPortal() {
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
   const [reviewByOrderId, setReviewByOrderId] = useState<Record<string, any>>({})
   const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
+  const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false)
   const {
     activeView,
     setActiveView,
@@ -293,7 +294,8 @@ export function CustomerPortal() {
     const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
     const isHouseLike = (value: string) => /^(\d+|#|lot|blk|block)\b/i.test(String(value || '').trim())
     const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
-    const isSubdivisionLike = (value: string) => /\b(subd|subdivision|village|phase|sitio|purok|zone)\b/i.test(String(value || ''))
+    const isSubdivisionLike = (value: string) =>
+      /\b(subdivision|homes?|villages?|heights?|plains?|residences?)\b/i.test(String(value || ''))
 
     const tokens = [...parts]
     if (tokens.length > 0 && isCountryLike(tokens[tokens.length - 1])) tokens.pop()
@@ -304,7 +306,7 @@ export function CustomerPortal() {
     let houseNumber = ''
     let streetName = ''
     let subdivision = ''
-    let barangay = ''
+    let barangay = String(customer?.barangay || customer?.brgy || '').trim()
 
     if (tokens.length === 1) {
       streetName = tokens[0] || ''
@@ -319,9 +321,9 @@ export function CustomerPortal() {
       const remaining = tokens.slice(isHouseLike(tokens[0]) ? 2 : 1)
       const barangayCandidate =
         remaining.find((token) => isBarangayLike(token)) ||
-        remaining[remaining.length - 1] ||
+        remaining.find((token) => !isSubdivisionLike(token)) ||
         ''
-      if (barangayCandidate && !isSubdivisionLike(barangayCandidate)) {
+      if (!barangay && barangayCandidate && !isSubdivisionLike(barangayCandidate)) {
         barangay = barangayCandidate
       }
 
@@ -900,8 +902,6 @@ export function CustomerPortal() {
 
   const ordersTabOptions: Array<{ id: CustomerOrdersTab; label: string }> = [
     { id: 'ALL', label: 'All' },
-    { id: 'TO_SHIP', label: 'To Ship' },
-    { id: 'TO_RECEIVE', label: 'To Receive' },
     { id: 'DELIVERED', label: 'Delivered' },
     { id: 'TO_REVIEW', label: 'To Review' },
     { id: 'REPLACEMENT', label: 'Replacement' },
@@ -913,13 +913,6 @@ export function CustomerPortal() {
     return sortedFilteredOrders.filter((order) => {
       const raw = String(order.status || '').toUpperCase()
       const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
-      if (ordersTab === 'TO_SHIP') {
-        const paymentStatus = String(order.paymentStatus || '').toLowerCase()
-        return ['CONFIRMED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw) && paymentStatus !== 'pending_approval'
-      }
-      if (ordersTab === 'TO_RECEIVE') {
-        return normalized === 'OUT_FOR_DELIVERY'
-      }
       if (ordersTab === 'TO_REVIEW') {
         return normalized === 'DELIVERED' && !reviewedOrderIds.has(order.id)
       }
@@ -984,7 +977,6 @@ export function CustomerPortal() {
       !shippingName ||
       !shippingPhone ||
       !shippingStreetName ||
-      !shippingBarangay ||
       !shippingCity ||
       !shippingProvince ||
       !shippingZipCode
@@ -1076,29 +1068,86 @@ export function CustomerPortal() {
     setRatingComment('')
   }
 
+  const addToCartDirect = (product: Product, qty: number) => {
+    const available = getAvailableQty(product)
+    if (available <= 0) {
+      toast.error('This item is out of stock')
+      return
+    }
+    const safeQty = Math.max(1, Math.min(available, Math.floor(Number(qty) || 1)))
+    addToCart(product, safeQty)
+    toast.success('Added to cart', { duration: 1000 })
+  }
+
+  const buyAgainFromOrder = (order: any) => {
+    const orderItems = Array.isArray(order?.items) ? order.items : []
+    if (orderItems.length === 0) {
+      toast.error('No items found in this order')
+      return
+    }
+
+    let addedCount = 0
+    let skippedCount = 0
+
+    orderItems.forEach((item: any) => {
+      const productId = String(item?.product?.id || item?.productId || '').trim()
+      const qty = Math.max(1, Number(item?.quantity || 1))
+      if (!productId) {
+        skippedCount += 1
+        return
+      }
+
+      const catalogProduct = products.find((p) => String(p.id) === productId)
+      if (!catalogProduct) {
+        skippedCount += 1
+        return
+      }
+
+      const available = getAvailableQty(catalogProduct)
+      if (available <= 0) {
+        skippedCount += 1
+        return
+      }
+
+      addToCart(catalogProduct, Math.min(qty, available))
+      addedCount += 1
+    })
+
+    if (addedCount === 0) {
+      toast.error('Unable to add items to cart')
+      return
+    }
+
+    if (skippedCount > 0) {
+      toast.message(`${addedCount} item(s) added, ${skippedCount} item(s) unavailable`)
+    } else {
+      toast.success('Items added to cart')
+    }
+    setActiveView('cart')
+  }
+
   const submitRating = async () => {
-    if (!ratingDialogOrder?.id) return
+    if (!ratingDialogOrder?.id) return false
+    if (deliveryRatingValue === 0) {
+      toast.error('Please select a rating')
+      return false
+    }
     if (reviewedOrderIds.has(ratingDialogOrder.id)) {
       toast.info('You already rated this order')
       setRatingDialogOrder(null)
-      return
-    }
-    if (!ratingComment.trim()) {
-      toast.error('Please add a short feedback message')
-      return
+      return false
     }
 
     setIsSubmittingRating(true)
     try {
       const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
       const comment = ratingComment.trim()
-      const composedMessage = `Delivery: ${deliveryRatingValue}/5\nFeedback: ${comment}`
       const { response, payload } = await submitOrderFeedback({
         orderId: ratingDialogOrder.id,
         rating: overallRating,
         type: overallRating <= 2 ? 'COMPLAINT' : overallRating === 3 ? 'SUGGESTION' : 'COMPLIMENT',
         subject: `Order Review - ${ratingDialogOrder.orderNumber}`,
-        message: composedMessage,
+        message: comment,
       })
       if (response.status === 409) {
         setReviewedOrderIds((prev) => {
@@ -1106,12 +1155,12 @@ export function CustomerPortal() {
           next.add(ratingDialogOrder.id)
           return next
         })
-        await fetchOrderMeta()
+        void fetchOrderMeta()
         toast.info('This order is already rated')
         setRatingDialogOrder(null)
         setRatingComment('')
         setDeliveryRatingValue(5)
-        return
+        return true
       }
 
       if (!response.ok || payload?.success === false) {
@@ -1125,13 +1174,15 @@ export function CustomerPortal() {
         next.add(ratingDialogOrder.id)
         return next
       })
-      await fetchOrderMeta()
+      void fetchOrderMeta()
       toast.success('Review submitted successfully')
       setRatingDialogOrder(null)
       setRatingComment('')
       setDeliveryRatingValue(5)
+      return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to submit rating')
+      return false
     } finally {
       setIsSubmittingRating(false)
     }
@@ -1173,12 +1224,11 @@ export function CustomerPortal() {
     }
     if (
       !shippingStreetName ||
-      !shippingBarangay ||
       !shippingCity ||
       !shippingProvince ||
       !shippingZipCode
     ) {
-      toast.error('Please complete street, barangay, city, province, and postal code before saving')
+      toast.error('Please complete street, city, province, and postal code before saving')
       return false
     }
     if (shippingLatitude === null || shippingLongitude === null) {
@@ -1194,6 +1244,10 @@ export function CustomerPortal() {
     try {
       const { response, payload: data } = await updateCustomerProfile(customerId, {
         address: composedShippingAddress,
+        barangay: shippingBarangay,
+        subdivision: shippingSubdivision,
+        streetName: shippingStreetName,
+        houseNumber: shippingHouseNumber,
         city: shippingCity,
         province: shippingProvince || 'Negros Occidental',
         zipCode: shippingZipCode,
@@ -1246,20 +1300,23 @@ export function CustomerPortal() {
     setIsResolvingPinnedAddress(true)
 
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1&countrycodes=ph&zoom=18`,
-        {
-          headers: {
-            Accept: 'application/json',
-          },
+      const fetchReverse = async (zoom: number) => {
+        const reverseResponse = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1&countrycodes=ph&zoom=${zoom}`,
+          {
+            headers: {
+              Accept: 'application/json',
+            },
+          }
+        )
+        if (!reverseResponse.ok) {
+          throw new Error('Reverse geocoding failed')
         }
-      )
-
-      if (!response.ok) {
-        throw new Error('Reverse geocoding failed')
+        return reverseResponse.json()
       }
 
-      const data = await response.json()
+      const data = await fetchReverse(18)
+
       const addr = data?.address || {}
       const displayName = String(data?.display_name || '')
       const displayParts = displayName
@@ -1275,6 +1332,8 @@ export function CustomerPortal() {
       const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
       const isCountryLike = (value: string) => /philippines/i.test(String(value || ''))
       const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
+      const isSubdivisionLike = (value: string) =>
+        /\b(subdivision|homes?|villages?|heights?|plains?|residences?)\b/i.test(String(value || ''))
       const isStreetLike = (value: string) =>
         /\b(street|st\.?|road|rd\.?|avenue|ave\.?|highway|hwy|drive|dr\.?|lane|ln\.?|boulevard|blvd\.?|way|purok\s*\d*)\b/i.test(String(value || ''))
 
@@ -1298,8 +1357,12 @@ export function CustomerPortal() {
         addr.subdivision ||
           // Keep optional subdivision conservative: only explicit subdivision-like fields.
           addr.allotments ||
+          addr.village ||
           ''
       ).trim()
+      if (subdivision && !isSubdivisionLike(subdivision)) {
+        subdivision = ''
+      }
       let city = String(
         addr.city ||
           addr.town ||
@@ -1348,7 +1411,6 @@ export function CustomerPortal() {
           addr.neighbourhood ||
           addr.quarter ||
           addr.city_district ||
-          addr.village ||
           addr.hamlet ||
           barangayFromDisplay ||
           ''
@@ -1363,7 +1425,7 @@ export function CustomerPortal() {
       if (!barangay) {
         const likelyBarangay =
           localityTokens.find((token) => /barangay|brgy|poblacion|purok|sitio/i.test(token)) ||
-          localityTokens.find((token) => !isStreetLike(token)) ||
+          localityTokens.find((token) => !isStreetLike(token) && !isSubdivisionLike(token)) ||
           ''
         barangay = String(likelyBarangay || '').trim()
       }
@@ -1392,6 +1454,64 @@ export function CustomerPortal() {
       }
       if (barangay && isStreetLike(barangay)) {
         barangay = ''
+      }
+      if (barangay && isSubdivisionLike(barangay)) {
+        if (!subdivision) subdivision = barangay
+        barangay = ''
+      }
+
+      // Fallback: if barangay is still missing at high zoom (POI-level),
+      // request a coarser reverse-geocode to recover locality-level barangay.
+      if (!barangay) {
+        try {
+          const coarseData = await fetchReverse(15)
+          const coarseAddr = coarseData?.address || {}
+          const coarseDisplayName = String(coarseData?.display_name || '')
+          const coarseDisplayParts = coarseDisplayName
+            .split(',')
+            .map((part: string) => part.trim())
+            .filter(Boolean)
+          const coarseBarangayFromDisplay =
+            coarseDisplayParts.find((part: string) => /^(barangay|brgy\.?)\s+/i.test(part)) ||
+            coarseDisplayParts.find((part: string) => /\b(barangay|brgy\.?|poblacion|sitio|purok)\b/i.test(part)) ||
+            ''
+          const coarseCandidate = String(
+            coarseAddr.barangay ||
+              coarseAddr.suburb ||
+              coarseAddr.neighbourhood ||
+              coarseAddr.quarter ||
+              coarseAddr.city_district ||
+              coarseAddr.hamlet ||
+              coarseBarangayFromDisplay ||
+              ''
+          ).trim()
+          if (
+            coarseCandidate &&
+            (!city || normalizeAddressToken(coarseCandidate) !== normalizeAddressToken(city)) &&
+            (!streetName || normalizeAddressToken(coarseCandidate) !== normalizeAddressToken(streetName)) &&
+            !isStreetLike(coarseCandidate) &&
+            !isSubdivisionLike(coarseCandidate)
+          ) {
+            barangay = coarseCandidate
+          }
+        } catch {
+          // Keep manual entry flow when coarse lookup fails.
+        }
+      }
+
+      // Final fallback: use nearest locality token if still empty.
+      if (!barangay) {
+        const finalLocalityToken =
+          localityTokens.find((token) => /barangay|brgy|poblacion|sitio|purok/i.test(token)) ||
+          localityTokens.find((token) => !isStreetLike(token) && !isSubdivisionLike(token)) ||
+          ''
+        if (
+          finalLocalityToken &&
+          (!city || normalizeAddressToken(finalLocalityToken) !== normalizeAddressToken(city)) &&
+          (!streetName || normalizeAddressToken(finalLocalityToken) !== normalizeAddressToken(streetName))
+        ) {
+          barangay = String(finalLocalityToken).trim()
+        }
       }
 
       setShippingHouseNumber(houseNumber)
@@ -1462,9 +1582,12 @@ export function CustomerPortal() {
         .map((item) => ({
           displayName: (() => {
             const addr = item.address || {}
+            const isSubdivisionLike = (value: string) =>
+              /\b(subdivision|homes?|villages?|heights?|plains?|residences?)\b/i.test(String(value || ''))
             const street = [addr.house_number, addr.road || addr.pedestrian || addr.path].filter(Boolean).join(' ')
-            const barangay = addr.barangay || addr.village || ''
-            const area = addr.suburb || addr.neighbourhood || ''
+            const barangay = addr.barangay || ''
+            const subdivision = isSubdivisionLike(String(addr.village || '')) ? String(addr.village) : ''
+            const area = addr.suburb || addr.neighbourhood || subdivision || ''
             const city = addr.city || addr.town || addr.municipality || ''
             const province = addr.province || ''
             const parts = [street, barangay, area, city, province].filter(Boolean)
@@ -1708,6 +1831,8 @@ export function CustomerPortal() {
         handleLogout={handleLogout}
       />
 
+      <div className="flex min-h-0 flex-1">
+      <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} />
       <AnimatePresence mode="wait" initial={false}>
       <motion.main
         key={activeView}
@@ -1715,7 +1840,7 @@ export function CustomerPortal() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex-1 min-h-0 w-full overflow-y-auto space-y-4 px-4 pb-24 pt-0 md:px-6 md:pb-8 md:pt-2"
+        className="flex-1 min-h-0 w-full overflow-y-auto space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
       >
         {activeView === 'home' && (
           <CustomerHomeView
@@ -1724,9 +1849,11 @@ export function CustomerPortal() {
             isProductsLoading={isProductsLoading}
             filteredProducts={filteredProducts}
             getAvailableQty={getAvailableQty}
-            openAddToCartDialog={openAddToCartDialog}
+            addToCartDirect={addToCartDirect}
             getProductImage={getProductImage}
             formatPeso={formatPeso}
+            cart={cart}
+            onOpenCart={() => setActiveView('cart')}
           />
         )}
 
@@ -1796,8 +1923,10 @@ export function CustomerPortal() {
             setSelectedOrder={setSelectedOrder}
             isOrderTrackable={isOrderTrackable}
             openTrackView={openTrackView}
+            buyAgainFromOrder={buyAgainFromOrder}
             getProductImage={getProductImage}
             formatPeso={formatPeso}
+            openFilterDialog={() => setIsFilterDialogOpen(true)}
           />
         )}
 
@@ -1811,6 +1940,7 @@ export function CustomerPortal() {
             getOrderStageIndex={getOrderStageIndex}
             formatOrderStatus={formatOrderStatus}
             isTrackingLoading={isTrackingLoading}
+            formatPeso={formatPeso}
           />
         )}
 
@@ -1835,6 +1965,7 @@ export function CustomerPortal() {
         )}
       </motion.main>
       </AnimatePresence>
+      </div>
 
       <CustomerProfileDialog
         isProfileDialogOpen={isProfileDialogOpen}
@@ -1913,21 +2044,11 @@ export function CustomerPortal() {
         isSavingAddress={isSavingAddress}
       />
 
-      <CustomerAddToCartDialog
-        isAddToCartDialogOpen={isAddToCartDialogOpen}
-        setIsAddToCartDialogOpen={setIsAddToCartDialogOpen}
-        pendingCartProduct={pendingCartProduct}
-        setPendingCartProduct={setPendingCartProduct}
-        pendingCartQty={pendingCartQty}
-        adjustPendingCartQty={adjustPendingCartQty}
-        getAvailableQty={getAvailableQty}
-        confirmAddToCart={confirmAddToCart}
-      />
-
       <CustomerOrderDetailsDialog
         selectedOrder={selectedOrder}
         setSelectedOrder={setSelectedOrder}
         setIsReceiptDialogOpen={setIsReceiptDialogOpen}
+        downloadReceipt={downloadReceipt}
         formatOrderStatus={formatOrderStatus}
         orderStages={orderStages}
         getOrderStageIndex={getOrderStageIndex}
@@ -2025,7 +2146,18 @@ export function CustomerPortal() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} />
+      <Dialog open={isFilterDialogOpen} onOpenChange={setIsFilterDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Filter Orders</DialogTitle>
+            <DialogDescription>Coming soon - More filter options available</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">Filters are currently under development. Use the search bar above to find orders by ID or date.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       </div>
       </div>
     </div>

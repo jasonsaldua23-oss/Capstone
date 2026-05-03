@@ -130,13 +130,13 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
           Forgot password
         </button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Forgot password</DialogTitle>
-          <DialogDescription>We will send a one-time OTP code to your email address.</DialogDescription>
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+        <DialogHeader className="border-b bg-gradient-to-r from-slate-50 to-sky-50 px-6 py-5">
+          <DialogTitle className="text-2xl font-bold text-slate-900">Forgot password</DialogTitle>
+          <DialogDescription className="text-slate-600">We will send a one-time OTP code to your registered email address.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="space-y-4 px-6 py-5">
           <div className="space-y-2">
             <Label htmlFor="forgot-password-email">Email</Label>
             <Input
@@ -150,7 +150,7 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
           </div>
 
           {!otpSent ? (
-            <Button type="button" className="w-full" onClick={handleSendOtp} disabled={isSending}>
+            <Button type="button" className="w-full h-11 bg-slate-900 text-white hover:bg-slate-800" onClick={handleSendOtp} disabled={isSending}>
               {isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Send OTP
             </Button>
@@ -165,6 +165,7 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
                 <Input
                   id="forgot-password-new-password"
                   type="password"
+                  autoComplete="new-password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Enter new password"
@@ -176,6 +177,7 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
                 <Input
                   id="forgot-password-confirm-password"
                   type="password"
+                  autoComplete="new-password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repeat new password"
@@ -193,7 +195,7 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
                 >
                   Change Email
                 </Button>
-                <Button type="button" onClick={handleResetPassword} disabled={isResetting}>
+                <Button type="button" className="bg-slate-900 text-white hover:bg-slate-800" onClick={handleResetPassword} disabled={isResetting}>
                   {isResetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Reset Password
                 </Button>

@@ -28,47 +28,50 @@ export function CustomerProfileDialog(props: any) {
 
   return (
     <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md border-emerald-100 bg-white/95">
         <motion.div
           initial={{ opacity: 0, y: 8, scale: 0.99 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.22, ease: 'easeOut' }}
         >
           <DialogHeader>
-            <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your account details and profile picture.</DialogDescription>
+            <DialogTitle className="text-slate-900">Edit Profile</DialogTitle>
+            <DialogDescription className="text-slate-500">Update your account details and profile picture.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="customer-profile-name">Full Name</Label>
+              <Label htmlFor="customer-profile-name" className="text-slate-800">Full Name</Label>
               <Input
                 id="customer-profile-name"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
                 placeholder="Enter your full name"
+                className="border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="customer-profile-email">Email</Label>
+              <Label htmlFor="customer-profile-email" className="text-slate-800">Email</Label>
               <Input
                 id="customer-profile-email"
                 type="email"
                 value={profileEmail}
                 onChange={(e) => setProfileEmail(e.target.value)}
                 placeholder="Enter your email"
+                className="border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="customer-profile-phone">Phone</Label>
+              <Label htmlFor="customer-profile-phone" className="text-slate-800">Phone</Label>
               <Input
                 id="customer-profile-phone"
                 value={profilePhone}
                 onChange={(e) => setProfilePhone(e.target.value)}
                 placeholder="Enter your phone number"
+                className="border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500"
               />
             </div>
-            <div className="space-y-2 rounded-md border p-3 bg-slate-50">
-              <Label>Delivery Address</Label>
+            <div className="space-y-2 rounded-md border border-emerald-100 bg-emerald-50/40 p-3">
+              <Label className="text-slate-900">Delivery Address</Label>
               <p className="text-sm text-slate-700">{composedShippingAddress || 'Not set'}</p>
               <p className="text-xs text-slate-500">
                 {shippingCity ? `${shippingCity}, ${shippingProvince || 'Negros Occidental'} ${shippingZipCode || ''}`.trim() : 'City/Province not set'}
@@ -76,7 +79,7 @@ export function CustomerProfileDialog(props: any) {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full"
+                className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                 onClick={() => {
                   setIsProfileDialogOpen(false)
                   setIsAddressDialogOpen(true)
@@ -92,7 +95,7 @@ export function CustomerProfileDialog(props: any) {
                 if (saved) setIsProfileDialogOpen(false)
               }}
               disabled={isSavingProfile}
-              className="w-full"
+              className="w-full bg-emerald-600 text-white hover:bg-emerald-500"
             >
               {isSavingProfile ? (
                 <>

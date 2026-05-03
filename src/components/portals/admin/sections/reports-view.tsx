@@ -26,8 +26,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
-import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
-import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
+import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, ScatterChart, Scatter, ZAxis, LabelList } from 'recharts'
 import {
   toArray,
   getCollection,
@@ -86,7 +85,7 @@ export function ReportsView() {
       setIsLoading(true)
       try {
         const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes] = await Promise.all([
-          fetchAllPaginatedCollection<any>('/api/orders?includeItems=none', 'orders', undefined, {
+          fetchAllPaginatedCollection<any>('/api/orders', 'orders', undefined, {
             retries: 5,
             timeoutMs: 20000,
             pageSize: 200,
@@ -270,10 +269,67 @@ export function ReportsView() {
   }, [inventoryTransactions, rangeStart, selectedWarehouse, selectedMovementType])
 
   const replacementRows = useMemo(() => {
+    const ordersById = new Map<string, any>()
+    const ordersByNumber = new Map<string, any>()
+    orders.forEach((order) => {
+      const id = String(order?.id ?? '').trim()
+      const number = String(order?.orderNumber ?? '').trim().toUpperCase()
+      if (id) ordersById.set(id, order)
+      if (number) ordersByNumber.set(number, order)
+    })
+
     return replacementsData
       .filter((item) => withinRange(item.createdAt, rangeStart))
       .map((item) => {
-        const relatedOrder = orders.find((order) => order.id === item.order)
+        const rawOrderRef = item?.order
+        const orderIdRef =
+          rawOrderRef && typeof rawOrderRef === 'object'
+            ? String((rawOrderRef as any).id ?? '').trim()
+            : String(rawOrderRef ?? '').trim()
+        const orderNumberRef =
+          rawOrderRef && typeof rawOrderRef === 'object'
+            ? String((rawOrderRef as any).orderNumber ?? '').trim().toUpperCase()
+            : String(item?.orderNumber ?? '').trim().toUpperCase()
+
+        const relatedOrder =
+          (orderIdRef ? ordersById.get(orderIdRef) : undefined) ||
+          (orderNumberRef ? ordersByNumber.get(orderNumberRef) : undefined)
+        const sourceLines = Array.isArray(item?.replacementLines) && item.replacementLines.length
+          ? item.replacementLines
+          : Array.isArray(item?.replacementItems) && item.replacementItems.length
+            ? item.replacementItems
+            : []
+        const orderItems = Array.isArray(relatedOrder?.items) ? relatedOrder.items : []
+        const totalLossFromLines = sourceLines.reduce((sum: number, line: any) => {
+          const qty = Math.max(Number(line?.quantityReplaced ?? line?.replacedQuantity ?? line?.quantity ?? item?.replacementQuantity ?? 0), 0)
+          const unitPrice =
+            Number(line?.unitPrice ?? line?.price ?? line?.sellingPrice ?? line?.replacementUnitPrice ?? line?.originalUnitPrice ?? NaN)
+
+          if (Number.isFinite(unitPrice)) return sum + unitPrice * qty
+
+          const matchedOrderItem = orderItems.find((orderItem: any) => {
+            const srcOrderItemId = String(line?.orderItemId ?? '').trim()
+            const oiId = String(orderItem?.id ?? '').trim()
+            if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
+            const srcProductId = String(line?.productId ?? line?.originalProductId ?? line?.replacementProductId ?? '').trim()
+            const oiProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
+            return Boolean(srcProductId && oiProductId && srcProductId === oiProductId)
+          })
+
+          const fallbackPrice = Number(matchedOrderItem?.unitPrice ?? matchedOrderItem?.price ?? matchedOrderItem?.product?.price ?? 0)
+          return sum + (Number.isFinite(fallbackPrice) ? fallbackPrice : 0) * qty
+        }, 0)
+        const fallbackQty = Math.max(Number(item?.replacementQuantity ?? item?.quantityReplaced ?? 0), 0)
+        const orderItemPrices = orderItems
+          .map((orderItem: any) => Number(orderItem?.unitPrice ?? orderItem?.price ?? orderItem?.product?.price ?? 0))
+          .filter((price: number) => Number.isFinite(price) && price > 0)
+        const fallbackUnitPrice = orderItemPrices.length > 0 ? (orderItemPrices.reduce((a, b) => a + b, 0) / orderItemPrices.length) : 0
+        const totalLoss = totalLossFromLines > 0
+          ? totalLossFromLines
+          : fallbackQty > 0 && fallbackUnitPrice > 0
+            ? fallbackQty * fallbackUnitPrice
+            : 0
+
         const rawStatus = String(item.status || '').toUpperCase()
         const normalizedStatus =
           rawStatus === 'REQUESTED'
@@ -287,10 +343,18 @@ export function ReportsView() {
                   : rawStatus
         return {
           replacementNumber: item.replacementNumber,
-          orderNumber: relatedOrder?.orderNumber || 'N/A',
-          customer: relatedOrder?.customer?.name || 'N/A',
+          orderNumber: relatedOrder?.orderNumber || item?.orderNumber || (orderIdRef || 'N/A'),
+          customer: relatedOrder?.customer?.name || item?.customer?.name || 'N/A',
+          assignedDriver:
+            relatedOrder?.driver?.name ||
+            relatedOrder?.assignedDriverName ||
+            relatedOrder?.assignedDriver?.name ||
+            relatedOrder?.trip?.driver?.name ||
+            item?.driverName ||
+            item?.assignedDriverName ||
+            'N/A',
           status: normalizedStatus,
-          replacementMode: item.replacementMode ? String(item.replacementMode).replace(/_/g, ' ') : 'N/A',
+          totalLoss,
           reason: item.reason || 'N/A',
           createdAt: item.createdAt,
         }
@@ -393,39 +457,85 @@ export function ReportsView() {
     return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
   }, [orderRows])
 
-  const orderStatusTotal = useMemo(() => {
-    return orderStatusChart.reduce((sum, row) => sum + Number(row.count || 0), 0)
-  }, [orderStatusChart])
-
-  const transportStatusChart = useMemo(() => {
-    const counts = new Map<string, number>()
-    transportRows.forEach((row) => {
-      const key = String(row.status || 'UNKNOWN')
-      counts.set(key, (counts.get(key) || 0) + 1)
-    })
-    return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
-  }, [transportRows])
-
   const inventoryMovementChart = useMemo(() => {
-    const grouped = new Map<string, { day: string; inQty: number; outQty: number }>()
+    const grouped = new Map<string, { key: string; label: string; sortDate: Date; inQty: number; outQty: number }>()
+    const granularity: 'day' | 'week' | 'month' = rangeDays === '7' ? 'day' : rangeDays === '30' ? 'week' : 'month'
     inventoryMovementRows.forEach((row) => {
-      const day = formatDayLabel(row.createdAt)
-      const current = grouped.get(day) || { day, inQty: 0, outQty: 0 }
+      const date = new Date(String(row.createdAt || ''))
+      if (Number.isNaN(date.getTime())) return
+      let key = ''
+      let label = ''
+      let sortDate = new Date(date)
+
+      if (granularity === 'day') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        sortDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      } else if (granularity === 'week') {
+        const weekStart = new Date(date)
+        const diff = (weekStart.getDay() + 6) % 7
+        weekStart.setDate(weekStart.getDate() - diff)
+        weekStart.setHours(0, 0, 0, 0)
+        const yearStart = new Date(weekStart.getFullYear(), 0, 1)
+        const week = Math.ceil((((weekStart.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        key = `${weekStart.getFullYear()}-W${String(week).padStart(2, '0')}`
+        label = `W${week} ${weekStart.getFullYear()}`
+        sortDate = weekStart
+      } else {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        sortDate = new Date(date.getFullYear(), date.getMonth(), 1)
+      }
+
+      const current = grouped.get(key) || { key, label, sortDate, inQty: 0, outQty: 0 }
       if (String(row.type || '').toUpperCase() === 'IN') current.inQty += Number(row.quantity || 0)
       if (String(row.type || '').toUpperCase() === 'OUT') current.outQty += Number(row.quantity || 0)
-      grouped.set(day, current)
+      grouped.set(key, current)
     })
-    return Array.from(grouped.values()).slice(-12)
-  }, [inventoryMovementRows])
 
-  const replacementStatusChart = useMemo(() => {
-    const counts = new Map<string, number>()
-    replacementRows.forEach((row) => {
-      const key = String(row.status || 'UNKNOWN')
-      counts.set(key, (counts.get(key) || 0) + 1)
-    })
-    return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
-  }, [replacementRows])
+    const start = new Date(rangeStart)
+    const end = new Date()
+    start.setHours(0, 0, 0, 0)
+    end.setHours(0, 0, 0, 0)
+
+    const points: Array<{ key: string; label: string; sortDate: Date; inQty: number; outQty: number }> = []
+
+    if (granularity === 'day') {
+      const cursor = new Date(start)
+      while (cursor.getTime() <= end.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+        const label = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), inQty: 0, outQty: 0 })
+        cursor.setDate(cursor.getDate() + 1)
+      }
+    } else if (granularity === 'week') {
+      const cursor = new Date(start)
+      const startDiff = (cursor.getDay() + 6) % 7
+      cursor.setDate(cursor.getDate() - startDiff)
+      while (cursor.getTime() <= end.getTime()) {
+        const yearStart = new Date(cursor.getFullYear(), 0, 1)
+        const week = Math.ceil((((cursor.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        const key = `${cursor.getFullYear()}-W${String(week).padStart(2, '0')}`
+        const label = `W${week} ${cursor.getFullYear()}`
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), inQty: 0, outQty: 0 })
+        cursor.setDate(cursor.getDate() + 7)
+      }
+    } else {
+      const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
+      while (cursor.getTime() <= endMonth.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
+        const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), inQty: 0, outQty: 0 })
+        cursor.setMonth(cursor.getMonth() + 1)
+      }
+    }
+
+    return points
+  }, [inventoryMovementRows, rangeDays])
 
   const feedbackRatingChart = useMemo(() => {
     const counts = new Map<string, number>()
@@ -441,6 +551,172 @@ export function ReportsView() {
   const feedbackRatingTotal = useMemo(() => {
     return feedbackRatingChart.reduce((sum, row) => sum + Number(row.count || 0), 0)
   }, [feedbackRatingChart])
+
+  const orderOutcomeTrendChart = useMemo(() => {
+    const grouped = new Map<string, { key: string; label: string; sortDate: Date; delivered: number; cancelled: number; rescheduled: number }>()
+    const granularity: 'day' | 'week' | 'month' = rangeDays === '7' ? 'day' : rangeDays === '30' ? 'week' : 'month'
+
+    orderRows.forEach((row) => {
+      const rawStatus = String(row.status || '').toUpperCase()
+      const status =
+        rawStatus === 'FAILED_DELIVERY'
+          ? 'CANCELLED'
+          : ['CANCELED', 'REJECTED', 'SKIPPED', 'FAILED'].includes(rawStatus)
+            ? 'CANCELLED'
+            : rawStatus
+
+      const date = new Date(String(row.createdAt || ''))
+      if (Number.isNaN(date.getTime())) return
+
+      let key = ''
+      let label = ''
+      let sortDate = new Date(date)
+
+      if (granularity === 'day') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        sortDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      } else if (granularity === 'week') {
+        const weekStart = new Date(date)
+        const diff = (weekStart.getDay() + 6) % 7
+        weekStart.setDate(weekStart.getDate() - diff)
+        weekStart.setHours(0, 0, 0, 0)
+        const yearStart = new Date(weekStart.getFullYear(), 0, 1)
+        const week = Math.ceil((((weekStart.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        key = `${weekStart.getFullYear()}-W${String(week).padStart(2, '0')}`
+        label = `W${week} ${weekStart.getFullYear()}`
+        sortDate = weekStart
+      } else {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        sortDate = new Date(date.getFullYear(), date.getMonth(), 1)
+      }
+
+      const current = grouped.get(key) || { key, label, sortDate, delivered: 0, cancelled: 0, rescheduled: 0 }
+      if (status === 'DELIVERED') current.delivered += 1
+      if (status === 'CANCELLED') current.cancelled += 1
+      if (status === 'RESCHEDULED') current.rescheduled += 1
+      grouped.set(key, current)
+    })
+
+    const start = new Date(rangeStart)
+    const end = new Date()
+    start.setHours(0, 0, 0, 0)
+    end.setHours(0, 0, 0, 0)
+
+    const points: Array<{ key: string; label: string; sortDate: Date; delivered: number; cancelled: number; rescheduled: number }> = []
+
+    if (granularity === 'day') {
+      const cursor = new Date(start)
+      while (cursor.getTime() <= end.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+        const label = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), delivered: 0, cancelled: 0, rescheduled: 0 })
+        cursor.setDate(cursor.getDate() + 1)
+      }
+    } else if (granularity === 'week') {
+      const cursor = new Date(start)
+      const startDiff = (cursor.getDay() + 6) % 7
+      cursor.setDate(cursor.getDate() - startDiff)
+      while (cursor.getTime() <= end.getTime()) {
+        const yearStart = new Date(cursor.getFullYear(), 0, 1)
+        const week = Math.ceil((((cursor.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        const key = `${cursor.getFullYear()}-W${String(week).padStart(2, '0')}`
+        const label = `W${week} ${cursor.getFullYear()}`
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), delivered: 0, cancelled: 0, rescheduled: 0 })
+        cursor.setDate(cursor.getDate() + 7)
+      }
+    } else {
+      const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
+      while (cursor.getTime() <= endMonth.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
+        const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), delivered: 0, cancelled: 0, rescheduled: 0 })
+        cursor.setMonth(cursor.getMonth() + 1)
+      }
+    }
+
+    return points
+  }, [orderRows, rangeDays, rangeStart])
+
+  const transportTrendChart = useMemo(() => {
+    const grouped = new Map<string, { day: string; completed: number; inProgress: number; cancelled: number }>()
+    transportRows.forEach((row) => {
+      const key = formatDayLabel(row.plannedStartAt || row.actualEndAt)
+      const current = grouped.get(key) || { day: key, completed: 0, inProgress: 0, cancelled: 0 }
+      const status = String(row.status || '').toUpperCase()
+      if (status === 'COMPLETED') current.completed += 1
+      else if (status === 'IN_PROGRESS') current.inProgress += 1
+      else if (status === 'CANCELLED' || status === 'FAILED' || status === 'SKIPPED') current.cancelled += 1
+      grouped.set(key, current)
+    })
+    return Array.from(grouped.values()).slice(-12)
+  }, [transportRows])
+
+  const transportBubbleChart = useMemo(() => {
+    return transportRows.map((row) => ({
+      trip: row.tripNumber || 'N/A',
+      completionRate: Number(row.completionRate || 0),
+      dropPointsTotal: Number(row.dropPointsTotal || 0),
+      dropPointsCompleted: Number(row.dropPointsCompleted || 0),
+    }))
+  }, [transportRows])
+
+  const inventoryMovementByProductChart = useMemo(() => {
+    const grouped = new Map<string, { name: string; inQty: number; outQty: number; total: number }>()
+    inventoryMovementRows.forEach((row) => {
+      const product = String(row.product || 'Unknown Product')
+      const current = grouped.get(product) || { name: product, inQty: 0, outQty: 0, total: 0 }
+      const qty = Math.abs(Number(row.quantity || 0))
+      if (String(row.type || '').toUpperCase() === 'IN') current.inQty += qty
+      if (String(row.type || '').toUpperCase() === 'OUT') current.outQty += qty
+      current.total += qty
+      grouped.set(product, current)
+    })
+    return Array.from(grouped.entries())
+      .map(([, item]) => item)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 12)
+  }, [inventoryMovementRows])
+
+  const stockTrendSummary = useMemo(() => {
+    const totalIn = inventoryMovementChart.reduce((sum, item) => sum + Number(item.inQty || 0), 0)
+    const totalOut = inventoryMovementChart.reduce((sum, item) => sum + Number(item.outQty || 0), 0)
+
+    const previous = inventoryMovementChart.slice(0, 6)
+    const current = inventoryMovementChart.slice(6)
+
+    const prevIn = previous.reduce((sum, item) => sum + Number(item.inQty || 0), 0)
+    const currIn = current.reduce((sum, item) => sum + Number(item.inQty || 0), 0)
+    const prevOut = previous.reduce((sum, item) => sum + Number(item.outQty || 0), 0)
+    const currOut = current.reduce((sum, item) => sum + Number(item.outQty || 0), 0)
+
+    const inChangePercent = prevIn > 0 ? ((currIn - prevIn) / prevIn) * 100 : (currIn > 0 ? 100 : 0)
+    const outChangePercent = prevOut > 0 ? ((currOut - prevOut) / prevOut) * 100 : (currOut > 0 ? 100 : 0)
+
+    return { totalIn, totalOut, inChangePercent, outChangePercent }
+  }, [inventoryMovementChart])
+
+  const warehouseCapacityVsUsedChart = useMemo(() => {
+    const scopedWarehouses = warehouses.filter((warehouse) => selectedWarehouse === 'all' || String(warehouse?.id || '') === selectedWarehouse)
+    return scopedWarehouses.map((warehouse) => {
+      const warehouseId = String(warehouse?.id || '')
+      const capacity = Number(warehouse?.capacity || 0)
+      const usedUnits = inventory
+        .filter((item) => getWarehouseIdFromRow(item) === warehouseId)
+        .reduce((sum, item) => sum + Number(item?.quantity || 0), 0)
+      const usedPercent = capacity > 0 ? Math.min(100, Math.round((usedUnits / capacity) * 100)) : 0
+      return {
+        name: String(warehouse?.code || warehouse?.name || warehouseId || 'Warehouse'),
+        capacityPercent: 100,
+        usedPercent,
+      }
+    })
+  }, [warehouses, selectedWarehouse, inventory])
 
   const scopedInventory = useMemo(() => {
     return inventory.filter((item) => selectedWarehouse === 'all' || getWarehouseIdFromRow(item) === selectedWarehouse)
@@ -460,6 +736,21 @@ export function ReportsView() {
       fulfillmentRate: total > 0 ? Math.round((delivered / total) * 100) : 0,
       deliveredRevenue,
     }
+  }, [orderRows])
+
+  const fulfillmentReportRows = useMemo(() => {
+    return orderRows
+      .map((row) => {
+        const rawStatus = String(row.status || '').toUpperCase()
+        const normalizedStatus =
+          rawStatus === 'FAILED_DELIVERY'
+            ? 'CANCELLED'
+            : ['CANCELED', 'REJECTED', 'SKIPPED', 'FAILED'].includes(rawStatus)
+              ? 'CANCELLED'
+              : rawStatus
+        return { ...row, status: normalizedStatus }
+      })
+      .filter((row) => ['DELIVERED', 'RESCHEDULED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()))
   }, [orderRows])
 
   const transportKpi = useMemo(() => {
@@ -486,34 +777,93 @@ export function ReportsView() {
     return { totalSkus, lowStock, totalQuantity, stockIn, stockOut }
   }, [scopedInventory, inventoryMovementRows])
 
-  const warehouseComplianceKpi = useMemo(() => {
-    const total = warehouseDispatchRows.length
-    const checklistComplete = warehouseDispatchRows.filter((row) => row.checklistComplete === 'YES').length
-    return { total, checklistComplete }
-  }, [warehouseDispatchRows])
-
-  const warehouseComplianceTrend = useMemo(() => {
-    const grouped = new Map<string, { day: string; compliant: number; nonCompliant: number }>()
-    warehouseDispatchRows.forEach((row) => {
-      const key = formatDayLabel(row.createdAt)
-      const current = grouped.get(key) || { day: key, compliant: 0, nonCompliant: 0 }
-      const isCompliant = row.checklistComplete === 'YES'
-      if (isCompliant) {
-        current.compliant += 1
-      } else {
-        current.nonCompliant += 1
-      }
-      grouped.set(key, current)
-    })
-    return Array.from(grouped.values()).slice(-14)
-  }, [warehouseDispatchRows])
-
   const replacementKpi = useMemo(() => {
     const total = replacementRows.length
     const completed = replacementRows.filter((row) => row.status === 'COMPLETED' || row.status === 'RESOLVED_ON_DELIVERY').length
     const open = replacementRows.filter((row) => row.status === 'REPORTED' || row.status === 'IN_PROGRESS' || row.status === 'NEEDS_FOLLOW_UP').length
     return { total, completed, open }
   }, [replacementRows])
+
+  const replacementLossTrendChart = useMemo(() => {
+    const grouped = new Map<string, { key: string; label: string; sortDate: Date; loss: number }>()
+    const granularity: 'day' | 'week' | 'month' = rangeDays === '7' ? 'day' : rangeDays === '30' ? 'week' : 'month'
+
+    replacementRows.forEach((row) => {
+      const date = new Date(String(row.createdAt || ''))
+      if (Number.isNaN(date.getTime())) return
+
+      let key = ''
+      let label = ''
+      let sortDate = new Date(date)
+
+      if (granularity === 'day') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        sortDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      } else if (granularity === 'week') {
+        const weekStart = new Date(date)
+        const diff = (weekStart.getDay() + 6) % 7
+        weekStart.setDate(weekStart.getDate() - diff)
+        weekStart.setHours(0, 0, 0, 0)
+        const yearStart = new Date(weekStart.getFullYear(), 0, 1)
+        const week = Math.ceil((((weekStart.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        key = `${weekStart.getFullYear()}-W${String(week).padStart(2, '0')}`
+        label = `W${week} ${weekStart.getFullYear()}`
+        sortDate = weekStart
+      } else {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        sortDate = new Date(date.getFullYear(), date.getMonth(), 1)
+      }
+
+      const current = grouped.get(key) || { key, label, sortDate, loss: 0 }
+      current.loss += Number(row.totalLoss || 0)
+      grouped.set(key, current)
+    })
+
+    const start = new Date(rangeStart)
+    const end = new Date()
+    start.setHours(0, 0, 0, 0)
+    end.setHours(0, 0, 0, 0)
+
+    const points: Array<{ key: string; label: string; sortDate: Date; loss: number }> = []
+
+    if (granularity === 'day') {
+      const cursor = new Date(start)
+      while (cursor.getTime() <= end.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+        const label = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), loss: 0 })
+        cursor.setDate(cursor.getDate() + 1)
+      }
+    } else if (granularity === 'week') {
+      const cursor = new Date(start)
+      const startDiff = (cursor.getDay() + 6) % 7
+      cursor.setDate(cursor.getDate() - startDiff)
+      while (cursor.getTime() <= end.getTime()) {
+        const yearStart = new Date(cursor.getFullYear(), 0, 1)
+        const week = Math.ceil((((cursor.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        const key = `${cursor.getFullYear()}-W${String(week).padStart(2, '0')}`
+        const label = `W${week} ${cursor.getFullYear()}`
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), loss: 0 })
+        cursor.setDate(cursor.getDate() + 7)
+      }
+    } else {
+      const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
+      while (cursor.getTime() <= endMonth.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
+        const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        const existing = grouped.get(key)
+        points.push(existing || { key, label, sortDate: new Date(cursor), loss: 0 })
+        cursor.setMonth(cursor.getMonth() + 1)
+      }
+    }
+
+    return points
+  }, [replacementRows, rangeDays, rangeStart])
 
   const feedbackKpi = useMemo(() => {
     const total = feedbackRows.length
@@ -525,7 +875,101 @@ export function ReportsView() {
     return { total, avgRating, open }
   }, [feedbackRows])
 
-  const reportChartPalette = ['#0ea5b7', '#c7d619', '#6b7280', '#8b5cf6', '#2563eb']
+  const chartCardClassName = 'rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden'
+  const chartTooltipStyle = {
+    backgroundColor: '#0f172a',
+    border: '1px solid #334155',
+    borderRadius: '12px',
+    boxShadow: '0 12px 30px rgba(15, 23, 42, 0.22)',
+  }
+
+  const downloadPdf = async (
+    filename: string,
+    title: string,
+    rows: Array<Record<string, unknown>>,
+    options?: { companyName?: string; subtitle?: string; preparedBy?: string }
+  ) => {
+    if (!rows.length) {
+      toast.error(`No data to export for ${filename}`)
+      return
+    }
+
+    const pdfDoc = await PDFDocument.create()
+    const page = pdfDoc.addPage([842, 595])
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+
+    const companyName = options?.companyName || "Ann Ann's Beverages Trading"
+    const subtitle = options?.subtitle || 'Logistics Management System'
+    const preparedBy = options?.preparedBy || 'System Administrator'
+
+    const margin = 28
+    const usableWidth = 842 - margin * 2
+    const lineHeight = 14
+    const maxRows = Math.min(rows.length, 180)
+    const headers = Object.keys(rows[0]).slice(0, 8)
+    const colWidth = usableWidth / Math.max(1, headers.length)
+
+    let y = 560
+    page.drawText(companyName, { x: margin, y, size: 16, font: boldFont, color: rgb(0.08, 0.08, 0.08) })
+    y -= 16
+    page.drawText(subtitle, { x: margin, y, size: 10, font, color: rgb(0.25, 0.25, 0.25) })
+    y -= 18
+    page.drawText(title, { x: margin, y, size: 14, font: boldFont, color: rgb(0.1, 0.1, 0.1) })
+    y -= 14
+    page.drawText(`Generated: ${new Date().toLocaleString()} | Prepared by: ${preparedBy}`, {
+      x: margin,
+      y,
+      size: 9,
+      font,
+      color: rgb(0.35, 0.35, 0.35),
+    })
+    y -= 18
+
+    headers.forEach((header, index) => {
+      page.drawText(header, {
+        x: margin + index * colWidth,
+        y,
+        size: 9,
+        font: boldFont,
+        color: rgb(0.15, 0.15, 0.15),
+        maxWidth: colWidth - 6,
+      })
+    })
+    y -= lineHeight
+
+    for (let i = 0; i < maxRows; i += 1) {
+      const row = rows[i]
+      headers.forEach((header, index) => {
+        const value = String(row[header] ?? '')
+        page.drawText(value, {
+          x: margin + index * colWidth,
+          y,
+          size: 8,
+          font,
+          color: rgb(0.25, 0.25, 0.25),
+          maxWidth: colWidth - 6,
+        })
+      })
+      y -= lineHeight
+      if (y < 30) break
+    }
+
+    page.drawText('Prepared by: ____________________', { x: margin, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
+    page.drawText('Reviewed by: ____________________', { x: margin + 240, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
+    page.drawText('Approved by: ____________________', { x: margin + 480, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
+
+    const bytes = await pdfDoc.save()
+    const blob = new Blob([bytes], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
 
   const exportAllPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
@@ -557,6 +1001,7 @@ export function ReportsView() {
     onStatusChange,
     showWarehouse = false,
     showDriver = false,
+    showStatus = true,
   }: {
     title: string
     statusLabel: string
@@ -565,11 +1010,12 @@ export function ReportsView() {
     onStatusChange: (value: string) => void
     showWarehouse?: boolean
     showDriver?: boolean
+    showStatus?: boolean
   }) => (
-    <div className="rounded-xl border border-sky-100 bg-white/80 p-3 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <select
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
           value={rangeDays}
           onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
           title="Select report date range"
@@ -580,7 +1026,7 @@ export function ReportsView() {
         </select>
         {showWarehouse ? (
           <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
             value={selectedWarehouse}
             onChange={(event) => setSelectedWarehouse(event.target.value)}
             title="Filter by warehouse"
@@ -595,7 +1041,7 @@ export function ReportsView() {
         ) : null}
         {showDriver ? (
           <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
             value={selectedDriver}
             onChange={(event) => setSelectedDriver(event.target.value)}
             title="Filter by driver"
@@ -608,25 +1054,27 @@ export function ReportsView() {
             ))}
           </select>
         ) : null}
-        <select
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-          value={statusValue}
-          onChange={(event) => onStatusChange(event.target.value)}
-          title={`Filter by ${statusLabel.toLowerCase()}`}
-        >
-          <option value="all">All {statusLabel}</option>
-          {statusOptions.map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
-        <Button variant="outline" className="gap-2" onClick={resetFilters}>
+        {showStatus ? (
+          <select
+            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+            value={statusValue}
+            onChange={(event) => onStatusChange(event.target.value)}
+            title={`Filter by ${statusLabel.toLowerCase()}`}
+          >
+            <option value="all">All {statusLabel}</option>
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <Button variant="outline" className="gap-2 rounded-lg border-slate-200" onClick={resetFilters}>
           Reset Filters
         </Button>
-        <Button variant="outline" className="gap-2" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+        <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
           <Download className="h-4 w-4" />
-          Export {title} PDF
+          {title === 'Warehouse' ? 'Export Warehouse PDF' : `Export ${title} PDF`}
         </Button>
       </div>
     </div>
@@ -736,11 +1184,11 @@ export function ReportsView() {
   const previewRows = <T extends Record<string, unknown>>(rows: T[]) => rows.slice(0, 8)
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-gray-500">Order, transport, warehouse, replacement, and feedback reports</p>
+          <h1 className="text-[34px] leading-tight font-bold text-slate-800">Reports & Analytics</h1>
+          <p className="text-sm text-slate-500">Order, transport, warehouse, replacement, and feedback reports</p>
         </div>
       </div>
 
@@ -752,13 +1200,13 @@ export function ReportsView() {
         </Card>
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
-          <div className="rounded-xl border border-sky-100 bg-white/80 p-3 shadow-sm">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 p-1 md:grid-cols-5">
-              <TabsTrigger value="orders">Orders</TabsTrigger>
-              <TabsTrigger value="transport">Transport</TabsTrigger>
-              <TabsTrigger value="warehouse">Warehouse/Inventory</TabsTrigger>
-              <TabsTrigger value="replacement">Replacement</TabsTrigger>
-              <TabsTrigger value="feedback">Feedback</TabsTrigger>
+          <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-5">
+              <TabsTrigger value="orders" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Orders</TabsTrigger>
+              <TabsTrigger value="transport" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Transport</TabsTrigger>
+              <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse/Inventory</TabsTrigger>
+              <TabsTrigger value="replacement" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Replacement</TabsTrigger>
+              <TabsTrigger value="feedback" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
             </TabsList>
           </div>
 
@@ -771,45 +1219,37 @@ export function ReportsView() {
               onStatusChange: setSelectedOrderStatus,
               showWarehouse: true,
             })}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-              <Card><CardHeader><CardDescription>Total Orders</CardDescription><CardTitle>{orderKpi.total}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Delivered</CardDescription><CardTitle>{orderKpi.delivered}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Fulfillment Rate</CardDescription><CardTitle>{orderKpi.fulfillmentRate}%</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Delivered Revenue</CardDescription><CardTitle>{formatPeso(orderKpi.deliveredRevenue)}</CardTitle></CardHeader></Card>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Orders</CardDescription><CardTitle className="text-[30px] leading-none">{orderKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Delivered</CardDescription><CardTitle className="text-[30px] leading-none">{orderKpi.delivered}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Fulfillment Rate</CardDescription><CardTitle className="text-[30px] leading-none">{orderKpi.fulfillmentRate}%</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Delivered Revenue</CardDescription><CardTitle className="text-[30px] leading-none">{formatPeso(orderKpi.deliveredRevenue)}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Orders by Status</CardTitle>
-                <CardDescription>Status distribution for selected period</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {orderStatusChart.length === 0 ? (
-                    <p className="py-8 text-center text-gray-500">No order status data for this range</p>
-                  ) : (
-                    orderStatusChart
-                      .slice()
-                      .sort((a, b) => Number(b.count) - Number(a.count))
-                      .map((item) => {
-                        const count = Number(item.count || 0)
-                        const percent = orderStatusTotal > 0 ? Math.round((count / orderStatusTotal) * 100) : 0
-                        return (
-                          <div key={item.status} className="space-y-1">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="font-medium text-gray-800">{item.status}</span>
-                              <span className="text-gray-600">{count} ({percent}%)</span>
-                            </div>
-                            <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                              <div className="h-full rounded-full bg-blue-600" style={{ width: `${percent}%` }} />
-                            </div>
-                          </div>
-                        )
-                      })
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
+            <div className="grid grid-cols-1 gap-4">
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Delivered vs Cancelled vs Rescheduled (Line)</CardTitle>
+                  <CardDescription>Order outcome trend based on current filters</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={orderOutcomeTrendChart} margin={{ top: 12, right: 20, left: 0, bottom: 26 }}>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} />
+                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
+                        <Line type="monotone" dataKey="delivered" name="Delivered" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="cancelled" name="Cancelled" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="rescheduled" name="Rescheduled" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
                   <CardTitle>Order Fulfillment Report</CardTitle>
@@ -829,7 +1269,7 @@ export function ReportsView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRows(orderRows).map((row, index) => (
+                      {previewRows(fulfillmentReportRows).map((row, index) => (
                         <tr key={`${row.orderNumber}-${index}`} className="border-b last:border-0">
                           <td className="p-3 font-medium">{String(row.orderNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
@@ -840,7 +1280,7 @@ export function ReportsView() {
                       ))}
                     </tbody>
                   </table>
-                  {orderRows.length === 0 ? <p className="py-8 text-center text-gray-500">No orders found for this range</p> : null}
+                  {fulfillmentReportRows.length === 0 ? <p className="py-8 text-center text-gray-500">No matching orders found for this range</p> : null}
                 </div>
               </CardContent>
             </Card>
@@ -856,40 +1296,57 @@ export function ReportsView() {
               showWarehouse: true,
               showDriver: true,
             })}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-              <Card><CardHeader><CardDescription>Total Trips</CardDescription><CardTitle>{transportKpi.total}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Completed Trips</CardDescription><CardTitle>{transportKpi.completed}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>In Progress</CardDescription><CardTitle>{transportKpi.inProgress}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Average Completion</CardDescription><CardTitle>{transportKpi.averageCompletion}%</CardTitle></CardHeader></Card>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Trips</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Completed Trips</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.completed}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">In Progress</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.inProgress}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Completion</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.averageCompletion}%</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Transport Status Distribution</CardTitle>
-                <CardDescription>Trips by current status</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64 w-full">
-                  {transportStatusChart.length === 0 ? (
-                    <p className="py-8 text-center text-gray-500">No transport status data for this range</p>
-                  ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Trip Status Trend (Area)</CardTitle>
+                  <CardDescription>Completion and in-progress movement over time</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={transportStatusChart.slice().sort((a, b) => Number(b.count) - Number(a.count))}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="status" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip formatter={(value: any) => [Number(value).toLocaleString(), 'Trips']} />
-                        <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                          {transportStatusChart.map((entry, index) => (
-                            <Cell key={entry.status} fill={reportChartPalette[index % reportChartPalette.length]} />
-                          ))}
-                        </Bar>
-                      </BarChart>
+                      <AreaChart data={transportTrendChart} margin={{ top: 12, right: 20, left: 0, bottom: 26 }}>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} />
+                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
+                        <Area type="monotone" dataKey="completed" stackId="1" stroke="#16a34a" fill="#86efac" />
+                        <Area type="monotone" dataKey="inProgress" stackId="1" stroke="#2563eb" fill="#93c5fd" />
+                        <Area type="monotone" dataKey="cancelled" stackId="1" stroke="#ef4444" fill="#fca5a5" />
+                      </AreaChart>
                     </ResponsiveContainer>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Completion vs Load (Bubble)</CardTitle>
+                  <CardDescription>Relationship: drop points vs completion rate</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ScatterChart margin={{ top: 12, right: 20, left: 8, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
+                        <XAxis dataKey="dropPointsTotal" name="Drop Points" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis dataKey="completionRate" name="Completion %" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <ZAxis dataKey="dropPointsCompleted" range={[40, 260]} />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={chartTooltipStyle} />
+                        <Scatter data={transportBubbleChart} fill="#0ea5e9" />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
                   <CardTitle>Transportation & Delivery Status Report</CardTitle>
@@ -935,43 +1392,157 @@ export function ReportsView() {
               onStatusChange: setSelectedMovementType,
               showWarehouse: true,
             })}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-              <Card><CardHeader><CardDescription>Total SKUs</CardDescription><CardTitle>{inventoryKpi.totalSkus}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Low Stock SKUs</CardDescription><CardTitle>{inventoryKpi.lowStock}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Total On Hand</CardDescription><CardTitle>{inventoryKpi.totalQuantity}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Stock In</CardDescription><CardTitle>{inventoryKpi.stockIn}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Stock Out</CardDescription><CardTitle>{inventoryKpi.stockOut}</CardTitle></CardHeader></Card>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-emerald-600">+12.5% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-emerald-600">+28.3% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-emerald-600">+15.4% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Card><CardHeader><CardDescription>Dispatch Candidates</CardDescription><CardTitle>{warehouseComplianceKpi.total}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Checklist Complete</CardDescription><CardTitle>{warehouseComplianceKpi.checklistComplete}</CardTitle></CardHeader></Card>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Warehouse Capacity vs Used</CardTitle>
+                  <CardDescription>Utilization percentage per warehouse</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    {warehouseCapacityVsUsedChart.length === 0 ? (
+                      <p className="py-8 text-center text-gray-500">No warehouse capacity data available</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={warehouseCapacityVsUsedChart} margin={{ top: 15, right: 20, left: 0, bottom: 40 }}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                          <Tooltip
+                            contentStyle={chartTooltipStyle}
+                            formatter={(value: any, name: any) => [`${Number(value).toLocaleString()}%`, name === 'capacityPercent' ? 'Capacity' : 'Used']}
+                          />
+                          <Legend wrapperStyle={{ paddingTop: '14px', color: '#475569' }} />
+                          <Bar dataKey="capacityPercent" name="Capacity" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="usedPercent" name="Used" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg">Inventory Movement by Product</CardTitle>
+                      <CardDescription>Top products by movement volume</CardDescription>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                      Top 5 Products
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    {inventoryMovementByProductChart.length === 0 ? (
+                      <p className="py-8 text-center text-gray-500">No product movement data for this range</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={inventoryMovementByProductChart.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }} barGap={8}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis
+                            allowDecimals={false}
+                            tick={{ fontSize: 11, fill: '#6b7280' }}
+                            axisLine={false}
+                            tickLine={false}
+                            tickCount={5}
+                          />
+                          <Legend
+                            verticalAlign="top"
+                            align="center"
+                            wrapperStyle={{ paddingBottom: '8px', color: '#64748b', fontSize: '12px' }}
+                            iconType="rect"
+                          />
+                          <Tooltip
+                            contentStyle={chartTooltipStyle}
+                            formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
+                          />
+                          <Bar dataKey="inQty" name="Stock In" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={22}>
+                            <LabelList dataKey="inQty" position="top" fill="#0f172a" fontSize={11} />
+                          </Bar>
+                          <Bar dataKey="outQty" name="Stock Out" fill="#fbbf24" radius={[4, 4, 0, 0]} maxBarSize={22}>
+                            <LabelList dataKey="outQty" position="top" fill="#0f172a" fontSize={11} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Stock In vs Stock Out Trend</CardTitle>
-                <CardDescription>Movement by day</CardDescription>
+            <Card className={chartCardClassName}>
+              <CardHeader className="pb-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <CardTitle className="text-3xl font-bold tracking-tight text-slate-800">Stock In vs Stock Out Trend</CardTitle>
+                    <CardDescription>Track stock movement over time</CardDescription>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+                    {inventoryMovementChart[0]?.label || 'N/A'} - {inventoryMovementChart[inventoryMovementChart.length - 1]?.label || 'N/A'}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="h-64 w-full">
-                  {inventoryMovementChart.length === 0 ? (
-                    <p className="py-8 text-center text-gray-500">No movement trend data for this range</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={inventoryMovementChart}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="day" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip formatter={(value: any) => [Number(value).toLocaleString(), 'Qty']} />
-                        <Area type="monotone" dataKey="inQty" name="Stock In" stroke="#0ea5b7" fill="#99f6e4" fillOpacity={0.85} />
-                        <Area type="monotone" dataKey="outQty" name="Stock Out" stroke="#c7d619" fill="#ecfccb" fillOpacity={0.8} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
+                {inventoryMovementChart.length === 0 ? (
+                  <p className="py-8 text-center text-gray-500">No movement trend data for this range</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2">
+                      <div className="rounded-2xl border border-blue-100 bg-slate-50 p-5">
+                        <p className="text-sm font-medium text-slate-600">Total Stock In</p>
+                        <p className="text-4xl font-bold text-blue-600 mt-1">{stockTrendSummary.totalIn.toLocaleString()}</p>
+                        <p className="text-sm text-slate-500">units</p>
+                        <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+                          {stockTrendSummary.inChangePercent >= 0 ? '+' : ''}{stockTrendSummary.inChangePercent.toFixed(1)}% vs previous period
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5">
+                        <p className="text-sm font-medium text-slate-600">Total Stock Out</p>
+                        <p className="text-4xl font-bold text-amber-600 mt-1">{stockTrendSummary.totalOut.toLocaleString()}</p>
+                        <p className="text-sm text-slate-500">units</p>
+                        <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+                          {stockTrendSummary.outChangePercent >= 0 ? '+' : ''}{stockTrendSummary.outChangePercent.toFixed(1)}% vs previous period
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="h-[360px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={inventoryMovementChart} margin={{ top: 24, right: 22, left: 8, bottom: 20 }}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
+                          <Tooltip
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                            formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
+                          />
+                          <Legend wrapperStyle={{ paddingTop: '8px', color: '#475569' }} iconType="circle" verticalAlign="top" height={24} />
+                          <Line type="monotone" dataKey="inQty" name="Stock In" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4, fill: '#2563eb' }} animationDuration={1000} isAnimationActive>
+                            <LabelList dataKey="inQty" position="top" style={{ fill: '#2563eb', fontSize: 11, fontWeight: 700 }} />
+                          </Line>
+                          <Line type="monotone" dataKey="outQty" name="Stock Out" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4, fill: '#f59e0b' }} animationDuration={1000} isAnimationActive>
+                            <LabelList dataKey="outQty" position="bottom" style={{ fill: '#d97706', fontSize: 11, fontWeight: 700 }} />
+                          </Line>
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
-            <Card>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
                   <CardTitle>Warehouse & Inventory Movement Report</CardTitle>
@@ -1007,62 +1578,6 @@ export function ReportsView() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardTitle>Warehouse Dispatch Compliance Report</CardTitle>
-                  <CardDescription>Checklist visibility for load/dispatch</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-left">Order</th>
-                        <th className="p-3 text-left">Stage</th>
-                        <th className="p-3 text-left">Checklist</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows(warehouseDispatchRows).map((row, index) => (
-                        <tr key={`${row.orderNumber}-${index}`} className="border-b last:border-0">
-                          <td className="p-3 font-medium">{String(row.orderNumber || 'N/A')}</td>
-                          <td className="p-3">{String(row.warehouseStage || 'N/A')}</td>
-                          <td className="p-3">{String(row.checklistComplete || 'NO')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {warehouseDispatchRows.length === 0 ? <p className="py-8 text-center text-gray-500">No warehouse dispatch compliance records for this range</p> : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Dispatch Compliance Trend</CardTitle>
-                <CardDescription>Daily compliant vs non-compliant dispatch records</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64 w-full">
-                  {warehouseComplianceTrend.length === 0 ? (
-                    <p className="py-8 text-center text-gray-500">No dispatch compliance trend data for this range</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={warehouseComplianceTrend}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="day" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip formatter={(value: any) => [Number(value).toLocaleString(), 'Orders']} />
-                        <Line type="monotone" dataKey="compliant" stroke="#0ea5b7" strokeWidth={3} dot={{ r: 3 }} />
-                        <Line type="monotone" dataKey="nonCompliant" stroke="#6b7280" strokeWidth={2.5} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="replacement" className="space-y-4">
@@ -1072,45 +1587,49 @@ export function ReportsView() {
               statusOptions: replacementStatusOptions,
               statusValue: selectedReplacementStatus,
               onStatusChange: setSelectedReplacementStatus,
+              showWarehouse: true,
+              showStatus: false,
             })}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <Card><CardHeader><CardDescription>Total Cases</CardDescription><CardTitle>{replacementKpi.total}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Processed</CardDescription><CardTitle>{replacementKpi.completed}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Open Cases</CardDescription><CardTitle>{replacementKpi.open}</CardTitle></CardHeader></Card>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Processed</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.completed}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.open}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Replacement Case Status</CardTitle>
-                <CardDescription>Status distribution of replacement cases</CardDescription>
+            <Card className={chartCardClassName}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Replacement Loss Trend (Line)</CardTitle>
+                <CardDescription>Total replacement loss over time based on current filters</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-64 w-full">
-                  {replacementStatusChart.length === 0 ? (
-                    <p className="py-8 text-center text-gray-500">No replacement status data for this range</p>
+                <div className="h-72 w-full">
+                  {replacementLossTrendChart.length === 0 ? (
+                    <p className="py-8 text-center text-gray-500">No loss trend data for this range</p>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={replacementStatusChart.slice().sort((a, b) => Number(b.count) - Number(a.count))}
-                          dataKey="count"
-                          nameKey="status"
-                          innerRadius={55}
-                          outerRadius={95}
-                          paddingAngle={2}
-                        >
-                          {replacementStatusChart.map((entry, index) => (
-                            <Cell key={entry.status} fill={reportChartPalette[index % reportChartPalette.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value: any, name: any) => [Number(value).toLocaleString(), String(name)]} />
-                        <Legend verticalAlign="bottom" height={36} />
-                      </PieChart>
+                      <LineChart data={replacementLossTrendChart} margin={{ top: 12, right: 20, left: 0, bottom: 26 }}>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis
+                          allowDecimals={false}
+                          tick={{ fontSize: 11, fill: '#64748b' }}
+                          axisLine={false}
+                          tickLine={false}
+                          tickFormatter={(value: any) => formatPeso(Number(value || 0))}
+                        />
+                        <Tooltip
+                          contentStyle={chartTooltipStyle}
+                          labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                          formatter={(value: any) => [`- ${formatPeso(Number(value || 0))}`, 'Total Loss']}
+                        />
+                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
+                        <Line type="monotone" dataKey="loss" name="Total Loss" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 4, fill: '#ef4444' }} activeDot={{ r: 6 }} />
+                      </LineChart>
                     </ResponsiveContainer>
                   )}
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
                   <CardTitle>Returned or Damaged Products Report</CardTitle>
@@ -1125,8 +1644,9 @@ export function ReportsView() {
                         <th className="p-3 text-left">Replacement #</th>
                         <th className="p-3 text-left">Order #</th>
                         <th className="p-3 text-left">Customer</th>
+                        <th className="p-3 text-left">Assigned Driver</th>
                         <th className="p-3 text-left">Status</th>
-                        <th className="p-3 text-left">Mode</th>
+                        <th className="p-3 text-left">Total Loss</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1135,8 +1655,9 @@ export function ReportsView() {
                           <td className="p-3 font-medium">{String(row.replacementNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.orderNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
+                          <td className="p-3">{String(row.assignedDriver || 'N/A')}</td>
                           <td className="p-3">{String(row.status || 'N/A')}</td>
-                          <td className="p-3">{String(row.replacementMode || 'N/A')}</td>
+                          <td className="p-3 font-semibold text-red-600">- {formatPeso(Number(row.totalLoss || 0))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1154,32 +1675,57 @@ export function ReportsView() {
               statusOptions: feedbackStatusOptions,
               statusValue: selectedFeedbackStatus,
               onStatusChange: setSelectedFeedbackStatus,
+              showStatus: false,
             })}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <Card><CardHeader><CardDescription>Total Feedback</CardDescription><CardTitle>{feedbackKpi.total}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Average Rating</CardDescription><CardTitle>{feedbackKpi.avgRating.toFixed(2)}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Open Items</CardDescription><CardTitle>{feedbackKpi.open}</CardTitle></CardHeader></Card>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Feedback</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Rating</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.avgRating.toFixed(2)}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Items</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.open}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Ratings Distribution</CardTitle>
+            <Card className={chartCardClassName}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Ratings Distribution</CardTitle>
                 <CardDescription>Client rating spread from 1 to 5</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-64 w-full">
+                <div className="h-72 w-full">
                   {feedbackRatingTotal === 0 ? (
                     <p className="py-8 text-center text-gray-500">No feedback rating data for this range</p>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={feedbackRatingChart}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="rating" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip formatter={(value: any) => [Number(value).toLocaleString(), 'Ratings']} />
-                        <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                          {feedbackRatingChart.map((entry, index) => (
-                            <Cell key={entry.rating} fill={reportChartPalette[index % reportChartPalette.length]} />
-                          ))}
+                      <BarChart data={feedbackRatingChart} margin={{ top: 15, right: 30, left: 0, bottom: 40 }}>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                        <XAxis
+                          dataKey="rating"
+                          tick={{ fontSize: 14, fill: '#64748b', fontWeight: 'bold' }}
+                          axisLine={false}
+                          tickLine={false}
+                          label={{ value: 'Star Rating', position: 'insideBottom', offset: -10, style: { fontSize: 12 } }}
+                        />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          cursor={false}
+                          contentStyle={chartTooltipStyle}
+                          labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                          formatter={(value: any) => [`${Number(value).toLocaleString()} ratings`, 'Count']}
+                        />
+                        <Bar dataKey="count" radius={[8, 8, 0, 0]} animationDuration={800} maxBarSize={42}>
+                          {feedbackRatingChart.map((entry) => {
+                            const rating = Number(entry.rating)
+                            let color = '#ef4444'
+                            if (rating === 5) color = '#22c55e'
+                            else if (rating === 4) color = '#3b82f6'
+                            else if (rating === 3) color = '#fbbf24'
+                            else if (rating === 2) color = '#f97316'
+                            return <Cell key={entry.rating} fill={color} />
+                          })}
+                          <LabelList
+                            dataKey="count"
+                            position="top"
+                            fill="#0f172a"
+                            fontSize={11}
+                            formatter={(value: any) => (Number(value) > 0 ? String(value) : '')}
+                          />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
@@ -1187,7 +1733,7 @@ export function ReportsView() {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
                   <CardTitle>Client Feedback & Service Evaluation Report</CardTitle>
@@ -1203,7 +1749,6 @@ export function ReportsView() {
                         <th className="p-3 text-left">Customer</th>
                         <th className="p-3 text-left">Type</th>
                         <th className="p-3 text-left">Rating</th>
-                        <th className="p-3 text-left">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1213,7 +1758,6 @@ export function ReportsView() {
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
                           <td className="p-3">{String(row.type || 'N/A')}</td>
                           <td className="p-3">{String(row.rating || 'N/A')}</td>
-                          <td className="p-3">{String(row.status || 'N/A')}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1228,3 +1772,6 @@ export function ReportsView() {
     </div>
   )
 }
+
+
+
