@@ -1,7 +1,6 @@
 ﻿'use client'
 
-import { useState } from 'react'
-import { toast } from 'sonner'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -33,15 +32,18 @@ export function CustomerHomeView({
   onOpenCart,
 }: CustomerHomeViewProps) {
   const [cardQtyByProductId, setCardQtyByProductId] = useState<Record<string, number>>({})
+  const [favoriteProductIds, setFavoriteProductIds] = useState<Record<string, true>>({})
   const totalUnits = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
   const estimatedTotal = cart.reduce(
     (sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0),
     0
   )
 
-  const getCardQty = (productId: string) => {
+  const getCardQty = (productId: string, maxQty?: number) => {
     const raw = Number(cardQtyByProductId[productId])
-    return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 24
+    const base = Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 24
+    const safeMaxQty = Number.isFinite(Number(maxQty)) && Number(maxQty) > 0 ? Math.floor(Number(maxQty)) : null
+    return safeMaxQty ? Math.min(base, safeMaxQty) : base
   }
 
   const setCardQty = (productId: string, next: number, maxQty: number) => {
@@ -49,6 +51,26 @@ export function CustomerHomeView({
     const safeNext = Number.isFinite(Number(next)) ? Math.floor(Number(next)) : 1
     const clamped = Math.max(1, Math.min(Math.max(1, safeMaxQty), safeNext))
     setCardQtyByProductId((prev) => ({ ...prev, [productId]: clamped }))
+  }
+
+  const sortedProducts = useMemo(() => {
+    return [...filteredProducts].sort((a, b) => {
+      const aFav = Boolean(a?.id && favoriteProductIds[a.id])
+      const bFav = Boolean(b?.id && favoriteProductIds[b.id])
+      if (aFav === bFav) return 0
+      return aFav ? -1 : 1
+    })
+  }, [filteredProducts, favoriteProductIds])
+
+  const toggleFavorite = (productId: string) => {
+    setFavoriteProductIds((prev) => {
+      if (prev[productId]) {
+        const next = { ...prev }
+        delete next[productId]
+        return next
+      }
+      return { ...prev, [productId]: true }
+    })
   }
 
   return (
@@ -85,7 +107,7 @@ export function CustomerHomeView({
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
-              {filteredProducts.map((p, index) => {
+              {sortedProducts.map((p, index) => {
                 const availableQty = p ? getAvailableQty(p) : 0
                 const sizeLabel = p
                   ? (Array.isArray(p.sizes) && p.sizes.length > 0 ? String(p.sizes[0]) : 'N/A')
@@ -93,7 +115,8 @@ export function CustomerHomeView({
                 const quantityPerUnit = p
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
                   : 0
-                const currentQty = p ? getCardQty(p.id) : 24
+                const currentQty = p ? getCardQty(p.id, availableQty) : 24
+                const isFavorite = Boolean(p?.id && favoriteProductIds[p.id])
 
                 return (
                   <Card
@@ -101,14 +124,22 @@ export function CustomerHomeView({
                     className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_8px_20px_rgba(16,24,40,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(16,24,40,0.12)] md:rounded-2xl"
                   >
                     <CardContent className="p-1 md:p-6">
+                      <div className="mb-1 flex justify-end md:mb-2">
+                        <button
+                          type="button"
+                          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                          onClick={() => p?.id && toggleFavorite(p.id)}
+                          className={`rounded-full p-1 transition-colors ${
+                            isFavorite
+                              ? 'text-rose-500 hover:text-rose-600'
+                              : 'text-slate-400 hover:text-emerald-600'
+                          }`}
+                        >
+                          <Heart className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />
+                        </button>
+                      </div>
                       <div className="flex gap-1.5 md:gap-5">
                         <div className="relative w-[42%] shrink-0 rounded-lg bg-[#f3f8f3] p-0.5 md:rounded-xl md:p-3">
-                          <button
-                            type="button"
-                            className="absolute right-2 top-2 text-slate-400 hover:text-emerald-600"
-                          >
-                            <Heart className="h-4 w-4" />
-                          </button>
                           {p?.imageUrl ? (
                             <img
                               src={getProductImage(p.imageUrl)}
@@ -165,18 +196,14 @@ export function CustomerHomeView({
                             const parsed = Number(qty)
                             const isActive = currentQty === parsed
                             const exceedsAvailable = parsed > Math.max(0, Number(availableQty || 0))
+                            const isDisabledPreset = !p || availableQty <= 0 || exceedsAvailable
                             return (
                               <button
                                 type="button"
                                 key={qty}
-                                disabled={!p || availableQty <= 0}
+                                disabled={isDisabledPreset}
                                 onClick={() => {
-                                  if (!p) return
-                                  if (exceedsAvailable) {
-                                    setCardQty(p.id, availableQty, availableQty)
-                                    toast.message(`Only ${availableQty} available`)
-                                    return
-                                  }
+                                  if (!p || isDisabledPreset) return
                                   setCardQty(p.id, parsed, availableQty)
                                 }}
                                 className={`pointer-events-auto rounded px-0.5 py-1 text-center text-[10px] font-medium md:text-[11px] ${
@@ -186,7 +213,7 @@ export function CustomerHomeView({
                                       ? 'bg-slate-100 text-slate-400'
                                       : 'bg-slate-100 text-slate-600'
                                 } disabled:cursor-not-allowed disabled:opacity-50`}
-                                title={exceedsAvailable ? `Sets to max available (${availableQty})` : undefined}
+                                title={exceedsAvailable ? `Not enough stock (only ${availableQty} available)` : undefined}
                               >
                                 {qty}
                               </button>

@@ -15,6 +15,7 @@ export function WarehouseDashboardView({
   assignedWarehouse,
   scopedInventory,
   lowStockCount,
+  pendingReplacementCases,
   warehouseOrdersChartConfig,
   weeklyTrendData,
   transactionDateFrom,
@@ -250,6 +251,51 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="rounded-2xl border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-orange-500" />
+            Low Stock Alerts
+          </CardTitle>
+          <CardDescription>Items that need restocking soon</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">{lowStockCount || 0}</h1>
+                <p className="text-sm text-gray-500">Items currently below threshold</p>
+              </div>
+              <Badge variant={Number(lowStockCount || 0) > 0 ? 'destructive' : 'secondary'}>
+                {Number(lowStockCount || 0) > 0 ? 'Needs Action' : 'Stable'}
+              </Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Pending Replacements
+          </CardTitle>
+          <CardDescription>Replacement cases awaiting driver follow-up</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between py-2 border-b last:border-0">
+              <div>
+                <p className="font-medium">{pendingReplacementCases || 0} pending replacement case(s)</p>
+                <p className="text-sm text-gray-500">Awaiting driver follow-up or closure</p>
+              </div>
+              <Badge variant={Number(pendingReplacementCases || 0) > 0 ? 'secondary' : 'outline'}>
+                {Number(pendingReplacementCases || 0) > 0 ? 'Pending' : 'Clear'}
+              </Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* KPI Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

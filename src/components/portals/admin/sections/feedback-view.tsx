@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
@@ -14,7 +13,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -41,6 +39,7 @@ import {
   withinRange,
   getWarehouseIdFromRow,
   formatRoleLabel,
+  fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
 
@@ -55,21 +54,32 @@ const AddressMapPicker = dynamic(
 
 export function FeedbackView() {
   const [feedbacks, setFeedbacks] = useState<any[]>([])
+  const [orders, setOrders] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [ratingFilter, setRatingFilter] = useState('all')
-  const [respondingItem, setRespondingItem] = useState<any | null>(null)
-  const [responseText, setResponseText] = useState('')
-  const [isResponding, setIsResponding] = useState(false)
 
   useEffect(() => {
     async function fetchFeedbacks() {
       try {
-        const response = await fetch('/api/feedback?limit=200')
-        if (response.ok) {
-          const data = await response.json()
-          setFeedbacks(getCollection(data, ['feedbacks']))
-        }
+        const [feedbackResult, ordersResult] = await Promise.all([
+          fetchAllPaginatedCollection<any>(
+            '/api/feedback',
+            'feedbacks',
+            { cache: 'no-store' },
+            { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+          ),
+          fetchAllPaginatedCollection<any>(
+            '/api/orders?includeItems=none',
+            'orders',
+            { cache: 'no-store' },
+            { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+          ),
+        ])
+
+        setFeedbacks(feedbackResult.ok ? getCollection<any>(feedbackResult.data, ['feedbacks']) : [])
+
+        setOrders(ordersResult.ok ? getCollection<any>(ordersResult.data, ['orders']) : [])
       } catch (error) {
         console.error('Failed to fetch feedback:', error)
       } finally {
@@ -79,16 +89,32 @@ export function FeedbackView() {
     fetchFeedbacks()
   }, [])
 
-  const rated = feedbacks.filter((item) => typeof item.rating === 'number' && item.rating > 0)
+  const deliveredOrderIds = new Set(
+    orders
+      .filter((order) => {
+        const orderStatus = String(order?.status || '').toUpperCase()
+        const deliveryStatus = String(order?.deliveryStatus || '').toUpperCase()
+        return orderStatus === 'DELIVERED' || deliveryStatus === 'DELIVERED'
+      })
+      .map((order) => String(order?.id || '').trim())
+      .filter(Boolean)
+  )
+  const feedbackOrderIds = new Set(
+    feedbacks
+      .map((item) => String(item?.orderId || item?.order_id || item?.order?.id || '').trim())
+      .filter((id) => id && deliveredOrderIds.has(id))
+  )
+  const responseRate = deliveredOrderIds.size > 0
+    ? Math.round((feedbackOrderIds.size / deliveredOrderIds.size) * 100)
+    : 0
+  const deliveredFeedbacks = feedbacks.filter((item) => {
+    const orderId = String(item?.orderId || item?.order_id || item?.order?.id || '').trim()
+    return orderId ? deliveredOrderIds.has(orderId) : true
+  })
+  const rated = deliveredFeedbacks.filter((item) => typeof item.rating === 'number' && item.rating > 0)
   const avgRating = rated.length > 0
     ? rated.reduce((sum, item) => sum + item.rating, 0) / rated.length
     : 0
-  const resolvedCount = feedbacks.filter((item) => ['RESOLVED', 'CLOSED'].includes(item.status)).length
-  const responseRate = feedbacks.length > 0 ? Math.round((resolvedCount / feedbacks.length) * 100) : 0
-  const promoters = rated.filter((item) => item.rating >= 4).length
-  const detractors = rated.filter((item) => item.rating <= 2).length
-  const npsScore = rated.length > 0 ? Math.round(((promoters - detractors) / rated.length) * 100) : 0
-
   const ratingDistribution = [5, 4, 3, 2, 1].map((score) => ({
     label: `${score} Star${score > 1 ? 's' : ''}`,
     value: rated.filter((item) => item.rating === score).length,
@@ -128,14 +154,6 @@ export function FeedbackView() {
     })
   }, [rated])
 
-  const detectCategory = (item: any) => {
-    const text = `${item.subject || ''} ${item.message || ''}`.toLowerCase()
-    if (text.includes('price') || text.includes('cost') || text.includes('expensive')) return 'Pricing'
-    if (text.includes('service') || text.includes('support') || text.includes('staff')) return 'Customer Service'
-    if (text.includes('quality') || text.includes('damaged') || text.includes('dent') || text.includes('broken')) return 'Product Quality'
-    return 'Delivery'
-  }
-
   const filteredFeedbacks = feedbacks.filter((item) => {
     const search = searchTerm.trim().toLowerCase()
     const matchesSearch =
@@ -160,46 +178,6 @@ export function FeedbackView() {
     )
   }
 
-  const submitResponse = async () => {
-    if (!respondingItem?.id) return
-    if (!responseText.trim()) {
-      toast.error('Response is required')
-      return
-    }
-
-    setIsResponding(true)
-    try {
-      const response = await fetch('/api/feedback', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: respondingItem.id,
-          response: responseText.trim(),
-          status: 'RESOLVED',
-        }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to respond')
-      }
-
-      setFeedbacks((prev) =>
-        prev.map((item) =>
-          item.id === respondingItem.id
-            ? { ...item, status: 'RESOLVED', response: responseText.trim(), respondedAt: new Date().toISOString() }
-            : item
-        )
-      )
-      toast.success('Response submitted')
-      setRespondingItem(null)
-      setResponseText('')
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to submit response')
-    } finally {
-      setIsResponding(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div>
@@ -209,7 +187,7 @@ export function FeedbackView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -245,19 +223,6 @@ export function FeedbackView() {
               <div>
                 <p className="text-sm text-gray-500">Response Rate</p>
                 <p className="text-3xl font-bold">{responseRate}%</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-md bg-purple-50 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">NPS Score</p>
-                <p className="text-3xl font-bold">{npsScore}</p>
               </div>
             </div>
           </CardContent>
@@ -355,11 +320,28 @@ export function FeedbackView() {
             </div>
           ) : (
             filteredFeedbacks.map((item: any) => {
-              const isResolved = ['RESOLVED', 'CLOSED'].includes(item.status)
-              const category = detectCategory(item)
+              const feedbackOrderId = String(item?.orderId || item?.order_id || item?.order?.id || '').trim()
+              const feedbackOrderNumber = String(item?.order?.orderNumber || item?.orderNumber || '').trim()
+              const matchedOrder = orders.find((order) => {
+                const orderId = String(order?.id || '').trim()
+                const orderNumber = String(order?.orderNumber || '').trim()
+                return (feedbackOrderId && orderId === feedbackOrderId) || (feedbackOrderNumber && orderNumber === feedbackOrderNumber)
+              }) || null
+              const assignedDriverName =
+                matchedOrder?.progress?.trip?.driver?.user?.name ||
+                matchedOrder?.progress?.trip?.driver?.name ||
+                matchedOrder?.assignedDriverName ||
+                matchedOrder?.driverName ||
+                item?.order?.driver?.name ||
+                item?.order?.assignedDriver?.name ||
+                item?.order?.assignedDriverName ||
+                item?.order?.driverName ||
+                item?.order?.trip?.driver?.name ||
+                item?.trip?.driver?.name ||
+                null
               return (
                 <div key={item.id} className="rounded-xl border p-4">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4">
                     <div className="flex items-start gap-3">
                       <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
                         <MessageSquare className="h-5 w-5 text-blue-600" />
@@ -372,60 +354,20 @@ export function FeedbackView() {
                         </div>
                       </div>
                     </div>
-                    <Badge className={isResolved ? 'bg-green-100 text-green-700 hover:bg-green-100' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-100'}>
-                      {isResolved ? 'Resolved' : 'Pending'}
-                    </Badge>
                   </div>
                   <div className="mt-3">
-                    <Badge variant="outline">{category}</Badge>
+                    <Badge variant="outline">Delivery</Badge>
                   </div>
+                  <p className="mt-2 text-sm text-gray-600">
+                    Assigned Driver: {assignedDriverName || 'Unassigned'}
+                  </p>
                   <p className="mt-3 text-xl leading-normal">{item.message || item.subject || 'No message'}</p>
-                  {item.response ? (
-                    <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm">
-                      <span className="font-semibold">Response:</span> {item.response}
-                    </div>
-                  ) : (
-                    <div className="mt-3">
-                      <Button onClick={() => { setRespondingItem(item); setResponseText('') }}>Respond</Button>
-                    </div>
-                  )}
                 </div>
               )
             })
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={!!respondingItem} onOpenChange={(open) => !open && setRespondingItem(null)}>
-        <DialogContent>
-          {respondingItem && (
-            <>
-              <DialogHeader>
-                <DialogTitle>Respond to Feedback</DialogTitle>
-                <DialogDescription>Customer: {respondingItem.customer?.name || 'N/A'} • {respondingItem.order?.orderNumber || 'N/A'}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-gray-700">Response</label>
-                <textarea
-                  className="w-full min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="Type your response..."
-                  value={responseText}
-                  onChange={(e) => setResponseText(e.target.value)}
-                />
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setRespondingItem(null)}>
-                    Cancel
-                  </Button>
-                  <Button className="flex-1" onClick={submitResponse} disabled={isResponding}>
-                    {isResponding ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                    Send Response
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -231,6 +231,7 @@ function getDestinationMarkerIcon(color: 'green' | 'blue') {
 interface RoutePoint {
   latitude: number
   longitude: number
+  recordedAt?: string
 }
 
 interface DriverRouteMapProps {
@@ -318,6 +319,19 @@ function dedupeLatLngPoints(points: [number, number][]) {
     const previous = list[index - 1]
     return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001)
   })
+}
+
+function distanceMeters(a: [number, number], b: [number, number]) {
+  const toRad = (value: number) => (value * Math.PI) / 180
+  const lat1 = toRad(a[0])
+  const lat2 = toRad(b[0])
+  const dLat = toRad(b[0] - a[0])
+  const dLng = toRad(b[1] - a[1])
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+  return 6371000 * c
 }
 
 function RouteViewport({ points }: { points: [number, number][] }) {
@@ -466,9 +480,44 @@ export function DriverRouteMap({
     }
   }, [])
 
-  const historyPoints = routePoints
-    .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
-    .map((point) => [Number(point.latitude), Number(point.longitude)] as [number, number])
+  const historyPoints = useMemo(() => {
+    const currentPoint: [number, number] = [Number(latitude), Number(longitude)]
+    const ordered = [...routePoints]
+      .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
+      .sort((left, right) => {
+        const l = left?.recordedAt ? Date.parse(left.recordedAt) : Number.NaN
+        const r = right?.recordedAt ? Date.parse(right.recordedAt) : Number.NaN
+        if (Number.isFinite(l) && Number.isFinite(r)) return l - r
+        if (Number.isFinite(l)) return -1
+        if (Number.isFinite(r)) return 1
+        return 0
+      })
+      .map((point) => [Number(point.latitude), Number(point.longitude)] as [number, number])
+
+    const points = dedupeLatLngPoints(ordered)
+    const last = points[points.length - 1]
+    if (!last || Math.abs(last[0] - currentPoint[0]) > 1e-6 || Math.abs(last[1] - currentPoint[1]) > 1e-6) {
+      points.push(currentPoint)
+    }
+
+    if (points.length <= 1) return points
+
+    // Keep only the latest continuous segment near the driver's current position.
+    // This prevents very long traces caused by stale or unrelated historical points.
+    const contiguousTail: [number, number][] = [points[points.length - 1]]
+    const MAX_STEP_METERS = 2500
+    for (let index = points.length - 2; index >= 0; index -= 1) {
+      const candidate = points[index]
+      const anchor = contiguousTail[0]
+      if (distanceMeters(candidate, anchor) > MAX_STEP_METERS) break
+      contiguousTail.unshift(candidate)
+    }
+
+    const MAX_TAIL_POINTS = 40
+    return contiguousTail.length > MAX_TAIL_POINTS
+      ? contiguousTail.slice(contiguousTail.length - MAX_TAIL_POINTS)
+      : contiguousTail
+  }, [routePoints, latitude, longitude])
 
   const completedFallbackPoints = (() => {
     const currentPoint: [number, number] = [Number(latitude), Number(longitude)]
@@ -476,12 +525,7 @@ export function DriverRouteMap({
       return [[Number(warehouseLatitude), Number(warehouseLongitude)] as [number, number], currentPoint]
     }
     if (historyPoints.length > 0) {
-      const points = [...historyPoints]
-      const last = points[points.length - 1]
-      if (!last || Math.abs(last[0] - currentPoint[0]) > 1e-6 || Math.abs(last[1] - currentPoint[1]) > 1e-6) {
-        points.push(currentPoint)
-      }
-      return points
+      return [...historyPoints]
     }
     return [] as [number, number][]
   })()

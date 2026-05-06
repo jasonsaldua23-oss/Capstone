@@ -67,6 +67,21 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
     }
   }, [])
 
+  const clearAllNotifications = useCallback(async () => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'DELETE',
+      })
+      if (!response.ok) return false
+      setNotifications([])
+      setUnreadNotifications(0)
+      return true
+    } catch (error) {
+      console.error('Failed to clear notifications:', error)
+      return false
+    }
+  }, [])
+
   const handleNotificationsOpen = useCallback(async (open: boolean) => {
     if (!open) return
     await fetchNotifications()
@@ -99,6 +114,7 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
     notificationsLoading,
     unreadNotifications,
     handleNotificationsOpen,
+    clearAllNotifications,
     formatNotificationTime,
     handleLogout,
   }

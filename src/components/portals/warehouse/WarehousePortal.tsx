@@ -51,6 +51,7 @@ import {
   Pencil,
   Eye,
   CircleCheck,
+  EyeOff,
   Trash2
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
@@ -425,11 +426,6 @@ export function WarehousePortal() {
     setActiveView,
     sidebarOpen,
     setSidebarOpen,
-    notifications,
-    notificationsLoading,
-    unreadNotifications,
-    handleNotificationsOpen,
-    formatNotificationTime,
     handleLogout,
   } = useWarehousePortalLayoutState({ logout })
   const [inventory, setInventory] = useState<InventoryItem[]>([])
@@ -502,6 +498,21 @@ export function WarehousePortal() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [profileOtp, setProfileOtp] = useState('')
+  const [profileOtpSent, setProfileOtpSent] = useState(false)
+  const [profileOtpVerified, setProfileOtpVerified] = useState(false)
+  const [profileOtpToken, setProfileOtpToken] = useState('')
+  const [isSendingProfileOtp, setIsSendingProfileOtp] = useState(false)
+  const [isVerifyingProfileOtp, setIsVerifyingProfileOtp] = useState(false)
+  const [passwordOtp, setPasswordOtp] = useState('')
+  const [passwordOtpSent, setPasswordOtpSent] = useState(false)
+  const [passwordOtpVerified, setPasswordOtpVerified] = useState(false)
+  const [passwordOtpToken, setPasswordOtpToken] = useState('')
+  const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
+  const [isVerifyingPasswordOtp, setIsVerifyingPasswordOtp] = useState(false)
 
   const getItemThreshold = (item: InventoryItem | null | undefined) =>
     Math.max(
@@ -536,6 +547,90 @@ export function WarehousePortal() {
     setConfirmPassword('')
   }, [user])
 
+  const accountEmail = String((user as any)?.email || '').trim().toLowerCase()
+  const accountRoleId = String((user as any)?.role || '').trim().toUpperCase()
+  const normalizedProfileEmail = profileEmail.trim().toLowerCase()
+  const isProfileEmailChanged = normalizedProfileEmail !== accountEmail
+
+  const requestOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
+    const emailToVerify = targetEmail.trim().toLowerCase()
+    if (!emailToVerify) {
+      toast.error('Email is required')
+      return
+    }
+    if (kind === 'profile') setIsSendingProfileOtp(true)
+    else setIsSendingPasswordOtp(true)
+    try {
+      const response = await fetch('/api/auth/email-verification/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailToVerify, accountType: 'staff', roleId: accountRoleId }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to send OTP')
+      }
+      if (kind === 'profile') {
+        setProfileOtpSent(true)
+        setProfileOtpVerified(false)
+        setProfileOtpToken('')
+        setProfileOtp('')
+      } else {
+        setPasswordOtpSent(true)
+        setPasswordOtpVerified(false)
+        setPasswordOtpToken('')
+        setPasswordOtp('')
+      }
+      toast.success('OTP sent')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to send OTP')
+    } finally {
+      if (kind === 'profile') setIsSendingProfileOtp(false)
+      else setIsSendingPasswordOtp(false)
+    }
+  }
+
+  const verifyOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
+    const emailToVerify = targetEmail.trim().toLowerCase()
+    const otp = (kind === 'profile' ? profileOtp : passwordOtp).trim()
+    if (!emailToVerify) {
+      toast.error('Email is required')
+      return
+    }
+    if (!otp) {
+      toast.error('Enter OTP first')
+      return
+    }
+    if (kind === 'profile') setIsVerifyingProfileOtp(true)
+    else setIsVerifyingPasswordOtp(true)
+    try {
+      const response = await fetch('/api/auth/email-verification/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailToVerify, accountType: 'staff', otp }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to verify OTP')
+      }
+      const token = String(payload?.verificationToken || '').trim()
+      if (!token) throw new Error('Missing verification token')
+      if (kind === 'profile') {
+        setProfileOtpVerified(true)
+        setProfileOtpToken(token)
+      } else {
+        setPasswordOtpVerified(true)
+        setPasswordOtpToken(token)
+      }
+      toast.success('OTP verified')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to verify OTP')
+    } finally {
+      if (kind === 'profile') setIsVerifyingProfileOtp(false)
+      else setIsVerifyingPasswordOtp(false)
+    }
+  }
+
   const saveProfileSettings = async () => {
     const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
     if (!userId) {
@@ -546,21 +641,9 @@ export function WarehousePortal() {
       toast.error('Name and email are required')
       return
     }
-    const hasPasswordInput = newPassword.trim().length > 0 || confirmPassword.trim().length > 0
-    if (hasPasswordInput) {
-      if (!newPassword.trim()) {
-        toast.error('New password is required')
-        return
-      }
-      if (newPassword !== confirmPassword) {
-        toast.error('Passwords do not match')
-        return
-      }
-      const passwordError = validatePasswordPolicy(newPassword)
-      if (passwordError) {
-        toast.error(passwordError)
-        return
-      }
+    if (isProfileEmailChanged && !profileOtpVerified) {
+      toast.error('Verify OTP for the new email before saving')
+      return
     }
 
     setIsSavingProfile(true)
@@ -572,7 +655,7 @@ export function WarehousePortal() {
           name: profileName.trim(),
           email: profileEmail.trim(),
           phone: profilePhone.trim() || null,
-          password: hasPasswordInput ? newPassword : undefined,
+          emailVerificationToken: isProfileEmailChanged ? profileOtpToken : undefined,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -587,13 +670,70 @@ export function WarehousePortal() {
         email: nextUser.email ?? profileEmail.trim(),
         phone: nextUser.phone ?? (profilePhone.trim() || ''),
       }))
-      setNewPassword('')
-      setConfirmPassword('')
+      if (isProfileEmailChanged) {
+        setProfileOtpSent(false)
+        setProfileOtpVerified(false)
+        setProfileOtpToken('')
+        setProfileOtp('')
+      }
       toast.success('Profile updated')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update profile')
     } finally {
       setIsSavingProfile(false)
+    }
+  }
+
+  const updateProfilePassword = async () => {
+    const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
+    if (!userId) {
+      toast.error('Unable to resolve account ID')
+      return
+    }
+    if (!newPassword.trim()) {
+      toast.error('New password is required')
+      return
+    }
+    if (!confirmPassword.trim()) {
+      toast.error('Confirm your new password')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match')
+      return
+    }
+    const passwordError = validatePasswordPolicy(newPassword)
+    if (passwordError) {
+      toast.error(passwordError)
+      return
+    }
+    if (!passwordOtpVerified) {
+      toast.error('Verify OTP before updating password')
+      return
+    }
+
+    setIsUpdatingPassword(true)
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: newPassword, emailVerificationToken: passwordOtpToken }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to update password')
+      }
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordOtp('')
+      setPasswordOtpSent(false)
+      setPasswordOtpVerified(false)
+      setPasswordOtpToken('')
+      toast.success('Password updated')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update password')
+    } finally {
+      setIsUpdatingPassword(false)
     }
   }
 
@@ -1959,6 +2099,15 @@ export function WarehousePortal() {
     return fallbackCity || 'N/A'
   }
 
+  const parseApiErrorMessage = (response: Response, payload: any, fallback: string) => {
+    const fromPayload =
+      String(payload?.error || '').trim() ||
+      String(payload?.message || '').trim() ||
+      String(payload?.detail || '').trim()
+    if (fromPayload) return fromPayload
+    return `${fallback} (HTTP ${response.status})`
+  }
+
   const createTripFromRoute = async () => {
     if (!selectedSavedRoute || !selectedRouteDriverId) {
       toast.error('Select a saved route and driver first')
@@ -1986,9 +2135,16 @@ export function WarehousePortal() {
           orderIds: selectedSavedRoute.orderIds,
         }),
       })
-      const data = await response.json().catch(() => ({}))
+      const raw = await response.text()
+      const data = (() => {
+        try {
+          return raw ? JSON.parse(raw) : {}
+        } catch {
+          return {}
+        }
+      })()
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to create trip')
+        throw new Error(parseApiErrorMessage(response, data, 'Failed to create trip'))
       }
       toast.success('Trip created from route')
       const createdTrip = data?.trip
@@ -2072,9 +2228,16 @@ export function WarehousePortal() {
           orderIds: selectedRouteOrderIds,
         }),
       })
-      const data = await response.json().catch(() => ({}))
+      const raw = await response.text()
+      const data = (() => {
+        try {
+          return raw ? JSON.parse(raw) : {}
+        } catch {
+          return {}
+        }
+      })()
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to create trip')
+        throw new Error(parseApiErrorMessage(response, data, 'Failed to create trip'))
       }
 
       const createdTrip = data?.trip
@@ -2842,11 +3005,6 @@ export function WarehousePortal() {
 
       <div className="relative z-[1] flex min-h-screen flex-1 flex-col lg:pl-64">
         <WarehouseHeader
-          unreadNotifications={unreadNotifications}
-          notificationsLoading={notificationsLoading}
-          notifications={notifications}
-          onNotificationsOpen={(open) => { void handleNotificationsOpen(open) }}
-          formatNotificationTime={formatNotificationTime}
           userName={String(user?.name || '')}
           userEmail={String(user?.email || '')}
           onOpenSidebar={() => setSidebarOpen(true)}
@@ -2881,6 +3039,7 @@ export function WarehousePortal() {
               assignedWarehouse={assignedWarehouse}
               scopedInventory={scopedInventory}
               lowStockCount={lowStockCount}
+              pendingReplacementCases={replacementSummary.needsFollowUp}
               warehouseOrdersChartConfig={warehouseOrdersChartConfig}
               weeklyTrendData={weeklyTrendData}
               transactionDateFrom={transactionDateFrom}
@@ -3032,51 +3191,115 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'settings' && (
-            <Card className="max-w-2xl">
-              <CardHeader>
-                <CardTitle>Profile Settings</CardTitle>
-                <CardDescription>Edit your warehouse account information.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-1">
-                  <Label htmlFor="warehouse-profile-name">Full Name</Label>
-                  <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="warehouse-profile-email">Email</Label>
-                  <Input id="warehouse-profile-email" type="email" value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="warehouse-profile-phone">Phone</Label>
-                  <Input id="warehouse-profile-phone" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="warehouse-profile-new-password">New Password</Label>
-                  <Input
-                    id="warehouse-profile-new-password"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Leave blank to keep current password"
-                  />
-                  <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="warehouse-profile-confirm-password">Confirm New Password</Label>
-                  <Input
-                    id="warehouse-profile-confirm-password"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter new password"
-                  />
-                </div>
-                <Button onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
-                  {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Save Changes
-                </Button>
-              </CardContent>
-            </Card>
+            <div className="mx-auto w-full max-w-4xl space-y-4 px-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Profile Settings</CardTitle>
+                  <CardDescription>Edit your warehouse account information.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="warehouse-profile-name">Full Name</Label>
+                    <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="warehouse-profile-email">Email</Label>
+                    <Input
+                      id="warehouse-profile-email"
+                      type="email"
+                      value={profileEmail}
+                      onChange={(e) => {
+                        setProfileEmail(e.target.value)
+                        setProfileOtpSent(false)
+                        setProfileOtpVerified(false)
+                        setProfileOtpToken('')
+                        setProfileOtp('')
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="warehouse-profile-phone">Phone</Label>
+                    <Input id="warehouse-profile-phone" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} />
+                  </div>
+                  {isProfileEmailChanged ? (
+                    <div className="space-y-2 rounded-md border p-3">
+                      <p className="text-xs text-gray-600">OTP is required to change email.</p>
+                      <div className="flex gap-2">
+                        <Input value={profileOtp} onChange={(e) => setProfileOtp(e.target.value)} placeholder="Enter OTP" />
+                        <Button type="button" variant="outline" onClick={() => void requestOtp(normalizedProfileEmail, 'profile')} disabled={isSendingProfileOtp}>
+                          {isSendingProfileOtp ? 'Sending...' : profileOtpSent ? 'Resend OTP' : 'Send OTP'}
+                        </Button>
+                        <Button type="button" onClick={() => void verifyOtp(normalizedProfileEmail, 'profile')} disabled={isVerifyingProfileOtp || !profileOtp.trim()}>
+                          {isVerifyingProfileOtp ? 'Verifying...' : 'Verify OTP'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <Button onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
+                    {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Save Profile
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Change Password</CardTitle>
+                  <CardDescription>Update your account password separately.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="warehouse-profile-new-password">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="warehouse-profile-new-password"
+                        type={showNewPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Enter new password"
+                      />
+                      <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowNewPassword((v) => !v)} aria-label={showNewPassword ? 'Hide password' : 'Show password'}>
+                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="warehouse-profile-confirm-password">Confirm New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="warehouse-profile-confirm-password"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter new password"
+                      />
+                      <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowConfirmPassword((v) => !v)} aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}>
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 rounded-md border p-3">
+                    <p className="text-xs text-gray-600">OTP is required to change password.</p>
+                    <div className="flex gap-2">
+                      <Input value={passwordOtp} onChange={(e) => setPasswordOtp(e.target.value)} placeholder="Enter OTP" />
+                      <Button type="button" variant="outline" onClick={() => void requestOtp(accountEmail, 'password')} disabled={isSendingPasswordOtp}>
+                        {isSendingPasswordOtp ? 'Sending...' : passwordOtpSent ? 'Resend OTP' : 'Send OTP'}
+                      </Button>
+                      <Button type="button" onClick={() => void verifyOtp(accountEmail, 'password')} disabled={isVerifyingPasswordOtp || !passwordOtp.trim()}>
+                        {isVerifyingPasswordOtp ? 'Verifying...' : 'Verify OTP'}
+                      </Button>
+                    </div>
+                  </div>
+                  <Button onClick={() => void updateProfilePassword()} disabled={isUpdatingPassword}>
+                    {isUpdatingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Update Password
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
             </>
@@ -3514,12 +3737,25 @@ export function WarehousePortal() {
                           <p className="mt-1 text-sm text-slate-600">No scheduled orders found for this trip date.</p>
                         ) : (
                           <div className="mt-1 space-y-1">
-                            {scheduledOrders.map((order: any) => (
-                              <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
-                                <span>{String(order.orderNumber || order.id || 'Order')}</span>
-                                <span className="text-xs uppercase text-slate-500">{String(order.status || 'N/A').replace(/_/g, ' ')}</span>
-                              </div>
-                            ))}
+                            {scheduledOrders.map((order: any) => {
+                              const rawStatus = String(order.status || 'N/A').toUpperCase()
+                              const rawScheduleDate = String(order.deliveryDate || order.timeline?.deliveryDate || '').trim()
+                              const parsedScheduleDate = rawScheduleDate ? new Date(rawScheduleDate) : null
+                              const hasValidScheduleDate = Boolean(parsedScheduleDate && !Number.isNaN(parsedScheduleDate.getTime()))
+                              const scheduleLabel = hasValidScheduleDate
+                                ? parsedScheduleDate!.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                : null
+
+                              return (
+                                <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
+                                  <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                  <span className="text-xs uppercase text-slate-500">
+                                    {rawStatus.replace(/_/g, ' ')}
+                                    {rawStatus === 'RESCHEDULED' && scheduleLabel ? ` • ${scheduleLabel}` : ''}
+                                  </span>
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
                       </div>

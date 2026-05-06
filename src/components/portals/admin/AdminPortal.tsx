@@ -414,6 +414,44 @@ export function AdminPortal() {
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
 
+  const isPriorityNotification = (item: PortalNotification) => {
+    const title = String(item?.title || '').toLowerCase()
+    const message = String(item?.message || '').toLowerCase()
+    const refType = String(item?.type || '').toLowerCase()
+    const text = `${title} ${message} ${refType}`
+    const isOrderOps =
+      text.includes('new order') ||
+      text.includes('order created') ||
+      text.includes('placed order') ||
+      text.includes('order status updated') ||
+      text.includes('warehouse stage updated') ||
+      refType === 'order'
+    const isTripOps =
+      text.includes('trip created') ||
+      text.includes('trip started') ||
+      text.includes('started trip') ||
+      text.includes('trip in progress') ||
+      text.includes('active trip') ||
+      refType === 'trip'
+    const isInventory =
+      text.includes('inventory') ||
+      text.includes('stock') ||
+      text.includes('restock') ||
+      text.includes('low stock') ||
+      refType === 'inventory' ||
+      refType === 'stock_batch'
+    return isOrderOps || isTripOps || isInventory
+  }
+
+  const filteredNotifications = useMemo(
+    () => notifications.filter(isPriorityNotification),
+    [notifications]
+  )
+  const unreadFilteredNotifications = useMemo(
+    () => filteredNotifications.filter((item) => !item.isRead).length,
+    [filteredNotifications]
+  )
+
   useEffect(() => {
     async function fetchDashboardStats() {
       try {
@@ -472,6 +510,19 @@ export function AdminPortal() {
       setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })))
     } catch (error) {
       console.error('Failed to mark notifications as read:', error)
+    }
+  }
+
+  const clearAllNotifications = async () => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'DELETE',
+      })
+      if (!response.ok) return
+      setUnreadNotifications(0)
+      setNotifications([])
+    } catch (error) {
+      console.error('Failed to clear notifications:', error)
     }
   }
 
@@ -687,25 +738,39 @@ export function AdminPortal() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Bell className="h-5 w-5" />
-                    {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>}
+                    {unreadFilteredNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80">
-                  <div className="px-2 py-1.5 text-sm font-medium">Notifications</div>
+                <DropdownMenuContent align="end" className="w-[26rem] p-0">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <div className="text-sm font-medium">Notifications</div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs text-red-600 hover:text-red-700"
+                      onClick={() => { void clearAllNotifications() }}
+                      disabled={notificationsLoading || filteredNotifications.length === 0}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
                   <DropdownMenuSeparator />
-                  {notificationsLoading ? (
-                    <div className="px-2 py-3 text-sm text-gray-500">Loading notifications...</div>
-                  ) : notifications.length === 0 ? (
-                    <div className="px-2 py-3 text-sm text-gray-500">No notifications yet.</div>
-                  ) : (
-                    notifications.slice(0, 8).map((item) => (
-                      <div key={item.id} className="px-2 py-2 border-b last:border-b-0">
-                        <p className="text-sm font-medium text-gray-900">{item.title}</p>
-                        <p className="text-xs text-gray-600">{item.message}</p>
-                        <p className="text-[11px] text-gray-500 mt-1">{formatNotificationTime(item.createdAt)}</p>
-                      </div>
-                    ))
-                  )}
+                  <div className="max-h-[26rem] overflow-y-auto">
+                    {notificationsLoading ? (
+                      <div className="px-3 py-3 text-sm text-gray-500">Loading notifications...</div>
+                    ) : filteredNotifications.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-gray-500">No notifications yet.</div>
+                    ) : (
+                      filteredNotifications.map((item) => (
+                        <div key={item.id} className="px-3 py-2 border-b last:border-b-0">
+                          <p className="text-sm font-medium text-gray-900">{item.title}</p>
+                          <p className="text-xs text-gray-600">{item.message}</p>
+                          <p className="text-[11px] text-gray-500 mt-1">{formatNotificationTime(item.createdAt)}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
 

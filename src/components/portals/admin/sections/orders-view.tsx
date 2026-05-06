@@ -74,6 +74,20 @@ export function OrdersView() {
   const latestOrderMarkerRef = useRef('')
   const latestOrderUpdatedAtRef = useRef('')
 
+  const getItemSizeLabel = (item: any): string => {
+    const fromProductSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes.filter(Boolean) : []
+    if (fromProductSizes.length > 0) return String(fromProductSizes[0])
+    const fromUnit = String(item?.product?.unit || item?.productUnit || '').trim()
+    return fromUnit
+  }
+
+  const formatOrderItemPreview = (item: any): string => {
+    const name = String(item?.product?.name || item?.productName || 'Product').trim()
+    const size = getItemSizeLabel(item)
+    const qty = Number(item?.quantity || 0)
+    return `${name}${size ? ` (${size})` : ''} x${qty}`
+  }
+
   useEffect(() => {
     let isMounted = true
     let isFetchingOrders = false
@@ -150,7 +164,7 @@ export function OrdersView() {
       isFetchingOrders = true
       try {
         const result = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=none',
+          '/api/orders?includeItems=preview',
           'orders',
           { cache: 'no-store' },
           { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
@@ -682,14 +696,11 @@ export function OrdersView() {
                         <p className="font-medium text-gray-900">
                           {toArray<any>(order.items)
                             .slice(0, 2)
-                            .map((item) => `${item.product?.name || 'Product'} x${item.quantity}`)
+                            .map((item) => formatOrderItemPreview(item))
                             .join(', ') || 'No items'}
                           {Number(order.itemCount || toArray<any>(order.items).length) > 2
                             ? ` +${Number(order.itemCount || toArray<any>(order.items).length) - 2} more`
                             : ''}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {order.priority === 'high' || order.priority === 'urgent' ? 'Express' : 'Standard'}
                         </p>
                       </td>
                       <td className="p-4">

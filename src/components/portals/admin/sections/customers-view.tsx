@@ -96,27 +96,40 @@ export function CustomersView() {
 
   const customerRows = useMemo(() => {
     const statsByCustomer = new Map<string, { orderCount: number; totalSpend: number; lastOrderNumber: string | null; lastOrderDate: string | null }>()
+    const lastOrderByCustomer = new Map<string, { lastOrderNumber: string | null; lastOrderDate: string | null }>()
     const ratingByCustomer = new Map<string, { sum: number; count: number }>()
     const deliveredOrderIds = new Set<string>()
 
     for (const order of orders) {
+      const customerId = String(order?.customerId || order?.customer_id || order?.customer?.id || '').trim()
+      if (!customerId) continue
+      const createdAtRaw = String(order?.createdAt || order?.created_at || '').trim() || null
+      const createdAt = createdAtRaw ? new Date(createdAtRaw) : null
+      const prevLast = lastOrderByCustomer.get(customerId) || { lastOrderNumber: null, lastOrderDate: null }
+      const prevLastDate = prevLast.lastOrderDate ? new Date(prevLast.lastOrderDate) : null
+      const isNewerLast = createdAt && !Number.isNaN(createdAt.getTime()) && (!prevLastDate || createdAt.getTime() > prevLastDate.getTime())
+      if (isNewerLast) {
+        lastOrderByCustomer.set(customerId, {
+          lastOrderNumber: order?.orderNumber || order?.order_number || prevLast.lastOrderNumber,
+          lastOrderDate: createdAtRaw || prevLast.lastOrderDate,
+        })
+      }
+
       const normalizedOrderStatus = String(order?.status || '').toUpperCase()
       const normalizedDeliveryStatus = String(order?.deliveryStatus || '').toUpperCase()
       const isSuccessfulDelivery = normalizedOrderStatus === 'DELIVERED' || normalizedDeliveryStatus === 'DELIVERED'
       if (!isSuccessfulDelivery) continue
       if (order?.id) deliveredOrderIds.add(String(order.id))
-      const customerId = String(order?.customerId || '')
-      if (!customerId) continue
       const prev = statsByCustomer.get(customerId) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
-      const createdAt = order?.createdAt ? new Date(order.createdAt) : null
+      const totalAmount = Number(order?.totalAmount ?? order?.total_amount ?? 0)
       const prevDate = prev.lastOrderDate ? new Date(prev.lastOrderDate) : null
       const isNewer = createdAt && !Number.isNaN(createdAt.getTime()) && (!prevDate || createdAt.getTime() > prevDate.getTime())
 
       statsByCustomer.set(customerId, {
         orderCount: prev.orderCount + 1,
-        totalSpend: prev.totalSpend + Number(order?.totalAmount || 0),
-        lastOrderNumber: isNewer ? (order?.orderNumber || prev.lastOrderNumber) : prev.lastOrderNumber,
-        lastOrderDate: isNewer ? (order?.createdAt || prev.lastOrderDate) : prev.lastOrderDate,
+        totalSpend: prev.totalSpend + (Number.isFinite(totalAmount) ? totalAmount : 0),
+        lastOrderNumber: isNewer ? (order?.orderNumber || order?.order_number || prev.lastOrderNumber) : prev.lastOrderNumber,
+        lastOrderDate: isNewer ? (createdAtRaw || prev.lastOrderDate) : prev.lastOrderDate,
       })
     }
 
@@ -134,14 +147,15 @@ export function CustomersView() {
 
     return customers.map((customer) => {
       const orderStats = statsByCustomer.get(customer.id) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
+      const lastOrderStats = lastOrderByCustomer.get(customer.id) || { lastOrderNumber: null, lastOrderDate: null }
       const feedbackStats = ratingByCustomer.get(customer.id) || { sum: 0, count: 0 }
       const rating = feedbackStats.count > 0 ? Number((feedbackStats.sum / feedbackStats.count).toFixed(1)) : null
       return {
         ...customer,
         orderCount: orderStats.orderCount,
         totalSpend: orderStats.totalSpend,
-        lastOrderNumber: orderStats.lastOrderNumber,
-        lastOrderDate: orderStats.lastOrderDate,
+        lastOrderNumber: lastOrderStats.lastOrderNumber,
+        lastOrderDate: lastOrderStats.lastOrderDate,
         rating,
         ratingCount: feedbackStats.count,
       }

@@ -39,6 +39,12 @@ export function CustomerLoginPage() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [isVerificationSending, setIsVerificationSending] = useState(false)
+  const [isVerificationConfirming, setIsVerificationConfirming] = useState(false)
+  const [emailVerificationRequested, setEmailVerificationRequested] = useState(false)
+  const [emailVerificationCode, setEmailVerificationCode] = useState('')
+  const [emailVerificationToken, setEmailVerificationToken] = useState('')
+  const [emailVerified, setEmailVerified] = useState(false)
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
   const googleContinueSection = googleClientId ? (
@@ -220,6 +226,10 @@ export function CustomerLoginPage() {
       toast.error('Passwords do not match.')
       return
     }
+    if (!emailVerified || !emailVerificationToken) {
+      toast.error('Please verify your email with OTP before creating your account.')
+      return
+    }
 
     setIsLoading(true)
 
@@ -231,6 +241,7 @@ export function CustomerLoginPage() {
           name,
           email,
           password,
+          emailVerificationToken,
         }),
       })
       const rawBody = await response.text()
@@ -258,6 +269,75 @@ export function CustomerLoginPage() {
       toast.error('Unable to reach registration service. Please check your connection and try again.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const requestEmailVerification = async () => {
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      toast.error('Enter your email first.')
+      return
+    }
+
+    setIsVerificationSending(true)
+    try {
+      const response = await fetch('/api/auth/email-verification/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, accountType: 'customer' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to send OTP')
+      }
+      setEmailVerificationRequested(true)
+      setEmailVerificationCode('')
+      setEmailVerificationToken('')
+      setEmailVerified(false)
+      toast.success('Verification code sent to your email.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to send OTP')
+    } finally {
+      setIsVerificationSending(false)
+    }
+  }
+
+  const confirmEmailVerification = async () => {
+    const normalizedEmail = email.trim().toLowerCase()
+    const otp = emailVerificationCode.trim()
+    if (!normalizedEmail) {
+      toast.error('Enter your email first.')
+      return
+    }
+    if (!otp) {
+      toast.error('Enter the OTP code first.')
+      return
+    }
+
+    setIsVerificationConfirming(true)
+    try {
+      const response = await fetch('/api/auth/email-verification/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, accountType: 'customer', otp }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to verify OTP')
+      }
+      const token = String(payload?.verificationToken || '').trim()
+      if (!token) {
+        throw new Error('Verification failed. Please try again.')
+      }
+      setEmailVerificationToken(token)
+      setEmailVerified(true)
+      toast.success('Email verified successfully.')
+    } catch (error: any) {
+      setEmailVerificationToken('')
+      setEmailVerified(false)
+      toast.error(error?.message || 'Failed to verify OTP')
+    } finally {
+      setIsVerificationConfirming(false)
     }
   }
 
@@ -350,8 +430,66 @@ export function CustomerLoginPage() {
                 </div>
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="reg-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email</Label>
-                  <Input id="reg-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base" />
+                  <Input
+                    id="reg-email"
+                    type="email"
+                    autoComplete="off"
+                    value={email}
+                    onChange={(e) => {
+                      const nextEmail = e.target.value
+                      setEmail(nextEmail)
+                      setEmailVerificationRequested(false)
+                      setEmailVerificationCode('')
+                      setEmailVerificationToken('')
+                      setEmailVerified(false)
+                    }}
+                    placeholder="Enter email"
+                    required
+                    className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={requestEmailVerification}
+                      disabled={isVerificationSending || isVerificationConfirming || isLoading}
+                      className="h-9 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-600"
+                    >
+                      {isVerificationSending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                      {emailVerificationRequested ? 'Resend OTP' : 'Send OTP'}
+                    </Button>
+                    {emailVerified ? <p className="text-xs font-medium text-emerald-700">Email verified</p> : null}
+                  </div>
                 </div>
+                {emailVerificationRequested ? (
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <Label htmlFor="reg-email-otp" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email OTP</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="reg-email-otp"
+                        autoComplete="off"
+                        value={emailVerificationCode}
+                        onChange={(e) => {
+                          setEmailVerificationCode(e.target.value)
+                          if (emailVerified) {
+                            setEmailVerified(false)
+                            setEmailVerificationToken('')
+                          }
+                        }}
+                        placeholder="Enter OTP"
+                        className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base"
+                      />
+                      <Button
+                        type="button"
+                        onClick={confirmEmailVerification}
+                        disabled={isVerificationConfirming || isVerificationSending || isLoading}
+                        className="h-10 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-500 sm:h-12"
+                      >
+                        {isVerificationConfirming && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                        Verify
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="reg-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
                   <div className="relative">

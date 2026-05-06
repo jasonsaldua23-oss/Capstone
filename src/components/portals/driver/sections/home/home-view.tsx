@@ -101,11 +101,17 @@ export function HomeView({
     const spareProducts = item.spareProducts
     if (!spareProducts) return null
     const recommendedQuantity = Number(spareProducts.recommendedQuantity || 0)
-    if (recommendedQuantity <= 0) return null
     const totalLoadQuantity = Number(spareProducts.totalLoadQuantity ?? (Number(item.quantity || 0) + recommendedQuantity))
     const recommendedPercent = Number(spareProducts.recommendedPercent || 0)
     const minPercent = Number(spareProducts.minPercent || 0)
     const maxPercent = Number(spareProducts.maxPercent || 0)
+    const hasLoadMetadata =
+      recommendedQuantity > 0 ||
+      Number.isFinite(totalLoadQuantity) ||
+      recommendedPercent > 0 ||
+      minPercent > 0 ||
+      maxPercent > 0
+    if (!hasLoadMetadata) return null
     return { recommendedQuantity, totalLoadQuantity, recommendedPercent, minPercent, maxPercent }
   }
   const isWarehouseChecklistComplete = (order: AssignedOrderRow['order']) =>

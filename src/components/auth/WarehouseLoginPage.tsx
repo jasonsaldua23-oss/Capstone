@@ -33,7 +33,13 @@ export function WarehouseLoginPage() {
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        router.replace('/')
+        const sessionPortal = resolvePortalFromUser(data.user)
+        if (sessionPortal === 'warehouse') {
+          router.replace('/')
+          return
+        }
+        clearTabAuthToken()
+        await fetch('/api/auth/logout', { method: 'POST' })
       } catch (error) {
         console.warn('Warehouse session check timed out or failed:', error)
       } finally {

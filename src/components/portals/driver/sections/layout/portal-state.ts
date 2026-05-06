@@ -150,6 +150,7 @@ const DRIVER_GPS_GOOD_ACCURACY_METERS = 35
 const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 80
 const DRIVER_GPS_MAX_JUMP_METERS = 180
 const DRIVER_GPS_MAX_REALISTIC_SPEED_MPS = 45
+const DRIVER_HEARTBEAT_INTERVAL_MS = 5000
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -676,13 +677,13 @@ export function useDriverPortalState() {
 
   // Attempts two high-accuracy position reads and picks the best sample.
   const getAccurateCurrentPosition = async () => {
-    const first = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 8000, timeout: 12000 })
+    const first = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 2000, timeout: 9000 })
     let best = first ? gpsFromPosition(first) : null
     if (best && Number(best.accuracy ?? Number.POSITIVE_INFINITY) <= DRIVER_GPS_GOOD_ACCURACY_METERS) {
       return best
     }
 
-    const second = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 })
+    const second = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 2000, timeout: 9000 })
     const next = second ? gpsFromPosition(second) : null
     if (!best) return next
     if (next && Number(next.accuracy ?? Number.POSITIVE_INFINITY) < Number(best.accuracy ?? Number.POSITIVE_INFINITY)) {
@@ -779,7 +780,7 @@ export function useDriverPortalState() {
         heartbeatIntervalRef.current = setInterval(() => {
           void (async () => {
             try {
-              const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+              const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 1000, timeout: 9000 })
               const location = gpsFromPosition(position)
               if (!location) return
               const activeTripId = getActiveTripId()
@@ -792,7 +793,7 @@ export function useDriverPortalState() {
               // heartbeat is best-effort
             }
           })()
-        }, 20000)
+        }, DRIVER_HEARTBEAT_INTERVAL_MS)
       }
       setIsTracking(true)
       return true
@@ -827,14 +828,14 @@ export function useDriverPortalState() {
         }
         setIsTracking(false)
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     )
 
     watchIdRef.current = watchId
     heartbeatIntervalRef.current = setInterval(() => {
       void (async () => {
         try {
-          const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+          const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 1000, timeout: 9000 })
           const location = gpsFromPosition(position)
           if (!location) return
           const activeTripId = getActiveTripId()
@@ -847,7 +848,7 @@ export function useDriverPortalState() {
           // heartbeat is best-effort
         }
       })()
-    }, 20000)
+    }, DRIVER_HEARTBEAT_INTERVAL_MS)
     toast.success('Location tracking started')
     return true
   }

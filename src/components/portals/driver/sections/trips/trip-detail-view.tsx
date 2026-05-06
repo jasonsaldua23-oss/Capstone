@@ -68,8 +68,8 @@ export function TripDetailView({
   // Delivery and proof-of-delivery state.
   const [activeDropPoint, setActiveDropPoint] = useState<DropPoint | null>(null)
   const [deliveryNote, setDeliveryNote] = useState('')
-  const [podImageFile, setPodImageFile] = useState<File | null>(null)
-  const [podImagePreview, setPodImagePreview] = useState<string | null>(null)
+  const [podDraftByDropPoint, setPodDraftByDropPoint] = useState<Record<string, { file: File | null; preview: string | null }>>({})
+  const [podCaptureDropPointId, setPodCaptureDropPointId] = useState<string | null>(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const [capturedCameraPhoto, setCapturedCameraPhoto] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -94,6 +94,7 @@ export function TripDetailView({
   const [spareDamagePhotoFiles, setSpareDamagePhotoFiles] = useState<File[]>([])
   const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
   const [isSpareReplacing, setIsSpareReplacing] = useState(false)
+  const [liveSpareByProductId, setLiveSpareByProductId] = useState<Record<string, number>>({})
 
   // Failed-delivery decision flow state.
   const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
@@ -105,7 +106,7 @@ export function TripDetailView({
   const [arriveTargetDropPointName, setArriveTargetDropPointName] = useState('')
   const [isFailedDeliveryRescheduleOpen, setIsFailedDeliveryRescheduleOpen] = useState(false)
   const [failedDeliveryRescheduleDropPointId, setFailedDeliveryRescheduleDropPointId] = useState<string | null>(null)
-  const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'today' | 'tomorrow' | 'other_date'>('today')
+  const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'tomorrow' | 'other_date'>('tomorrow')
   const [failedDeliveryOtherDate, setFailedDeliveryOtherDate] = useState('')
   const [isDeliveredWarningOpen, setIsDeliveredWarningOpen] = useState(false)
   const [deliveredTargetDropPointId, setDeliveredTargetDropPointId] = useState<string | null>(null)
@@ -121,12 +122,15 @@ export function TripDetailView({
   const [isUpdating, setIsUpdating] = useState(false)
   const [roadRoutePoints, setRoadRoutePoints] = useState<[number, number][]>([])
   const [previewDriverLocation, setPreviewDriverLocation] = useState<DriverGpsLocation | null>(null)
+  const [animatedDriverLocation, setAnimatedDriverLocation] = useState<DriverGpsLocation | null>(null)
   // Refs for camera stream lifecycle and gesture handling.
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
+  const driverMarkerAnimationFrameRef = useRef<number | null>(null)
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [cameraCaptureTarget, setCameraCaptureTarget] = useState<'pod' | 'spare'>('pod')
+  const sparePhotoFileInputRef = useRef<HTMLInputElement | null>(null)
   const isMobileViewport = useIsMobile()
   // Derived drop points sorted by sequence for consistent rendering and logic.
   const sortedDropPoints = useMemo(
@@ -141,6 +145,11 @@ export function TripDetailView({
   const highlightedDropPoint = activeDropPoint || sortedDropPoints[0] || null
   const mobileSheetSnapPoints: Array<number | string> = [0.52, 0.88, 0.98]
   const hasBlockingDialogOpen =
+    isStartTripConfirmOpen ||
+    isArriveWarningOpen ||
+    isReplacementWarningOpen ||
+    isDeliveredWarningOpen ||
+    isFailedDeliveryActionWarningOpen ||
     isCameraOpen ||
     isCameraPermissionDialogOpen ||
     isSpareReplaceOpen ||
@@ -278,9 +287,7 @@ export function TripDetailView({
       const remainingQty = Number((entry as any)?.remainingQuantity ?? 0)
       return !isClosed && remainingQty > 0
     })
-    if (openCandidates.length === 0) {
-      return replacements.find((entry) => !entry.isClosed) || null
-    }
+    if (openCandidates.length === 0) return null
     return openCandidates
       .slice()
       .sort((a: any, b: any) => {
@@ -294,7 +301,7 @@ export function TripDetailView({
     const replacements = dropPoint?.order?.replacements || []
     return replacements.some((entry: any) => {
       const status = String(entry?.status || '').toUpperCase()
-      return status === 'RESOLVED' || status === 'RESOLVED_ON_DELIVERY'
+      return Boolean(entry?.isClosed) || status === 'RESOLVED' || status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED'
     })
   }
 
@@ -414,10 +421,10 @@ export function TripDetailView({
       return
     }
 
-    const locationReady = await onStartTracking()
-    if (!locationReady) {
-      return
-    }
+    // Start tracking in the background so trip start is immediate after confirmation.
+    void onStartTracking().catch(() => {
+      // Tracking retry can continue independently; do not block trip start.
+    })
 
     setIsUpdating(true)
     try {
@@ -489,15 +496,46 @@ export function TripDetailView({
     setIsDeliveredWarningOpen(true)
   }
 
+  const setPodFileForDropPoint = (dropPointId: string, file: File | null) => {
+    const normalizedId = String(dropPointId || '').trim()
+    if (!normalizedId) return
+    setPodDraftByDropPoint((previous) => {
+      const previousPreview = previous[normalizedId]?.preview
+      if (previousPreview) URL.revokeObjectURL(previousPreview)
+      if (!file) {
+        const next = { ...previous }
+        delete next[normalizedId]
+        return next
+      }
+      return {
+        ...previous,
+        [normalizedId]: {
+          file,
+          preview: URL.createObjectURL(file),
+        },
+      }
+    })
+  }
+
+  const openPodCameraCapture = (dropPointId: string) => {
+    const normalizedId = String(dropPointId || '').trim()
+    if (!normalizedId) return
+    setPodCaptureDropPointId(normalizedId)
+    openCameraCapture('pod')
+  }
+
   const submitDeliveredForDropPoint = async (dropPoint: DropPoint) => {
     if (getDropPointOpenReplacement(dropPoint)) {
       toast.error('Resolve the remaining replacement before marking this drop point as delivered')
       return
     }
+    const dropPointId = String(dropPoint?.id || '').trim()
+    const podDraft = podDraftByDropPoint[dropPointId]
+    const podImageFile = podDraft?.file || null
     const existingPodPhotoUrl = String(dropPoint?.deliveryPhoto || '').trim()
     if (!podImageFile && !existingPodPhotoUrl) {
       toast.error('Capture POD photo first')
-      openCameraCapture('pod')
+      openPodCameraCapture(String(dropPoint.id || ''))
       return
     }
     try {
@@ -506,7 +544,7 @@ export function TripDetailView({
         recipientName: 'Customer',
         deliveryPhoto: imageUrl,
       })
-      handlePodFileChange(null)
+      setPodFileForDropPoint(dropPointId, null)
       setDeliveryNote('')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to upload POD image')
@@ -640,13 +678,25 @@ export function TripDetailView({
     throw new Error(errorMessage)
   }
 
-  // POD image input handler with local preview generation.
-  const handlePodFileChange = (file: File | null) => {
-    setPodImageFile(file)
-    setPodImagePreview((previous) => {
-      if (previous) URL.revokeObjectURL(previous)
-      return file ? URL.createObjectURL(file) : null
-    })
+  // POD image input handler with per-drop-point preview generation.
+  const handlePodFileChange = (dropPointId: string, file: File | null) => {
+    setPodFileForDropPoint(dropPointId, file)
+  }
+
+  const dataUrlToFile = (dataUrl: string, filename: string): File => {
+    const [header, encoded] = dataUrl.split(',')
+    if (!header || !encoded) {
+      throw new Error('Invalid captured photo data')
+    }
+    const mimeMatch = header.match(/data:(.*?);base64/)
+    const mimeType = mimeMatch?.[1] || 'image/jpeg'
+    const binary = atob(encoded)
+    const len = binary.length
+    const bytes = new Uint8Array(len)
+    for (let index = 0; index < len; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
+    }
+    return new File([bytes], filename, { type: mimeType })
   }
 
   const attachCameraStreamToVideo = async () => {
@@ -761,7 +811,12 @@ export function TripDetailView({
           if (target === 'spare') {
             appendSpareDamagePhotos([file])
           } else {
-            handlePodFileChange(file)
+            const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
+            if (!targetDropPointId) {
+              toast.error('Select a drop point first before capturing POD')
+              return
+            }
+            handlePodFileChange(targetDropPointId, file)
           }
         } catch (error: any) {
           const message = String(error?.message || '')
@@ -826,7 +881,36 @@ export function TripDetailView({
       previous.forEach((url) => URL.revokeObjectURL(url))
       return []
     })
+    void refreshLiveSpareProducts()
     setIsSpareReplaceOpen(true)
+  }
+
+  const refreshLiveSpareProducts = async () => {
+    try {
+      const response = await fetch('/api/driver/spare-products', { cache: 'no-store' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) return
+      const rows = Array.isArray(payload?.spareProducts) ? payload.spareProducts : []
+      const mapping: Record<string, number> = {}
+      for (const row of rows) {
+        const productId = String(row?.product?.id || row?.productId || '').trim()
+        if (!productId) continue
+        const qty = Number(row?.quantity ?? row?.onHandQuantity ?? row?.on_hand_quantity ?? 0)
+        mapping[productId] = Number.isFinite(qty) ? Math.max(0, qty) : 0
+      }
+      setLiveSpareByProductId(mapping)
+    } catch {
+      // Keep existing UI values when live spare refresh fails.
+    }
+  }
+
+  const getAvailableSpareQtyForItem = (item: any): number => {
+    const productId = String(item?.productId || item?.product?.id || '').trim()
+    if (productId && Object.prototype.hasOwnProperty.call(liveSpareByProductId, productId)) {
+      return Math.max(0, Number(liveSpareByProductId[productId] || 0))
+    }
+    const fallback = Number(item?.spareProducts?.recommendedQuantity || 0)
+    return Number.isFinite(fallback) ? Math.max(0, fallback) : 0
   }
 
   // Failed-delivery modal open/close helpers.
@@ -847,7 +931,7 @@ export function TripDetailView({
 
   const openFailedDeliveryReschedule = (dropPointId: string) => {
     setFailedDeliveryRescheduleDropPointId(dropPointId)
-    setFailedDeliveryReceiveAgain('today')
+    setFailedDeliveryReceiveAgain('tomorrow')
     setFailedDeliveryOtherDate('')
     setIsFailedDeliveryRescheduleOpen(true)
   }
@@ -855,7 +939,7 @@ export function TripDetailView({
   const closeFailedDeliveryReschedule = () => {
     setIsFailedDeliveryRescheduleOpen(false)
     setFailedDeliveryRescheduleDropPointId(null)
-    setFailedDeliveryReceiveAgain('today')
+    setFailedDeliveryReceiveAgain('tomorrow')
     setFailedDeliveryOtherDate('')
   }
 
@@ -926,6 +1010,9 @@ export function TripDetailView({
       toast.error('Invalid drop point for on-delivery replacement')
       return
     }
+    if (!spareFollowUpReturnId) {
+      await refreshLiveSpareProducts()
+    }
     const openReplacement = getDropPointOpenReplacement(targetDropPoint)
     if (!openReplacement && hasResolvedReplacementForDropPoint(targetDropPoint)) {
       toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
@@ -973,6 +1060,32 @@ export function TripDetailView({
       }
       if (line.item && line.quantityToReplace > Number(line.item.quantity || 0)) {
         toast.error(`${line.item.product?.name || 'Product'} quantity exceeds ordered quantity`)
+        return
+      }
+      if (spareOutcome === 'RESOLVED' && line.item) {
+        const availableSpareQty = getAvailableSpareQtyForItem(line.item)
+        if (Number.isFinite(availableSpareQty) && line.quantityToReplace > availableSpareQty) {
+          toast.error(
+            `${line.item.product?.name || 'Product'} quantity to replace (${line.quantityToReplace}) cannot exceed spare stock (${availableSpareQty}) in Resolved mode`
+          )
+          return
+        }
+      }
+    }
+    if (spareOutcome === 'PARTIALLY_REPLACED' && replacementLines.length > 0) {
+      let hasAtLeastOnePartialLine = false
+      for (const line of replacementLines) {
+        if (line.quantityReplaced < line.quantityToReplace) hasAtLeastOnePartialLine = true
+        const availableSpareQty = getAvailableSpareQtyForItem(line.item)
+        if (Number.isFinite(availableSpareQty) && line.quantityReplaced > availableSpareQty) {
+          toast.error(
+            `${line.item?.product?.name || 'Product'} quantity replaced (${line.quantityReplaced}) cannot exceed spare stock (${availableSpareQty}) in Partially Replaced mode`
+          )
+          return
+        }
+      }
+      if (!hasAtLeastOnePartialLine) {
+        toast.error('Partially Replaced requires at least one selected line with quantity replaced less than quantity to replace')
         return
       }
     }
@@ -1038,7 +1151,9 @@ export function TripDetailView({
       toast.error('Replacement quantity exceeds ordered quantity')
       return
     }
-    const spareReason = (spareDamageReason === 'Others' ? spareOtherDamageReason : spareDamageReason).trim()
+    const spareReason = spareFollowUpReturnId
+      ? String((openReplacement as any)?.reason || 'Follow-up replacement').trim()
+      : (spareDamageReason === 'Others' ? spareOtherDamageReason : spareDamageReason).trim()
     if (!spareReason) {
       toast.error('Replacement reason is required')
       return
@@ -1268,13 +1383,16 @@ export function TripDetailView({
   const continueCapturedPhoto = async () => {
     if (!capturedCameraPhoto) return
     try {
-      const response = await fetch(capturedCameraPhoto)
-      const blob = await response.blob()
-      const file = new File([blob], `pod-camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      const file = dataUrlToFile(capturedCameraPhoto, `camera-${Date.now()}.jpg`)
       if (cameraCaptureTarget === 'spare') {
         appendSpareDamagePhotos([file])
       } else {
-        handlePodFileChange(file)
+        const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
+        if (!targetDropPointId) {
+          toast.error('Select a drop point first before capturing POD')
+          return
+        }
+        handlePodFileChange(targetDropPointId, file)
       }
       closeCameraCapture()
     } catch {
@@ -1282,16 +1400,24 @@ export function TripDetailView({
     }
   }
 
+  const handleSparePhotoFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    if (files.length > 0) {
+      appendSpareDamagePhotos(files)
+    }
+    event.currentTarget.value = ''
+  }
+
   // Camera and state cleanup effects.
   useEffect(() => {
     return () => {
-      if (podImagePreview) {
-        URL.revokeObjectURL(podImagePreview)
-      }
+      Object.values(podDraftByDropPoint).forEach((entry) => {
+        if (entry?.preview) URL.revokeObjectURL(entry.preview)
+      })
       spareDamagePhotoPreviews.forEach((url) => URL.revokeObjectURL(url))
       stopCameraStream()
     }
-  }, [podImagePreview, spareDamagePhotoPreviews])
+  }, [podDraftByDropPoint, spareDamagePhotoPreviews])
 
   useEffect(() => {
     if (!isCameraOpen) return
@@ -1514,6 +1640,83 @@ export function TripDetailView({
           speed: toCoordinate(trip.latestLocation.speed),
         }
       : null)
+
+  useEffect(() => {
+    if (!effectiveDriverLocation) return
+
+    const target: DriverGpsLocation = {
+      ...effectiveDriverLocation,
+      lat: Number(effectiveDriverLocation.lat),
+      lng: Number(effectiveDriverLocation.lng),
+      recordedAt: Number(effectiveDriverLocation.recordedAt || Date.now()),
+    }
+
+    setAnimatedDriverLocation((previous) => {
+      if (!previous) return target
+      const latDiff = Math.abs(Number(previous.lat) - target.lat)
+      const lngDiff = Math.abs(Number(previous.lng) - target.lng)
+      if (latDiff < 0.0000008 && lngDiff < 0.0000008) {
+        return {
+          ...target,
+          accuracy: target.accuracy ?? previous.accuracy ?? null,
+          heading: target.heading ?? previous.heading ?? null,
+          speed: target.speed ?? previous.speed ?? null,
+        }
+      }
+      return previous
+    })
+
+    if (driverMarkerAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(driverMarkerAnimationFrameRef.current)
+      driverMarkerAnimationFrameRef.current = null
+    }
+
+    const start = animatedDriverLocation || target
+    const startLat = Number(start.lat)
+    const startLng = Number(start.lng)
+    const endLat = Number(target.lat)
+    const endLng = Number(target.lng)
+    const deltaLat = endLat - startLat
+    const deltaLng = endLng - startLng
+    const distanceHint = Math.sqrt(deltaLat * deltaLat + deltaLng * deltaLng)
+    const durationMs = Math.min(1400, Math.max(320, distanceHint * 3_200_000))
+    const startedAt = performance.now()
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt
+      const progress = Math.max(0, Math.min(1, elapsed / durationMs))
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setAnimatedDriverLocation({
+        lat: startLat + deltaLat * eased,
+        lng: startLng + deltaLng * eased,
+        accuracy: target.accuracy ?? null,
+        heading: target.heading ?? null,
+        speed: target.speed ?? null,
+        recordedAt: Number(target.recordedAt || Date.now()),
+      })
+      if (progress < 1) {
+        driverMarkerAnimationFrameRef.current = requestAnimationFrame(tick)
+      } else {
+        driverMarkerAnimationFrameRef.current = null
+      }
+    }
+
+    driverMarkerAnimationFrameRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (driverMarkerAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(driverMarkerAnimationFrameRef.current)
+        driverMarkerAnimationFrameRef.current = null
+      }
+    }
+  }, [
+    effectiveDriverLocation?.lat,
+    effectiveDriverLocation?.lng,
+    effectiveDriverLocation?.accuracy,
+    effectiveDriverLocation?.heading,
+    effectiveDriverLocation?.speed,
+    effectiveDriverLocation?.recordedAt,
+  ])
   const driverMarkerHeading =
     nextDropPoint &&
     Number.isFinite(Number(nextDropPoint?.latitude)) &&
@@ -1537,9 +1740,10 @@ export function TripDetailView({
       : null
 
   const driverLocationMarker = (() => {
-    if (!effectiveDriverLocation) return null
-    const lat = toCoordinate(effectiveDriverLocation?.lat)
-    const lng = toCoordinate(effectiveDriverLocation?.lng)
+    const sourceLocation = animatedDriverLocation || effectiveDriverLocation
+    if (!sourceLocation) return null
+    const lat = toCoordinate(sourceLocation?.lat)
+    const lng = toCoordinate(sourceLocation?.lng)
     if (lat === null || lng === null) return null
     return {
       id: `driver-${trip.id}`,
@@ -1548,14 +1752,14 @@ export function TripDetailView({
       lat,
       lng,
       status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
-      markerLabel: Number.isFinite(Number(effectiveDriverLocation.accuracy))
-        ? `Current location +- ${Math.round(Number(effectiveDriverLocation.accuracy))} m`
+      markerLabel: Number.isFinite(Number(sourceLocation.accuracy))
+        ? `Current location +- ${Math.round(Number(sourceLocation.accuracy))} m`
         : 'Current location',
       markerType: 'truck' as const,
       markerHeading: driverMarkerHeading ?? undefined,
       markerColor: '#1d4ed8',
-      accuracyMeters: Number.isFinite(Number(effectiveDriverLocation.accuracy))
-        ? Number(effectiveDriverLocation.accuracy)
+      accuracyMeters: Number.isFinite(Number(sourceLocation.accuracy))
+        ? Number(sourceLocation.accuracy)
         : undefined,
     }
   })()
@@ -1926,24 +2130,22 @@ export function TripDetailView({
           </Dialog>
 
           <Dialog open={isArriveWarningOpen} onOpenChange={setIsArriveWarningOpen}>
-            <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
+            <DialogContent className="max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
-                <DialogTitle className="text-amber-700">Warning Before Marking Arrived</DialogTitle>
-                <DialogDescription className="text-slate-600">
-                  This will update the stop status to <span className="font-semibold">ARRIVED</span>.
-                </DialogDescription>
+                <DialogTitle className="text-[1.2rem] font-black tracking-[-0.02em] text-emerald-700">Confirm Mark Arrived</DialogTitle>
               </DialogHeader>
               <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p>Confirm that you are physically at the drop point before continuing.</p>
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <p>Please confirm that you are physically at the drop point before continuing.</p>
                 </div>
                 <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
                   <p className="font-medium text-slate-900">{arriveTargetDropPointName || 'Drop Point'}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
                   <Button
                     type="button"
                     variant="outline"
+                    className="h-11 rounded-xl"
                     onClick={() => setIsArriveWarningOpen(false)}
                     disabled={isUpdating}
                   >
@@ -1951,7 +2153,7 @@ export function TripDetailView({
                   </Button>
                   <Button
                     type="button"
-                    className="bg-amber-600 text-white hover:bg-amber-700"
+                    className="h-11 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
                     onClick={async () => {
                       const targetId = String(arriveTargetDropPointId || '').trim()
                       setIsArriveWarningOpen(false)
@@ -1961,7 +2163,7 @@ export function TripDetailView({
                     disabled={isUpdating || !arriveTargetDropPointId}
                   >
                     {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Navigation className="mr-2 h-4 w-4" />}
-                    Mark Arrived
+                    Confirm Arrived
                   </Button>
                 </div>
               </div>
@@ -2141,9 +2343,9 @@ export function TripDetailView({
               >
                 <DrawerContent
                   hideOverlay
-                  className="!bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-5.2rem)] rounded-t-[1.9rem] border border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                  className="!bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] rounded-t-[1.9rem] border border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
                 >
-                  <div className="max-h-[calc(100dvh-12.5rem)] overflow-y-auto overscroll-contain px-4 pb-4 pt-2">
+                  <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+8rem)] pt-2 pr-3">
                     <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
                     <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
                     <div className="flex items-start justify-between gap-3">
@@ -2221,7 +2423,7 @@ export function TripDetailView({
                               <div className="mt-4 space-y-3 border-t pt-4">
                                 {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                                   <Button
-                                    className="w-full"
+                                    className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
                                     onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
                                     disabled={isUpdating}
                                   >
@@ -2243,11 +2445,11 @@ export function TripDetailView({
                                         className="w-full"
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          openCameraCapture('pod')
+      openPodCameraCapture(String(dropPoint.id || ''))
                                         }}
                                       >
                                         <Camera className="mr-2 h-4 w-4" />
-                                        {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
+                                        {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? 'Retake POD Photo' : 'Capture POD Photo'}
                                       </Button>
                                       {dropPoint.order ? (
                                         (() => {
@@ -2269,7 +2471,7 @@ export function TripDetailView({
                                               }}
                                               disabled={isUpdating || isSpareReplacing || replacementLocked}
                                             >
-                                              {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Resolved' : 'Report Replacement'}
+                                              {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Resolved' : 'Report Replacement'}
                                             </Button>
                                           )
                                         })()
@@ -2280,9 +2482,9 @@ export function TripDetailView({
                                           Delivery is blocked until the open replacement is resolved with photo evidence.
                                         </div>
                                       ) : null}
-                                      {podImagePreview ? (
+                                      {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
                                         <img
-                                          src={podImagePreview}
+                                          src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                           alt="POD preview"
                                           className="h-36 w-full rounded-md border border-slate-200 object-cover"
                                         />
@@ -2407,9 +2609,9 @@ export function TripDetailView({
                                       {(dropPoint.order.items || []).map((item, index) => (
                                         <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600 md:text-sm">
                                           <p>{item.product?.name || 'Item'} x{Number(item.quantity || 0)}</p>
-                                          {Number(item.spareProducts?.recommendedQuantity || 0) > 0 ? (
+                                          {getAvailableSpareQtyForItem(item) > 0 ? (
                                             <div className="mt-1 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700 md:px-2.5 md:py-1.5 md:text-xs">
-                                              <p>Spare products: {Number(item.spareProducts?.recommendedQuantity || 0)}</p>
+                                              <p>Spare products: {getAvailableSpareQtyForItem(item)}</p>
                                               <p>Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}</p>
                                             </div>
                                           ) : null}
@@ -2418,11 +2620,11 @@ export function TripDetailView({
                                     </div>
                                   </div>
                                 ) : null}
-                                {(dropPoint.deliveryPhoto || (activeDropPoint?.id === dropPoint.id && podImagePreview)) ? (
+                                {(dropPoint.deliveryPhoto || podDraftByDropPoint[String(dropPoint.id || '')]?.preview) ? (
                                   <div className="mt-2 rounded-md bg-slate-50 px-2 py-2">
                                     <p className="text-[11px] font-semibold text-slate-600">POD Photo</p>
                                     <img
-                                      src={dropPoint.deliveryPhoto || podImagePreview || ''}
+                                      src={dropPoint.deliveryPhoto || podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                       alt="POD"
                                       className="mt-1 h-24 w-full rounded border border-slate-200 object-cover"
                                     />
@@ -2446,10 +2648,10 @@ export function TripDetailView({
 
                     {/* Drop Point Actions */}
                     {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
-                      <div className="mt-4 space-y-3 border-t pt-4">
+                      <div className="mt-2 space-y-2 border-t pt-2 md:mt-4 md:space-y-3 md:pt-4">
                         {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                           <Button
-                            className="w-full"
+                            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
                             onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
                             disabled={isUpdating}
                           >
@@ -2458,8 +2660,9 @@ export function TripDetailView({
                           </Button>
                         )}
                         {dropPoint.status === 'ARRIVED' && (
-                          <div className="space-y-3">
+                          <div className="space-y-2 md:space-y-3">
                             <Textarea
+                              className="min-h-[72px] text-sm md:min-h-[88px]"
                               placeholder="Add delivery notes..."
                               value={deliveryNote}
                               onChange={(e) => setDeliveryNote(e.target.value)}
@@ -2468,14 +2671,14 @@ export function TripDetailView({
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="w-full"
+                                className="h-9 w-full text-sm md:h-10 md:text-base"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  openCameraCapture('pod')
+                                  openPodCameraCapture(String(dropPoint.id || ''))
                                 }}
                               >
                                 <Camera className="h-4 w-4 mr-2" />
-                                {podImagePreview ? 'Retake POD Photo' : 'Capture POD Photo'}
+                                {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? 'Retake POD Photo' : 'Capture POD Photo'}
                               </Button>
                               {dropPoint.order ? (
                                 (() => {
@@ -2486,7 +2689,7 @@ export function TripDetailView({
                                     <Button
                                       type="button"
                                       variant="outline"
-                                      className={`w-full ${openReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                      className={`h-9 w-full text-sm md:h-10 md:text-base ${openReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         if (openReplacement) {
@@ -2497,28 +2700,28 @@ export function TripDetailView({
                                       }}
                                       disabled={isUpdating || isSpareReplacing || replacementLocked}
                                     >
-                                      {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Resolved' : 'Report Replacement'}
+                                      {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Resolved' : 'Report Replacement'}
                                     </Button>
                                   )
                                 })()
                               ) : null}
-                              <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
+                              <p className="text-[11px] text-slate-500 md:text-xs">Camera access is required before marking as delivered.</p>
                               {getDropPointOpenReplacement(dropPoint) ? (
-                                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800 md:px-3 md:py-2 md:text-xs">
                                   Delivery is blocked until the open replacement is resolved with photo evidence.
                                 </div>
                               ) : null}
-                              {podImagePreview ? (
+                              {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
                                 <img
-                                  src={podImagePreview}
+                                  src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                   alt="POD preview"
-                                  className="h-36 w-full rounded-md border border-slate-200 object-cover"
+                                  className="h-28 w-full rounded-md border border-slate-200 object-cover md:h-36"
                                 />
                               ) : null}
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <Button
-                                className="bg-emerald-600 hover:bg-emerald-700"
+                                className="h-9 bg-emerald-600 text-sm hover:bg-emerald-700 md:h-10 md:text-base"
                                 onClick={async (e) => {
                                   e.stopPropagation();
                                   openDeliveredWarning(dropPoint)
@@ -2530,6 +2733,7 @@ export function TripDetailView({
                               </Button>
                               <Button
                                 variant="destructive"
+                                className="h-9 text-sm md:h-10 md:text-base"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openFailedDeliveryChoice(dropPoint.id)
@@ -2680,11 +2884,19 @@ export function TripDetailView({
               ? getOpenReplacementQuantities(targetOpenReplacement, Number(targetSelectedItem?.quantity || 0))
               : null
             const followUpMode = Boolean(targetOpenReplacement)
+            const isPartialOutcomeBlocked = !followUpMode && spareReplacementLines.length > 0 && spareReplacementLines.every((line) => {
+              const quantityToReplace = Number(line.quantityToReplace || 0)
+              if (!Number.isFinite(quantityToReplace) || quantityToReplace <= 0) return false
+              const matchedItem = targetItems.find((item) => item.id === line.orderItemId)
+              if (!matchedItem) return false
+              const availableSpareQty = getAvailableSpareQtyForItem(matchedItem)
+              return Number.isFinite(availableSpareQty) && availableSpareQty >= quantityToReplace
+            })
             const missingRequirements: string[] = []
             if (!followUpMode && spareReplacementLines.length === 0) missingRequirements.push('Select at least one damaged product')
             if (followUpMode && !spareOrderItemId) missingRequirements.push('Damaged item')
-            if (!spareDamageReason) missingRequirements.push('Damage details')
-            if (spareDamageReason === 'Others' && !String(spareOtherDamageReason || '').trim()) missingRequirements.push('Other damage reason')
+            if (!followUpMode && !spareDamageReason) missingRequirements.push('Damage details')
+            if (!followUpMode && spareDamageReason === 'Others' && !String(spareOtherDamageReason || '').trim()) missingRequirements.push('Other damage reason')
             if (spareDamagePhotoFiles.length === 0) missingRequirements.push('Damage photo')
             const canSubmitSpareReplacement = !isSpareReplacing && missingRequirements.length === 0
 
@@ -2715,7 +2927,6 @@ export function TripDetailView({
                     <div className="space-y-2">
                       <Label htmlFor="spare-qty">Quantity to Replace</Label>
                       <Input id="spare-qty" type="text" inputMode="numeric" pattern="[0-9]*" value={spareQuantity} disabled />
-                      <p className="text-xs text-emerald-700">Follow-up cases use the remaining quantity only, tied to the original damaged item.</p>
                     </div>
                   </>
                 ) : (
@@ -2728,6 +2939,10 @@ export function TripDetailView({
                         const line = spareReplacementLines.find((entry) => entry.orderItemId === item.id) || null
                         const checked = Boolean(line)
                         const maxQty = Math.max(Number(item.quantity || 0), 0)
+                        const availableSpareQty = getAvailableSpareQtyForItem(item)
+                        const effectiveMaxQtyToReplace = spareOutcome === 'RESOLVED'
+                          ? Math.min(maxQty, availableSpareQty)
+                          : maxQty
                         const setLine = (patch: Partial<SpareReplacementLine>) => {
                           setSpareReplacementLines((previous) =>
                             previous.map((entry) => entry.orderItemId === item.id ? { ...entry, ...patch } : entry)
@@ -2759,7 +2974,7 @@ export function TripDetailView({
                               <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-semibold text-slate-900">{item.product?.name || 'Item'}</span>
                                 <span className="block text-xs text-slate-500">
-                                  Spare Products {Number(item.spareProducts?.recommendedQuantity || 0)} | Ordered Qty {maxQty}
+                                  Spare Products {getAvailableSpareQtyForItem(item)} | Ordered Qty {maxQty}
                                 </span>
                               </span>
                             </label>
@@ -2775,12 +2990,12 @@ export function TripDetailView({
                                     onChange={(event) => {
                                       const raw = event.target.value.replace(/[^\d]/g, '')
                                       const parsed = Number(raw || 0)
-                                      const nextValue = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxQty))
+                                      const nextValue = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), effectiveMaxQtyToReplace))
                                       setLine({ quantityToReplace: nextValue, quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0' })
                                     }}
                                     onBlur={() => {
                                       const parsed = Number(line?.quantityToReplace || 0)
-                                      const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxQty))
+                                      const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), effectiveMaxQtyToReplace))
                                       setLine({ quantityToReplace: clamped, quantityReplaced: spareOutcome === 'RESOLVED' ? clamped : line?.quantityReplaced || '0' })
                                     }}
                                   />
@@ -2790,18 +3005,24 @@ export function TripDetailView({
                                     <Label className="text-xs">Quantity Replaced</Label>
                                     <Input
                                       type="text"
-                                      inputMode="numeric"
+                                    inputMode="numeric"
                                     pattern="[0-9]*"
                                     value={line?.quantityReplaced || ''}
                                     onChange={(event) => {
-                                      const maxReplace = Number(line?.quantityToReplace || 0)
+                                      const availableSpareQty = getAvailableSpareQtyForItem(item)
+                                      const maxReplace = Number.isFinite(availableSpareQty)
+                                        ? Math.min(Number(line?.quantityToReplace || 0), availableSpareQty)
+                                        : Number(line?.quantityToReplace || 0)
                                       const raw = event.target.value.replace(/[^\d]/g, '')
                                       const parsed = Number(raw || 0)
                                       const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxReplace))
                                       setLine({ quantityReplaced: clamped })
                                     }}
                                       onBlur={() => {
-                                        const maxReplace = Number(line?.quantityToReplace || 0)
+                                        const availableSpareQty = getAvailableSpareQtyForItem(item)
+                                        const maxReplace = Number.isFinite(availableSpareQty)
+                                          ? Math.min(Number(line?.quantityToReplace || 0), availableSpareQty)
+                                          : Number(line?.quantityToReplace || 0)
                                         const parsed = Number(line?.quantityReplaced || 0)
                                         setLine({ quantityReplaced: String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxReplace)) })
                                       }}
@@ -2816,23 +3037,19 @@ export function TripDetailView({
                     </div>
                   </div>
                 )}
-                <div className="space-y-2">
-                  <Label>Resolution</Label>
-                  {followUpMode ? (
-                    <>
-                      <Button type="button" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled>
-                        Resolved
-                      </Button>
-                      <p className="text-xs text-emerald-700">
-                        Follow-up cases can only be submitted as resolved with photo evidence.
-                      </p>
-                    </>
-                  ) : (
+                {!followUpMode ? (
+                  <div className="space-y-2">
+                    <Label>Resolution</Label>
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <Button
                           type="button"
-                          variant={spareOutcome === 'RESOLVED' ? 'default' : 'outline'}
+                          variant="outline"
+                          className={
+                            spareOutcome === 'RESOLVED'
+                              ? 'h-10 rounded-xl border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white'
+                              : 'h-10 rounded-xl border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
+                          }
                           onClick={() => setSpareOutcome('RESOLVED')}
                           disabled={isSpareReplacing}
                         >
@@ -2840,24 +3057,31 @@ export function TripDetailView({
                         </Button>
                         <Button
                           type="button"
-                          variant={spareOutcome === 'PARTIALLY_REPLACED' ? 'default' : 'outline'}
+                          variant="outline"
+                          className={
+                            spareOutcome === 'PARTIALLY_REPLACED'
+                              ? 'h-10 rounded-xl border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white'
+                              : 'h-10 rounded-xl border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
+                          }
                           onClick={() => {
                             setSpareOutcome('PARTIALLY_REPLACED')
                             if (followUpMode) {
                               setSparePartiallyReplacedQuantity(Math.max(Number(spareQuantity || 0), 0))
                             }
                           }}
-                          disabled={isSpareReplacing}
+                          disabled={isSpareReplacing || isPartialOutcomeBlocked}
                         >
                           Partially Replaced
                         </Button>
                       </div>
-                      <p className="text-xs text-slate-500">
-                        Resolved = replacement completed. Partially Replaced = needs warehouse follow-up.
-                      </p>
+                      {isPartialOutcomeBlocked ? (
+                        <p className="text-xs text-amber-700">
+                         
+                        </p>
+                      ) : null}
                     </>
-                  )}
-                </div>
+                  </div>
+                ) : null}
                 <AnimatePresence mode="wait">
                   {spareOutcome === 'PARTIALLY_REPLACED' && followUpMode ? (
                     <motion.div
@@ -2885,34 +3109,44 @@ export function TripDetailView({
                     </motion.div>
                   ) : null}
                 </AnimatePresence>
-                <div className="space-y-2">
-                  <Label htmlFor="spare-reason">Damage Details</Label>
-                  <Select value={spareDamageReason} onValueChange={setSpareDamageReason} disabled={isSpareReplacing}>
-                    <SelectTrigger id="spare-reason" className="h-10 rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
-                      <SelectValue placeholder="Select damage reason" />
-                    </SelectTrigger>
-                    <SelectContent className="border-sky-200 bg-white text-slate-900">
-                      {SPARE_DAMAGE_REASON_OPTIONS.map((reason) => (
-                        <SelectItem key={reason} value={reason} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
-                          {reason}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {spareDamageReason === 'Others' ? (
-                    <Textarea
-                      id="spare-other-reason"
-                      value={spareOtherDamageReason}
-                      onChange={(event) => setSpareOtherDamageReason(event.target.value)}
-                      placeholder="Type specific damage reason..."
-                      disabled={isSpareReplacing}
-                    />
-                  ) : null}
-                </div>
+                {!followUpMode ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="spare-reason">Damage Details</Label>
+                    <Select value={spareDamageReason} onValueChange={setSpareDamageReason} disabled={isSpareReplacing}>
+                      <SelectTrigger id="spare-reason" className="h-10 rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
+                        <SelectValue placeholder="Select damage reason" />
+                      </SelectTrigger>
+                      <SelectContent className="border-sky-200 bg-white text-slate-900">
+                        {SPARE_DAMAGE_REASON_OPTIONS.map((reason) => (
+                          <SelectItem key={reason} value={reason} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
+                            {reason}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {spareDamageReason === 'Others' ? (
+                      <Textarea
+                        id="spare-other-reason"
+                        value={spareOtherDamageReason}
+                        onChange={(event) => setSpareOtherDamageReason(event.target.value)}
+                        placeholder="Type specific damage reason..."
+                        disabled={isSpareReplacing}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="spare-photo">Damage Photo</Label>
                   <div className="space-y-2">
                     <div className="grid grid-cols-1 gap-2">
+                      <input
+                        ref={sparePhotoFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleSparePhotoFileInput}
+                      />
                       <Button
                         type="button"
                         variant="outline"
@@ -2922,6 +3156,15 @@ export function TripDetailView({
                       >
                         <Camera className="mr-2 h-4 w-4" />
                         Take Photo
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
+                        onClick={() => sparePhotoFileInputRef.current?.click()}
+                        disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
+                      >
+                        Upload Photo
                       </Button>
                     </div>
                     <p className="text-xs text-slate-500">
@@ -2951,28 +3194,6 @@ export function TripDetailView({
                             </div>
                           ))}
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                            onClick={openSpareCameraCapture}
-                            disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
-                          >
-                            Add Camera Photo
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                            onClick={() => clearSpareDamagePhoto()}
-                            disabled={isSpareReplacing}
-                          >
-                            Clear All
-                          </Button>
-                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -2999,7 +3220,7 @@ export function TripDetailView({
                     disabled={!canSubmitSpareReplacement}
                   >
                     {isSpareReplacing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                    {followUpMode ? 'Submit Follow-up' : 'Submit Report'}
+                    {followUpMode ? 'Resolved' : 'Submit Report'}
                   </Button>
                 </div>
               </div>
@@ -3120,15 +3341,6 @@ export function TripDetailView({
             <div className="grid grid-cols-1 gap-2">
               <Button
                 type="button"
-                variant={failedDeliveryReceiveAgain === 'today' ? 'default' : 'outline'}
-                className={failedDeliveryReceiveAgain === 'today' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
-                onClick={() => setFailedDeliveryReceiveAgain('today')}
-                disabled={isUpdating}
-              >
-                Later today
-              </Button>
-              <Button
-                type="button"
                 variant={failedDeliveryReceiveAgain === 'tomorrow' ? 'default' : 'outline'}
                 className={failedDeliveryReceiveAgain === 'tomorrow' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
                 onClick={() => setFailedDeliveryReceiveAgain('tomorrow')}
@@ -3193,9 +3405,7 @@ export function TripDetailView({
                   const label =
                     failedDeliveryReceiveAgain === 'tomorrow'
                       ? 'tomorrow'
-                      : failedDeliveryReceiveAgain === 'other_date'
-                        ? `other date (${failedDeliveryOtherDate})`
-                        : 'later today'
+                      : `other date (${failedDeliveryOtherDate})`
                   closeFailedDeliveryReschedule()
                   await handleUpdateDropPoint(
                     failedDeliveryRescheduleDropPointId,

@@ -5,6 +5,7 @@ export type WarehouseDashboardViewProps = {
   assignedWarehouse: any
   scopedInventory: any[]
   lowStockCount: number
+  pendingReplacementCases: number
   warehouseOrdersChartConfig: ChartConfig
   weeklyTrendData: any[]
   transactionDateFrom: string
@@ -111,4 +112,3 @@ export type WarehouseStocksViewProps = {
   stockBatches: any[]
   getDaysLeft: (date: string | null) => number | null
 }
-

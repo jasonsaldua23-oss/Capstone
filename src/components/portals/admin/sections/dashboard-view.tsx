@@ -273,49 +273,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </ChartContainer>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Order Status Distribution */}
-        <Card className="rounded-2xl border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Order Status Distribution</CardTitle>
-            <CardDescription>Cancelled vs Rescheduled orders</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px] flex items-center justify-center">
-              {orderStatusData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={orderStatusData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry: any) => `${entry.name}: ${entry.value}`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {orderStatusData.map((entry: any, index: number) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={statusColors[String(entry?.name)] || Object.values(statusColors)[index % Object.values(statusColors).length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: any) => `${value} orders`} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-gray-500">No data available</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Delivery Performance */}
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Delivery Performance</CardTitle>
@@ -342,40 +299,17 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-500" />
-              Low Stock Alerts
-            </CardTitle>
-            <CardDescription>Items that need restocking soon</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">{stats?.lowStockItems || 0}</h1>
-                  <p className="text-sm text-gray-500">Items currently below threshold</p>
-                </div>
-                <Badge variant={Number(stats?.lowStockItems || 0) > 0 ? 'destructive' : 'secondary'}>
-                  {Number(stats?.lowStockItems || 0) > 0 ? 'Needs Action' : 'Stable'}
-                </Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
               {/* <Undo2 className="h-5 w-5 text-purple-500" /> */}
               Pending Replacements
             </CardTitle>
-            <CardDescription>Replacement cases awaiting review</CardDescription>
+            <CardDescription>Replacement cases awaiting driver follow-up</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center justify-between py-2 border-b last:border-0">
                 <div>
                   <p className="font-medium">{stats?.pendingReturns || 0} pending replacement case(s)</p>
-                  <p className="text-sm text-gray-500">Awaiting admin follow-up or closure</p>
+                  <p className="text-sm text-gray-500">Awaiting driver follow-up or closure</p>
                 </div>
                 <Badge variant={Number(stats?.pendingReturns || 0) > 0 ? 'secondary' : 'outline'}>
                   {Number(stats?.pendingReturns || 0) > 0 ? 'Pending' : 'Clear'}

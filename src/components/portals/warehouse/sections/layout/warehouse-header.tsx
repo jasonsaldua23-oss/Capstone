@@ -11,21 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { Bell, ChevronDown, LogOut, Menu, Search } from 'lucide-react'
-
-type WarehouseNotification = {
-  id: string
-  title: string
-  message: string
-  createdAt: string
-}
+import { ChevronDown, LogOut, Menu, Search } from 'lucide-react'
 
 type WarehouseHeaderProps = {
-  unreadNotifications: number
-  notificationsLoading: boolean
-  notifications: WarehouseNotification[]
-  onNotificationsOpen: (open: boolean) => void
-  formatNotificationTime: (createdAt: string) => string
   userName: string
   userEmail: string
   onOpenSidebar: () => void
@@ -33,11 +21,6 @@ type WarehouseHeaderProps = {
 }
 
 export function WarehouseHeader({
-  unreadNotifications,
-  notificationsLoading,
-  notifications,
-  onNotificationsOpen,
-  formatNotificationTime,
   userName,
   userEmail,
   onOpenSidebar,
@@ -57,31 +40,6 @@ export function WarehouseHeader({
         </div>
 
         <div className="flex items-center gap-3">
-          <DropdownMenu onOpenChange={onNotificationsOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-white/45 hover:text-slate-950">
-                <Bell className="h-5 w-5" />
-                {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" />}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <div className="px-2 py-1.5 text-sm font-medium">Notifications</div>
-              <DropdownMenuSeparator />
-              {notificationsLoading ? (
-                <div className="px-2 py-3 text-sm text-gray-500">Loading notifications...</div>
-              ) : notifications.length === 0 ? (
-                <div className="px-2 py-3 text-sm text-gray-500">No notifications yet.</div>
-              ) : (
-                notifications.slice(0, 8).map((item) => (
-                  <div key={item.id} className="px-2 py-2 border-b last:border-b-0">
-                    <p className="text-sm font-medium text-gray-900">{item.title}</p>
-                    <p className="text-xs text-gray-600">{item.message}</p>
-                    <p className="text-[11px] text-gray-500 mt-1">{formatNotificationTime(item.createdAt)}</p>
-                  </div>
-                ))
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 text-slate-700 hover:bg-white/45 hover:text-slate-950">
@@ -111,4 +69,3 @@ export function WarehouseHeader({
     </header>
   )
 }
-

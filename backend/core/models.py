@@ -339,7 +339,10 @@ class OrderTimeline(models.Model):
 class OrderItem(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="order_items")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, related_name="order_items", blank=True, null=True)
+    product_name = models.CharField(max_length=255, blank=True, null=True)
+    product_sku = models.CharField(max_length=100, blank=True, null=True)
+    product_unit = models.CharField(max_length=50, blank=True, null=True)
     quantity = models.IntegerField()
     unit_price = models.FloatField()
     total_price = models.FloatField()

@@ -3,15 +3,18 @@ import type { AuthUser, PortalType } from '@/types'
 export type LoginPortal = Extract<PortalType, 'admin' | 'driver' | 'warehouse' | 'customer'>
 
 export function resolvePortalFromUser(user: AuthUser): LoginPortal {
-  if (user.type === 'customer') {
+  const userType = String(user?.type || '').trim().toLowerCase()
+  const normalizedRole = String((user as any)?.role || '').trim().toUpperCase()
+
+  if (userType === 'customer') {
     return 'customer'
   }
 
-  if (user.role === 'DRIVER') {
+  if (normalizedRole === 'DRIVER') {
     return 'driver'
   }
 
-  if (['WAREHOUSE', 'WAREHOUSE_STAFF', 'INVENTORY_MANAGER'].includes(user.role)) {
+  if (['WAREHOUSE', 'WAREHOUSE_STAFF', 'INVENTORY_MANAGER'].includes(normalizedRole)) {
     return 'warehouse'
   }
 

@@ -64,7 +64,7 @@ export function DriverPortalHeader({
           </DropdownMenu>
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <p className="text-[1.1rem] font-semibold tracking-tight text-[#0a1b36]">DELIVERY APP</p>
+          <p className="text-[1.1rem] font-semibold tracking-tight text-[#0a1b36]">ANN ANN'S DELIVERY</p>
           {isTracking ? (
             <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-100 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />

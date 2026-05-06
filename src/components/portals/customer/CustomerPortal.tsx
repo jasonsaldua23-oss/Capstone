@@ -1765,7 +1765,10 @@ export function CustomerPortal() {
     canvas.width = outputSize
     canvas.height = outputSize
     const ctx = canvas.getContext('2d')
-    if (!ctx) return null
+    if (!ctx) {
+      toast.error('Image editor is unavailable on this device. Please try another photo.')
+      return null
+    }
 
     const baseScale = Math.max(outputSize / image.width, outputSize / image.height)
     const scale = baseScale * avatarCropZoom
@@ -1774,8 +1777,13 @@ export function CustomerPortal() {
     const x = (outputSize - drawWidth) / 2 + avatarCropX
     const y = (outputSize - drawHeight) / 2 + avatarCropY
 
-    ctx.clearRect(0, 0, outputSize, outputSize)
-    ctx.drawImage(image, x, y, drawWidth, drawHeight)
+    try {
+      ctx.clearRect(0, 0, outputSize, outputSize)
+      ctx.drawImage(image, x, y, drawWidth, drawHeight)
+    } catch {
+      toast.error('Failed to process the selected image.')
+      return null
+    }
 
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob((value) => resolve(value), 'image/jpeg', 0.92)

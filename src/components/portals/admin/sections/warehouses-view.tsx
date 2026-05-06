@@ -572,7 +572,7 @@ export function WarehousesView() {
           <div className="col-span-full text-center py-12">
             {/* Warehouse icon removed */}
             <p className="text-gray-500">No warehouses found</p>
-            <Button className="mt-4">Add First Warehouse</Button>
+            <Button className="mt-4" onClick={() => setAddOpen(true)}>Add First Warehouse</Button>
           </div>
         ) : (
           warehouses.map((warehouse: any) => (

@@ -359,6 +359,7 @@ def _create_order_from_checkout_payload(
     )
 
     allocation_policy = _resolve_allocation_policy(body)
+    warehouses_used_for_reservation: set[str] = set()
     for item in normalized_items:
         pid = str(item.get("productId") or "").strip()
         prod = Product.objects.filter(id=pid).first()
@@ -371,25 +372,55 @@ def _create_order_from_checkout_payload(
         order_item = OrderItem.objects.create(
             order=order,
             product=prod,
+            product_name=str(prod.name or "").strip() or None,
+            product_sku=str(prod.sku or "").strip() or None,
+            product_unit=_normalize_product_unit(prod.unit),
             quantity=qty,
             unit_price=unit,
             total_price=line_total,
             notes=item.get("notes"),
         )
 
-        allocations = _reserve_inventory_for_order_item(
-            product=prod,
-            requested_qty=qty,
-            order=order,
-            order_item=order_item,
-            warehouse_id=str(order.warehouse_id or "").strip() or None,
-            allocation_policy=allocation_policy,
-            performed_by=performed_by,
-        )
+        requested_warehouse_id = str(order.warehouse_id or "").strip() or None
+        used_fallback_warehouse = False
+        try:
+            allocations = _reserve_inventory_for_order_item(
+                product=prod,
+                requested_qty=qty,
+                order=order,
+                order_item=order_item,
+                warehouse_id=requested_warehouse_id,
+                allocation_policy=allocation_policy,
+                performed_by=performed_by,
+            )
+        except ValueError:
+            if not requested_warehouse_id:
+                raise
+            used_fallback_warehouse = True
+            allocations = _reserve_inventory_for_order_item(
+                product=prod,
+                requested_qty=qty,
+                order=order,
+                order_item=order_item,
+                warehouse_id=None,
+                allocation_policy=allocation_policy,
+                performed_by=performed_by,
+            )
+
+        for row in allocations:
+            used_wh = str(row.get("warehouseId") or "").strip()
+            if used_wh:
+                warehouses_used_for_reservation.add(used_wh)
         allocation_note = f"Reserved using {allocation_policy}: " + ", ".join([f"{row['batchNumber']} x{row['quantity']}" for row in allocations])
         policy_note = f"AllocationPolicy={allocation_policy}"
-        order_item.notes = f"{order_item.notes or ''}\n{policy_note}\n{allocation_note}".strip()
+        fallback_note = "WarehouseFallback=TRUE" if used_fallback_warehouse else ""
+        order_item.notes = f"{order_item.notes or ''}\n{policy_note}\n{fallback_note}\n{allocation_note}".strip()
         order_item.save(update_fields=["notes"])
+
+    if len(warehouses_used_for_reservation) == 1:
+        order.warehouse_id = next(iter(warehouses_used_for_reservation))
+    elif len(warehouses_used_for_reservation) > 1:
+        order.warehouse_id = None
 
     order.subtotal = subtotal
     order.tax = tax
@@ -409,6 +440,7 @@ def _create_order_from_checkout_payload(
         update_fields=[
             "subtotal",
             "tax",
+            "warehouse_id",
             "total_amount",
             "shipping_name",
             "shipping_phone",
@@ -709,7 +741,8 @@ def _calculate_order_weight(order: Order) -> float:
     """Calculate total weight of an order in kg based on order items and their product weights."""
     total_weight = 0.0
     for item in order.items.select_related("product").all():
-        product_weight = float(item.product.weight or 0)
+        product = getattr(item, "product", None)
+        product_weight = float(getattr(product, "weight", 0) or 0)
         item_quantity = int(item.quantity or 0)
         total_weight += product_weight * item_quantity
     return total_weight
@@ -769,6 +802,20 @@ def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) 
                 best_updated_ts_by_order_id[order_id] = updated_ts
 
     return best_by_order_id
+
+
+def _generate_next_trip_number() -> str:
+    current_year = timezone.now().year
+    prefix = f"TRP-{current_year}-"
+    max_sequence = 0
+    for trip_number in Trip.objects.filter(trip_number__startswith=prefix).values_list("trip_number", flat=True):
+        raw = str(trip_number or "").strip()
+        if not raw.startswith(prefix):
+            continue
+        suffix = raw[len(prefix):]
+        if suffix.isdigit():
+            max_sequence = max(max_sequence, int(suffix))
+    return f"{prefix}{str(max_sequence + 1).zfill(4)}"
 
 
 
@@ -1295,8 +1342,20 @@ def _spare_product_quantities(quantity: Any, raw_unit: Any) -> dict[str, Any]:
 def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_product: bool = True) -> dict[str, Any]:
     row = _serialize_model(item)
     product = getattr(item, "product", None)
+    snapshot_name = str(getattr(item, "product_name", "") or "").strip()
+    snapshot_sku = str(getattr(item, "product_sku", "") or "").strip()
+    snapshot_unit = _normalize_product_unit(getattr(item, "product_unit", None))
     if include_full_product:
-        row["product"] = _serialize_model(product) if product else None
+        if product:
+            row["product"] = _serialize_model(product)
+        else:
+            row["product"] = {
+                "id": None,
+                "sku": snapshot_sku or None,
+                "name": snapshot_name or "Product",
+                "unit": snapshot_unit,
+                "isActive": False,
+            }
     else:
         row["product"] = (
             {
@@ -1306,9 +1365,14 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "unit": _normalize_product_unit(product.unit),
             }
             if product
-            else None
+            else {
+                "id": None,
+                "sku": snapshot_sku or None,
+                "name": snapshot_name or "Product",
+                "unit": snapshot_unit,
+            }
         )
-    row["spareProducts"] = _spare_product_quantities(item.quantity, getattr(product, "unit", None))
+    row["spareProducts"] = _spare_product_quantities(item.quantity, getattr(product, "unit", None) or snapshot_unit)
     return row
 
 
@@ -1424,8 +1488,14 @@ def _allocate_inventory_for_spare_products(
             batch.status = "DEPLETED"
         batch.save(update_fields=["quantity", "status", "updated_at"])
 
-        inventory.quantity = max(0, int(inventory.quantity or 0) - take_qty)
+        previous_qty = max(0, int(inventory.quantity or 0))
+        inventory.quantity = max(0, previous_qty - take_qty)
         inventory.save(update_fields=["quantity", "updated_at"])
+        _email_low_stock_if_needed(
+            inventory=inventory,
+            previous_qty=previous_qty,
+            reason=f"Spare products auto-load for order {order.order_number}",
+        )
 
         InventoryTransaction.objects.create(
             warehouse=inventory.warehouse,
@@ -1995,8 +2065,14 @@ def _allocate_inventory_for_order_item(
             batch.status = "DEPLETED"
         batch.save(update_fields=["quantity", "status", "updated_at"])
 
-        inventory.quantity = max(0, int(inventory.quantity) - take_qty)
+        previous_qty = max(0, int(inventory.quantity or 0))
+        inventory.quantity = max(0, previous_qty - take_qty)
         inventory.save(update_fields=["quantity", "updated_at"])
+        _email_low_stock_if_needed(
+            inventory=inventory,
+            previous_qty=previous_qty,
+            reason=f"Order allocation for {order.order_number}",
+        )
 
         InventoryTransaction.objects.create(
             warehouse=inventory.warehouse,
@@ -2114,6 +2190,142 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
         recipient_list=[email],
         fail_silently=False,
     )
+
+
+def _send_transactional_email(*, subject: str, message: str, recipients: list[str]) -> None:
+    cleaned = [str(x or "").strip().lower() for x in recipients if str(x or "").strip()]
+    if not cleaned:
+        return
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=cleaned,
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception("Failed to send transactional email: subject=%s recipients=%s", subject, cleaned)
+
+
+def _warehouse_staff_emails() -> list[str]:
+    rows = User.objects.filter(role=RoleType.WAREHOUSE_STAFF, is_active=True).values_list("email", flat=True)
+    out: list[str] = []
+    for email in rows:
+        value = _normalize_email(email)
+        if value:
+            out.append(value)
+    return sorted(set(out))
+
+
+def _email_new_order_to_warehouse_staff(order: Order) -> None:
+    recipients = _warehouse_staff_emails()
+    if not recipients:
+        return
+    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    order_items = list(order.items.select_related("product").all())
+    item_lines: list[str] = []
+    for item in order_items:
+        product_name = (
+            str(getattr(getattr(item, "product", None), "name", "") or "").strip()
+            or str(getattr(item, "product_name", "") or "").strip()
+            or "Product"
+        )
+        quantity = _int(getattr(item, "quantity", 0), 0)
+        unit_price = float(getattr(item, "unit_price", 0) or 0)
+        line_total = float(getattr(item, "total_price", 0) or (quantity * unit_price))
+        item_lines.append(f"- {product_name}: qty {quantity}, unit PHP {unit_price:.2f}, total PHP {line_total:.2f}")
+
+    items_block = "\n".join(item_lines) if item_lines else "- No order items found"
+    subject = f"New order received: {order.order_number}"
+    message = (
+        f"A new order has been created.\n\n"
+        f"Order Number: {order.order_number}\n"
+        f"Customer: {customer_name}\n"
+        f"Status: {order.status}\n"
+        f"Total Amount: PHP {float(order.total_amount or 0):.2f}\n\n"
+        f"Ordered Products:\n"
+        f"{items_block}\n"
+    )
+    _send_transactional_email(subject=subject, message=message, recipients=recipients)
+
+
+def _email_new_staff_credentials(user: User, plain_password: str) -> None:
+    recipient = _normalize_email(getattr(user, "email", ""))
+    if not recipient:
+        return
+    role_value = str(getattr(user, "role", "") or "").strip().upper()
+    if role_value not in {RoleType.WAREHOUSE_STAFF, RoleType.DRIVER}:
+        return
+    if not _is_gmail_email(recipient):
+        return
+    role_label = str(getattr(user, "role", "") or "STAFF").replace("_", " ").title()
+    subject = "Your account has been created"
+    message = (
+        f"Hello {str(getattr(user, 'name', '') or 'User').strip()},\n\n"
+        f"An administrator created your {role_label} account.\n\n"
+        f"Login Email: {recipient}\n"
+        f"Temporary Password: {plain_password}\n\n"
+        f"Please log in and change your password immediately."
+    )
+    _send_transactional_email(subject=subject, message=message, recipients=[recipient])
+
+
+def _email_order_out_for_delivery_to_customer(order: Order) -> None:
+    customer_email = _normalize_email(getattr(order.customer, "email", ""))
+    if not customer_email:
+        return
+    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    subject = f"Your order is out for delivery: {order.order_number}"
+    message = (
+        f"Hi {customer_name},\n\n"
+        f"Your order {order.order_number} is now out for delivery.\n"
+        f"Our driver is on the way.\n\n"
+        f"Thank you for ordering with us."
+    )
+    _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
+
+
+def _email_order_confirmed_to_customer(order: Order) -> None:
+    customer_email = _normalize_email(getattr(order.customer, "email", ""))
+    if not customer_email:
+        return
+    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    subject = f"Your order is confirmed: {order.order_number}"
+    message = (
+        f"Hi {customer_name},\n\n"
+        f"Your order {order.order_number} has been confirmed by our warehouse team.\n"
+        f"We are now preparing it for delivery.\n\n"
+        f"Thank you for ordering with us."
+    )
+    _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
+
+
+def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reason: str) -> None:
+    current_qty = max(0, _int(getattr(inventory, "quantity", 0), 0))
+    threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
+    if threshold <= 0:
+        return
+    if previous_qty <= threshold or current_qty > threshold:
+        return
+
+    recipients = _warehouse_staff_emails()
+    if not recipients:
+        return
+    warehouse_name = str(getattr(getattr(inventory, "warehouse", None), "name", "") or "Warehouse").strip()
+    product_name = str(getattr(getattr(inventory, "product", None), "name", "") or "Product").strip()
+    sku = str(getattr(getattr(inventory, "product", None), "sku", "") or "").strip()
+    sku_text = f" ({sku})" if sku else ""
+    subject = f"Low stock alert: {product_name}{sku_text}"
+    message = (
+        f"Stock level needs restocking.\n\n"
+        f"Warehouse: {warehouse_name}\n"
+        f"Product: {product_name}{sku_text}\n"
+        f"Current Quantity: {current_qty}\n"
+        f"Threshold: {threshold}\n"
+        f"Trigger: {reason}\n"
+    )
+    _send_transactional_email(subject=subject, message=message, recipients=recipients)
 
 
 def _otp_secret() -> str:
@@ -2372,6 +2584,7 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     name = str(body.get("name", "")).strip()
     email = str(body.get("email", "")).strip().lower()
     password = str(body.get("password", ""))
+    email_verification_token = str(body.get("emailVerificationToken", "")).strip()
     if not name or not email or not password:
         return _err("Name, email and password are required")
     password_error = _validate_password_strength(password)
@@ -2381,6 +2594,8 @@ def auth_register(request: HttpRequest) -> JsonResponse:
         return _err("Only Gmail addresses are allowed (example@gmail.com)")
     if Customer.objects.filter(email=email).exists():
         return _err("Email is already registered", 409)
+    if not _is_email_verification_token_valid(email_verification_token, email, "customer"):
+        return _err("Please verify your email address before registration", 400)
     address_error = _ensure_negros_occidental_address(
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
@@ -2552,6 +2767,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         role=role,
         is_active=bool(body.get("isActive", True)),
     )
+    _email_new_staff_credentials(user, password)
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
         title="User added",
@@ -2589,9 +2805,31 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         )
         return _ok({"success": True})
     body = _json_body(request)
+    current_email = str(user.email or "").strip().lower()
+    requested_email_raw = body.get("email", None)
+    requested_email = current_email
+    email_change_requested = False
+    if requested_email_raw is not None:
+        requested_email = str(requested_email_raw).strip().lower()
+        email_change_requested = requested_email != current_email
+
+    password_change_requested = bool(body.get("password"))
+    if email_change_requested or password_change_requested:
+        email_verification_token = str(body.get("emailVerificationToken", "")).strip()
+        verification_email = requested_email if email_change_requested else current_email
+        if not _is_email_verification_token_valid(email_verification_token, verification_email, "staff"):
+            return _err("Please verify OTP before changing email or password", 400)
+
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
             setattr(user, attr, body.get(key))
+    if "email" in body:
+        next_email = requested_email
+        if not next_email:
+            return _err("Email is required")
+        if next_email != current_email and not _is_gmail_email(next_email):
+            return _err("Only Gmail addresses are allowed for staff/driver accounts")
+        user.email = next_email
     if "isActive" in body:
         user.is_active = bool(body.get("isActive"))
     if body.get("password"):
@@ -2893,9 +3131,9 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         product_unit = _normalize_product_unit(body.get("unit"))
     except ValueError as exc:
         return _err(str(exc), 400)
-    initial_quantity = _int(body.get("initialQuantity"), 0)
+    initial_quantity = _int(body.get("availableQuantity"), _int(body.get("initialQuantity"), 0))
     if initial_quantity < 0:
-        return _err("initialQuantity must be a non-negative integer", 400)
+        return _err("availableQuantity must be a non-negative integer", 400)
 
     try:
         with transaction.atomic():
@@ -2923,7 +3161,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             actor_name = str(p.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
                 title="New product registered",
-                message=f"{actor_name} registered {prod.name} ({prod.sku}) in {warehouse.name} with initial stock {initial_quantity}.",
+                message=f"{actor_name} registered {prod.name} ({prod.sku}) in {warehouse.name} with available quantity {initial_quantity}.",
                 reference_type="product",
                 reference_id=prod.id,
             )
@@ -2952,6 +3190,21 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         actor_name = str(p.get("name") or "Staff").strip() or "Staff"
         product_name = str(prod.name or "Product").strip() or "Product"
         product_sku = str(prod.sku or "").strip()
+        has_order_history = OrderItem.objects.filter(product_id=prod.id).exists()
+        if has_order_history:
+            if prod.is_active:
+                prod.is_active = False
+                prod.save(update_fields=["is_active", "updated_at"])
+            _create_staff_notifications(
+                title="Product archived",
+                message=(
+                    f"{actor_name} archived {product_name}{f' ({product_sku})' if product_sku else ''} "
+                    "to preserve past order history."
+                ),
+                reference_type="product",
+                reference_id=product_id,
+            )
+            return _ok({"success": True, "archived": True, "preservedOrderHistory": True})
         prod.delete()
         _create_staff_notifications(
             title="Product deleted",
@@ -3747,7 +4000,7 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def notifications_collection(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p:
@@ -3764,6 +4017,9 @@ def notifications_collection(request: HttpRequest) -> JsonResponse:
         rows = list(qs[:limit])
         unread_count = scoped_qs.filter(is_read=False).count()
         return _ok({"success": True, "notifications": [_serialize_model(x) for x in rows], "unreadCount": unread_count})
+    if request.method == "DELETE":
+        deleted_count, _ = scoped_qs.delete()
+        return _ok({"success": True, "deleted": deleted_count, "unreadCount": 0})
     body = _json_body(request)
 
     if body.get("markAll") is True:
@@ -3907,6 +4163,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             logger.exception("Order create integrity error")
             return _err("Unable to create order right now. Please try again.", 409)
         order = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order.id)
+        _email_new_order_to_warehouse_staff(order)
         if p.get("type") == "staff":
             actor_name = str(p.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
@@ -4066,6 +4323,10 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         reference_type="order",
         reference_id=updated.id,
     )
+
+    if str(staff.get("role") or "").strip().upper() == RoleType.WAREHOUSE_STAFF and next_status == OrderStatus.CONFIRMED:
+        _email_order_confirmed_to_customer(updated)
+
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
 
 
@@ -4165,6 +4426,7 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     if stage == WarehouseStage.LOADED and _normalize_order_status(order.status) in {OrderStatus.PREPARING, OrderStatus.CONFIRMED}:
         order.status = OrderStatus.PREPARING
     if stage == WarehouseStage.DISPATCHED:
+        previous_status = _normalize_order_status(order.status)
         order.status = OrderStatus.OUT_FOR_DELIVERY
 
     with transaction.atomic():
@@ -4180,6 +4442,10 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         if not timeline.shipped_at:
             timeline.shipped_at = now
             timeline.save(update_fields=["shipped_at", "updated_at"])
+        if previous_status != OrderStatus.OUT_FOR_DELIVERY:
+            refreshed_for_email = Order.objects.select_related("customer").filter(id=order.id).first()
+            if refreshed_for_email:
+                _email_order_out_for_delivery_to_customer(refreshed_for_email)
 
     serialized_order = _serialize_order(
         Order.objects.select_related("customer", "timeline").get(id=order.id),
@@ -4235,11 +4501,6 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
         if include_tracking and serialized_rows:
             trip_ids = [row.get("id") for row in serialized_rows if row.get("id")]
-            logs_qs = LocationLog.objects.filter(trip_id__in=trip_ids)
-            if tracking_date:
-                logs_qs = logs_qs.filter(recorded_at__date=tracking_date)
-            logs_qs = logs_qs.order_by("recorded_at")
-
             latest_logs_qs = (
                 LocationLog.objects.filter(trip_id__in=trip_ids)
                 .order_by("trip_id", "-recorded_at", "-id")
@@ -4247,17 +4508,14 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
             logs_by_trip: dict[str, list[dict[str, Any]]] = {}
             latest_log_by_trip: dict[str, dict[str, Any]] = {}
-            for log in logs_qs:
-                if not log.trip_id:
-                    continue
-                row = _serialize_model(log)
-                logs_by_trip.setdefault(log.trip_id, []).append(row)
             for log in latest_logs_qs:
                 if not log.trip_id:
                     continue
                 if log.trip_id in latest_log_by_trip:
                     continue
-                latest_log_by_trip[log.trip_id] = _serialize_model(log)
+                row = _serialize_model(log)
+                latest_log_by_trip[log.trip_id] = row
+                logs_by_trip[log.trip_id] = [row]
 
             for trip_row in serialized_rows:
                 trip_id = trip_row.get("id")
@@ -4318,30 +4576,57 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 400,
             )
 
-    count = Trip.objects.count() + 1
-    trip = Trip.objects.create(trip_number=f"TRP-{timezone.now().year}-{str(count).zfill(4)}", driver=driver, vehicle=vehicle, warehouse_id=body.get("warehouseId"), status=body.get("status") or TripStatus.PLANNED, planned_start_at=datetime.fromisoformat(body["plannedStartAt"]) if body.get("plannedStartAt") else None, notes=body.get("notes"))
-    seq = 1
-    for oid in requested_order_ids:
-        order = Order.objects.filter(id=str(oid)).first()
-        if not order:
+    planned_start_at = None
+    planned_start_raw = str(body.get("plannedStartAt") or "").strip()
+    if planned_start_raw:
+        try:
+            planned_start_at = datetime.fromisoformat(planned_start_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return _err("Invalid plannedStartAt. Expected ISO date/time (e.g. YYYY-MM-DD)", 400)
+
+    trip = None
+    for _ in range(5):
+        try:
+            with transaction.atomic():
+                trip = Trip.objects.create(
+                    trip_number=_generate_next_trip_number(),
+                    driver=driver,
+                    vehicle=vehicle,
+                    warehouse_id=body.get("warehouseId"),
+                    status=body.get("status") or TripStatus.PLANNED,
+                    planned_start_at=planned_start_at,
+                    notes=body.get("notes"),
+                )
+                seq = 1
+                for oid in requested_order_ids:
+                    order = Order.objects.filter(id=str(oid)).first()
+                    if not order:
+                        continue
+                    drop_latitude = _to_float_or_none(order.shipping_latitude or getattr(order.customer, "latitude", None))
+                    drop_longitude = _to_float_or_none(order.shipping_longitude or getattr(order.customer, "longitude", None))
+                    TripDropPoint.objects.create(
+                        trip=trip,
+                        order=order,
+                        sequence=seq,
+                        location_name=(order.shipping_name or f"Order {order.order_number}"),
+                        address=_strip_default_country_suffix(order.shipping_address or "Address"),
+                        city=(order.shipping_city or "City"),
+                        province=(order.shipping_province or "Province"),
+                        zip_code=(order.shipping_zip_code or "00000"),
+                        latitude=drop_latitude,
+                        longitude=drop_longitude,
+                        contact_name=(order.shipping_name or None),
+                        contact_phone=(order.shipping_phone or None),
+                    )
+                    seq += 1
+            break
+        except IntegrityError:
+            trip = None
             continue
-        drop_latitude = _to_float_or_none(order.shipping_latitude or getattr(order.customer, "latitude", None))
-        drop_longitude = _to_float_or_none(order.shipping_longitude or getattr(order.customer, "longitude", None))
-        TripDropPoint.objects.create(
-            trip=trip,
-            order=order,
-            sequence=seq,
-            location_name=(order.shipping_name or f"Order {order.order_number}"),
-            address=_strip_default_country_suffix(order.shipping_address or "Address"),
-            city=(order.shipping_city or "City"),
-            province=(order.shipping_province or "Province"),
-            zip_code=(order.shipping_zip_code or "00000"),
-            latitude=drop_latitude,
-            longitude=drop_longitude,
-            contact_name=(order.shipping_name or None),
-            contact_phone=(order.shipping_phone or None),
-        )
-        seq += 1
+
+    if not trip:
+        return _err("Failed to create trip number. Please try again.", 409)
+
     trip.total_drop_points = trip.drop_points.count()
     trip.save(update_fields=["total_drop_points", "updated_at"])
     trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
@@ -4584,7 +4869,6 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
                 trip_ids.add(drop_point.trip_id)
 
     latest_log_by_trip: dict[str, LocationLog] = {}
-    route_logs_by_trip: dict[str, list[LocationLog]] = {}
     if trip_ids:
         logs = LocationLog.objects.filter(trip_id__in=list(trip_ids)).order_by("trip_id", "-recorded_at")
         for log in logs:
@@ -4592,9 +4876,6 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
                 continue
             if log.trip_id not in latest_log_by_trip:
                 latest_log_by_trip[log.trip_id] = log
-            bucket = route_logs_by_trip.setdefault(log.trip_id, [])
-            if len(bucket) < 40:
-                bucket.append(log)
 
     tracking: list[dict[str, Any]] = []
     for o in orders:
@@ -4628,18 +4909,15 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
             source = "unavailable"
 
         route_points = []
-        if trip and trip.id in route_logs_by_trip:
-            latest_first_logs = route_logs_by_trip[trip.id]
-            for log in reversed(latest_first_logs):
-                log_lat = _to_float_or_none(getattr(log, "latitude", None))
-                log_lng = _to_float_or_none(getattr(log, "longitude", None))
-                if log_lat is None or log_lng is None:
-                    continue
+        if latest_log:
+            log_lat = _to_float_or_none(getattr(latest_log, "latitude", None))
+            log_lng = _to_float_or_none(getattr(latest_log, "longitude", None))
+            if log_lat is not None and log_lng is not None:
                 route_points.append(
                     {
                         "latitude": float(log_lat),
                         "longitude": float(log_lng),
-                        "recordedAt": log.recorded_at.isoformat() if log.recorded_at else None,
+                        "recordedAt": latest_log.recorded_at.isoformat() if latest_log.recorded_at else None,
                     }
                 )
 
@@ -4741,16 +5019,50 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     else:
         trip_id = active_trip.id if active_trip else None
         trip_resolution = "auto_active_trip" if trip_id else "none"
-    log = LocationLog.objects.create(
-        driver_id=d.id,
-        trip_id=trip_id,
-        latitude=lat,
-        longitude=lng,
-        heading=heading,
-        altitude=altitude,
-        accuracy=accuracy,
-        battery=body.get("battery"),
-    )
+    with transaction.atomic():
+        log = (
+            LocationLog.objects.select_for_update()
+            .filter(driver_id=d.id)
+            .order_by("-recorded_at", "-id")
+            .first()
+        )
+        now = timezone.now()
+        if log:
+            log.trip_id = trip_id
+            log.latitude = lat
+            log.longitude = lng
+            log.heading = heading
+            log.altitude = altitude
+            log.accuracy = accuracy
+            log.battery = body.get("battery")
+            log.recorded_at = now
+            log.save(
+                update_fields=[
+                    "trip_id",
+                    "latitude",
+                    "longitude",
+                    "heading",
+                    "altitude",
+                    "accuracy",
+                    "battery",
+                    "recorded_at",
+                ]
+            )
+        else:
+            log = LocationLog.objects.create(
+                driver_id=d.id,
+                trip_id=trip_id,
+                latitude=lat,
+                longitude=lng,
+                heading=heading,
+                altitude=altitude,
+                accuracy=accuracy,
+                battery=body.get("battery"),
+                recorded_at=now,
+            )
+
+        # Keep latest-only location state per driver (no history).
+        LocationLog.objects.filter(driver_id=d.id).exclude(id=log.id).delete()
     return _ok({
         "success": True,
         "locationLogId": log.id,
@@ -4880,6 +5192,67 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
     if not damage_photos:
         return _err("At least one damage photo is required", 400)
 
+    def _resolve_inventory_rows_for_replacement(product: Product, order: Order | None) -> list[Inventory]:
+        inventory_qs = Inventory.objects.select_related("warehouse").filter(product=product, quantity__gt=0)
+        preferred_warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip() if order else ""
+        rows = list(inventory_qs)
+        if preferred_warehouse_id:
+            rows.sort(
+                key=lambda inv: (
+                    0 if str(getattr(inv, "warehouse_id", "") or "").strip() == preferred_warehouse_id else 1,
+                    -_int(getattr(inv, "quantity", 0), 0),
+                    str(getattr(inv, "id", "")),
+                )
+            )
+        else:
+            rows.sort(
+                key=lambda inv: (
+                    -_int(getattr(inv, "quantity", 0), 0),
+                    str(getattr(inv, "id", "")),
+                )
+            )
+        return rows
+
+    def _deduct_from_inventory(
+        *,
+        product: Product,
+        order: Order | None,
+        required_qty: int,
+        reference_id: str,
+    ) -> tuple[int, list[tuple[str, int]]]:
+        remaining = max(0, _int(required_qty, 0))
+        if remaining <= 0:
+            return 0, []
+
+        used_total = 0
+        allocations: list[tuple[str, int]] = []
+        inventory_rows = _resolve_inventory_rows_for_replacement(product, order)
+        for inv in inventory_rows:
+            if remaining <= 0:
+                break
+            available_qty = max(0, _int(getattr(inv, "quantity", 0), 0))
+            if available_qty <= 0:
+                continue
+            take_qty = min(available_qty, remaining)
+            if take_qty <= 0:
+                continue
+            inv.quantity = max(0, available_qty - take_qty)
+            inv.save(update_fields=["quantity", "updated_at"])
+            InventoryTransaction.objects.create(
+                warehouse=inv.warehouse,
+                product=product,
+                type="OUT",
+                quantity=take_qty,
+                reference_type="replacement",
+                reference_id=reference_id,
+                notes="Replacement quantity deducted from warehouse inventory",
+                performed_by=p.get("userId"),
+            )
+            used_total += take_qty
+            remaining -= take_qty
+            allocations.append((str(inv.warehouse_id or ""), take_qty))
+        return used_total, allocations
+
     replacement_lines_raw = body.get("items") if isinstance(body.get("items"), list) else []
     if replacement_lines_raw and not follow_up_return:
         order_id = str(body.get("orderId") or "").strip()
@@ -4887,6 +5260,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         if not order:
             return _err("orderId is required")
         replacement_lines: list[dict[str, Any]] = []
+        has_partial_line = False
         for index, raw_line in enumerate(replacement_lines_raw, start=1):
             if not isinstance(raw_line, dict):
                 return _err(f"Replacement item {index} is invalid", 400)
@@ -4904,22 +5278,46 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 return _err(f"Replacement item {index} quantity replaced cannot be negative", 400)
             if quantity_replaced > quantity_to_replace:
                 return _err(f"Replacement item {index} quantity replaced cannot exceed quantity to replace", 400)
+            if outcome == "PARTIALLY_REPLACED" and quantity_replaced < quantity_to_replace:
+                has_partial_line = True
             if resolved_on_delivery and quantity_replaced <= 0:
                 return _err(f"Replacement item {index} quantity replaced must be greater than zero", 400)
             stock = DriverSpareStock.objects.filter(driver_id=d.id, product=order_item.product).first()
             available_qty = _int(getattr(stock, "on_hand_quantity", 0), 0)
-            if quantity_replaced > available_qty:
-                return _err(f"Insufficient spare products for {order_item.product.name}", 400)
+            if resolved_on_delivery and quantity_to_replace > available_qty:
+                return _err(
+                    f"Replacement item {index} quantity to replace cannot exceed spare stock ({available_qty}) in RESOLVED mode",
+                    400,
+                )
+            if outcome == "PARTIALLY_REPLACED" and quantity_replaced > available_qty:
+                return _err(
+                    f"Replacement item {index} quantity replaced cannot exceed spare stock ({available_qty}) in PARTIALLY_REPLACED mode",
+                    400,
+                )
+            inventory_rows = _resolve_inventory_rows_for_replacement(order_item.product, order)
+            available_inventory_qty = sum(max(0, _int(getattr(inv, "quantity", 0), 0)) for inv in inventory_rows)
+            if quantity_replaced > (available_qty + available_inventory_qty):
+                return _err(
+                    f"Insufficient replacement stock for {order_item.product.name}. "
+                    f"Needed {quantity_replaced}, available spare {available_qty}, inventory {available_inventory_qty}",
+                    400,
+                )
             replacement_lines.append({
                 "orderItem": order_item,
                 "product": order_item.product,
                 "stock": stock,
                 "availableQty": available_qty,
+                "availableInventoryQty": available_inventory_qty,
                 "quantityToReplace": quantity_to_replace,
                 "quantityReplaced": quantity_replaced,
             })
         if not replacement_lines:
             return _err("At least one replacement item is required", 400)
+        if outcome == "PARTIALLY_REPLACED" and not has_partial_line:
+            return _err(
+                "PARTIALLY_REPLACED requires at least one item with quantity replaced less than quantity to replace",
+                400,
+            )
 
         replacement_status = ReplacementStatus.RESOLVED_ON_DELIVERY if resolved_on_delivery else ReplacementStatus.NEEDS_FOLLOW_UP
         replacement_mode = (
@@ -4935,21 +5333,37 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 quantity_replaced = line["quantityReplaced"]
                 product = line["product"]
                 order_item = line["orderItem"]
+                remaining_qty_to_deduct = quantity_replaced
+                deducted_from_spare = 0
+                deducted_from_inventory = 0
                 if quantity_replaced > 0:
                     stock = line["stock"]
-                    if stock is None:
-                        return _err(f"Insufficient spare products for {product.name}", 400)
-                    stock.on_hand_quantity -= quantity_replaced
-                    stock.save(update_fields=["on_hand_quantity", "updated_at"])
-                    InventoryTransaction.objects.create(
-                        driver_id=d.id,
-                        product=product,
-                        type="OUT",
-                        quantity=quantity_replaced,
-                        reference_type="replacement",
-                        reference_id=order.id,
-                        notes="Driver replacement from spare products",
-                    )
+                    spare_available = max(0, _int(getattr(stock, "on_hand_quantity", 0), 0))
+                    if spare_available > 0:
+                        deducted_from_spare = min(spare_available, remaining_qty_to_deduct)
+                        stock.on_hand_quantity = max(0, spare_available - deducted_from_spare)
+                        stock.save(update_fields=["on_hand_quantity", "updated_at"])
+                        InventoryTransaction.objects.create(
+                            driver_id=d.id,
+                            product=product,
+                            type="OUT",
+                            quantity=deducted_from_spare,
+                            reference_type="replacement",
+                            reference_id=order.id,
+                            notes="Driver replacement from spare products",
+                        )
+                        remaining_qty_to_deduct -= deducted_from_spare
+
+                    if remaining_qty_to_deduct > 0:
+                        deducted_from_inventory, _ = _deduct_from_inventory(
+                            product=product,
+                            order=order,
+                            required_qty=remaining_qty_to_deduct,
+                            reference_id=order.id,
+                        )
+                        remaining_qty_to_deduct -= deducted_from_inventory
+                    if remaining_qty_to_deduct > 0:
+                        return _err(f"Insufficient replacement stock for {product.name}", 400)
                 meta = {
                     "outcome": outcome,
                     "damagePhotos": damage_photos,
@@ -4959,6 +5373,10 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                     "quantityToReplace": quantity_to_replace,
                     "quantityReplaced": quantity_replaced,
                     "remainingQuantity": max(quantity_to_replace - quantity_replaced, 0),
+                    "stockSource": {
+                        "spareQuantity": deducted_from_spare,
+                        "inventoryQuantity": deducted_from_inventory,
+                    },
                     "replacementLines": [{
                         "originalOrderItemId": order_item.id,
                         "originalProductName": product.name,
@@ -5032,6 +5450,8 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             return _err("partiallyReplacedQuantity must be greater than zero", 400)
         if quantity_replaced > qty:
             return _err("partiallyReplacedQuantity cannot exceed quantity to replace", 400)
+        if quantity_replaced >= qty:
+            return _err("partiallyReplacedQuantity must be less than quantity to replace in PARTIALLY_REPLACED mode", 400)
 
     if follow_up_return:
         if not order:
@@ -5078,8 +5498,24 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
 
     stock = DriverSpareStock.objects.filter(driver_id=d.id, product=product).first() if product else None
     available_qty = _int(getattr(stock, "on_hand_quantity", 0), 0)
-    if quantity_replaced > available_qty:
-        return _err("Insufficient spare products for selected replacement quantity", 400)
+    available_inventory_qty = 0
+    if product:
+        inventory_rows = _resolve_inventory_rows_for_replacement(product, order)
+        available_inventory_qty = sum(max(0, _int(getattr(inv, "quantity", 0), 0)) for inv in inventory_rows)
+    if follow_up_return:
+        if quantity_replaced > available_inventory_qty:
+            return _err("Insufficient inventory stock for follow-up replacement quantity", 400)
+    elif outcome == "PARTIALLY_REPLACED" and quantity_replaced > available_qty:
+        return _err(
+            f"partiallyReplacedQuantity cannot exceed spare stock ({available_qty}) in PARTIALLY_REPLACED mode",
+            400,
+        )
+    elif quantity_replaced > (available_qty + available_inventory_qty):
+        return _err(
+            f"Insufficient replacement stock for selected replacement quantity. "
+            f"Needed {quantity_replaced}, available spare {available_qty}, inventory {available_inventory_qty}",
+            400,
+        )
     replacement_status = ReplacementStatus.RESOLVED_ON_DELIVERY if resolved_on_delivery else ReplacementStatus.NEEDS_FOLLOW_UP
     replacement_mode = (
         REPLACEMENT_MODE_SPARE_PRODUCTS_IMMEDIATE
@@ -5102,19 +5538,45 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
     }
 
     with transaction.atomic():
+        deducted_from_spare = 0
+        deducted_from_inventory = 0
         if quantity_replaced > 0:
-            stock.on_hand_quantity -= quantity_replaced
-            stock.save(update_fields=["on_hand_quantity", "updated_at"])
-            InventoryTransaction.objects.create(
-                driver_id=d.id,
-                product=product,
-                type="OUT",
-                quantity=quantity_replaced,
-                reference_type="replacement",
-                reference_id=order.id,
-                notes="Driver replacement from spare products",
-            )
+            if follow_up_return:
+                deducted_from_inventory, _ = _deduct_from_inventory(
+                    product=product,
+                    order=order,
+                    required_qty=quantity_replaced,
+                    reference_id=order.id,
+                )
+                if deducted_from_inventory < quantity_replaced:
+                    return _err("Insufficient inventory stock for follow-up replacement quantity", 400)
+            else:
+                spare_available = max(0, _int(getattr(stock, "on_hand_quantity", 0), 0))
+                if spare_available > 0:
+                    deducted_from_spare = min(spare_available, quantity_replaced)
+                    stock.on_hand_quantity = max(0, spare_available - deducted_from_spare)
+                    stock.save(update_fields=["on_hand_quantity", "updated_at"])
+                    InventoryTransaction.objects.create(
+                        driver_id=d.id,
+                        product=product,
+                        type="OUT",
+                        quantity=deducted_from_spare,
+                        reference_type="replacement",
+                        reference_id=order.id,
+                        notes="Driver replacement from spare products",
+                    )
+                remaining_for_inventory = quantity_replaced - deducted_from_spare
+                if remaining_for_inventory > 0:
+                    deducted_from_inventory, _ = _deduct_from_inventory(
+                        product=product,
+                        order=order,
+                        required_qty=remaining_for_inventory,
+                        reference_id=order.id,
+                    )
+                    if deducted_from_inventory < remaining_for_inventory:
+                        return _err("Insufficient inventory stock for replacement fallback quantity", 400)
         if follow_up_return:
+            meta["stockSource"] = {"spareQuantity": 0, "inventoryQuantity": quantity_replaced}
             follow_up_return.status = ReplacementStatus.COMPLETED
             follow_up_return.replacement_mode = follow_up_return.replacement_mode or replacement_mode
             follow_up_return.replacement_quantity = previously_replaced_qty + quantity_replaced
@@ -5128,6 +5590,10 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             follow_up_return.save()
             r = follow_up_return
         else:
+            meta["stockSource"] = {
+                "spareQuantity": deducted_from_spare,
+                "inventoryQuantity": deducted_from_inventory,
+            }
             count = Replacement.objects.count() + 1
             r = Replacement.objects.create(
                 replacement_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}",
@@ -5155,7 +5621,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             )
     serialized_return = _serialize_replacement(r)
     remaining_qty = _int(serialized_return.get("remainingQuantity"), max(qty - quantity_replaced, 0))
-    remaining_spare_products = max(available_qty - quantity_replaced, 0)
+    remaining_spare_products = max(available_qty - (0 if follow_up_return else deducted_from_spare), 0)
     return _ok({
         "success": True,
         "replacement": serialized_return,
@@ -5317,6 +5783,7 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
                 continue
             order = drop_point.order
             changed_fields: list[str] = []
+            previous_status = _normalize_order_status(order.status)
             if str(order.warehouse_stage or "").upper() != WarehouseStage.DISPATCHED:
                 order.warehouse_stage = WarehouseStage.DISPATCHED
                 changed_fields.append("warehouse_stage")
@@ -5329,6 +5796,10 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
             if changed_fields:
                 changed_fields.append("updated_at")
                 order.save(update_fields=changed_fields)
+                if previous_status != OrderStatus.OUT_FOR_DELIVERY:
+                    refreshed_for_email = Order.objects.select_related("customer").filter(id=order.id).first()
+                    if refreshed_for_email:
+                        _email_order_out_for_delivery_to_customer(refreshed_for_email)
 
             timeline, _ = OrderTimeline.objects.get_or_create(order=order)
             if not timeline.shipped_at:

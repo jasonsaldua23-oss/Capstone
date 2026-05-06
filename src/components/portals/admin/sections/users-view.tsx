@@ -313,7 +313,6 @@ export function UsersView() {
             <div className="text-center py-12">
               {/* <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" /> */}
               <p className="text-gray-500">No users found</p>
-              <Button className="mt-4">Add First User</Button>
             </div>
           ) : (
             <div className="overflow-x-auto">
