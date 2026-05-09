@@ -42,14 +42,31 @@ export async function downloadOrderReceipt(order: Order) {
         return true
       })
     const fullAddress = [...addressTokens, ...extras].join(', ')
+    const sellerPhone = String(
+      (order as any)?.sellerPhone ||
+      (order as any)?.adminPhone ||
+      (order as any)?.ownerPhone ||
+      (order as any)?.warehousePhone ||
+      '+63 9460056944'
+    ).trim()
 
     const fileName = `Receipt-${order.orderNumber}.pdf`
     const pdf = await PDFDocument.create()
-    const pageSize: [number, number] = [595.28, 841.89]
+    // Size page by expected content so export matches compact preview.
+    const orderItems = Array.isArray(order.items) ? order.items : []
+    const deliveryLineCount =
+      Math.max(1, String(fullAddress || '-').split(',').map((x) => x.trim()).filter(Boolean).length) +
+      (String(order.shippingName || '').trim() ? 1 : 0) +
+      (String(order.shippingPhone || '').trim() ? 1 : 0)
+    const estimatedHeight = Math.max(
+      320,
+      Math.min(760, 270 + (deliveryLineCount * 12) + (orderItems.length * 20))
+    )
+    const pageSize: [number, number] = [390, estimatedHeight]
     let page = pdf.addPage(pageSize)
     const fontRegular = await pdf.embedFont(StandardFonts.Helvetica)
     const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
-    const margin = 40
+    const margin = 24
     const contentWidth = page.getWidth() - margin * 2
     let y = page.getHeight() - margin
 
@@ -86,17 +103,27 @@ export async function downloadOrderReceipt(order: Order) {
       })
     }
 
+    page.drawRectangle({
+      x: 8,
+      y: 8,
+      width: page.getWidth() - 16,
+      height: page.getHeight() - 16,
+      borderColor: rgb(0.88, 0.91, 0.94),
+      borderWidth: 1,
+      color: rgb(1, 1, 1),
+    })
+
     let logoWidth = 0
     try {
       const response = await fetch('/ann-anns-logo.png', { cache: 'no-store' })
       if (response.ok) {
         const logoBytes = await response.arrayBuffer()
         const logoImage = await pdf.embedPng(logoBytes)
-        const logoHeight = 24
+        const logoHeight = 34
         logoWidth = (logoImage.width / logoImage.height) * logoHeight
         page.drawImage(logoImage, {
           x: margin,
-          y: y - 13,
+          y: y - 26,
           width: logoWidth,
           height: logoHeight,
         })
@@ -106,45 +133,57 @@ export async function downloadOrderReceipt(order: Order) {
     }
 
     const titleX = margin + (logoWidth > 0 ? logoWidth + 8 : 0)
-    drawText("Ann Ann's Beverages Trading", titleX, y, 13, true, rgb(0.06, 0.09, 0.16))
-    drawText('Order Receipt', page.getWidth() - margin - fontBold.widthOfTextAtSize('Order Receipt', 10), y + 1, 10, true)
-    y -= 16
-    drawText('Official Delivery Receipt', titleX, y, 9, false, rgb(0.39, 0.45, 0.55))
+    drawText("Ann Ann's Beverages Trading", titleX, y - 4, 10.8, true, rgb(0.06, 0.09, 0.16))
+    drawText('Order Receipt', page.getWidth() - margin - fontBold.widthOfTextAtSize('Order Receipt', 10), y - 3, 10, true)
+    y -= 18
+    drawText('Official Delivery Receipt', titleX, y - 3, 8.8, false, rgb(0.39, 0.45, 0.55))
+    y -= 12
+    drawText(`Phone: ${sellerPhone}`, titleX, y - 3, 8.4, false, rgb(0.39, 0.45, 0.55))
     y -= 14
 
     const badgeText = `Receipt No: ${receiptNumber} | Order No: ${order.orderNumber}`
     page.drawRectangle({
       x: margin,
-      y: y - 7,
+      y: y - 10,
       width: contentWidth,
-      height: 12,
+      height: 20,
       borderColor: rgb(0.88, 0.91, 0.94),
       borderWidth: 1,
       color: rgb(0.97, 0.98, 0.99),
     })
-    drawText(badgeText, margin + 6, y - 2.5, 8.5, false, rgb(0.28, 0.33, 0.41))
-    y -= 22
+    const badgeLines = wrapText(badgeText, contentWidth - 12, 8.4, fontRegular)
+    badgeLines.forEach((line, idx) => drawText(line, margin + 6, y + 3 - idx * 10, 8.4, false, rgb(0.28, 0.33, 0.41)))
+    y -= 30
 
-    const colGap = 10
+    const colGap = 12
     const colW = (contentWidth - colGap * 2) / 3
-    drawText('Delivery Details', margin, y, 8.5, true, rgb(0.39, 0.45, 0.55))
-    drawText('Sold By', margin + colW + colGap, y, 8.5, true, rgb(0.39, 0.45, 0.55))
-    drawText('Order Details', margin + (colW + colGap) * 2, y, 8.5, true, rgb(0.39, 0.45, 0.55))
-    y -= 11
+    const col1X = margin
+    const col2X = margin + colW + colGap
+    const col3X = margin + (colW + colGap) * 2
+    drawText('Delivery Details', col1X, y, 8.8, true, rgb(0.39, 0.45, 0.55))
+    drawText('Sold By', col2X, y, 8.8, true, rgb(0.39, 0.45, 0.55))
+    drawText('Order Details', col3X, y, 8.8, true, rgb(0.39, 0.45, 0.55))
+    y -= 12
 
-    const addressLines = wrapText(fullAddress || '-', colW, 8.5, fontRegular)
+    const addressLines = wrapText(fullAddress || '-', colW, 8.3, fontRegular)
+    const recipientLine = String(order.shippingName || '').trim() ? [`Recipient: ${String(order.shippingName || '').trim()}`] : []
+    const phoneLine = String(order.shippingPhone || '').trim() ? [`Phone: ${String(order.shippingPhone || '').trim()}`] : []
+    const deliveryDetailLines = [...addressLines, ...recipientLine, ...phoneLine]
     const orderDetails = [
       `Ordered: ${new Date(order.createdAt).toLocaleDateString()}`,
       `Delivered: ${issuedAt.toLocaleDateString()}`,
     ]
-    const maxRows = Math.max(addressLines.length, 1, orderDetails.length)
-    ensureSpace(maxRows * 11)
+    const maxRows = Math.max(deliveryDetailLines.length, 1, orderDetails.length)
+    ensureSpace(maxRows * 11 + 6)
     for (let i = 0; i < maxRows; i++) {
-      if (addressLines[i]) drawText(addressLines[i], margin, y - i * 10, 8.5, false)
-      if (i === 0) drawText("Ann Ann's Beverages Trading", margin + colW + colGap, y, 8.5, false)
-      if (orderDetails[i]) drawText(orderDetails[i], margin + (colW + colGap) * 2, y - i * 10, 8.5, false)
+      if (deliveryDetailLines[i]) drawText(deliveryDetailLines[i], col1X, y - i * 10, 8.3, false)
+      if (i < 2) {
+        const soldByLine = i === 0 ? "Ann Ann's" : 'Beverages Trading'
+        drawText(soldByLine, col2X, y - i * 10, 8.3, false)
+      }
+      if (orderDetails[i]) drawText(orderDetails[i], col3X, y - i * 10, 8.3, false)
     }
-    y -= maxRows * 10 + 12
+    y -= maxRows * 10 + 14
 
     ensureSpace(24)
     page.drawLine({
@@ -154,8 +193,8 @@ export async function downloadOrderReceipt(order: Order) {
       color: rgb(0.88, 0.91, 0.94),
     })
     y -= 12
-    drawText('Item Description', margin, y, 8.5, true, rgb(0.39, 0.45, 0.55))
-    drawText('Qty', page.getWidth() - margin - fontBold.widthOfTextAtSize('Qty', 8.5), y, 8.5, true, rgb(0.39, 0.45, 0.55))
+    drawText('Item Description', margin, y, 9, true, rgb(0.39, 0.45, 0.55))
+    drawText('Qty', page.getWidth() - margin - fontBold.widthOfTextAtSize('Qty', 9), y, 9, true, rgb(0.39, 0.45, 0.55))
     y -= 10
 
     for (const item of order.items || []) {
@@ -172,7 +211,7 @@ export async function downloadOrderReceipt(order: Order) {
     ensureSpace(30)
     const totalLabel = 'Total Price'
     const totalValue = formatPdfMoney(total)
-    const totalBlockWidth = 180
+    const totalBlockWidth = 182
     page.drawLine({
       start: { x: page.getWidth() - margin - totalBlockWidth, y },
       end: { x: page.getWidth() - margin, y },
@@ -182,7 +221,7 @@ export async function downloadOrderReceipt(order: Order) {
     y -= 14
     drawText(totalLabel, page.getWidth() - margin - totalBlockWidth + 2, y, 11, true, rgb(0.06, 0.09, 0.16))
     drawText(totalValue, page.getWidth() - margin - fontBold.widthOfTextAtSize(totalValue, 11), y, 11, true, rgb(0.06, 0.09, 0.16))
-    y -= 20
+    y -= 24
 
     const footer = 'This receipt serves as proof of payment and delivery. Thank you for your purchase.'
     const footerLines = wrapText(footer, contentWidth, 8, fontRegular)
@@ -199,43 +238,16 @@ export async function downloadOrderReceipt(order: Order) {
     if (typeof nav?.msSaveOrOpenBlob === 'function') {
       nav.msSaveOrOpenBlob(blob, fileName)
     } else {
-      let handled = false
-      const canShareFiles =
-        typeof nav?.canShare === 'function' &&
-        typeof nav?.share === 'function' &&
-        (() => {
-          try {
-            const file = new File([blob], fileName, { type: 'application/pdf' })
-            return nav.canShare({ files: [file] })
-          } catch {
-            return false
-          }
-        })()
-
-      if (canShareFiles) {
-        try {
-          const file = new File([blob], fileName, { type: 'application/pdf' })
-          await nav.share({ title: `Receipt ${order.orderNumber}`, text: `Receipt for ${order.orderNumber}`, files: [file] })
-          handled = true
-        } catch (shareError: any) {
-          if (String(shareError?.name || '') !== 'AbortError') {
-            console.error('Receipt share failed:', shareError)
-          }
-        }
-      }
-
-      if (!handled) {
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = fileName
-        link.rel = 'noopener'
-        link.style.display = 'none'
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.setTimeout(() => URL.revokeObjectURL(url), 30000)
-      }
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      link.rel = 'noopener'
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000)
     }
     toast.success('Receipt downloaded')
   } catch (error) {

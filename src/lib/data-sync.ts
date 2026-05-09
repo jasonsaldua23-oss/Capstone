@@ -4,6 +4,7 @@ export type DataSyncScope =
   | 'inventory'
   | 'products'
   | 'stock-batches'
+  | 'inventory-transactions'
   | 'warehouses'
   | 'orders'
   | 'trips'

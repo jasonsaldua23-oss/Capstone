@@ -56,7 +56,11 @@ export type WarehouseOrdersViewProps = {
   formatPeso: (value: number) => string
   formatWarehouseOrderStatus: (status: any, paymentStatus?: any, warehouseStage?: any) => string
   openOrderDetail: (order: any) => Promise<void>
-  updateWarehouseOrderStatus: (orderId: string, status: string) => void
+  updateWarehouseOrderStatus: (
+    orderId: string,
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    reason?: string
+  ) => Promise<void>
   updatingOrderId: string | null
 }
 

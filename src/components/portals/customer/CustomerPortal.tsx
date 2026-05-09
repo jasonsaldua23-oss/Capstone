@@ -42,6 +42,8 @@ import {
   fetchCustomerTracking,
   fetchReplacementsMeta,
   fetchLegacyCustomerReplacements,
+  submitCustomerReplacementRequest,
+  uploadReplacementEvidence,
 } from './sections/orders/orders-api'
 import { fetchCustomerProducts } from './sections/shared/products-api'
 import { fetchCustomerProfile, updateCustomerProfile, uploadCustomerAvatar } from './sections/profile/profile-api'
@@ -561,6 +563,42 @@ export function CustomerPortal() {
       window.clearInterval(metaIntervalId)
     }
   }, [activeView, fetchOrderMeta, fetchOrders, isSelectedTrackingOrderDelivered])
+
+  const submitReplacementRequest = useCallback(async (
+    orderId: string,
+    numberDamagedItems: number,
+    damageType: string,
+    description: string,
+    files: File[],
+  ) => {
+    if (!orderId) throw new Error('Order reference is missing')
+    if (!Number.isFinite(numberDamagedItems) || numberDamagedItems <= 0) {
+      throw new Error('Number of damaged items must be greater than zero')
+    }
+    if (!damageType.trim()) throw new Error('Reason / type of damage is required')
+    if (!files.length) throw new Error('At least one evidence file is required')
+    const uploaded: string[] = []
+    for (const file of files) {
+      const { response, data } = await uploadReplacementEvidence(file)
+      if (!response.ok || data?.success === false || !data?.fileUrl) {
+        throw new Error(data?.error || 'Failed to upload replacement evidence')
+      }
+      uploaded.push(String(data.fileUrl))
+    }
+    const { response, data } = await submitCustomerReplacementRequest({
+      orderId,
+      numberDamagedItems: Math.floor(numberDamagedItems),
+      damageType: damageType.trim(),
+      description: description.trim(),
+      evidence: uploaded,
+    })
+    if (!response.ok || data?.success === false) {
+      throw new Error(data?.error || 'Failed to submit replacement request')
+    }
+    await fetchOrderMeta()
+    emitDataSync(['replacements'])
+    toast.success('Replacement request submitted')
+  }, [fetchOrderMeta])
 
   useEffect(() => {
     if (activeView !== 'track') return
@@ -1126,7 +1164,7 @@ export function CustomerPortal() {
     setActiveView('cart')
   }
 
-  const submitRating = async () => {
+  const submitRating = async (selectedFeedbackOptions: string[] = []) => {
     if (!ratingDialogOrder?.id) return false
     if (deliveryRatingValue === 0) {
       toast.error('Please select a rating')
@@ -1141,13 +1179,20 @@ export function CustomerPortal() {
     setIsSubmittingRating(true)
     try {
       const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
-      const comment = ratingComment.trim()
+      const selectedReasons = Array.from(
+        new Set(
+          selectedFeedbackOptions
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+        )
+      )
+      const composedMessage = selectedReasons.map((reason) => `- ${reason}`).join('\n')
       const { response, payload } = await submitOrderFeedback({
         orderId: ratingDialogOrder.id,
         rating: overallRating,
         type: overallRating <= 2 ? 'COMPLAINT' : overallRating === 3 ? 'SUGGESTION' : 'COMPLIMENT',
         subject: `Order Review - ${ratingDialogOrder.orderNumber}`,
-        message: comment,
+        message: composedMessage,
       })
       if (response.status === 409) {
         setReviewedOrderIds((prev) => {
@@ -2070,6 +2115,7 @@ export function CustomerPortal() {
         isOrderCancellable={isOrderCancellable}
         cancelOrder={requestCancelOrder}
         isOrderDelivered={isOrderDelivered}
+        submitReplacementRequest={submitReplacementRequest}
       />
 
       <CustomerReceiptDialog

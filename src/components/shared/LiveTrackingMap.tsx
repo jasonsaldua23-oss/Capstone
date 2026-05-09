@@ -1192,34 +1192,65 @@ export default function LiveTrackingMap({
         {renderedRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
             <Fragment key={line.id}>
+              {(() => {
+                const rawColor = String(line.color || '').toLowerCase();
+                const isUpcoming = rawColor === '#2563eb' && !line.dashArray;
+                const isCompletedLike = Boolean(line.dashArray) || rawColor === '#93c5fd';
+                const outerColor = isUpcoming ? '#7ddfff' : '#2f3743';
+                const innerColor = isUpcoming ? '#2ecbff' : '#4b5563';
+                const outerOpacity = isUpcoming ? 0.42 : 0.32;
+                const innerOpacity = typeof line.opacity === 'number' ? line.opacity : isUpcoming ? 0.99 : 0.93;
+                const zoomScale = currentZoom <= 10 ? 0.58 : currentZoom <= 11 ? 0.68 : currentZoom <= 12 ? 0.8 : currentZoom <= 13 ? 0.9 : currentZoom <= 14 ? 0.96 : 1;
+                const baseInnerWeight = isUpcoming ? 7.2 : 6.8;
+                const baseOuterWeight = isUpcoming ? 9.4 : 8.8;
+                const outerWeight = Math.max(5.9, Math.round(baseOuterWeight * zoomScale * 10) / 10);
+                const innerWeight = Math.max(4.8, Math.round(baseInnerWeight * zoomScale * 10) / 10);
+                const centerWeight = Math.max(1.6, Math.round((isUpcoming ? 1.9 : 1.75) * zoomScale * 10) / 10);
+                const centerDash = isCompletedLike ? '1 12' : '2 10';
+                const centerOffset = isCompletedLike ? '0.5' : '0';
+
+                return (
+                  <>
+              <PolylineUnsafe
+                key={`${line.id}-outer`}
+                positions={line.points}
+                pathOptions={{
+                  color: outerColor,
+                  weight: outerWeight,
+                  opacity: outerOpacity,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              />
               <PolylineUnsafe
                 key={`${line.id}-base`}
                 positions={line.points}
                 pathOptions={{
-                  color: line.color || '#2563eb',
-                  weight: typeof line.weight === 'number' ? line.weight : (line.color === '#2563eb' ? 8 : 4),
-                  opacity: typeof line.opacity === 'number' ? line.opacity : (line.color === '#2563eb' ? 1 : 0.6),
-                  dashArray: line.dashArray,
+                  color: innerColor,
+                  weight: innerWeight,
+                  opacity: innerOpacity,
                   lineCap: 'round',
                   lineJoin: 'round',
                 }}
               >
                 {line.label ? <Popup>{line.label}</Popup> : null}
               </PolylineUnsafe>
-              {line.color === '#2563eb' && !line.dashArray ? (
-                <PolylineUnsafe
-                  key={`${line.id}-center`}
-                  positions={line.points}
-                  pathOptions={{
-                    color: '#ffffff',
-                    weight: 3,
-                    opacity: 0.8,
-                    dashArray: '4 3',
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                  }}
-                />
-              ) : null}
+              <PolylineUnsafe
+                key={`${line.id}-center`}
+                positions={line.points}
+                pathOptions={{
+                  color: '#f8fafc',
+                  weight: centerWeight,
+                  opacity: isUpcoming ? 0.55 : 0.9,
+                  dashArray: centerDash,
+                  dashOffset: centerOffset,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              />
+                  </>
+                );
+              })()}
             </Fragment>
           ) : null
         )}

@@ -649,6 +649,10 @@ def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> s
     if not raw:
         return raw
     if raw in {
+        ReplacementStatus.PENDING,
+        ReplacementStatus.UNDER_REVIEW,
+        ReplacementStatus.APPROVED,
+        ReplacementStatus.REJECTED,
         ReplacementStatus.REPORTED,
         ReplacementStatus.IN_PROGRESS,
         ReplacementStatus.RESOLVED_ON_DELIVERY,
@@ -660,8 +664,12 @@ def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> s
         return ReplacementStatus.REPORTED
     if raw in {"APPROVED", "PICKED_UP", "IN_TRANSIT", "RECEIVED"}:
         return ReplacementStatus.IN_PROGRESS
+    if raw == "UNDER REVIEW":
+        return ReplacementStatus.UNDER_REVIEW
+    if raw == "PENDING_REVIEW":
+        return ReplacementStatus.PENDING
     if raw == "REJECTED":
-        return ReplacementStatus.NEEDS_FOLLOW_UP
+        return ReplacementStatus.REJECTED
     if raw == "PROCESSED":
         return ReplacementStatus.COMPLETED
     return raw
@@ -702,6 +710,14 @@ def _serialize_model(obj: Any, include: dict[str, Any] | None = None, exclude: s
             out["unit"] = _normalize_product_unit(raw.get("unit"))
         except ValueError:
             out["unit"] = PRODUCT_UNIT_CASE
+        out["quantityPerCase"] = _int(raw.get("quantity_per_unit"), 0)
+    if isinstance(obj, Inventory):
+        quantity_per_case = _int(getattr(getattr(obj, "product", None), "quantity_per_unit", 0), 0)
+        case_count = max(0, _int(raw.get("quantity"), 0))
+        loose_bottles = max(0, _int(raw.get("loose_bottles"), 0))
+        out["quantityPerCase"] = quantity_per_case
+        out["looseBottles"] = loose_bottles
+        out["totalBottles"] = (case_count * quantity_per_case) + loose_bottles if quantity_per_case > 0 else case_count + loose_bottles
     for key, fn in include.items():
         out[key] = fn(obj)
     return out
@@ -1342,18 +1358,22 @@ def _spare_product_quantities(quantity: Any, raw_unit: Any) -> dict[str, Any]:
 def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_product: bool = True) -> dict[str, Any]:
     row = _serialize_model(item)
     product = getattr(item, "product", None)
+    quantity_per_case = _int(getattr(product, "quantity_per_unit", 0), 0)
     snapshot_name = str(getattr(item, "product_name", "") or "").strip()
     snapshot_sku = str(getattr(item, "product_sku", "") or "").strip()
     snapshot_unit = _normalize_product_unit(getattr(item, "product_unit", None))
+    row["quantityPerCase"] = quantity_per_case
     if include_full_product:
         if product:
             row["product"] = _serialize_model(product)
+            row["product"]["quantityPerCase"] = quantity_per_case
         else:
             row["product"] = {
                 "id": None,
                 "sku": snapshot_sku or None,
                 "name": snapshot_name or "Product",
                 "unit": snapshot_unit,
+                "quantityPerCase": 0,
                 "isActive": False,
             }
     else:
@@ -1363,6 +1383,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "sku": product.sku,
                 "name": product.name,
                 "unit": _normalize_product_unit(product.unit),
+                "quantityPerCase": quantity_per_case,
             }
             if product
             else {
@@ -1370,6 +1391,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "sku": snapshot_sku or None,
                 "name": snapshot_name or "Product",
                 "unit": snapshot_unit,
+                "quantityPerCase": 0,
             }
         )
     row["spareProducts"] = _spare_product_quantities(item.quantity, getattr(product, "unit", None) or snapshot_unit)
@@ -3145,7 +3167,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 weight=body.get("weight"),
                 price=float(body.get("price") or 0),
                 sizes=body.get("sizes") or [],
-                quantity_per_unit=body.get("quantityPerUnit"),
+                quantity_per_unit=body.get("quantityPerCase", body.get("quantityPerUnit")),
                 is_active=bool(body.get("isActive", True)),
             )
 
@@ -3221,6 +3243,8 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             prod.unit = _normalize_product_unit(body.get("unit"))
         except ValueError as exc:
             return _err(str(exc), 400)
+    if "quantityPerCase" in body or "quantityPerUnit" in body:
+        prod.quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0) or None
     mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("weight", "weight"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
@@ -3289,6 +3313,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
     warehouse_id = str(body.get("warehouseId", "")).strip()
     product_id = str(body.get("productId", "")).strip()
     qty = _int(body.get("quantity"), 0)
+    loose_bottles = max(0, _int(body.get("looseBottles"), 0))
     if not warehouse_id or not product_id:
         return _err("warehouseId and productId are required")
     try:
@@ -3303,9 +3328,12 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
     )
     if not created:
         item.quantity += qty
+        item.loose_bottles = max(0, _int(getattr(item, "loose_bottles", 0), 0) + loose_bottles)
+    else:
+        item.loose_bottles = loose_bottles
     item.threshold = max(1, int(item.quantity * 0.15))
     item.last_restocked_at = timezone.now()
-    item.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
+    item.save(update_fields=["quantity", "loose_bottles", "threshold", "last_restocked_at", "updated_at"])
     InventoryTransaction.objects.create(
         warehouse=warehouse,
         product=product,
@@ -3332,7 +3360,7 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
     body = _json_body(request)
     # Threshold is intentionally excluded from manual edits.
     # It is recalculated only after restock operations.
-    mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity")]
+    mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity"), ("looseBottles", "loose_bottles")]
     for key, attr in mapping:
         if key in body:
             setattr(item, attr, _int(body.get(key), getattr(item, attr)))
@@ -4190,6 +4218,10 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         return _err("Replacement record not found", 404)
     normalized_status = _normalize_replacement_status(status, r.replacement_mode)
     allowed_statuses = {
+        ReplacementStatus.PENDING,
+        ReplacementStatus.UNDER_REVIEW,
+        ReplacementStatus.APPROVED,
+        ReplacementStatus.REJECTED,
         ReplacementStatus.REPORTED,
         ReplacementStatus.IN_PROGRESS,
         ReplacementStatus.RESOLVED_ON_DELIVERY,
@@ -4200,12 +4232,15 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         return _err("Invalid replacement status", 400)
 
     r.status = normalized_status
+    status_notes = str(body.get("notes") or "").strip()
+    if normalized_status == ReplacementStatus.REJECTED and not status_notes:
+        return _err("Rejection reason is required in notes", 400)
     if normalized_status == ReplacementStatus.IN_PROGRESS:
         r.pickup_completed = timezone.now()
     if normalized_status in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}:
         r.processed_at = timezone.now()
         r.processed_by = staff.get("userId")
-    r.notes = f"{r.notes or ''}\n{normalized_status}".strip()
+    r.notes = f"{r.notes or ''}\n{normalized_status}{f': {status_notes}' if status_notes else ''}".strip()
     r.save()
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
@@ -4215,6 +4250,19 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         reference_type="replacement",
         reference_id=r.id,
     )
+    customer_email = _normalize_email(getattr(getattr(r, "order", None), "customer", None).email if getattr(r, "order", None) and getattr(r.order, "customer", None) else None)
+    if customer_email:
+        _send_transactional_email(
+            subject=f"Replacement Request Update: {r.replacement_number}",
+            message=(
+                f"Your replacement request status has been updated.\n\n"
+                f"Replacement: {r.replacement_number}\n"
+                f"Order: {getattr(getattr(r, 'order', None), 'order_number', 'N/A')}\n"
+                f"New status: {normalized_status}\n"
+                f"{f'Reason: {status_notes}\\n' if status_notes else ''}"
+            ),
+            recipients=[customer_email],
+        )
     return _ok({"success": True, "replacement": _serialize_replacement(r), "message": "Replacement status updated"})
 
 
@@ -4832,12 +4880,93 @@ def replacements_collection(request: HttpRequest) -> JsonResponse:
     )
 
 
-@require_GET
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def customer_replacements(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
-    return replacements_collection(request)
+    if request.method == "GET":
+        return replacements_collection(request)
+
+    body = _json_body(request)
+    order_id = str(body.get("orderId") or "").strip()
+    if not order_id:
+        return _err("orderId is required", 400)
+    order = (
+        Order.objects.select_related("customer")
+        .prefetch_related("items__product")
+        .filter(id=order_id, customer_id=p.get("userId"))
+        .first()
+    )
+    if not order:
+        return _err("Order not found", 404)
+
+    normalized_order_status = _normalize_order_status(getattr(order, "status", None))
+    if normalized_order_status != OrderStatus.DELIVERED:
+        return _err("Replacement request is only allowed for delivered orders", 400)
+
+    number_damaged_items = max(0, _int(body.get("numberDamagedItems"), 0))
+    if number_damaged_items <= 0:
+        return _err("numberDamagedItems must be greater than zero", 400)
+    damage_type = str(body.get("damageType") or body.get("reason") or "").strip()
+    if not damage_type:
+        return _err("reason/type of damage is required", 400)
+    evidence_list_raw = body.get("evidence") if isinstance(body.get("evidence"), list) else []
+    evidence_list = [str(item).strip() for item in evidence_list_raw if str(item).strip()]
+    primary_evidence = str(body.get("evidencePrimary") or body.get("damagePhoto") or "").strip()
+    if primary_evidence and primary_evidence not in evidence_list:
+        evidence_list.insert(0, primary_evidence)
+    if not evidence_list:
+        return _err("At least one evidence file is required", 400)
+
+    count = Replacement.objects.count() + 1
+    now = timezone.now()
+    meta = {
+        "submittedBy": "CUSTOMER",
+        "submittedAt": now.isoformat(),
+        "numberDamagedItems": number_damaged_items,
+        "damageType": damage_type,
+        "evidence": evidence_list,
+        "statusTimeline": [
+            {"status": ReplacementStatus.PENDING, "at": now.isoformat(), "by": str(order.customer_id)},
+        ],
+    }
+    replacement = Replacement.objects.create(
+        replacement_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}",
+        order=order,
+        customer_id=order.customer_id,
+        reason=damage_type,
+        description=str(body.get("description") or "Customer replacement request").strip() or "Customer replacement request",
+        status=ReplacementStatus.PENDING,
+        requested_by="CUSTOMER",
+        replacement_mode="CUSTOMER_SUBMITTED",
+        replacement_quantity=number_damaged_items,
+        damage_photo_url=evidence_list[0],
+        damage_photo_urls=json.dumps(evidence_list),
+        notes=f"Customer-submitted replacement request\nMeta: {json.dumps(meta)}",
+    )
+    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    _create_staff_notifications(
+        title="New replacement request",
+        message=f"{customer_name} submitted replacement request {replacement.replacement_number} for order {order.order_number}.",
+        notification_type="REPLACEMENT",
+        reference_type="replacement",
+        reference_id=replacement.id,
+    )
+    _send_transactional_email(
+        subject=f"New Replacement Request: {replacement.replacement_number}",
+        message=(
+            f"A customer submitted a replacement request.\n\n"
+            f"Replacement: {replacement.replacement_number}\n"
+            f"Order: {order.order_number}\n"
+            f"Customer: {customer_name}\n"
+            f"Damaged items: {number_damaged_items}\n"
+            f"Damage type: {damage_type}\n"
+        ),
+        recipients=_warehouse_staff_emails(),
+    )
+    return _ok({"success": True, "replacement": _serialize_replacement(replacement)}, 201)
 
 
 @require_GET
@@ -5268,11 +5397,21 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             order_item = OrderItem.objects.select_related("order", "product").filter(id=order_item_id, order_id=order.id).first()
             if not order_item:
                 return _err(f"Replacement item {index} was not found on this order", 400)
-            quantity_to_replace = _int(raw_line.get("quantityToReplace", raw_line.get("quantity")), 0)
+            quantity_per_case = max(1, _int(
+                raw_line.get("quantityPerCase"),
+                _int(getattr(order_item.product, "quantity_per_unit", 0), 1),
+            ))
+            replacement_cases = max(0, _int(raw_line.get("replacementCases"), 0))
+            replacement_bottles = max(0, _int(raw_line.get("replacementBottles"), 0))
+            line_total_bottles = (replacement_cases * quantity_per_case) + replacement_bottles
+            fallback_line_qty = _int(raw_line.get("quantityToReplace", raw_line.get("quantity")), 0)
+            quantity_to_replace = line_total_bottles if line_total_bottles > 0 else fallback_line_qty
             if quantity_to_replace <= 0:
                 return _err(f"Replacement item {index} quantity to replace must be greater than zero", 400)
-            if quantity_to_replace > _int(order_item.quantity, 0):
-                return _err(f"Replacement item {index} quantity cannot exceed ordered quantity", 400)
+            ordered_cases = _int(order_item.quantity, 0)
+            max_ordered_bottles = ordered_cases * quantity_per_case
+            if quantity_to_replace > max_ordered_bottles:
+                return _err(f"Replacement item {index} bottle quantity cannot exceed ordered case quantity", 400)
             quantity_replaced = quantity_to_replace if resolved_on_delivery else _int(raw_line.get("quantityReplaced", raw_line.get("partiallyReplacedQuantity")), 0)
             if quantity_replaced < 0:
                 return _err(f"Replacement item {index} quantity replaced cannot be negative", 400)
@@ -5310,6 +5449,9 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 "availableInventoryQty": available_inventory_qty,
                 "quantityToReplace": quantity_to_replace,
                 "quantityReplaced": quantity_replaced,
+                "replacementCases": replacement_cases,
+                "replacementBottles": replacement_bottles,
+                "quantityPerCase": quantity_per_case,
             })
         if not replacement_lines:
             return _err("At least one replacement item is required", 400)
@@ -5331,6 +5473,9 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             for offset, line in enumerate(replacement_lines):
                 quantity_to_replace = line["quantityToReplace"]
                 quantity_replaced = line["quantityReplaced"]
+                replacement_cases = line["replacementCases"]
+                replacement_bottles = line["replacementBottles"]
+                quantity_per_case = line["quantityPerCase"]
                 product = line["product"]
                 order_item = line["orderItem"]
                 remaining_qty_to_deduct = quantity_replaced
@@ -5372,6 +5517,9 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                     "dropPointId": str(body.get("dropPointId") or "").strip() or None,
                     "quantityToReplace": quantity_to_replace,
                     "quantityReplaced": quantity_replaced,
+                    "replacementCases": replacement_cases,
+                    "replacementBottles": replacement_bottles,
+                    "quantityPerCase": quantity_per_case,
                     "remainingQuantity": max(quantity_to_replace - quantity_replaced, 0),
                     "stockSource": {
                         "spareQuantity": deducted_from_spare,
@@ -5385,6 +5533,9 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                         "replacementProductSku": product.sku,
                         "quantityToReplace": quantity_to_replace,
                         "quantityReplaced": quantity_replaced,
+                        "replacementCases": replacement_cases,
+                        "replacementBottles": replacement_bottles,
+                        "quantityPerCase": quantity_per_case,
                         "remainingQuantity": max(quantity_to_replace - quantity_replaced, 0),
                     }],
                 }
@@ -6013,6 +6164,24 @@ def _handle_image_upload(request: HttpRequest, folder: str, prefix: str) -> Json
     return _ok({"success": True, "imageUrl": f"/uploads/{folder}/{name}"})
 
 
+def _handle_evidence_upload(request: HttpRequest, folder: str, prefix: str) -> JsonResponse:
+    file_obj = request.FILES.get("file")
+    if not file_obj:
+        return _err("Evidence file is required")
+    content_type = str(file_obj.content_type or "").lower()
+    if not (content_type.startswith("image/") or content_type.startswith("video/")):
+        return _err("Only image or video files are allowed")
+    media_root = Path(__file__).resolve().parents[1] / "media" / "uploads" / folder
+    media_root.mkdir(parents=True, exist_ok=True)
+    ext = (Path(file_obj.name).suffix or ".bin").lower()
+    name = f"{prefix}-{int(timezone.now().timestamp() * 1000)}{ext}"
+    target = media_root / name
+    with target.open("wb") as f:
+        for chunk in file_obj.chunks():
+            f.write(chunk)
+    return _ok({"success": True, "fileUrl": f"/uploads/{folder}/{name}"})
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def upload_product_image(request: HttpRequest) -> JsonResponse:
@@ -6062,6 +6231,15 @@ def upload_customer_avatar(request: HttpRequest) -> JsonResponse:
     if not p:
         return _err("Unauthorized", 401)
     return _handle_image_upload(request, "customers", "customer")
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def upload_replacement_evidence(request: HttpRequest) -> JsonResponse:
+    p = _require_auth(request)
+    if not p or p.get("type") != "customer":
+        return _err("Unauthorized", 401)
+    return _handle_evidence_upload(request, "replacement-evidence", "replacement-evidence")
 
 
 def ensure_demo_accounts() -> None:

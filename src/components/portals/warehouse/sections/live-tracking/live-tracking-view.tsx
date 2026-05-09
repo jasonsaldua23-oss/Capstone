@@ -21,6 +21,9 @@ export function WarehouseLiveTrackingView({
   liveTrackingActiveTrips,
   liveTrackingRecentLocations,
 }: WarehouseLiveTrackingViewProps) {
+  const today = new Date()
+  const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -32,7 +35,7 @@ export function WarehouseLiveTrackingView({
           <Input
             type="date"
             value={trackingDate}
-            onChange={(event) => setTrackingDate(event.target.value)}
+            onChange={(event) => setTrackingDate(event.target.value || todayDate)}
             className="w-[160px]"
           />
           <Button

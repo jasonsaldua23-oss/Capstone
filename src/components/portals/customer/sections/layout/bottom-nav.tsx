@@ -16,7 +16,7 @@ export function CustomerBottomNav(props: any) {
           </Button>
           <Button variant="ghost" className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'orders' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setActiveView('orders')}>
             <Package className="h-4 w-4" />
-            <span className="text-sm font-medium">Orders</span>
+            <span className="text-sm font-medium">Purchase Request</span>
           </Button>
           <Button variant="ghost" className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'profile' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setActiveView('profile')}>
             <User className="h-4 w-4" />
@@ -41,7 +41,7 @@ export function CustomerBottomNav(props: any) {
             onClick={() => setActiveView('orders')}
           >
             <Package className="h-4 w-4" />
-            <span className="text-[11px] font-medium">Orders</span>
+            <span className="text-[11px] font-medium">Purchase Request</span>
           </Button>
           <Button
             variant="ghost"

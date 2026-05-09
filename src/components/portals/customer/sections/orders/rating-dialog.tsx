@@ -5,8 +5,15 @@ import { Loader2, Star, CheckCircle2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+
+const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
+  1: ['Late delivery', 'Missing items', 'Damaged package', 'Wrong order', 'Poor rider attitude'],
+  2: ['Slow delivery', 'Packaging issue', 'Incomplete order', 'Hard to contact rider', 'Item condition problem'],
+  3: ['Average delivery speed', 'Minor packaging issue', 'Communication could improve', 'Acceptable service', 'Minor inconvenience'],
+  4: ['Fast delivery', 'Friendly rider', 'Good packaging', 'Accurate order', 'Smooth transaction'],
+  5: ['Excellent delivery speed', 'Professional rider', 'Perfect packaging', 'Complete order', 'Great overall experience'],
+}
 
 export function CustomerRatingDialog(props: any) {
   const {
@@ -14,16 +21,19 @@ export function CustomerRatingDialog(props: any) {
     setRatingDialogOrder,
     deliveryRatingValue,
     setDeliveryRatingValue,
-    ratingComment,
-    setRatingComment,
     isSubmittingRating,
     submitRating,
   } = props
 
   const [showSuccess, setShowSuccess] = useState(false)
+  const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([])
+  const visibleFeedbackOptions = useMemo(
+    () => FEEDBACK_OPTIONS_BY_RATING[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || [],
+    [deliveryRatingValue]
+  )
 
   const handleSubmit = async () => {
-    const submitted = await submitRating()
+    const submitted = await submitRating(selectedFeedbackOptions)
     if (!submitted) return
     setShowSuccess(true)
     setTimeout(() => {
@@ -88,7 +98,10 @@ export function CustomerRatingDialog(props: any) {
                         <button
                           key={`delivery-${value}`}
                           type="button"
-                          onClick={() => setDeliveryRatingValue(value)}
+                          onClick={() => {
+                            setDeliveryRatingValue(value)
+                            setSelectedFeedbackOptions([])
+                          }}
                           disabled={isSubmittingRating}
                           className={`transition-transform hover:scale-110 ${isActive ? 'text-amber-500' : 'text-gray-300'}`}
                           title={`${value} star${value > 1 ? 's' : ''}`}
@@ -106,19 +119,31 @@ export function CustomerRatingDialog(props: any) {
               </div>
             </div>
 
-            {/* Textarea Section */}
             <div className="space-y-2">
-              <Label htmlFor="rating-message" className="text-xs font-semibold text-slate-900 md:text-sm">Feedback (Optional)</Label>
-              <Textarea
-                id="rating-message"
-                placeholder="Add your comment..."
-                value={ratingComment}
-                onChange={(e) => setRatingComment(e.target.value)}
-                disabled={isSubmittingRating}
-                className="min-h-[60px] resize-none text-xs md:min-h-[80px] md:text-sm"
-                maxLength={500}
-              />
-              <p className="text-xs text-slate-400">{ratingComment.length}/500</p>
+              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback (Optional)</Label>
+              <div className="grid grid-cols-1 gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                {visibleFeedbackOptions.map((option) => {
+                  const checked = selectedFeedbackOptions.includes(option)
+                  return (
+                    <label key={option} className="flex items-start gap-2 text-xs text-slate-700 md:text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
+                        checked={checked}
+                        disabled={isSubmittingRating}
+                        onChange={(event) => {
+                          const isChecked = event.target.checked
+                          setSelectedFeedbackOptions((prev) => {
+                            if (isChecked) return [...prev, option]
+                            return prev.filter((item) => item !== option)
+                          })
+                        }}
+                      />
+                      <span>{option}</span>
+                    </label>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Success message */}

@@ -292,6 +292,7 @@ export function InventoryView() {
           sku: editSku.trim(),
           unit: editUnit.trim(),
           quantityPerUnit: Math.floor(nextQuantityPerUnit),
+          quantityPerCase: Math.floor(nextQuantityPerUnit),
           imageUrl: uploadedImageUrl,
           price: nextPrice,
         }),
@@ -372,6 +373,7 @@ export function InventoryView() {
           sku: nextSku,
           unit: productUnit.trim(),
           quantityPerUnit: Math.floor(nextQuantityPerUnit),
+          quantityPerCase: Math.floor(nextQuantityPerUnit),
           price: nextPrice,
           sizes: productSizes,
           imageUrl: uploadedImageUrl,
@@ -411,9 +413,9 @@ export function InventoryView() {
             <div>
               <CardTitle>Inventory</CardTitle>
             </div>
-            <div className="flex w-full gap-2 sm:w-auto">
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
               <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm sm:flex-1"
+                className="h-10 min-w-[180px] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:w-[220px] sm:flex-none"
                 value={selectedWarehouseId}
                 onChange={(event) => setSelectedWarehouseId(event.target.value)}
                 title="Filter by warehouse"
@@ -446,19 +448,22 @@ export function InventoryView() {
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[1180px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left p-4 font-medium text-gray-600">SKU</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Product</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Unit</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Price</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Threshold</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Available</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Reserved</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Location</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap min-w-[190px]">Product</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Unit</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Price</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Threshold</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Bottles</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Total Bottles</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Available</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Reserved</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Location</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Status</th>
+                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -466,15 +471,19 @@ export function InventoryView() {
                     const status = getStockStatus(item)
                     const reservedQty = getReservedQty(item)
                     const availableQty = getAvailableQty(item)
+                    const caseQty = Math.max(Number(item.quantity ?? 0), 0)
+                    const quantityPerCase = Math.max(Number(item.quantityPerCase ?? item.product?.quantityPerCase ?? item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? 0), 0)
+                    const looseBottles = Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0)
+                    const totalBottles = quantityPerCase > 0 ? (caseQty * quantityPerCase) + looseBottles : caseQty + looseBottles
                     return (
                       <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
+                        <td className="p-2.5 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
+                        <td className="p-2.5">
+                          <div className="flex items-center gap-2">
                             <img
                               src={item.product?.imageUrl || '/logo.svg'}
                               alt={item.product?.name || 'Product'}
-                              className="h-12 w-12 rounded-md object-cover border bg-white"
+                              className="h-10 w-10 rounded-md object-cover border bg-white"
                               onError={(event) => {
                                 const target = event.currentTarget
                                 if (target.src.endsWith('/logo.svg')) return
@@ -491,17 +500,20 @@ export function InventoryView() {
                             </div>
                           </div>
                         </td>
-                        <td className="p-4 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
-                        <td className="p-4 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
-                        <td className="p-4 font-semibold text-gray-900">{getThreshold(item)}</td>
-                        <td className="p-4 font-semibold text-gray-900">{availableQty}</td>
-                        <td className="p-4 font-semibold text-orange-600">{reservedQty}</td>
-                        <td className="p-4 text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
-                        <td className="p-4">
+                        <td className="p-2.5 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
+                        <td className="p-2.5 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
+                        <td className="p-2.5 font-semibold text-gray-900">{getThreshold(item)}</td>
+                        <td className="p-2.5 font-semibold text-gray-900">{quantityPerCase}</td>
+                        <td className="p-2.5 font-semibold text-gray-900">{looseBottles}</td>
+                        <td className="p-2.5 font-semibold text-gray-900">{totalBottles}</td>
+                        <td className="p-2.5 font-semibold text-gray-900">{availableQty}</td>
+                        <td className="p-2.5 font-semibold text-orange-600">{reservedQty}</td>
+                        <td className="p-2.5 text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
+                        <td className="p-2.5">
                           {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
                           {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                         </td>
-                        <td className="p-4">
+                        <td className="p-2.5">
                           <Button
                             size="icon"
                             variant="ghost"
@@ -563,7 +575,7 @@ export function InventoryView() {
                   <Input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Quantity per Unit</label>
+                  <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
                   <Input type="number" step="1" min="1" value={editQuantityPerUnit} onChange={(e) => setEditQuantityPerUnit(e.target.value)} placeholder="Required" />
                 </div>
                 <div className="flex gap-2 pt-1">
@@ -687,7 +699,7 @@ export function InventoryView() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Quantity per Unit</label>
+              <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
               <Input
                 type="number"
                 step="1"

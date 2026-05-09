@@ -1,10 +1,13 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CalendarDays, CheckCircle2, Download, MapPin, Package, Wallet, X } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Download, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+
+const DAMAGE_REASON_OPTIONS = ['Broken seal', 'Cracked bottle', 'Leaking', 'Expired', 'Crushed case', 'Other']
 
 export function CustomerOrderDetailsDialog(props: any) {
   const {
@@ -21,7 +24,25 @@ export function CustomerOrderDetailsDialog(props: any) {
     getReplacementStatusLabel,
     getReplacementBadgeClass,
     isOrderDelivered,
+    submitReplacementRequest,
   } = props
+  const [isReplacementRequestOpen, setIsReplacementRequestOpen] = useState(false)
+  const [replacementLines, setReplacementLines] = useState<Array<{
+    key: string
+    productId: string
+    quantity: string
+    inputMode: 'case' | 'bottle'
+    reason: string
+    description: string
+  }>>([
+    { key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' },
+  ])
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
+  const [isSubmittingReplacement, setIsSubmittingReplacement] = useState(false)
+  const selectedOrderReplacementRecords = useMemo(
+    () => deliveryIssueRecords.filter((record: any) => record.orderId === selectedOrder?.id),
+    [deliveryIssueRecords, selectedOrder?.id],
+  )
 
   const getReplacementQty = (record: any) => {
     const meta = typeof record?.notes === 'string' && record.notes.includes('Meta:')
@@ -53,9 +74,51 @@ export function CustomerOrderDetailsDialog(props: any) {
       ''
     ).trim()
 
+  useEffect(() => {
+    if (!selectedOrder) return
+    const shouldOpenReplacement = Boolean((selectedOrder as any)?.__openReplacementRequest)
+    setIsReplacementRequestOpen(shouldOpenReplacement)
+  }, [selectedOrder])
+
+  const selectableOrderItems = Array.isArray(selectedOrder?.items) ? selectedOrder.items : []
+  const addReplacementLine = () => {
+    setReplacementLines((prev) => [
+      ...prev,
+      { key: `line-${Date.now()}-${prev.length + 1}`, productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' },
+    ])
+  }
+  const removeReplacementLine = (key: string) => {
+    setReplacementLines((prev) => (prev.length > 1 ? prev.filter((line) => line.key !== key) : prev))
+  }
+  const updateReplacementLine = (key: string, patch: Partial<{ productId: string; quantity: string; inputMode: 'case' | 'bottle'; reason: string; description: string }>) => {
+    setReplacementLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)))
+  }
+  const getQuantityPerCaseForItem = (item: any) => {
+    const value = Number(
+      item?.quantityPerCase ??
+      item?.quantity_per_case ??
+      item?.product?.quantityPerCase ??
+      item?.product?.quantity_per_case ??
+      item?.product?.quantityPerUnit ??
+      item?.product?.quantity_per_unit ??
+      1
+    )
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1
+  }
+  const getSelectableItemsForLine = (lineKey: string) => {
+    const selectedByOtherLines = new Set(
+      replacementLines
+        .filter((line) => line.key !== lineKey)
+        .map((line) => line.productId)
+        .filter(Boolean)
+    )
+    return selectableOrderItems.filter((item: any) => !selectedByOtherLines.has(String(item.id || '')))
+  }
+
   return (
+    <>
     <Dialog
-      open={!!selectedOrder}
+      open={!!selectedOrder && !isReplacementRequestOpen}
       onOpenChange={(open) => {
         if (!open) {
           setSelectedOrder(null)
@@ -177,12 +240,10 @@ export function CustomerOrderDetailsDialog(props: any) {
                 ))}
               </div>
 
-              {deliveryIssueRecords.filter((record: any) => record.orderId === selectedOrder.id).length ? (
+              {selectedOrderReplacementRecords.length ? (
                 <div className="border-t border-slate-200 px-3 py-3">
                   <p className="mb-1 text-xs font-semibold text-slate-700">Replacement Details</p>
-                  {deliveryIssueRecords
-                    .filter((record: any) => record.orderId === selectedOrder.id)
-                    .map((record: any) => {
+                  {selectedOrderReplacementRecords.map((record: any) => {
                       const label = getReplacementStatusLabel(record.status)
                       const qtyReplaced = getReplacementQty(record)
                       return (
@@ -227,11 +288,11 @@ export function CustomerOrderDetailsDialog(props: any) {
               <Button
                 variant="outline"
                 className="h-9 rounded-lg border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50 md:h-10 md:text-sm"
-                onClick={() => downloadReceipt(selectedOrder)}
+                onClick={() => setIsReceiptDialogOpen(true)}
                 disabled={!isOrderDelivered(selectedOrder)}
               >
                 <Download className="mr-1.5 h-3.5 w-3.5 md:h-4 md:w-4" />
-                Download Receipt
+                View Receipt
               </Button>
               <Button className="h-9 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 md:h-10 md:text-sm" onClick={() => setSelectedOrder(null)}>
                 Close
@@ -241,5 +302,102 @@ export function CustomerOrderDetailsDialog(props: any) {
         </DialogContent>
       ) : null}
     </Dialog>
+    <Dialog
+      open={isReplacementRequestOpen}
+      onOpenChange={(open) => {
+        setIsReplacementRequestOpen(open)
+        if (!open) {
+          setSelectedOrder(null)
+        }
+      }}
+    >
+      <DialogContent className="w-[95vw] max-w-[720px] rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-base font-semibold text-slate-900">Request Replacement</p>
+        <p className="mt-1 text-xs text-slate-600">Select one or more products and set reason per product.</p>
+        <div className="mt-3 space-y-2">
+          {replacementLines.map((line, index) => (
+            <div key={line.key} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold text-slate-800">Product #{index + 1}</p>
+                <button type="button" className="text-[11px] text-rose-600 disabled:opacity-40" disabled={replacementLines.length <= 1} onClick={() => removeReplacementLine(line.key)}>
+                  Remove
+                </button>
+              </div>
+              <div className="mb-2 inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
+                <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}>
+                  By Case
+                </button>
+                <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
+                  By Bottle
+                </button>
+              </div>
+              <div className="grid gap-2 md:grid-cols-3">
+                <select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.productId} onChange={(e) => updateReplacementLine(line.key, { productId: e.target.value })}>
+                  <option value="">Select product</option>
+                  {getSelectableItemsForLine(line.key).map((item: any) => (
+                    <option key={item.id} value={item.id}>{item.product?.name || 'Item'}</option>
+                  ))}
+                </select>
+                <input type="number" min={1} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.quantity} onChange={(e) => updateReplacementLine(line.key, { quantity: e.target.value })} placeholder={line.inputMode === 'case' ? 'Damaged cases' : 'Damaged bottles'} />
+                <select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.reason} onChange={(e) => updateReplacementLine(line.key, { reason: e.target.value })}>
+                  {DAMAGE_REASON_OPTIONS.map((reason) => <option key={reason}>{reason}</option>)}
+                </select>
+                {line.reason === 'Other' ? (
+                  <textarea className="min-h-[68px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs md:col-span-3" value={line.description} onChange={(e) => updateReplacementLine(line.key, { description: e.target.value })} placeholder="Describe the issue for this product" />
+                ) : null}
+              </div>
+            </div>
+          ))}
+          <Button variant="outline" className="h-9 text-xs" onClick={addReplacementLine}>Add Product</Button>
+          <label className="flex h-9 cursor-pointer items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white text-xs text-slate-700">
+            <Upload className="h-3.5 w-3.5" />
+            Upload Evidence (Photo/Video)
+            <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={(event) => setEvidenceFiles(Array.from(event.target.files || []))} />
+          </label>
+          <p className="text-[11px] text-slate-500">{evidenceFiles.length} file(s) selected</p>
+          <Button
+            className="h-9 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-500"
+            disabled={isSubmittingReplacement}
+            onClick={async () => {
+              const validLines = replacementLines.filter((line) => line.productId && Number(line.quantity) > 0)
+              if (validLines.length === 0) return alert('Add at least one valid damaged product line')
+              setIsSubmittingReplacement(true)
+              try {
+                for (const line of validLines) {
+                  const selectedItem = selectableOrderItems.find((item: any) => item.id === line.productId)
+                  const productName = selectedItem?.product?.name || 'Product'
+                  const quantityPerCase = getQuantityPerCaseForItem(selectedItem)
+                  const inputQty = Math.max(Number(line.quantity || 0), 0)
+                  const submittedBottleQty = line.inputMode === 'case'
+                    ? inputQty * quantityPerCase
+                    : inputQty
+                  const modeNotes = line.inputMode === 'case'
+                    ? `By Case: ${inputQty} case(s), Qty/Case ${quantityPerCase}`
+                    : `By Bottle: ${inputQty} bottle(s), Qty/Case ${quantityPerCase}`
+                  await submitReplacementRequest(
+                    selectedOrder.id,
+                    submittedBottleQty,
+                    line.reason,
+                    `[${productName}] ${modeNotes}. ${line.description || line.reason}`,
+                    evidenceFiles,
+                  )
+                }
+                setReplacementLines([{ key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' }])
+                setEvidenceFiles([])
+                setIsReplacementRequestOpen(false)
+              } catch (error: any) {
+                alert(error?.message || 'Failed to submit replacement request')
+              } finally {
+                setIsSubmittingReplacement(false)
+              }
+            }}
+          >
+            {isSubmittingReplacement ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            Submit
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

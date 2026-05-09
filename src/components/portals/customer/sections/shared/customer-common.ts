@@ -54,6 +54,10 @@ export function getReplacementRank(label: string): number {
 
 export function getReplacementStatusLabel(status?: string | null) {
   const rawStatus = String(status || '').toUpperCase()
+  if (rawStatus === 'PENDING') return 'Pending'
+  if (rawStatus === 'UNDER_REVIEW') return 'Under Review'
+  if (rawStatus === 'APPROVED') return 'Approved'
+  if (rawStatus === 'REJECTED') return 'Rejected'
   const normalizedStatus =
     rawStatus === 'REQUESTED'
       ? 'REPORTED'
@@ -73,6 +77,10 @@ export function getReplacementStatusLabel(status?: string | null) {
 }
 
 export function getReplacementBadgeClass(label: string) {
+  if (label === 'Pending') return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
+  if (label === 'Under Review') return 'bg-blue-100 text-blue-700 hover:bg-blue-100'
+  if (label === 'Approved') return 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+  if (label === 'Rejected') return 'bg-rose-100 text-rose-700 hover:bg-rose-100'
   if (label === 'Partially Resolved' || label === 'Needs Follow-up') {
     return 'bg-amber-100 text-amber-800 hover:bg-amber-100'
   }

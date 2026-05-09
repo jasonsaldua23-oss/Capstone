@@ -407,7 +407,7 @@ export function AdminPortal() {
   const { user, logout } = useAuth()
   const [activeView, setActiveView] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('stocks')
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('inventory')
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
@@ -564,7 +564,7 @@ export function AdminPortal() {
   const SidebarContent = () => {
     const navItems = [
       { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-      { id: 'orders', label: 'Orders', icon: ShoppingCart },
+      { id: 'orders', label: 'Purchase Orders', icon: ShoppingCart },
       { id: 'transportation', label: 'Transportation', icon: Truck },
       { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
       { id: 'tracking', label: 'Live Tracking', icon: MapPin },
@@ -572,7 +572,7 @@ export function AdminPortal() {
       { id: 'warehouses', label: 'Warehouses', icon: Building2 },
       { id: 'feedback', label: 'Feedback', icon: MessageSquare },
       { id: 'reports', label: 'Reports', icon: FileText },
-      { id: 'customers', label: 'Registered Customers', icon: Users },
+      { id: 'customers', label: 'Clients', icon: Users },
       { id: 'users', label: 'Users', icon: Users },
       { id: 'settings', label: 'Settings', icon: Settings },
     ]
@@ -649,25 +649,27 @@ export function AdminPortal() {
       case 'inventory':
         return (
           <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
-            <TabsList className="h-auto rounded-xl border border-slate-200 bg-white p-1">
-              <TabsTrigger
-                value="stocks"
-                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
-              >
-                Stock Batches
-              </TabsTrigger>
+            <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
               <TabsTrigger
                 value="inventory"
-                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
               >
+                <Package className="h-4 w-4" />
                 Inventory
               </TabsTrigger>
+              <TabsTrigger
+                value="stocks"
+                className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+              >
+                <Archive className="h-4 w-4" />
+                Stock batches
+              </TabsTrigger>
             </TabsList>
-            <TabsContent value="stocks" className="mt-0">
-              <StocksView />
-            </TabsContent>
             <TabsContent value="inventory" className="mt-0">
               <InventoryView />
+            </TabsContent>
+            <TabsContent value="stocks" className="mt-0">
+              <StocksView />
             </TabsContent>
           </Tabs>
         )

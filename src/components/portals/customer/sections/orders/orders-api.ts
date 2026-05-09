@@ -55,6 +55,35 @@ export function fetchLegacyCustomerReplacements() {
   return fetchJsonWithRetry('/api/customer/replacements', { cache: 'no-store' })
 }
 
+export async function uploadReplacementEvidence(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch('/api/uploads/replacement-evidence', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  })
+  const data = await response.json().catch(() => ({}))
+  return { response, data }
+}
+
+export async function submitCustomerReplacementRequest(body: {
+  orderId: string
+  numberDamagedItems: number
+  damageType: string
+  description?: string
+  evidence: string[]
+}) {
+  const response = await fetch('/api/customer/replacements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  const data = await response.json().catch(() => ({}))
+  return { response, data }
+}
+
 export async function fetchCustomerTracking() {
   const response = await fetch('/api/customer/tracking', { credentials: 'include' })
   const data = await response.json().catch(() => ({}))

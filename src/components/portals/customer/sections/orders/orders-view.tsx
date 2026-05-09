@@ -72,7 +72,7 @@ export function CustomerOrdersView(props: any) {
   return (
     <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f8fafc] pb-5 md:mx-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white">
       <div className="border-b border-slate-200 px-3 py-3 md:px-4">
-        <h2 className="text-[26px] font-extrabold tracking-[-0.02em] text-slate-900 md:text-[30px]">Orders</h2>
+        <h2 className="text-[26px] font-extrabold tracking-[-0.02em] text-slate-900 md:text-[30px]">Purchase Request</h2>
 
         <div className="mt-2.5 flex gap-4 overflow-x-auto">
           {ordersTabOptions.map((tab: any) => {
@@ -298,6 +298,15 @@ export function CustomerOrdersView(props: any) {
                         onClick={() => void cancelOrder(o.id)}
                       >
                         Cancel Order
+                      </Button>
+                    ) : null}
+                    {isDelivered ? (
+                      <Button
+                        variant="outline"
+                        className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50"
+                        onClick={() => setSelectedOrder({ ...o, __openReplacementRequest: true })}
+                      >
+                        Request Replacement
                       </Button>
                     ) : null}
                   </div>

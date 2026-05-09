@@ -39,11 +39,12 @@ import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
 import {
   Boxes,
+  Archive,
+  Package,
   PackageCheck,
   Truck,
   MapPin,
   Warehouse,
-  PackageOpen,
   AlertTriangle,
   Settings,
   Loader2,
@@ -89,6 +90,7 @@ interface InventoryItem {
     sku: string
     unit?: string
     price?: number
+    sizes?: string[]
     imageUrl?: string
     category?: {
       id: string
@@ -108,7 +110,7 @@ interface ProductOption {
   sku: string
   price?: number
   unit?: string
-  sizes?: string[] | any[]
+  sizes?: string[]
 }
 
 interface StockBatchItem {
@@ -205,6 +207,7 @@ interface WarehouseOrderItem {
   progress?: {
     trip?: {
       tripNumber?: string
+      tripSchedule?: string | null
       driver?: {
         user?: {
           name?: string
@@ -214,6 +217,18 @@ interface WarehouseOrderItem {
       vehicle?: {
         licensePlate?: string
       }
+      dropPoints?: Array<{
+        id?: string
+        order?: {
+          id?: string
+          orderNumber?: string
+          status?: string
+          deliveryDate?: string | null
+          timeline?: {
+            deliveryDate?: string | null
+          } | null
+        } | null
+      }>
     } | null
     dropPoint?: {
       status?: string | null
@@ -410,11 +425,11 @@ function getStockHealthDotClass(name: string) {
 
 const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Boxes },
-  { id: 'orders', label: 'Orders', icon: PackageCheck },
+  { id: 'orders', label: 'Purchase Orders', icon: PackageCheck },
   { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
   { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
   { id: 'liveTracking', label: 'Live Tracking', icon: MapPin },
-  { id: 'inventory', label: 'Inventory', icon: PackageOpen },
+  { id: 'inventory', label: 'Inventory', icon: Package },
   { id: 'warehouses', label: 'Warehouse', icon: Warehouse },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -447,10 +462,10 @@ export function WarehousePortal() {
   const [selectedRouteDriverId, setSelectedRouteDriverId] = useState('')
   const [selectedSavedRouteId, setSelectedSavedRouteId] = useState('')
   const [selectedRouteVehicleId, setSelectedRouteVehicleId] = useState('')
-  const [trackingDate, setTrackingDate] = useState('')
+  const [trackingDate, setTrackingDate] = useState(() => formatDayKey(new Date()))
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
-  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('stocks')
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('inventory')
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [loadingWarehouses, setLoadingWarehouses] = useState(true)
   const [loadingBatches, setLoadingBatches] = useState(true)
@@ -513,6 +528,12 @@ export function WarehousePortal() {
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
   const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
   const [isVerifyingPasswordOtp, setIsVerifyingPasswordOtp] = useState(false)
+
+  useEffect(() => {
+    if (!trackingDate) {
+      setTrackingDate(formatDayKey(new Date()))
+    }
+  }, [trackingDate])
 
   const getItemThreshold = (item: InventoryItem | null | undefined) =>
     Math.max(
@@ -972,18 +993,25 @@ export function WarehousePortal() {
           const parsed = Number(value)
           return Number.isFinite(parsed) ? parsed : null
         }
-        const dropPoints = (trip.dropPoints || [])
+        const allEligibleDropPoints = (trip.dropPoints || [])
           .filter((point: any) => {
             const orderId = String(point?.orderId || '').trim()
             if (orderId && cancelledOrderIds.has(orderId)) return false
             if (isCancelledLikeStatus(point?.status) || isCancelledLikeStatus(point?.orderStatus) || isCancelledLikeStatus(point?.order?.status)) return false
+            return true
+          })
+          .filter((point: any) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
+          .sort((a: any, b: any) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+
+        const dropPointsFilteredByDate = allEligibleDropPoints
+          .filter((point: any) => {
+            const orderId = String(point?.orderId || '').trim()
             if (dropPointMatchesTrackingDay(point)) return true
             if (tripMatchesDay && !trackingDate) return true
             if (!orderId) return false
             return dayOrderIds.has(orderId)
           })
-          .filter((point: any) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
-          .sort((a: any, b: any) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+        const dropPoints = dropPointsFilteredByDate.length > 0 ? dropPointsFilteredByDate : allEligibleDropPoints
 
         const getLogLatitude = (log: any) => Number(log?.latitude ?? log?.lat)
         const getLogLongitude = (log: any) => Number(log?.longitude ?? log?.lng)
@@ -3127,28 +3155,22 @@ export function WarehousePortal() {
 
           {activeView === 'inventory' && (
             <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
-              <TabsList className="h-auto rounded-xl border border-slate-200 bg-white p-1">
-                <TabsTrigger
-                  value="stocks"
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
-                >
-                  Stock Batches
-                </TabsTrigger>
+              <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
                 <TabsTrigger
                   value="inventory"
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
                 >
+                  <Package className="h-4 w-4" />
                   Inventory
                 </TabsTrigger>
+                <TabsTrigger
+                  value="stocks"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+                >
+                  <Archive className="h-4 w-4" />
+                  Stock batches
+                </TabsTrigger>
               </TabsList>
-
-              <TabsContent value="stocks" className="mt-0">
-                <WarehouseStocksView
-                  loadingBatches={loadingBatches}
-                  stockBatches={stockBatches}
-                  getDaysLeft={getDaysLeft}
-                />
-              </TabsContent>
 
               <TabsContent value="inventory" className="mt-0">
                 <WarehouseInventoryView
@@ -3168,6 +3190,14 @@ export function WarehousePortal() {
                   availableInventoryTransactionTypes={availableInventoryTransactionTypes}
                   loadingInventoryTransactions={loadingInventoryTransactions}
                   filteredInventoryTransactions={filteredInventoryTransactions}
+                />
+              </TabsContent>
+
+              <TabsContent value="stocks" className="mt-0">
+                <WarehouseStocksView
+                  loadingBatches={loadingBatches}
+                  stockBatches={stockBatches}
+                  getDaysLeft={getDaysLeft}
                 />
               </TabsContent>
             </Tabs>

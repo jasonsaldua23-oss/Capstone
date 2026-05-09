@@ -223,18 +223,25 @@ export function TrackingView() {
         const parsed = Number(value)
         return Number.isFinite(parsed) ? parsed : null
       }
-      const dropPoints = toArray<any>(trip.dropPoints)
+      const allEligibleDropPoints = toArray<any>(trip.dropPoints)
         .filter((point) => {
           const orderId = String(point?.orderId || '').trim()
           if (orderId && cancelledOrderIds.has(orderId)) return false
           if (isCancelledLikeStatus(point?.status) || isCancelledLikeStatus(point?.orderStatus) || isCancelledLikeStatus(point?.order?.status)) return false
+          return true
+        })
+        .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
+        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+
+      const dropPointsFilteredByDate = allEligibleDropPoints
+        .filter((point) => {
+          const orderId = String(point?.orderId || '').trim()
           if (dropPointMatchesTrackingDay(point)) return true
           if (tripMatchesDay && !trackingDate) return true
           if (!orderId) return false
           return dayOrderIds.has(orderId)
         })
-        .filter((point) => typeof point?.latitude === 'number' && typeof point?.longitude === 'number')
-        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+      const dropPoints = dropPointsFilteredByDate.length > 0 ? dropPointsFilteredByDate : allEligibleDropPoints
       
       const terminalStatuses = ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED']
       const nextPendingIndex = dropPoints.findIndex((point: any) => {
@@ -331,15 +338,37 @@ export function TrackingView() {
         })
       })
 
-      if (logs.length > 1) {
+      const passedPathPoints: [number, number][] = [
+        ...(warehouseStart ? [warehouseStart] : []),
+        ...logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
+      ].filter((point, index, list) => {
+        if (index === 0) return true
+        const previous = list[index - 1]
+        return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001)
+      })
+
+      if (passedPathPoints.length > 1) {
         routeLines.push({
           id: `completed-${trip.id}`,
-          points: logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
+          points: passedPathPoints,
           color: '#93c5fd',
           label: `${trip.tripNumber || 'Trip'} - Completed route`,
           opacity: 0.85,
           weight: 6,
           dashArray: '7 9',
+          snapToRoad: true,
+        })
+      } else if (hasDriverPosition && warehouseStart) {
+        // Fallback so "path taken" is still visible even with sparse GPS logs.
+        routeLines.push({
+          id: `completed-fallback-${trip.id}`,
+          points: [warehouseStart, [driverLat, driverLng]],
+          color: '#93c5fd',
+          label: `${trip.tripNumber || 'Trip'} - Completed route`,
+          opacity: 0.85,
+          weight: 6,
+          dashArray: '7 9',
+          snapToRoad: true,
         })
       }
 

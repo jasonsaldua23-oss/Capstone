@@ -70,6 +70,10 @@ class DropPointType(models.TextChoices):
 
 
 class ReplacementStatus(models.TextChoices):
+    PENDING = "PENDING", "Pending"
+    UNDER_REVIEW = "UNDER_REVIEW", "Under Review"
+    APPROVED = "APPROVED", "Approved"
+    REJECTED = "REJECTED", "Rejected"
     REPORTED = "REPORTED", "Reported"
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     RESOLVED_ON_DELIVERY = "RESOLVED_ON_DELIVERY", "Resolved On Delivery"
@@ -183,6 +187,7 @@ class Inventory(models.Model):
     warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="inventory")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="inventory")
     quantity = models.IntegerField(default=0)
+    loose_bottles = models.IntegerField(default=0)
     reserved_quantity = models.IntegerField(default=0)
     threshold = models.IntegerField(default=10)
     last_restocked_at = models.DateTimeField(blank=True, null=True)

@@ -151,6 +151,10 @@ export function ReplacementsView() {
 
   const formatIssueStatus = (item: any) => {
     const rawStatus = String(item?.status || '').toUpperCase()
+    if (rawStatus === 'PENDING') return 'Pending'
+    if (rawStatus === 'UNDER_REVIEW') return 'Under Review'
+    if (rawStatus === 'APPROVED') return 'Approved'
+    if (rawStatus === 'REJECTED') return 'Rejected'
     if (rawStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
     if (rawStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
     if (rawStatus === 'COMPLETED') return 'Completed'
@@ -160,6 +164,7 @@ export function ReplacementsView() {
 
   const getNormalizedIssueStatus = (item: any) => {
     const rawStatus = String(item?.status || '').toUpperCase()
+    if (['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'].includes(rawStatus)) return rawStatus
     if (rawStatus === 'REQUESTED') return 'REPORTED'
     if (['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)) return 'IN_PROGRESS'
     if (rawStatus === 'REJECTED') return 'NEEDS_FOLLOW_UP'
@@ -169,7 +174,7 @@ export function ReplacementsView() {
 
   const updateIssueStatus = async (
     replacementId: string,
-    status: 'COMPLETED' | 'NEEDS_FOLLOW_UP',
+    status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
     options?: { notes?: string; createReplacementOrder?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
@@ -191,7 +196,7 @@ export function ReplacementsView() {
       }
 
       setReplacements((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
-      toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
+      toast.success(`Replacement updated to ${status.replace(/_/g, ' ')}`)
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
     } finally {
@@ -277,6 +282,10 @@ export function ReplacementsView() {
               title="Filter by status"
             >
               <option value="all">All Statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="UNDER_REVIEW">Under Review</option>
+              <option value="APPROVED">Approved</option>
+              <option value="REJECTED">Rejected</option>
               <option value="RESOLVED_ON_DELIVERY">Resolved on Delivery</option>
               <option value="NEEDS_FOLLOW_UP">Needs Follow-up</option>
               <option value="COMPLETED">Completed</option>
@@ -454,6 +463,40 @@ export function ReplacementsView() {
                         </td>
                         <td className="p-4">
                           <div className="flex flex-wrap gap-2">
+                            {String(item?.status || '').toUpperCase() !== 'UNDER_REVIEW' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateIssueStatus(item.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
+                                disabled={updatingReplacementId === item.id}
+                              >
+                                Under Review
+                              </Button>
+                            ) : null}
+                            {String(item?.status || '').toUpperCase() !== 'APPROVED' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateIssueStatus(item.id, 'APPROVED', { notes: 'Replacement approved for processing' })}
+                                disabled={updatingReplacementId === item.id}
+                              >
+                                Approve
+                              </Button>
+                            ) : null}
+                            {String(item?.status || '').toUpperCase() !== 'REJECTED' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  const reason = window.prompt('Enter rejection reason:')
+                                  if (!reason || !reason.trim()) return
+                                  void updateIssueStatus(item.id, 'REJECTED', { notes: reason.trim() })
+                                }}
+                                disabled={updatingReplacementId === item.id}
+                              >
+                                Reject
+                              </Button>
+                            ) : null}
                             {String(item?.status || '').toUpperCase() !== 'COMPLETED' && String(item?.status || '').toUpperCase() !== 'RESOLVED_ON_DELIVERY' ? (
                               <Button
                                 size="sm"

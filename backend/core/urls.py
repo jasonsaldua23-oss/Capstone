@@ -49,6 +49,7 @@ urlpatterns = [
     path("uploads/damage-image", v.upload_damage_image),
     path("uploads/driver-license-image", v.upload_driver_license_image),
     path("uploads/customer-avatar", v.upload_customer_avatar),
+    path("uploads/replacement-evidence", v.upload_replacement_evidence),
     path("customer/orders", v.customer_orders),
     path("customer/orders/<str:order_id>/cancel", v.customer_order_cancel),
     path("customer/replacements", v.customer_replacements),

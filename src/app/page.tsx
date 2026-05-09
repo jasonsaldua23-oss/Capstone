@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, createContext, useContext, Component, ErrorInfo, ReactNode, useMemo } from 'react'
+import { useState, useEffect, createContext, useContext, Component, ErrorInfo, ReactNode, useMemo, type Dispatch, type SetStateAction } from 'react'
 import { useRouter } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
@@ -12,7 +12,7 @@ import type { AuthUser, PortalType } from '@/types'
 // Auth Context
 interface AuthContextType {
   user: AuthUser | null
-  setUser: (user: AuthUser | null) => void
+  setUser: Dispatch<SetStateAction<AuthUser | null>>
   logout: () => Promise<void>
   isLoading: boolean
 }

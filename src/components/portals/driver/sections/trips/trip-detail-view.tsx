@@ -913,6 +913,33 @@ export function TripDetailView({
     return Number.isFinite(fallback) ? Math.max(0, fallback) : 0
   }
 
+  const getAvailableSpareBottlesForItem = (item: any, line?: any): number => {
+    const spareCases = getAvailableSpareQtyForItem(item)
+    const quantityPerCase = resolveQuantityPerCase(item, line)
+    return Math.max(0, spareCases * quantityPerCase)
+  }
+
+  const resolveQuantityPerCase = (item: any, line?: any): number => {
+    const candidates = [
+      line?.quantityPerCase,
+      item?.quantityPerCase,
+      item?.quantity_per_case,
+      item?.orderItem?.quantityPerCase,
+      item?.orderItem?.quantity_per_case,
+      item?.product?.quantityPerCase,
+      item?.product?.quantity_per_case,
+      item?.product?.quantityPerUnit,
+      item?.product?.quantity_per_unit,
+    ]
+    for (const raw of candidates) {
+      const parsed = Number(raw)
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.max(Math.floor(parsed), 1)
+      }
+    }
+    return 1
+  }
+
   // Failed-delivery modal open/close helpers.
   const openFailedDeliveryChoice = (dropPointId: string) => {
     setFailedDeliveryDropPointId(dropPointId)
@@ -1024,16 +1051,23 @@ export function TripDetailView({
       return
     }
     const selectedItem = (targetDropPoint.order?.items || []).find((item) => item.id === spareOrderItemId) || null
-    const replacementLines = spareFollowUpReturnId
+            const replacementLines = spareFollowUpReturnId
       ? []
       : spareReplacementLines
           .map((line) => {
             const item = (targetDropPoint.order?.items || []).find((candidate) => candidate.id === line.orderItemId) || null
+            const quantityPerCase = resolveQuantityPerCase(item, line)
+            const replacementCases = Math.max(Number((line as any)?.replacementCases || 0), 0)
+            const replacementBottles = Math.max(Number((line as any)?.replacementBottles ?? line.quantityToReplace ?? 0), 0)
+            const normalizedQuantityToReplace = Math.max(Number(line.quantityToReplace) || ((replacementCases * quantityPerCase) + replacementBottles), 0)
             return {
               item,
               orderItemId: line.orderItemId,
-              quantityToReplace: Number(line.quantityToReplace),
-              quantityReplaced: spareOutcome === 'RESOLVED' ? Number(line.quantityToReplace) : Number(line.quantityReplaced),
+              quantityPerCase,
+              replacementCases,
+              replacementBottles,
+              quantityToReplace: normalizedQuantityToReplace,
+              quantityReplaced: spareOutcome === 'RESOLVED' ? normalizedQuantityToReplace : Number(line.quantityReplaced),
             }
           })
           .filter((line) => line.item && Number(line.quantityToReplace) > 0)
@@ -1058,15 +1092,17 @@ export function TripDetailView({
         toast.error('Quantity replaced cannot exceed quantity to replace')
         return
       }
-      if (line.item && line.quantityToReplace > Number(line.item.quantity || 0)) {
-        toast.error(`${line.item.product?.name || 'Product'} quantity exceeds ordered quantity`)
+      const orderedCases = Math.max(Number(line.item?.quantity || 0), 0)
+      const maxBottleQty = orderedCases * Math.max(Number(line.quantityPerCase || 1), 1)
+      if (line.item && line.quantityToReplace > maxBottleQty) {
+        toast.error(`${line.item.product?.name || 'Product'} quantity exceeds ordered bottle quantity`)
         return
       }
       if (spareOutcome === 'RESOLVED' && line.item) {
-        const availableSpareQty = getAvailableSpareQtyForItem(line.item)
-        if (Number.isFinite(availableSpareQty) && line.quantityToReplace > availableSpareQty) {
+        const availableSpareBottles = getAvailableSpareBottlesForItem(line.item, line)
+        if (Number.isFinite(availableSpareBottles) && line.quantityToReplace > availableSpareBottles) {
           toast.error(
-            `${line.item.product?.name || 'Product'} quantity to replace (${line.quantityToReplace}) cannot exceed spare stock (${availableSpareQty}) in Resolved mode`
+            `${line.item.product?.name || 'Product'} quantity to replace (${line.quantityToReplace}) cannot exceed spare stock (${availableSpareBottles} bottles) in Resolved mode`
           )
           return
         }
@@ -1076,10 +1112,10 @@ export function TripDetailView({
       let hasAtLeastOnePartialLine = false
       for (const line of replacementLines) {
         if (line.quantityReplaced < line.quantityToReplace) hasAtLeastOnePartialLine = true
-        const availableSpareQty = getAvailableSpareQtyForItem(line.item)
-        if (Number.isFinite(availableSpareQty) && line.quantityReplaced > availableSpareQty) {
+        const availableSpareBottles = getAvailableSpareBottlesForItem(line.item, line)
+        if (Number.isFinite(availableSpareBottles) && line.quantityReplaced > availableSpareBottles) {
           toast.error(
-            `${line.item?.product?.name || 'Product'} quantity replaced (${line.quantityReplaced}) cannot exceed spare stock (${availableSpareQty}) in Partially Replaced mode`
+            `${line.item?.product?.name || 'Product'} quantity replaced (${line.quantityReplaced}) cannot exceed spare stock (${availableSpareBottles} bottles) in Partially Replaced mode`
           )
           return
         }
@@ -1187,6 +1223,9 @@ export function TripDetailView({
                 orderItemId: line.orderItemId,
                 quantityToReplace: line.quantityToReplace,
                 quantityReplaced: line.quantityReplaced,
+                replacementCases: line.replacementCases,
+                replacementBottles: line.replacementBottles,
+                quantityPerCase: line.quantityPerCase,
               })),
           outcome: spareOutcome,
           partiallyReplacedQuantity: spareOutcome === 'PARTIALLY_REPLACED' ? sparePartiallyReplacedQuantity : undefined,
@@ -1615,6 +1654,48 @@ export function TripDetailView({
     if (!Number.isFinite(parsed)) return Number.POSITIVE_INFINITY
     return Date.now() - parsed
   })()
+  const latestTripLogLocation = (() => {
+    const logs = Array.isArray((trip as any)?.locationLogs) ? (trip as any).locationLogs : []
+    const candidate = [...logs]
+      .map((log: any) => {
+        const lat = toCoordinate(log?.latitude ?? log?.lat)
+        const lng = toCoordinate(log?.longitude ?? log?.lng)
+        const recordedAt = Number(
+          log?.recordedAt ||
+          log?.recorded_at ||
+          log?.createdAt ||
+          log?.created_at ||
+          0
+        )
+        if (lat === null || lng === null || !isWithinNegrosBounds(lat, lng)) return null
+        return {
+          lat,
+          lng,
+          accuracy: toCoordinate(log?.accuracy),
+          heading: toCoordinate(log?.heading),
+          speed: toCoordinate(log?.speed),
+          recordedAt: Number.isFinite(recordedAt) && recordedAt > 0 ? recordedAt : null,
+        }
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => Number(b?.recordedAt || 0) - Number(a?.recordedAt || 0))[0] as any
+    return candidate || null
+  })()
+  const latestTripLocationAny = (() => {
+    const src = (trip as any)?.latestLocation
+    if (!src) return null
+    const lat = toCoordinate(src?.latitude ?? src?.lat)
+    const lng = toCoordinate(src?.longitude ?? src?.lng)
+    if (lat === null || lng === null || !isWithinNegrosBounds(lat, lng)) return null
+    return {
+      lat,
+      lng,
+      accuracy: toCoordinate(src?.accuracy),
+      heading: toCoordinate(src?.heading),
+      speed: toCoordinate(src?.speed),
+      recordedAt: src?.recordedAt || src?.recorded_at || src?.createdAt || src?.created_at || null,
+    }
+  })()
   const effectiveDriverLocation = (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
       && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
       && isReasonableGps(Number(currentLocation.lat), Number(currentLocation.lng), Number(currentLocation.accuracy))
@@ -1639,6 +1720,20 @@ export function TripDetailView({
           heading: toCoordinate(trip.latestLocation.heading),
           speed: toCoordinate(trip.latestLocation.speed),
         }
+      : null)
+    || (latestTripLocationAny && isReasonableGps(
+        Number(latestTripLocationAny.lat),
+        Number(latestTripLocationAny.lng),
+        Number(latestTripLocationAny.accuracy)
+      )
+      ? latestTripLocationAny
+      : null)
+    || (latestTripLogLocation && isReasonableGps(
+        Number(latestTripLogLocation.lat),
+        Number(latestTripLogLocation.lng),
+        Number(latestTripLogLocation.accuracy)
+      )
+      ? latestTripLogLocation
       : null)
 
   useEffect(() => {
@@ -2889,8 +2984,8 @@ export function TripDetailView({
               if (!Number.isFinite(quantityToReplace) || quantityToReplace <= 0) return false
               const matchedItem = targetItems.find((item) => item.id === line.orderItemId)
               if (!matchedItem) return false
-              const availableSpareQty = getAvailableSpareQtyForItem(matchedItem)
-              return Number.isFinite(availableSpareQty) && availableSpareQty >= quantityToReplace
+              const availableSpareBottles = getAvailableSpareBottlesForItem(matchedItem, line)
+              return Number.isFinite(availableSpareBottles) && availableSpareBottles >= quantityToReplace
             })
             const missingRequirements: string[] = []
             if (!followUpMode && spareReplacementLines.length === 0) missingRequirements.push('Select at least one damaged product')
@@ -2939,10 +3034,13 @@ export function TripDetailView({
                         const line = spareReplacementLines.find((entry) => entry.orderItemId === item.id) || null
                         const checked = Boolean(line)
                         const maxQty = Math.max(Number(item.quantity || 0), 0)
-                        const availableSpareQty = getAvailableSpareQtyForItem(item)
+                        const quantityPerCase = resolveQuantityPerCase(item, line)
+                        const maxBottleQty = maxQty * quantityPerCase
+                        const availableSpareCases = getAvailableSpareQtyForItem(item)
+                        const availableSpareBottleQty = availableSpareCases * quantityPerCase
                         const effectiveMaxQtyToReplace = spareOutcome === 'RESOLVED'
-                          ? Math.min(maxQty, availableSpareQty)
-                          : maxQty
+                          ? Math.min(maxBottleQty, availableSpareBottleQty)
+                          : maxBottleQty
                         const setLine = (patch: Partial<SpareReplacementLine>) => {
                           setSpareReplacementLines((previous) =>
                             previous.map((entry) => entry.orderItemId === item.id ? { ...entry, ...patch } : entry)
@@ -2957,13 +3055,19 @@ export function TripDetailView({
                                 checked={checked}
                                 onChange={(event) => {
                                   if (event.target.checked) {
-                                    const initialQty = String(Math.min(Math.max(1, 0), maxQty))
+                                    const initialCases = maxQty > 0 ? 1 : 0
+                                    const initialBottles = 0
+                                    const initialQty = String(Math.min((initialCases * quantityPerCase) + initialBottles, effectiveMaxQtyToReplace))
                                     setSpareReplacementLines((previous) => [
                                       ...previous.filter((entry) => entry.orderItemId !== item.id),
                                       {
                                         orderItemId: item.id,
                                         quantityToReplace: initialQty,
                                         quantityReplaced: spareOutcome === 'RESOLVED' ? initialQty : '0',
+                                        replacementCases: String(initialCases),
+                                        replacementBottles: String(initialBottles),
+                                        quantityPerCase: String(quantityPerCase),
+                                        replacementInputMode: 'case',
                                       },
                                     ])
                                   } else {
@@ -2974,57 +3078,153 @@ export function TripDetailView({
                               <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-semibold text-slate-900">{item.product?.name || 'Item'}</span>
                                 <span className="block text-xs text-slate-500">
-                                  Spare Products {getAvailableSpareQtyForItem(item)} | Ordered Qty {maxQty}
+                                  Spare Cases {availableSpareCases} | Spare Bottles {availableSpareBottleQty} | Ordered Cases {maxQty} | Qty/Case {quantityPerCase}
                                 </span>
                               </span>
                             </label>
                             {checked ? (
-                              <div className={`mt-2 grid gap-2 ${spareOutcome === 'PARTIALLY_REPLACED' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                              <div className="mt-2 space-y-2">
                                 <div className="space-y-1">
-                                  <Label className="text-xs">Quantity to Replace</Label>
-                                  <Input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={line?.quantityToReplace || ''}
-                                    onChange={(event) => {
-                                      const raw = event.target.value.replace(/[^\d]/g, '')
-                                      const parsed = Number(raw || 0)
-                                      const nextValue = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), effectiveMaxQtyToReplace))
-                                      setLine({ quantityToReplace: nextValue, quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0' })
-                                    }}
-                                    onBlur={() => {
-                                      const parsed = Number(line?.quantityToReplace || 0)
-                                      const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), effectiveMaxQtyToReplace))
-                                      setLine({ quantityToReplace: clamped, quantityReplaced: spareOutcome === 'RESOLVED' ? clamped : line?.quantityReplaced || '0' })
-                                    }}
-                                  />
+                                  <div className="mb-1 inline-flex overflow-hidden rounded-xl border border-sky-200 bg-white shadow-sm">
+                                    <button
+                                      type="button"
+                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${String((line as any)?.replacementInputMode || 'case') === 'case' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
+                                      onClick={() => {
+                                        const currentCases = Math.max(Number((line as any)?.replacementCases ?? 0), 0)
+                                        const maxCases = Math.floor(effectiveMaxQtyToReplace / quantityPerCase)
+                                        const nextCases = Math.min(currentCases, maxCases)
+                                        const nextValue = String(nextCases * quantityPerCase)
+                                        setLine({
+                                          replacementInputMode: 'case',
+                                          replacementCases: String(nextCases),
+                                          replacementBottles: '0',
+                                          quantityToReplace: nextValue,
+                                          quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
+                                        })
+                                      }}
+                                    >
+                                      By Case
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${String((line as any)?.replacementInputMode || 'case') === 'bottle' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
+                                      onClick={() => {
+                                        const currentBottles = Math.max(Number((line as any)?.replacementBottles ?? 0), 0)
+                                        const nextBottles = Math.min(currentBottles, effectiveMaxQtyToReplace)
+                                        const nextValue = String(nextBottles)
+                                        setLine({
+                                          replacementInputMode: 'bottle',
+                                          replacementCases: '0',
+                                          replacementBottles: String(nextBottles),
+                                          quantityToReplace: nextValue,
+                                          quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
+                                        })
+                                      }}
+                                    >
+                                      By Bottle
+                                    </button>
+                                  </div>
+                                  {String((line as any)?.replacementInputMode || 'case') === 'case' ? (
+                                    <>
+                                      <Label className="text-xs">Cases to Replace</Label>
+                                      <Input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={String((line as any)?.replacementCases ?? '')}
+                                        onChange={(event) => {
+                                          const raw = event.target.value.replace(/[^\d]/g, '')
+                                          const parsedCases = Math.max(Number(raw || 0), 0)
+                                          const maxCases = Math.floor(effectiveMaxQtyToReplace / quantityPerCase)
+                                          const nextCases = Math.min(parsedCases, maxCases)
+                                          const nextBottles = 0
+                                          const nextValue = String(nextCases * quantityPerCase)
+                                          setLine({
+                                            replacementInputMode: 'case',
+                                            replacementCases: String(nextCases),
+                                            replacementBottles: String(nextBottles),
+                                            quantityPerCase: String(quantityPerCase),
+                                            quantityToReplace: nextValue,
+                                            quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
+                                          })
+                                        }}
+                                      />
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Label className="text-xs">Loose Bottles to Replace</Label>
+                                      <Input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={String((line as any)?.replacementBottles ?? line?.quantityToReplace ?? '')}
+                                        onChange={(event) => {
+                                          const raw = event.target.value.replace(/[^\d]/g, '')
+                                          const parsedBottles = Math.max(Number(raw || 0), 0)
+                                          const currentCases = 0
+                                          const maxBottles = Math.max(effectiveMaxQtyToReplace, 0)
+                                          const nextBottles = Math.min(parsedBottles, maxBottles)
+                                          const nextValue = String(nextBottles)
+                                          setLine({
+                                            replacementInputMode: 'bottle',
+                                            replacementCases: String(currentCases),
+                                            replacementBottles: String(nextBottles),
+                                            quantityPerCase: String(quantityPerCase),
+                                            quantityToReplace: nextValue,
+                                            quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
+                                          })
+                                        }}
+                                      />
+                                    </>
+                                  )}
+                                  <p className="text-[11px] text-slate-500">Total bottles to replace: {Number(line?.quantityToReplace || 0)}</p>
                                 </div>
                                 {spareOutcome === 'PARTIALLY_REPLACED' ? (
                                   <div className="space-y-1">
-                                    <Label className="text-xs">Quantity Replaced</Label>
+                                    <Label className="text-xs">
+                                      {String((line as any)?.replacementInputMode || 'case') === 'case' ? 'Cases Replaced' : 'Bottles Replaced'}
+                                    </Label>
                                     <Input
                                       type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={line?.quantityReplaced || ''}
-                                    onChange={(event) => {
-                                      const availableSpareQty = getAvailableSpareQtyForItem(item)
-                                      const maxReplace = Number.isFinite(availableSpareQty)
-                                        ? Math.min(Number(line?.quantityToReplace || 0), availableSpareQty)
-                                        : Number(line?.quantityToReplace || 0)
-                                      const raw = event.target.value.replace(/[^\d]/g, '')
-                                      const parsed = Number(raw || 0)
-                                      const clamped = String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxReplace))
-                                      setLine({ quantityReplaced: clamped })
-                                    }}
-                                      onBlur={() => {
-                                        const availableSpareQty = getAvailableSpareQtyForItem(item)
-                                        const maxReplace = Number.isFinite(availableSpareQty)
-                                          ? Math.min(Number(line?.quantityToReplace || 0), availableSpareQty)
+                                      inputMode="numeric"
+                                      pattern="[0-9]*"
+                                      value={
+                                        String((line as any)?.replacementInputMode || 'case') === 'case'
+                                          ? String(Math.floor(Math.max(Number(line?.quantityReplaced || 0), 0) / quantityPerCase))
+                                          : String(Math.max(Number(line?.quantityReplaced || 0), 0))
+                                      }
+                                      onChange={(event) => {
+                                        const availableSpareBottles = getAvailableSpareBottlesForItem(item, line)
+                                        const maxReplaceBottles = Number.isFinite(availableSpareBottles)
+                                          ? Math.min(Number(line?.quantityToReplace || 0), availableSpareBottles)
                                           : Number(line?.quantityToReplace || 0)
-                                        const parsed = Number(line?.quantityReplaced || 0)
-                                        setLine({ quantityReplaced: String(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 0, 0), maxReplace)) })
+                                        const isCaseMode = String((line as any)?.replacementInputMode || 'case') === 'case'
+                                        const maxReplaceCases = Math.floor(maxReplaceBottles / quantityPerCase)
+                                        const raw = event.target.value.replace(/[^\d]/g, '')
+                                        const parsedUnits = Number(raw || 0)
+                                        const clampedUnits = Math.min(
+                                          Math.max(Number.isFinite(parsedUnits) ? parsedUnits : 0, 0),
+                                          isCaseMode ? maxReplaceCases : maxReplaceBottles
+                                        )
+                                        const nextBottles = isCaseMode ? clampedUnits * quantityPerCase : clampedUnits
+                                        setLine({ quantityReplaced: String(nextBottles) })
+                                      }}
+                                      onBlur={() => {
+                                        const availableSpareBottles = getAvailableSpareBottlesForItem(item, line)
+                                        const maxReplaceBottles = Number.isFinite(availableSpareBottles)
+                                          ? Math.min(Number(line?.quantityToReplace || 0), availableSpareBottles)
+                                          : Number(line?.quantityToReplace || 0)
+                                        const isCaseMode = String((line as any)?.replacementInputMode || 'case') === 'case'
+                                        const maxReplaceCases = Math.floor(maxReplaceBottles / quantityPerCase)
+                                        const currentDisplayValue = isCaseMode
+                                          ? Math.floor(Math.max(Number(line?.quantityReplaced || 0), 0) / quantityPerCase)
+                                          : Math.max(Number(line?.quantityReplaced || 0), 0)
+                                        const clampedUnits = Math.min(
+                                          Math.max(Number.isFinite(currentDisplayValue) ? currentDisplayValue : 0, 0),
+                                          isCaseMode ? maxReplaceCases : maxReplaceBottles
+                                        )
+                                        const nextBottles = isCaseMode ? clampedUnits * quantityPerCase : clampedUnits
+                                        setLine({ quantityReplaced: String(nextBottles) })
                                       }}
                                     />
                                   </div>
