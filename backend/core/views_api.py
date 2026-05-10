@@ -2318,6 +2318,13 @@ def _email_new_order_to_warehouse_staff(order: Order) -> None:
         item_lines.append(f"- {product_name}: qty {quantity}, unit PHP {unit_price:.2f}, total PHP {line_total:.2f}")
 
     items_block = "\n".join(item_lines) if item_lines else "- No order items found"
+    shipping_address_parts = [
+        str(getattr(order, "shipping_address", "") or "").strip(),
+        str(getattr(order, "shipping_city", "") or "").strip(),
+        str(getattr(order, "shipping_province", "") or "").strip(),
+    ]
+    shipping_address = ", ".join([part for part in shipping_address_parts if part]) or "N/A"
+    shipping_phone = str(getattr(order, "shipping_phone", "") or "").strip() or "N/A"
     subject = f"New order received: {order.order_number}"
     message = (
         f"A new order has been created.\n\n"
@@ -2325,6 +2332,8 @@ def _email_new_order_to_warehouse_staff(order: Order) -> None:
         f"Customer: {customer_name}\n"
         f"Status: {order.status}\n"
         f"Total Amount: PHP {float(order.total_amount or 0):.2f}\n\n"
+        f"Delivery Address: {shipping_address}\n"
+        f"Customer Contact: {shipping_phone}\n\n"
         f"Ordered Products:\n"
         f"{items_block}\n"
     )
@@ -2357,11 +2366,45 @@ def _email_order_out_for_delivery_to_customer(order: Order) -> None:
     if not customer_email:
         return
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    order_items = list(order.items.select_related("product").all())
+    item_lines: list[str] = []
+    for item in order_items:
+        product_name = (
+            str(getattr(getattr(item, "product", None), "name", "") or "").strip()
+            or str(getattr(item, "product_name", "") or "").strip()
+            or "Product"
+        )
+        quantity = max(0, _int(getattr(item, "quantity", 0), 0))
+        unit_price = float(getattr(item, "unit_price", 0) or 0)
+        line_total = float(getattr(item, "total_price", 0) or (quantity * unit_price))
+        item_lines.append(f"- {product_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
+
+    products_text = "\n".join(item_lines) if item_lines else "- No product details available"
+    total_amount = float(getattr(order, "total_amount", 0) or 0)
+
+    assigned_driver_name = "To be assigned"
+    assigned_driver_phone = "Not available"
+    linked_drop_point = (
+        TripDropPoint.objects.select_related("trip__driver")
+        .filter(order_id=order.id)
+        .order_by("-created_at")
+        .first()
+    )
+    if linked_drop_point and getattr(linked_drop_point, "trip", None) and getattr(linked_drop_point.trip, "driver", None):
+        driver = linked_drop_point.trip.driver
+        assigned_driver_name = str(getattr(driver, "name", "") or "").strip() or assigned_driver_name
+        assigned_driver_phone = str(getattr(driver, "phone", "") or "").strip() or assigned_driver_phone
+
     subject = f"Your order is out for delivery: {order.order_number}"
     message = (
         f"Hi {customer_name},\n\n"
-        f"Your order {order.order_number} is now out for delivery.\n"
-        f"Our driver is on the way.\n\n"
+        f"Good news. Your order is now out for delivery.\n\n"
+        f"Order Number: {order.order_number}\n"
+        f"Products:\n{products_text}\n"
+        f"Total Price: PHP {total_amount:.2f}\n\n"
+        f"Assigned Driver: {assigned_driver_name}\n"
+        f"Contact Info: {assigned_driver_phone}\n\n"
+        f"Please prepare the payment amount and be ready to receive your order.\n\n"
         f"Thank you for ordering with us."
     )
     _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
@@ -2372,11 +2415,36 @@ def _email_order_confirmed_to_customer(order: Order) -> None:
     if not customer_email:
         return
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    order_items = list(order.items.select_related("product").all())
+    item_lines: list[str] = []
+    for item in order_items:
+        product_name = (
+            str(getattr(getattr(item, "product", None), "name", "") or "").strip()
+            or str(getattr(item, "product_name", "") or "").strip()
+            or "Product"
+        )
+        quantity = max(0, _int(getattr(item, "quantity", 0), 0))
+        line_total = float(getattr(item, "total_price", 0) or 0)
+        item_lines.append(f"- {product_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
+    products_text = "\n".join(item_lines) if item_lines else "- No product details available"
+
+    shipping_address_parts = [
+        str(getattr(order, "shipping_address", "") or "").strip(),
+        str(getattr(order, "shipping_city", "") or "").strip(),
+        str(getattr(order, "shipping_province", "") or "").strip(),
+    ]
+    shipping_address = ", ".join([part for part in shipping_address_parts if part]) or "N/A"
+    total_amount = float(getattr(order, "total_amount", 0) or 0)
+
     subject = f"Your order is confirmed: {order.order_number}"
     message = (
         f"Hi {customer_name},\n\n"
-        f"Your order {order.order_number} has been confirmed by our warehouse team.\n"
-        f"We are now preparing it for delivery.\n\n"
+        f"Your order has been confirmed by our warehouse team.\n\n"
+        f"Order Number: {order.order_number}\n"
+        f"Products:\n{products_text}\n"
+        f"Total Price: PHP {total_amount:.2f}\n"
+        f"Delivery Address: {shipping_address}\n\n"
+        f"We are now preparing your order for dispatch.\n\n"
         f"Thank you for ordering with us."
     )
     _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
