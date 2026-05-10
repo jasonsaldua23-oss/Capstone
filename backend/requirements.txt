@@ -6,3 +6,4 @@ django-cors-headers>=4.4
 PyJWT>=2.8
 google-auth>=2.35
 requests>=2.32
+gunicorn>=22.0
