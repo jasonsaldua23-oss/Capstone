@@ -148,7 +148,9 @@ DATABASE_ROUTERS = ["core.db_router.CoreAppRouter"]
 OTP_GMAIL_USER = os.getenv("OTP_GMAIL_USER", "").strip()
 OTP_GMAIL_APP_PASSWORD = "".join(os.getenv("OTP_GMAIL_APP_PASSWORD", "").split())
 OTP_FROM_NAME = os.getenv("OTP_FROM_NAME", "Ann Ann's Beverages Trading").strip()
+OTP_FROM_EMAIL = os.getenv("OTP_FROM_EMAIL", OTP_GMAIL_USER).strip()
 OTP_SMTP_SKIP_TLS_VERIFY = _bool("OTP_SMTP_SKIP_TLS_VERIFY", DEBUG)
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 
 EMAIL_BACKEND = "core.mail_backends.DevTolerantSMTPEmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
@@ -156,7 +158,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = OTP_GMAIL_USER
 EMAIL_HOST_PASSWORD = OTP_GMAIL_APP_PASSWORD
-DEFAULT_FROM_EMAIL = f"{OTP_FROM_NAME} <{OTP_GMAIL_USER}>" if OTP_GMAIL_USER else OTP_FROM_NAME
+DEFAULT_FROM_EMAIL = f"{OTP_FROM_NAME} <{OTP_FROM_EMAIL}>" if OTP_FROM_EMAIL else OTP_FROM_NAME
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Google OAuth (customer registration/login)

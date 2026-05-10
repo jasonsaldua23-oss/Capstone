@@ -1,8 +1,9 @@
-﻿import hashlib
+import hashlib
 import hmac
 import json
 import logging
 import math
+import requests
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -2169,7 +2170,35 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
 
 
 def _otp_mail_ready() -> bool:
-    return bool(getattr(settings, "OTP_GMAIL_USER", "") and getattr(settings, "OTP_GMAIL_APP_PASSWORD", ""))
+    has_brevo = bool(getattr(settings, "BREVO_API_KEY", "") and getattr(settings, "OTP_FROM_EMAIL", ""))
+    has_gmail = bool(getattr(settings, "OTP_GMAIL_USER", "") and getattr(settings, "OTP_GMAIL_APP_PASSWORD", ""))
+    return bool(has_brevo or has_gmail)
+
+
+def _send_via_brevo(*, subject: str, message: str, recipient: str) -> bool:
+    api_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
+    from_email = str(getattr(settings, "OTP_FROM_EMAIL", "") or "").strip()
+    from_name = str(getattr(settings, "OTP_FROM_NAME", "Ann Ann's Beverages Trading") or "Ann Ann's Beverages Trading").strip()
+    if not api_key or not from_email:
+        return False
+
+    response = requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": api_key,
+        },
+        json={
+            "sender": {"name": from_name, "email": from_email},
+            "to": [{"email": recipient}],
+            "subject": subject,
+            "textContent": message,
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    return True
 
 
 def _get_reset_account(account_type: str, email: str) -> User | Customer | None:
@@ -2188,6 +2217,8 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    if _send_via_brevo(subject=subject, message=message, recipient=email):
+        return
     send_mail(
         subject=subject,
         message=message,
@@ -2205,6 +2236,8 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    if _send_via_brevo(subject=subject, message=message, recipient=email):
+        return
     send_mail(
         subject=subject,
         message=message,
@@ -6255,6 +6288,7 @@ def ensure_demo_accounts() -> None:
         license_expiry=timezone.now() + timedelta(days=1500),
         hired_at=timezone.now(),
     )
+
 
 
 
