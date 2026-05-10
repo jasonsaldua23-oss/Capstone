@@ -2217,7 +2217,9 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
-    if _send_via_brevo(subject=subject, message=message, recipient=email):
+    brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
+    if brevo_key:
+        _send_via_brevo(subject=subject, message=message, recipient=email)
         return
     send_mail(
         subject=subject,
@@ -2236,7 +2238,9 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
-    if _send_via_brevo(subject=subject, message=message, recipient=email):
+    brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
+    if brevo_key:
+        _send_via_brevo(subject=subject, message=message, recipient=email)
         return
     send_mail(
         subject=subject,
@@ -6288,6 +6292,8 @@ def ensure_demo_accounts() -> None:
         license_expiry=timezone.now() + timedelta(days=1500),
         hired_at=timezone.now(),
     )
+
+
 
 
 
