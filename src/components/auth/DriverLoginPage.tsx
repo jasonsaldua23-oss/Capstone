@@ -114,14 +114,14 @@ export function DriverLoginPage() {
         <Card className="w-full overflow-hidden rounded-[20px] border-emerald-200/80 bg-white/96 py-0 shadow-[0_14px_36px_rgba(5,150,105,0.12)] backdrop-blur-md sm:rounded-[30px] sm:shadow-[0_18px_50px_rgba(5,150,105,0.14)]">
           <div className="border-b border-emerald-100 bg-[#f3fcf8] px-3 pb-2.5 pt-3 text-center sm:px-6 sm:pb-5 sm:pt-6">
             <div className="flex items-center justify-center">
-              <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-emerald-200/70 bg-emerald-100 shadow-[0_6px_16px_rgba(5,150,105,0.14)] ring-2 ring-sky-200/90 sm:h-12 sm:w-12 sm:rounded-2xl sm:shadow-[0_10px_24px_rgba(5,150,105,0.16)]">
-                <img src="/anndrive.png" alt="AnnDrive" className="h-full w-full scale-100 object-contain" />
+              <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-emerald-200/70 bg-emerald-100 shadow-[0_6px_16px_rgba(5,150,105,0.14)] ring-2 ring-sky-200/90 sm:h-20 sm:w-20 sm:rounded-2xl sm:shadow-[0_10px_24px_rgba(5,150,105,0.16)]">
+                <img src="/aab-trading-logo.png" alt="AAB Trading Driver" className="h-full w-full object-cover" />
               </div>
             </div>
-            <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-emerald-700/80 sm:mt-3 sm:text-[11px]">Ann Ann's Beverages Trading</p>
+            <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-emerald-700/80 sm:mt-3 sm:text-[11px]">ANN ANN'S BEVERAGES TRADING</p>
             <h1 className="mt-1 text-[1.55rem] font-black tracking-[-0.02em] sm:mt-2 sm:text-[2rem]">
-              <span className="text-[#0f4f8f]">Ann</span>
-              <span className="text-[#2f9a34]">Drive</span>
+              <span className="block text-[#0f4f8f]">AAB TRADING</span>
+              <span className="block text-[#2f9a34]">DRIVER</span>
             </h1>
             <p className="mt-1 text-[12px] leading-tight text-zinc-600 sm:mt-2 sm:text-[0.95rem]">Sign in to start routes and track drops in real time.</p>
           </div>

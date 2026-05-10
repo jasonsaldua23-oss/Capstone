@@ -4,11 +4,11 @@ import { DriverLoginPage as DriverLoginScreen } from '@/components/auth/DriverLo
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
 
 export const metadata: Metadata = {
-  title: 'AnnDrive',
+  title: 'AAB TRADING DRIVER',
   icons: {
-    icon: '/anndrive.png',
-    shortcut: '/anndrive.png',
-    apple: '/anndrive.png',
+    icon: '/aab-trading-logo.png',
+    shortcut: '/aab-trading-logo.png',
+    apple: '/aab-trading-logo.png',
   },
 }
 

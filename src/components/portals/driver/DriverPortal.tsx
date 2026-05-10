@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion'
 import { Poppins } from 'next/font/google'
+import { useEffect } from 'react'
 import { useAuth } from '@/app/page'
 import { toast } from 'sonner'
 import { HistoryView } from './sections/history/history-view'
@@ -48,6 +49,29 @@ export function DriverPortal() {
     await logout()
     toast.success('Logged out successfully')
   }
+
+  useEffect(() => {
+    const previousTitle = document.title
+    const faviconSelectors = ['link[rel="icon"]', 'link[rel="shortcut icon"]', 'link[rel="apple-touch-icon"]']
+    const previousIcons = faviconSelectors.map((selector) => {
+      const node = document.head.querySelector(selector) as HTMLLinkElement | null
+      return node ? { selector, href: node.href } : { selector, href: '' }
+    })
+
+    document.title = 'AAB TRADING DRIVER'
+    faviconSelectors.forEach((selector) => {
+      const node = document.head.querySelector(selector) as HTMLLinkElement | null
+      if (node) node.href = '/aab-trading-logo.png'
+    })
+
+    return () => {
+      document.title = previousTitle
+      previousIcons.forEach(({ selector, href }) => {
+        const node = document.head.querySelector(selector) as HTMLLinkElement | null
+        if (node && href) node.href = href
+      })
+    }
+  }, [])
 
   return (
     // Full-viewport container with shared portal background treatment.

@@ -30,11 +30,11 @@ export function DriverPortalHeader({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl border border-white/90 bg-white shadow-[0_6px_14px_rgba(15,23,42,0.14)]">
-              <img src="/anndrive.png" alt="AnnDrive" className="h-full w-full object-cover" />
+              <img src="/aab-trading-logo.png" alt="AAB Trading Driver" className="h-full w-full object-cover" />
             </div>
             <div className="leading-tight">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">Ann Ann's Beveraes Trading</p>
-              <h1 className="text-[18px] font-black tracking-[-0.01em] text-[#0f3d72]">Ann<span className="text-[#2f9a34]">Drive</span></h1>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">ANN ANN'S BEVERAGES TRADING</p>
+              <h1 className="text-[18px] font-black tracking-[-0.01em] text-[#0f3d72]">AAB<span className="text-[#2f9a34]"> TRADING DRIVER</span></h1>
             </div>
           </div>
           <DropdownMenu>
@@ -64,7 +64,7 @@ export function DriverPortalHeader({
           </DropdownMenu>
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <p className="text-[1.1rem] font-semibold tracking-tight text-[#0a1b36]">ANN ANN'S DELIVERY</p>
+          <p className="text-[1.1rem] font-semibold tracking-tight text-[#0a1b36]">AAB TRADING DRIVER</p>
           {isTracking ? (
             <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-100 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
