@@ -33,7 +33,7 @@ services:
         sync: false
 
   - type: web
-    name: aabtrading-admin
+    name: aabtrading-frontend
     runtime: node
     plan: starter
     autoDeploy: true
@@ -46,103 +46,11 @@ services:
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
       - key: NEXT_PUBLIC_APP_VARIANT
-        value: admin
-      - key: DATABASE_URL
+        value: all
+      - key: DJANGO_API_ORIGIN
         sync: false
-      - key: DIRECT_URL
+      - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
         sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_ID
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_SECRET
-        sync: false
-      - key: OTP_GMAIL_USER
-        sync: false
-      - key: OTP_GMAIL_APP_PASSWORD
-        sync: false
-      - key: OTP_FROM_NAME
-        value: Ann Ann's Beverages Trading
-
-  - type: web
-    name: aabtrading-warehouse
-    runtime: node
-    plan: starter
-    autoDeploy: true
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
-    startCommand: npx next start -p $PORT
-    healthCheckPath: /
-    envVars:
-      - key: NODE_VERSION
-        value: 20
-      - key: NEXT_TELEMETRY_DISABLED
-        value: "1"
-      - key: NEXT_PUBLIC_APP_VARIANT
-        value: warehouse
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_ID
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_SECRET
-        sync: false
-      - key: OTP_GMAIL_USER
-        sync: false
-      - key: OTP_GMAIL_APP_PASSWORD
-        sync: false
-      - key: OTP_FROM_NAME
-        value: Ann Ann's Beverages Trading
-
-  - type: web
-    name: aabtrading-driver
-    runtime: node
-    plan: starter
-    autoDeploy: true
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
-    startCommand: npx next start -p $PORT
-    healthCheckPath: /
-    envVars:
-      - key: NODE_VERSION
-        value: 20
-      - key: NEXT_TELEMETRY_DISABLED
-        value: "1"
-      - key: NEXT_PUBLIC_APP_VARIANT
-        value: driver
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_ID
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_SECRET
-        sync: false
-      - key: OTP_GMAIL_USER
-        sync: false
-      - key: OTP_GMAIL_APP_PASSWORD
-        sync: false
-      - key: OTP_FROM_NAME
-        value: Ann Ann's Beverages Trading
-
-  - type: web
-    name: aabtrading-customer
-    runtime: node
-    plan: starter
-    autoDeploy: true
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
-    startCommand: npx next start -p $PORT
-    healthCheckPath: /
-    envVars:
-      - key: NODE_VERSION
-        value: 20
-      - key: NEXT_TELEMETRY_DISABLED
-        value: "1"
-      - key: NEXT_PUBLIC_APP_VARIANT
-        value: customer
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
