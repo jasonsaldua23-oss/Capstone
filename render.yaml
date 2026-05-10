@@ -1,0 +1,161 @@
+services:
+  - type: web
+    name: aabtrading-backend
+    runtime: python
+    plan: starter
+    autoDeploy: true
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DJANGO_USE_SQLITE
+        value: "0"
+      - key: JWT_SECRET
+        sync: false
+      - key: OTP_GMAIL_USER
+        sync: false
+      - key: OTP_GMAIL_APP_PASSWORD
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Ann Ann's Beverages Trading
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+
+  - type: web
+    name: aabtrading-admin
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npx next start -p $PORT
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NEXT_PUBLIC_APP_VARIANT
+        value: admin
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: OTP_GMAIL_USER
+        sync: false
+      - key: OTP_GMAIL_APP_PASSWORD
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Ann Ann's Beverages Trading
+
+  - type: web
+    name: aabtrading-warehouse
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npx next start -p $PORT
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NEXT_PUBLIC_APP_VARIANT
+        value: warehouse
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: OTP_GMAIL_USER
+        sync: false
+      - key: OTP_GMAIL_APP_PASSWORD
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Ann Ann's Beverages Trading
+
+  - type: web
+    name: aabtrading-driver
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npx next start -p $PORT
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NEXT_PUBLIC_APP_VARIANT
+        value: driver
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: OTP_GMAIL_USER
+        sync: false
+      - key: OTP_GMAIL_APP_PASSWORD
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Ann Ann's Beverages Trading
+
+  - type: web
+    name: aabtrading-customer
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npx next start -p $PORT
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NEXT_PUBLIC_APP_VARIANT
+        value: customer
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: OTP_GMAIL_USER
+        sync: false
+      - key: OTP_GMAIL_APP_PASSWORD
+        sync: false
+      - key: OTP_FROM_NAME
+        value: Ann Ann's Beverages Trading
