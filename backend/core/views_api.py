@@ -2219,8 +2219,11 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
     )
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
-        _send_via_brevo(subject=subject, message=message, recipient=email)
-        return
+        try:
+            _send_via_brevo(subject=subject, message=message, recipient=email)
+            return
+        except Exception:
+            logger.exception("Brevo OTP send failed for password reset; falling back to SMTP")
     send_mail(
         subject=subject,
         message=message,
@@ -2240,8 +2243,11 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
     )
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
-        _send_via_brevo(subject=subject, message=message, recipient=email)
-        return
+        try:
+            _send_via_brevo(subject=subject, message=message, recipient=email)
+            return
+        except Exception:
+            logger.exception("Brevo OTP send failed for email verification; falling back to SMTP")
     send_mail(
         subject=subject,
         message=message,
@@ -2256,6 +2262,22 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
     if not cleaned:
         return
     try:
+        brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
+        if brevo_key:
+            for recipient in cleaned:
+                try:
+                    _send_via_brevo(subject=subject, message=message, recipient=recipient)
+                except Exception:
+                    logger.exception("Brevo transactional send failed for %s; falling back to SMTP", recipient)
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[recipient],
+                        fail_silently=False,
+                    )
+            return
+
         send_mail(
             subject=subject,
             message=message,
@@ -2828,16 +2850,28 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         role=role,
         is_active=bool(body.get("isActive", True)),
     )
-    _email_new_staff_credentials(user, password)
+    warnings: list[str] = []
+    try:
+        _email_new_staff_credentials(user, password)
+    except Exception:
+        logger.exception("Failed to send new staff credentials email for user=%s", user.id)
+        warnings.append("credentials_email_failed")
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
-    _create_staff_notifications(
-        title="User added",
-        message=f"{actor_name} added user {user.name} ({user.email}) with role {user.role}.",
-        notification_type="USER",
-        reference_type="user",
-        reference_id=user.id,
-    )
-    return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})}, 201)
+    try:
+        _create_staff_notifications(
+            title="User added",
+            message=f"{actor_name} added user {user.name} ({user.email}) with role {user.role}.",
+            notification_type="USER",
+            reference_type="user",
+            reference_id=user.id,
+        )
+    except Exception:
+        logger.exception("Failed to create staff notifications for new user=%s", user.id)
+        warnings.append("staff_notification_failed")
+    payload: dict[str, Any] = {"success": True, "user": _serialize_model(user, exclude={"password"})}
+    if warnings:
+        payload["warnings"] = warnings
+    return _ok(payload, 201)
 
 
 @csrf_exempt
