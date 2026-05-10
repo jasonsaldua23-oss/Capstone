@@ -65,6 +65,7 @@ export function TransportationView() {
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null)
   const [selectedDriver, setSelectedDriver] = useState<any | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<any | null>(null)
+  const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
   const [deleteVehicleOpen, setDeleteVehicleOpen] = useState(false)
   const [vehicleToDelete, setVehicleToDelete] = useState<any | null>(null)
   const [isDeletingVehicle, setIsDeletingVehicle] = useState(false)
@@ -673,7 +674,7 @@ export function TransportationView() {
                       const hasCoordinates =
                         typeof point.latitude === 'number' && typeof point.longitude === 'number'
 
-                      return (
+      return (
                         <div key={point.id || `${selectedTrip.id}-dp-${index}`} className="rounded-md border bg-white p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-gray-900">
@@ -688,6 +689,17 @@ export function TransportationView() {
                               ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
                               : 'Coordinates: Not available'}
                           </p>
+                          <div className="mt-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => setSelectedDropPointDetail(point)}
+                            >
+                              View Details
+                            </Button>
+                          </div>
                         </div>
                       )
                     })}
@@ -701,6 +713,49 @@ export function TransportationView() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!selectedDropPointDetail} onOpenChange={(open) => !open && setSelectedDropPointDetail(null)}>
+        <DialogContent className="max-w-xl w-full rounded-2xl border border-slate-200 p-0">
+          {selectedDropPointDetail ? (
+            <div className="space-y-4 p-5">
+              <div className="border-b border-slate-200 pb-3">
+                <h3 className="text-[1.4rem] font-black tracking-[-0.02em] text-slate-900">Drop Point Details</h3>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-[1.05rem] text-slate-700 space-y-2">
+                <p><span className="font-bold text-slate-900">Customer:</span> {selectedDropPointDetail.locationName || selectedDropPointDetail.contactName || 'N/A'}</p>
+                <p><span className="font-bold text-slate-900">Phone:</span> {selectedDropPointDetail.contactPhone || 'N/A'}</p>
+                <p><span className="font-bold text-slate-900">Address:</span> {selectedDropPointDetail.address || 'N/A'}</p>
+                <p><span className="font-bold text-slate-900">PO Number:</span> {selectedDropPointDetail.order?.orderNumber || 'N/A'}</p>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900">PO Status:</span>
+                  <span className="inline-flex rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                    {String(selectedDropPointDetail.order?.status || 'N/A').replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <p><span className="font-bold text-slate-900">Total Amount:</span> {selectedDropPointDetail.order?.totalAmount != null ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0)) : 'N/A'}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-base font-bold text-slate-900">Order Items</p>
+                {Array.isArray(selectedDropPointDetail.order?.items) && selectedDropPointDetail.order.items.length > 0 ? (
+                  <div className="mt-2 space-y-2 text-sm text-slate-700">
+                    {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
+                      <div key={`dp-detail-item-${itemIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <p className="text-xs text-slate-600">Quantity: {Number(item?.quantity || 0)}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">No order items.</p>
+                )}
+              </div>
+              <div className="flex justify-end pt-1">
+                <Button variant="outline" className="h-11 min-w-24 rounded-xl" onClick={() => setSelectedDropPointDetail(null)}>Close</Button>
+              </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

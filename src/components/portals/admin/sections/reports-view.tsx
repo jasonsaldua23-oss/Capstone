@@ -882,6 +882,37 @@ export function ReportsView() {
     borderRadius: '12px',
     boxShadow: '0 12px 30px rgba(15, 23, 42, 0.22)',
   }
+  const buildReportSummaryLines = (rows: Array<Record<string, unknown>>, maxRows: number, headers: string[]) => {
+    const summaryLines: string[] = []
+    summaryLines.push(`Total records: ${rows.length}`)
+    summaryLines.push(`Included in this page: ${maxRows}`)
+    const lowerHeaders = headers.map((header) => header.toLowerCase())
+    const statusHeader = headers.find((header, index) => lowerHeaders[index].includes('status'))
+    const amountHeader = headers.find((header, index) =>
+      ['amount', 'total', 'value', 'cost'].some((token) => lowerHeaders[index].includes(token))
+    )
+    if (statusHeader) {
+      const statusCounts = new Map<string, number>()
+      rows.forEach((row) => {
+        const key = String(row[statusHeader] || 'UNKNOWN').trim() || 'UNKNOWN'
+        statusCounts.set(key, (statusCounts.get(key) || 0) + 1)
+      })
+      const topStatuses = Array.from(statusCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([status, count]) => `${status}: ${count}`)
+      if (topStatuses.length > 0) summaryLines.push(`Status summary: ${topStatuses.join(' | ')}`)
+    }
+    if (amountHeader) {
+      const amounts = rows.map((row) => Number(row[amountHeader])).filter((value) => Number.isFinite(value))
+      if (amounts.length > 0) {
+        const totalAmount = amounts.reduce((acc, value) => acc + value, 0)
+        const avgAmount = totalAmount / amounts.length
+        summaryLines.push(`Amount summary: Total ${formatPeso(totalAmount)} | Avg ${formatPeso(avgAmount)}`)
+      }
+    }
+    return summaryLines
+  }
 
   const downloadPdf = async (
     filename: string,
@@ -893,23 +924,24 @@ export function ReportsView() {
       toast.error(`No data to export for ${filename}`)
       return
     }
-
     const pdfDoc = await PDFDocument.create()
     const page = pdfDoc.addPage([842, 595])
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-
     const companyName = options?.companyName || "Ann Ann's Beverages Trading"
     const subtitle = options?.subtitle || 'Logistics Management System'
     const preparedBy = options?.preparedBy || 'System Administrator'
-
     const margin = 28
     const usableWidth = 842 - margin * 2
     const lineHeight = 14
     const maxRows = Math.min(rows.length, 180)
     const headers = Object.keys(rows[0]).slice(0, 8)
     const colWidth = usableWidth / Math.max(1, headers.length)
-
+    const ellipsize = (value: string, maxChars: number) => {
+      const normalized = String(value ?? '').replace(/\s+/g, ' ').trim()
+      if (normalized.length <= maxChars) return normalized
+      return `${normalized.slice(0, Math.max(0, maxChars - 3))}...`
+    }
     let y = 560
     page.drawText(companyName, { x: margin, y, size: 16, font: boldFont, color: rgb(0.08, 0.08, 0.08) })
     y -= 16
@@ -918,47 +950,40 @@ export function ReportsView() {
     page.drawText(title, { x: margin, y, size: 14, font: boldFont, color: rgb(0.1, 0.1, 0.1) })
     y -= 14
     page.drawText(`Generated: ${new Date().toLocaleString()} | Prepared by: ${preparedBy}`, {
-      x: margin,
-      y,
-      size: 9,
-      font,
-      color: rgb(0.35, 0.35, 0.35),
+      x: margin, y, size: 9, font, color: rgb(0.35, 0.35, 0.35),
     })
     y -= 18
-
+    const summaryLines = buildReportSummaryLines(rows, maxRows, headers)
+    const summaryHeight = summaryLines.length * 12 + 12
+    page.drawRectangle({ x: margin, y: y - summaryHeight, width: usableWidth, height: summaryHeight, color: rgb(0.96, 0.98, 1), borderColor: rgb(0.82, 0.88, 0.96), borderWidth: 1 })
+    page.drawText('Summary', { x: margin + 8, y: y - 12, size: 10, font: boldFont, color: rgb(0.12, 0.22, 0.36) })
+    let summaryY = y - 24
+    summaryLines.forEach((line) => {
+      page.drawText(line, { x: margin + 8, y: summaryY, size: 8.5, font, color: rgb(0.24, 0.3, 0.4), maxWidth: usableWidth - 16 })
+      summaryY -= 12
+    })
+    y = y - summaryHeight - 12
     headers.forEach((header, index) => {
-      page.drawText(header, {
-        x: margin + index * colWidth,
-        y,
-        size: 9,
-        font: boldFont,
-        color: rgb(0.15, 0.15, 0.15),
-        maxWidth: colWidth - 6,
-      })
+      page.drawText(header, { x: margin + index * colWidth, y, size: 9, font: boldFont, color: rgb(0.15, 0.15, 0.15), maxWidth: colWidth - 8 })
     })
     y -= lineHeight
-
     for (let i = 0; i < maxRows; i += 1) {
       const row = rows[i]
       headers.forEach((header, index) => {
-        const value = String(row[header] ?? '')
-        page.drawText(value, {
-          x: margin + index * colWidth,
-          y,
-          size: 8,
-          font,
-          color: rgb(0.25, 0.25, 0.25),
-          maxWidth: colWidth - 6,
-        })
+        const rawValue = String(row[header] ?? '')
+        const value = ellipsize(rawValue, Math.max(10, Math.floor((colWidth - 10) / 4.7)))
+        page.drawText(value, { x: margin + index * colWidth, y, size: 8, font, color: rgb(0.25, 0.25, 0.25), maxWidth: colWidth - 8 })
       })
       y -= lineHeight
       if (y < 30) break
     }
-
+    const footerSummaryY = 44
+    const footerSummaryText = summaryLines.join(' | ')
+    page.drawRectangle({ x: margin, y: footerSummaryY - 8, width: usableWidth, height: 14, color: rgb(0.97, 0.98, 1), borderColor: rgb(0.84, 0.89, 0.96), borderWidth: 1 })
+    page.drawText(`Bottom Summary: ${ellipsize(footerSummaryText, 180)}`, { x: margin + 6, y: footerSummaryY - 2, size: 8, font, color: rgb(0.23, 0.3, 0.4), maxWidth: usableWidth - 12 })
     page.drawText('Prepared by: ____________________', { x: margin, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
     page.drawText('Reviewed by: ____________________', { x: margin + 240, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
     page.drawText('Approved by: ____________________', { x: margin + 480, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
-
     const bytes = await pdfDoc.save()
     const blob = new Blob([bytes], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
@@ -1122,6 +1147,7 @@ export function ReportsView() {
     }
 
     const columns = Object.keys(report.rows[0])
+    const summaryLines = buildReportSummaryLines(report.rows, Math.min(report.rows.length, 300), columns)
     const bodyRows = report.rows
       .slice(0, 300)
       .map((row) => `<tr>${columns.map((column) => `<td>${String(row[column] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`)
@@ -1139,6 +1165,10 @@ export function ReportsView() {
             table { width: 100%; border-collapse: collapse; font-size: 11px; }
             th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
             th { background: #f5f5f5; }
+            .summary-box { margin: 10px 0 12px; border: 1px solid #bfdbfe; background: #eff6ff; padding: 8px 10px; }
+            .summary-title { font-weight: 700; margin-bottom: 4px; color: #1e3a8a; }
+            .summary-line { font-size: 11px; color: #334155; margin: 0 0 2px 0; }
+            .bottom-summary { margin-top: 12px; border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px; font-size: 11px; color: #334155; }
             .signatures { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
             .signature-line { margin-top: 32px; border-top: 1px solid #111; padding-top: 6px; font-size: 11px; }
           </style>
@@ -1148,12 +1178,17 @@ export function ReportsView() {
           <h2>${reportBranding.subtitle}</h2>
           <p><strong>${report.title}</strong></p>
           <p>Generated at ${new Date().toLocaleString()} | Date range: last ${rangeDays} days | Prepared by: ${reportBranding.preparedBy}</p>
+          <div class="summary-box">
+            <div class="summary-title">Summary</div>
+            ${summaryLines.map((line) => `<p class="summary-line">${line}</p>`).join('')}
+          </div>
           <table>
             <thead>
               <tr>${columns.map((column) => `<th>${column}</th>`).join('')}</tr>
             </thead>
             <tbody>${bodyRows}</tbody>
           </table>
+          <div class="bottom-summary">Bottom Summary: ${summaryLines.join(' | ')}</div>
           <div class="signatures">
             <div>
               <div class="signature-line">Prepared by</div>
@@ -1772,6 +1807,9 @@ export function ReportsView() {
     </div>
   )
 }
+
+
+
 
 
 

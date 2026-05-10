@@ -112,6 +112,7 @@ export function TripDetailView({
   const [deliveredTargetDropPointId, setDeliveredTargetDropPointId] = useState<string | null>(null)
   const [deliveredTargetDropPointName, setDeliveredTargetDropPointName] = useState('')
   const [isStartTripConfirmOpen, setIsStartTripConfirmOpen] = useState(false)
+  const [selectedDropPointForDetails, setSelectedDropPointForDetails] = useState<DropPoint | null>(null)
 
   // Mobile bottom sheet and map UX state.
   const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
@@ -373,6 +374,19 @@ export function TripDetailView({
       currency: 'PHP',
       maximumFractionDigits: 2,
     }).format(amount)
+  const formatDateTime = (value: string | null | undefined) => {
+    const raw = String(value || '').trim()
+    if (!raw) return 'Not set'
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
   const formatTripSchedule = (value: string | null | undefined) => {
     const raw = String(value || '').trim()
     if (!raw) return 'Not set'
@@ -2732,6 +2746,18 @@ export function TripDetailView({
                             {dropPoint.status}
                           </Badge>
                         </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 h-8 border-sky-200 text-xs text-sky-700 hover:bg-sky-50"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedDropPointForDetails(dropPoint)
+                          }}
+                        >
+                          View Details
+                        </Button>
                         {dropPoint.contactPhone && (
                           <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
                             <Phone className="h-4 w-4" />
@@ -3632,6 +3658,72 @@ export function TripDetailView({
                 disabled={isUpdating}
               >
                 Confirm Reschedule
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedDropPointForDetails)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDropPointForDetails(null)
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white p-0 sm:max-w-2xl">
+          <DialogHeader>
+            <div className="border-b border-slate-200 px-5 pb-3 pt-5">
+              <DialogTitle className="text-xl font-black tracking-[-0.02em] text-slate-900">
+                {selectedDropPointForDetails?.order?.orderNumber || 'Purchase Order Details'}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-slate-600">
+                Customer and purchase order information for this drop point.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="max-h-[calc(100dvh-11rem)] space-y-4 overflow-y-auto px-5 pb-5 pt-4 text-sm">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Customer Details</p>
+              <div className="mt-2 space-y-1 text-slate-700">
+                <p><span className="font-medium text-slate-900">Name:</span> {selectedDropPointForDetails?.locationName || selectedDropPointForDetails?.contactName || 'Not set'}</p>
+                <p><span className="font-medium text-slate-900">Phone:</span> {selectedDropPointForDetails?.contactPhone || 'Not set'}</p>
+                <p><span className="font-medium text-slate-900">Address:</span> {stripPhilippinesFromAddress(selectedDropPointForDetails?.address) || 'Not set'}</p>
+                <p><span className="font-medium text-slate-900">Coordinates:</span> {selectedDropPointForDetails?.latitude && selectedDropPointForDetails?.longitude ? `${selectedDropPointForDetails.latitude}, ${selectedDropPointForDetails.longitude}` : 'Not set'}</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Purchase Order</p>
+              <div className="mt-2 space-y-1 text-slate-700">
+                <p><span className="font-medium text-slate-900">PO Number:</span> {selectedDropPointForDetails?.order?.orderNumber || 'Not set'}</p>
+                <p><span className="font-medium text-slate-900">Order Status:</span> {selectedDropPointForDetails?.order?.status || 'Not set'}</p>
+                <p><span className="font-medium text-slate-900">Warehouse Stage:</span> {selectedDropPointForDetails?.order?.warehouseStage || 'Not set'}</p>
+                <p><span className="font-medium text-slate-900">Created At:</span> {formatDateTime(selectedDropPointForDetails?.order?.createdAt)}</p>
+                <p><span className="font-medium text-slate-900">Total Amount:</span> {formatCurrency(Number(selectedDropPointForDetails?.order?.totalAmount || 0))}</p>
+              </div>
+
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                <p className="text-xs font-semibold text-slate-700">Ordered Items</p>
+                <div className="mt-2 space-y-1.5">
+                  {(selectedDropPointForDetails?.order?.items || []).length > 0 ? (
+                    (selectedDropPointForDetails?.order?.items || []).map((item: any, index: number) => (
+                      <div key={`detail-po-item-${index}`} className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
+                        <p className="font-medium text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <p>Quantity: {Number(item?.quantity || 0)}</p>
+                        <p>Price: {formatCurrency(Number(item?.price || item?.unitPrice || 0))}</p>
+                        <p>Subtotal: {formatCurrency(Number(item?.subtotal || (Number(item?.quantity || 0) * Number(item?.price || item?.unitPrice || 0))))}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">No order items available.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" onClick={() => setSelectedDropPointForDetails(null)}>
+                Close
               </Button>
             </div>
           </div>
