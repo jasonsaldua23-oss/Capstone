@@ -2429,6 +2429,7 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
     try:
         _send_email_verification_otp(email, code)
     except Exception:
+        logger.exception("Failed to send email verification OTP to %s", email)
         return _err("Unable to send verification email right now", 500)
 
     return _ok({"success": True, "message": "Verification code sent."})
@@ -2692,6 +2693,7 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
     try:
         _send_reset_otp_email(email, code)
     except Exception:
+        logger.exception("Failed to send password reset OTP to %s", email)
         return _err("Unable to send OTP email right now", 500)
 
     return _ok({"success": True, "message": "OTP sent successfully."})
