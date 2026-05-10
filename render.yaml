@@ -5,7 +5,7 @@ services:
     plan: starter
     autoDeploy: true
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput
+    buildCommand: pip install -r requirements.txt && python manage.py migrate --fake-initial && python manage.py collectstatic --noinput
     startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health
     envVars:
