@@ -139,27 +139,14 @@ export function WarehouseReplacementsView({
                         <td className="p-4 text-gray-500">
                           {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
                         </td>
-                        <td className="p-4">
-                          <div className="flex flex-wrap gap-2">
-                            {String(ret?.status || '').toUpperCase() !== 'COMPLETED' && String(ret?.status || '').toUpperCase() !== 'RESOLVED_ON_DELIVERY' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => void updateIssueStatus(ret.id, 'COMPLETED', 'Marked completed by warehouse staff')}
-                                disabled={updatingReplacementId === ret.id}
-                              >
-                                Mark Completed
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedReplacement(ret)}
-                            >
-                              View Details
-                            </Button>
-                            {updatingReplacementId === ret.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
-                          </div>
+                        <td className="p-4 min-w-[220px]">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedReplacement(ret)}
+                          >
+                            View Details
+                          </Button>
                         </td>
                       </tr>
                     )
@@ -218,6 +205,48 @@ export function WarehouseReplacementsView({
                       <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
                     </div>
                   ))}
+                </div>
+                <div className="rounded-md border bg-white px-3 py-3">
+                  <p className="text-xs font-medium text-slate-500">Actions</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {rawStatus === 'UNDER_REVIEW' ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void updateIssueStatus(selectedReplacement.id, 'APPROVED', {
+                            notes: 'Replacement approved for processing',
+                            createReplacementOrder: true,
+                          })}
+                          disabled={updatingReplacementId === selectedReplacement.id}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const reason = window.prompt('Enter rejection reason:')
+                            if (!reason || !reason.trim()) return
+                            void updateIssueStatus(selectedReplacement.id, 'REJECTED', { notes: reason.trim() })
+                          }}
+                          disabled={updatingReplacementId === selectedReplacement.id}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by warehouse staff' })}
+                        disabled={updatingReplacementId === selectedReplacement.id}
+                      >
+                        Under Review
+                      </Button>
+                    ) : null}
+                    {updatingReplacementId === selectedReplacement.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
+                  </div>
                 </div>
                 <div className="rounded-md border bg-white">
                   <div className="border-b px-3 py-2">

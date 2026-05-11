@@ -790,6 +790,15 @@ export function OrdersView() {
                         <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                       </div>
                     ))}
+                    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
+                      <p>Total Before Discount: {formatPeso(Number(selectedOrder?.subtotal || 0))}</p>
+                      <p>Discount: {selectedOrder?.discountDetails?.name || selectedOrder?.discountName || 'No Discount'}</p>
+                      <p>Status: {selectedOrder?.discountDetails?.status || selectedOrder?.discountStatus || 'REMOVED'}</p>
+                      <p>Units Affected (Case/Pack/Bundle): {Number(selectedOrder?.discountDetails?.casesAffected || selectedOrder?.discountCasesAffected || 0)}</p>
+                      <p>Total Discount: {formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))}</p>
+                      <p>Total After Discount: {formatPeso(Number(selectedOrder?.totalAmount || 0))}</p>
+                      <p>Applied By: {selectedOrder?.discountDetails?.appliedByName || selectedOrder?.discountAppliedByName || 'N/A'}</p>
+                    </div>
                     <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
                   </div>
                 </div>

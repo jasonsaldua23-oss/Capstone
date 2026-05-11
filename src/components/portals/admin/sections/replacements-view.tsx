@@ -196,6 +196,7 @@ export function ReplacementsView() {
       }
 
       setReplacements((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
+      setSelectedReplacement((prev: any) => (prev && prev.id === replacementId ? { ...prev, status } : prev))
       toast.success(`Replacement updated to ${status.replace(/_/g, ' ')}`)
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
@@ -216,6 +217,21 @@ export function ReplacementsView() {
     if (selectedStatus === 'all') return warehouseFilteredReplacements
     return warehouseFilteredReplacements.filter((item) => getNormalizedIssueStatus(item) === selectedStatus)
   }, [warehouseFilteredReplacements, selectedStatus])
+
+  const replacementsBySource = useMemo(() => {
+    const customerRequests: any[] = []
+    const duringDelivery: any[] = []
+    filteredReplacements.forEach((item) => {
+      const meta = parseMeta(item?.notes)
+      const mode = String(item?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
+      if (mode === 'CUSTOMER_SUBMITTED') {
+        customerRequests.push(item)
+      } else {
+        duringDelivery.push(item)
+      }
+    })
+    return { customerRequests, duringDelivery }
+  }, [filteredReplacements])
 
   const orderItemsByOrderNumber = useMemo(() => {
     const index = new Map<string, any[]>()
@@ -344,14 +360,18 @@ export function ReplacementsView() {
       </div>
 
       <Card>
+        <CardHeader>
+          <CardTitle>During Delivery Replacements</CardTitle>
+          <CardDescription>Reported and handled while delivery is ongoing</CardDescription>
+        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
             </div>
-          ) : filteredReplacements.length === 0 ? (
+          ) : replacementsBySource.duringDelivery.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-gray-500">No replacement cases found</p>
+              <p className="text-gray-500">No during-delivery replacement cases found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -370,7 +390,7 @@ export function ReplacementsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredReplacements.map((item: any) => {
+                  {replacementsBySource.duringDelivery.map((item: any) => {
                     const meta = parseMeta(item?.notes)
                     const issueReason = String(item?.description || item?.reason || 'No details provided')
                     const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
@@ -423,7 +443,6 @@ export function ReplacementsView() {
                     const evidenceUrls = Array.isArray(item?.damagePhotoUrls) ? item.damagePhotoUrls : []
                     const evidenceUrl = String(evidenceUrls[0] || item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
                     const hasEvidence = Boolean(evidenceUrl)
-                    const replacementMode = String(item?.replacementMode || meta?.replacementMode || '').toUpperCase()
                     const statusLabel = formatIssueStatus(item)
 
                     return (
@@ -461,63 +480,154 @@ export function ReplacementsView() {
                         <td className="p-4 text-gray-500">
                           {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
                         </td>
+                        <td className="p-4 min-w-[220px]">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedReplacement(item)}
+                          >
+                            View Details
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Customer Replacement Requests</CardTitle>
+          <CardDescription>Requests submitted directly by customers after delivery</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : replacementsBySource.customerRequests.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-gray-500">No customer replacement requests found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Order #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Customer</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Warehouse</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Reported</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replacementsBySource.customerRequests.map((item: any) => {
+                    const meta = parseMeta(item?.notes)
+                    const issueReason = String(item?.description || item?.reason || 'No details provided')
+                    const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                    const replacementLines = buildReplacementLines(item, meta)
+                    const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
+                    const orderItems =
+                      (Array.isArray(item?.order?.items) ? item.order.items : []).length > 0
+                        ? item.order.items
+                        : (orderItemsByOrderNumber.get(orderNumberKey) || [])
+                    const totalLoss = replacementLines.reduce((sum, line, index) => {
+                      const sourceLine =
+                        (Array.isArray(item?.replacementLines) ? item.replacementLines[index] : undefined) ||
+                        (Array.isArray(item?.replacementItems) ? item.replacementItems[index] : undefined) ||
+                        (Array.isArray(meta?.replacementLines) ? meta.replacementLines[index] : undefined) ||
+                        (Array.isArray(meta?.replacementItems) ? meta.replacementItems[index] : undefined) ||
+                        {}
+                      const matchedOrderItem = orderItems.find((orderItem: any) => {
+                        const srcOrderItemId = String(sourceLine?.orderItemId ?? '').trim()
+                        const oiId = String(orderItem?.id ?? '').trim()
+                        if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
+
+                        const srcProductId = String(
+                          sourceLine?.productId ??
+                          sourceLine?.originalProductId ??
+                          sourceLine?.replacementProductId ??
+                          ''
+                        ).trim()
+                        const oiProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
+                        if (srcProductId && oiProductId && srcProductId === oiProductId) return true
+
+                        const srcName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
+                        const oiName = String(orderItem?.product?.name ?? orderItem?.name ?? '').trim().toLowerCase()
+                        return Boolean(srcName && oiName && srcName === oiName)
+                      })
+
+                      const unitPrice = Number(
+                        sourceLine?.unitPrice ??
+                        sourceLine?.price ??
+                        sourceLine?.sellingPrice ??
+                        sourceLine?.replacementUnitPrice ??
+                        sourceLine?.originalUnitPrice ??
+                        matchedOrderItem?.unitPrice ??
+                        matchedOrderItem?.price ??
+                        matchedOrderItem?.product?.price ??
+                        0
+                      )
+                      const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
+                      return sum + (Number.isFinite(unitPrice) ? unitPrice : 0) * qty
+                    }, 0)
+                    const evidenceUrls = Array.isArray(item?.damagePhotoUrls) ? item.damagePhotoUrls : []
+                    const evidenceUrl = String(evidenceUrls[0] || item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+                    const hasEvidence = Boolean(evidenceUrl)
+                    const statusLabel = formatIssueStatus(item)
+
+                    return (
+                      <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{item.replacementNumber}</td>
+                        <td className="p-4">{item.orderNumber || item.order?.orderNumber || 'N/A'}</td>
+                        <td className="p-4">{item.customerName || item.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
-                          <div className="flex flex-wrap gap-2">
-                            {String(item?.status || '').toUpperCase() !== 'UNDER_REVIEW' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateIssueStatus(item.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
-                                disabled={updatingReplacementId === item.id}
-                              >
-                                Under Review
-                              </Button>
-                            ) : null}
-                            {String(item?.status || '').toUpperCase() !== 'APPROVED' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateIssueStatus(item.id, 'APPROVED', { notes: 'Replacement approved for processing' })}
-                                disabled={updatingReplacementId === item.id}
-                              >
-                                Approve
-                              </Button>
-                            ) : null}
-                            {String(item?.status || '').toUpperCase() !== 'REJECTED' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  const reason = window.prompt('Enter rejection reason:')
-                                  if (!reason || !reason.trim()) return
-                                  void updateIssueStatus(item.id, 'REJECTED', { notes: reason.trim() })
-                                }}
-                                disabled={updatingReplacementId === item.id}
-                              >
-                                Reject
-                              </Button>
-                            ) : null}
-                            {String(item?.status || '').toUpperCase() !== 'COMPLETED' && String(item?.status || '').toUpperCase() !== 'RESOLVED_ON_DELIVERY' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateIssueStatus(item.id, 'COMPLETED', { notes: 'Marked completed by admin' })}
-                                disabled={updatingReplacementId === item.id}
-                              >
-                                Mark Completed
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedReplacement(item)}
-                            >
-                              View Details
-                            </Button>
-                            {updatingReplacementId === item.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                            ) : null}
+                          <p className="font-medium text-gray-900">{item.warehouseName || item.warehouseCode || item.order?.warehouseName || item.order?.warehouseCode || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
+                        </td>
+                        <td className="p-4">
+                          <p className="text-sm text-gray-900">{issueReason}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
                           </div>
+                          <p className="mt-1 text-sm font-semibold text-red-600">- Total loss: {formatPeso(totalLoss)}</p>
+                        </td>
+                        <td className="p-4">
+                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
+                            {hasEvidence ? 'Photo Attached' : 'No Photo'}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
+                          <Badge
+                            className={
+                              statusLabel === 'Needs Follow-up'
+                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
+                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                            }
+                          >
+                            {statusLabel}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-gray-500">
+                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="p-4 min-w-[220px]">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedReplacement(item)}
+                          >
+                            View Details
+                          </Button>
                         </td>
                       </tr>
                     )
@@ -611,6 +721,50 @@ export function ReplacementsView() {
                     </div>
                   ))}
                 </div>
+                <div className="rounded-md border bg-white px-3 py-3">
+                  <p className="text-xs font-medium text-slate-500">Actions</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {rawStatus === 'UNDER_REVIEW' ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
+                            notes: 'Replacement approved for processing',
+                            createReplacementOrder: true,
+                          })}
+                          disabled={updatingReplacementId === selectedReplacement.id}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const reason = window.prompt('Enter rejection reason:')
+                            if (!reason || !reason.trim()) return
+                            void updateIssueStatus(selectedReplacement.id, 'REJECTED', { notes: reason.trim() })
+                          }}
+                          disabled={updatingReplacementId === selectedReplacement.id}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
+                        disabled={updatingReplacementId === selectedReplacement.id}
+                      >
+                        Under Review
+                      </Button>
+                    ) : null}
+                    {updatingReplacementId === selectedReplacement.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                    ) : null}
+                  </div>
+                </div>
                 <div className="rounded-md border bg-white">
                   <div className="border-b px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>
@@ -658,3 +812,5 @@ export function ReplacementsView() {
     </div>
   )
 }
+
+

@@ -2961,8 +2961,8 @@ export function WarehousePortal() {
 
   const updateIssueStatus = async (
     replacementId: string,
-    status: 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    notes?: string
+    status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
+    options?: { notes?: string; createReplacementOrder?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
     try {
@@ -2973,7 +2973,8 @@ export function WarehousePortal() {
           scope: 'replacement',
           replacementId: replacementId,
           status,
-          notes,
+          notes: options?.notes,
+          createReplacementOrder: options?.createReplacementOrder,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -2981,10 +2982,20 @@ export function WarehousePortal() {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
 
-      toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
+      toast.success(`Replacement updated to ${status.replace(/_/g, ' ')}`)
       emitDataSync(['replacements', 'orders'])
-      setReplacements((prev) => prev.map((entry) => (entry.id === replacementId ? { ...entry, status, notes: notes || entry.notes } : entry)))
-      setSelectedReplacement((current) => (current?.id === replacementId ? { ...current, status, notes: notes || current.notes } : current))
+      setReplacements((prev) =>
+        prev.map((entry) =>
+          entry.id === replacementId
+            ? { ...entry, status, notes: options?.notes || entry.notes }
+            : entry
+        )
+      )
+      setSelectedReplacement((current) =>
+        current?.id === replacementId
+          ? { ...current, status, notes: options?.notes || current.notes }
+          : current
+      )
       void Promise.all([
         fetchReplacementsData(),
         fetchOrdersData({ showLoading: false, silent: true }),

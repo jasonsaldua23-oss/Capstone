@@ -17,6 +17,14 @@ type CustomerCheckoutViewProps = {
   getProductImage: (imageUrl?: string | null) => string
   formatPeso: (value: number) => string
   selectedSubtotal: number
+  discountName: string
+  discountType: string
+  discountPercent: number
+  discountAmountPerCase: number
+  discountPerCase: number
+  discountCasesAffected: number
+  totalDiscount: number
+  finalTotal: number
   notes: string
   setNotes: (value: string) => void
   deliveryDate: string
@@ -36,6 +44,14 @@ export function CustomerCheckoutView({
   getProductImage,
   formatPeso,
   selectedSubtotal,
+  discountName,
+  discountType,
+  discountPercent,
+  discountAmountPerCase,
+  discountPerCase,
+  discountCasesAffected,
+  totalDiscount,
+  finalTotal,
   notes,
   setNotes,
   deliveryDate,
@@ -100,10 +116,37 @@ export function CustomerCheckoutView({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
               </div>
+              <div className="flex items-center justify-between text-[13px] md:text-sm">
+                <span className="text-slate-600">Discount Type</span>
+                <span className="font-medium text-slate-800">{discountName || 'No Discount'}</span>
+              </div>
+              <div className="flex items-center justify-between text-[13px] md:text-sm">
+                <span className="text-slate-600">Discount / Unit</span>
+                <span className="font-medium text-slate-800">{formatPeso(discountPerCase)}</span>
+              </div>
+              {discountType === 'AMOUNT_PER_CASE' ? (
+                <div className="flex items-center justify-between text-[13px] md:text-sm">
+                  <span className="text-slate-600">Manual Amount / Case</span>
+                  <span className="font-medium text-slate-800">{formatPeso(discountAmountPerCase)}</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-[13px] md:text-sm">
+                  <span className="text-slate-600">Discount Percent</span>
+                  <span className="font-medium text-slate-800">{discountPercent.toFixed(2)}%</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-[13px] md:text-sm">
+                <span className="text-slate-600">Units Affected</span>
+                <span className="font-medium text-slate-800">{discountCasesAffected}</span>
+              </div>
+              <div className="flex items-center justify-between text-[13px] md:text-sm">
+                <span className="text-slate-600">Total Discount</span>
+                <span className="font-medium text-rose-600">- {formatPeso(totalDiscount)}</span>
+              </div>
               <div className="h-px bg-slate-100" />
               <div className="flex items-center justify-between text-[15px] font-semibold text-slate-900 md:text-base">
                 <span>Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</span>
-                <span className="text-emerald-600">{formatPeso(selectedSubtotal)}</span>
+                <span className="text-emerald-600">{formatPeso(finalTotal)}</span>
               </div>
             </CardContent>
           </Card>
@@ -135,7 +178,7 @@ export function CustomerCheckoutView({
           <div className="flex items-center gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 md:text-sm">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
-              <p className="text-lg font-semibold text-emerald-700 md:text-2xl">{formatPeso(selectedSubtotal)}</p>
+              <p className="text-lg font-semibold text-emerald-700 md:text-2xl">{formatPeso(finalTotal)}</p>
             </div>
             <Button
               className="h-8 rounded-xl bg-rose-500 px-4 text-[11px] text-white hover:bg-rose-600 md:h-11 md:px-8 md:text-sm"

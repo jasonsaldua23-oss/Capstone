@@ -77,7 +77,11 @@ export type WarehouseReplacementsViewProps = {
   scopedReplacements: any[]
   parseIssueMeta: (notes?: string | null) => any
   formatIssueStatus: (ret: any) => string
-  updateIssueStatus: (replacementId: string, status: 'COMPLETED' | 'NEEDS_FOLLOW_UP', notes?: string) => Promise<void>
+  updateIssueStatus: (
+    replacementId: string,
+    status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
+    options?: { notes?: string; createReplacementOrder?: boolean }
+  ) => Promise<void>
   updatingReplacementId: string | null
   selectedReplacement: any | null
   setSelectedReplacement: (value: any | null) => void

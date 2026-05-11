@@ -80,6 +80,28 @@ SPARE_PRODUCT_POLICY_BY_UNIT = {
 HIDDEN_SAMPLE_WORDS = ("test", "demo", "sample", "dummy", "placeholder", "fake")
 HIDDEN_SAMPLE_EMAIL_DOMAINS = ("@example.com", "@test.com", "@demo.com")
 PASSWORD_POLICY_ERROR = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces."
+DISCOUNT_NO = "NO_DISCOUNT"
+DISCOUNT_OTHER = "OTHER"
+DISCOUNT_ACTIVE = "ACTIVE"
+DISCOUNT_CANCELLED = "CANCELLED"
+DISCOUNT_REMOVED = "REMOVED"
+DISCOUNT_PRESET_PERCENT: dict[str, float] = {
+    DISCOUNT_NO: 0.0,
+    "DISCOUNT_5": 5.0,
+    "DISCOUNT_10": 10.0,
+    "DISCOUNT_15": 15.0,
+    "DISCOUNT_20": 20.0,
+    "DISCOUNT_25": 25.0,
+}
+DISCOUNT_PRESET_LABEL: dict[str, str] = {
+    DISCOUNT_NO: "No Discount",
+    "DISCOUNT_5": "5% Discount - courtesy discount",
+    "DISCOUNT_10": "10% Discount - regular customer discount",
+    "DISCOUNT_15": "15% Discount - loyal customer discount",
+    "DISCOUNT_20": "20% Discount - bulk order discount",
+    "DISCOUNT_25": "25% Discount - maximum recommended discount",
+    DISCOUNT_OTHER: "Other (Manual)",
+}
 
 
 def _hide_sample_data() -> bool:
@@ -320,6 +342,45 @@ def _compute_order_totals(body: dict[str, Any], subtotal: float) -> tuple[float,
     return tax, shipping_cost, discount, total
 
 
+def _build_discount_breakdown_for_customer(*, customer: Customer, subtotal: float, total_cases: int) -> dict[str, Any]:
+    option = str(getattr(customer, "discount_option", DISCOUNT_NO) or DISCOUNT_NO).strip().upper()
+    status = str(getattr(customer, "discount_status", DISCOUNT_REMOVED) or DISCOUNT_REMOVED).strip().upper()
+    if status in {DISCOUNT_CANCELLED, DISCOUNT_REMOVED}:
+        option = DISCOUNT_NO
+
+    percent = 0.0
+    amount_per_case = 0.0
+    discount_type = "PERCENTAGE"
+    if option in DISCOUNT_PRESET_PERCENT:
+        percent = float(DISCOUNT_PRESET_PERCENT[option])
+    elif option == DISCOUNT_OTHER:
+        # Custom discounts are percentage-based so they always scale with product prices.
+        percent = max(0.0, float(getattr(customer, "discount_percent", 0) or 0))
+    else:
+        option = DISCOUNT_NO
+
+    per_case_discount = 0.0
+    if option != DISCOUNT_NO and total_cases > 0:
+        average_case_price = subtotal / max(1, total_cases)
+        per_case_discount = average_case_price * (percent / 100.0)
+
+    total_discount = per_case_discount * max(0, total_cases)
+    total_discount = min(total_discount, max(0.0, subtotal))
+
+    return {
+        "option": option,
+        "status": status if option != DISCOUNT_NO else DISCOUNT_REMOVED,
+        "name": DISCOUNT_PRESET_LABEL.get(option, "No Discount"),
+        "type": discount_type if option != DISCOUNT_NO else DISCOUNT_NO,
+        "percent": percent if option != DISCOUNT_NO else 0.0,
+        "amountPerCase": 0.0,
+        "perCaseDiscount": per_case_discount if option != DISCOUNT_NO else 0.0,
+        "casesAffected": max(0, total_cases),
+        "totalDiscount": max(0.0, total_discount),
+        "appliedByName": str(getattr(customer, "discount_applied_by_name", "") or "").strip() or None,
+    }
+
+
 def _create_order_from_checkout_payload(
     *,
     customer: Customer,
@@ -335,6 +396,7 @@ def _create_order_from_checkout_payload(
     shipping_longitude: Any,
     payment_status: str,
     performed_by: str | None,
+    discount_breakdown: dict[str, Any] | None = None,
 ) -> Order:
     _ensure_order_legacy_checklist_columns_defaults()
 
@@ -354,6 +416,14 @@ def _create_order_from_checkout_payload(
         tax=0,
         shipping_cost=shipping_cost,
         discount=discount,
+        discount_type=str((discount_breakdown or {}).get("type") or DISCOUNT_NO),
+        discount_name=str((discount_breakdown or {}).get("name") or "No Discount"),
+        discount_percent_applied=float((discount_breakdown or {}).get("percent") or 0),
+        discount_amount_per_case_applied=float((discount_breakdown or {}).get("amountPerCase") or 0),
+        discount_per_case_applied=float((discount_breakdown or {}).get("perCaseDiscount") or 0),
+        discount_cases_affected=max(0, _int((discount_breakdown or {}).get("casesAffected"), 0)),
+        discount_applied_by_name=(discount_breakdown or {}).get("appliedByName"),
+        discount_status=str((discount_breakdown or {}).get("status") or DISCOUNT_REMOVED),
         total_amount=0,
         payment_status=payment_status,
         warehouse_id=selected_warehouse_id,
@@ -441,6 +511,14 @@ def _create_order_from_checkout_payload(
         update_fields=[
             "subtotal",
             "tax",
+            "discount_type",
+            "discount_name",
+            "discount_percent_applied",
+            "discount_amount_per_case_applied",
+            "discount_per_case_applied",
+            "discount_cases_affected",
+            "discount_applied_by_name",
+            "discount_status",
             "warehouse_id",
             "total_amount",
             "shipping_name",
@@ -504,10 +582,11 @@ def _ensure_order_legacy_checklist_columns_defaults() -> None:
 
 
 NEGROS_OCCIDENTAL_BOUNDS = {
-    "min_lat": 9.18,
-    "max_lat": 11.05,
-    "min_lng": 122.22,
-    "max_lng": 123.35,
+    # Strict Silay + Talisay service area (no map buffer).
+    "min_lat": 10.64,
+    "max_lat": 10.92,
+    "min_lng": 122.88,
+    "max_lng": 123.06,
 }
 
 DEFAULT_COUNTRY = "Philippines"
@@ -521,6 +600,13 @@ def _is_within_negros_occidental(lat: float, lng: float) -> bool:
 
 
 def _normalize_province(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = text.replace(".", " ").replace("-", " ")
+    text = " ".join(text.split())
+    return text
+
+
+def _normalize_city(value: Any) -> str:
     text = str(value or "").strip().lower()
     text = text.replace(".", " ").replace("-", " ")
     text = " ".join(text.split())
@@ -544,22 +630,29 @@ def _ensure_negros_occidental_address(
     *,
     latitude: Any,
     longitude: Any,
+    city: Any = None,
     province: Any,
     require_coordinates: bool = False,
 ) -> str | None:
     lat = _to_float_or_none(latitude)
     lng = _to_float_or_none(longitude)
     normalized_province = _normalize_province(province)
+    normalized_city = _normalize_city(city)
+    allowed_cities = {"silay", "silay city", "talisay", "talisay city"}
 
     if lat is None or lng is None:
         if require_coordinates:
-            return "Pinned location is required and must be within Negros Occidental, Philippines"
+            return "Pinned location is required and must be within Silay or Talisay, Negros Occidental, Philippines"
+        if normalized_city and normalized_city not in allowed_cities:
+            return "Address city must be Silay or Talisay"
         if normalized_province and normalized_province != "negros occidental":
             return "Address province must be Negros Occidental"
         return None
 
     if not _is_within_negros_occidental(lat, lng):
-        return "Pinned location must be within Negros Occidental, Philippines"
+        return "Pinned location must be within Silay or Talisay, Negros Occidental, Philippines"
+    if normalized_city and normalized_city not in allowed_cities:
+        return "Address city must be Silay or Talisay"
     if normalized_province and normalized_province != "negros occidental":
         return "Address province must be Negros Occidental"
     return None
@@ -970,6 +1063,17 @@ def _serialize_order(
     data["shippingCountry"] = DEFAULT_COUNTRY
     data["shippingLatitude"] = shipping_latitude
     data["shippingLongitude"] = shipping_longitude
+    data["discountDetails"] = {
+        "name": getattr(order, "discount_name", None),
+        "type": getattr(order, "discount_type", DISCOUNT_NO),
+        "status": getattr(order, "discount_status", DISCOUNT_REMOVED),
+        "percent": float(getattr(order, "discount_percent_applied", 0) or 0),
+        "amountPerCase": float(getattr(order, "discount_amount_per_case_applied", 0) or 0),
+        "perCaseDiscount": float(getattr(order, "discount_per_case_applied", 0) or 0),
+        "casesAffected": max(0, _int(getattr(order, "discount_cases_affected", 0), 0)),
+        "totalDiscount": float(getattr(order, "discount", 0) or 0),
+        "appliedByName": getattr(order, "discount_applied_by_name", None),
+    }
 
     if timeline:
         data["deliveryDate"] = timeline.delivery_date.isoformat() if timeline.delivery_date else None
@@ -2749,6 +2853,7 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     address_error = _ensure_negros_occidental_address(
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
+        city=body.get("city"),
         province=body.get("province"),
         require_coordinates=False,
     )
@@ -3046,6 +3151,7 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     address_error = _ensure_negros_occidental_address(
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
+        city=body.get("city"),
         province=body.get("province"),
         require_coordinates=False,
     )
@@ -3089,6 +3195,43 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         c.delete()
         return _ok({"success": True})
     body = _json_body(request)
+    discount_keys = {
+        "discountOption",
+        "discountStatus",
+        "discountPercent",
+        "discountAmountPerCase",
+    }
+    if p.get("type") == "staff" and any(key in body for key in discount_keys):
+        staff_role = str(p.get("role") or "").strip().upper()
+        option = str(body.get("discountOption") or getattr(c, "discount_option", DISCOUNT_NO)).strip().upper()
+        status = str(body.get("discountStatus") or getattr(c, "discount_status", DISCOUNT_REMOVED)).strip().upper()
+        percent = float(body.get("discountPercent") if body.get("discountPercent") is not None else getattr(c, "discount_percent", 0) or 0)
+        amount_per_case = float(body.get("discountAmountPerCase") if body.get("discountAmountPerCase") is not None else getattr(c, "discount_amount_per_case", 0) or 0)
+
+        if option not in set(DISCOUNT_PRESET_PERCENT.keys()) | {DISCOUNT_OTHER}:
+            return _err("Invalid discount option", 400)
+        if status not in {DISCOUNT_ACTIVE, DISCOUNT_CANCELLED, DISCOUNT_REMOVED}:
+            return _err("Invalid discount status", 400)
+
+        if option in DISCOUNT_PRESET_PERCENT:
+            percent = float(DISCOUNT_PRESET_PERCENT[option])
+            amount_per_case = 0.0
+        elif option == DISCOUNT_OTHER:
+            percent = max(0.0, percent)
+            if percent <= 0:
+                return _err("For Other discount, set a custom percent", 400)
+            if percent > 25 and staff_role != RoleType.SUPER_ADMIN:
+                return _err("Only owner can apply custom discount above 25%", 403)
+            amount_per_case = 0.0
+
+        c.discount_option = option
+        c.discount_status = status
+        c.discount_percent = percent
+        c.discount_amount_per_case = amount_per_case
+        c.discount_applied_by_user_id = str(p.get("userId") or "").strip() or None
+        c.discount_applied_by_name = str(p.get("name") or "").strip() or None
+        c.discount_updated_at = timezone.now()
+
     mapping = [("name", "name"), ("phone", "phone"), ("avatar", "avatar"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("latitude", "latitude"), ("longitude", "longitude")]
     for key, attr in mapping:
         if key in body:
@@ -3101,6 +3244,7 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         address_error = _ensure_negros_occidental_address(
             latitude=c.latitude,
             longitude=c.longitude,
+            city=c.city,
             province=c.province,
             require_coordinates=False,
         )
@@ -3149,6 +3293,7 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
     address_error = _ensure_negros_occidental_address(
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
+        city=body.get("city"),
         province=body.get("province"),
         require_coordinates=False,
     )
@@ -3216,6 +3361,7 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         address_error = _ensure_negros_occidental_address(
             latitude=w.latitude,
             longitude=w.longitude,
+            city=w.city,
             province=w.province,
             require_coordinates=False,
         )
@@ -4298,10 +4444,12 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             )
         shipping_latitude = body.get("shippingLatitude") if body.get("shippingLatitude") is not None else customer.latitude
         shipping_longitude = body.get("shippingLongitude") if body.get("shippingLongitude") is not None else customer.longitude
+        shipping_city = body.get("shippingCity") if body.get("shippingCity") is not None else customer.city
         shipping_province = body.get("shippingProvince") if body.get("shippingProvince") is not None else customer.province
         address_error = _ensure_negros_occidental_address(
             latitude=shipping_latitude,
             longitude=shipping_longitude,
+            city=shipping_city,
             province=shipping_province,
             require_coordinates=True,
         )
@@ -4309,7 +4457,16 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             return _err(address_error, 400)
         try:
             normalized_items, subtotal = _normalize_order_items_for_checkout(items)
-            tax, shipping_cost, discount, total = _compute_order_totals(body, subtotal)
+            total_cases = sum(max(0, _int(item.get("quantity"), 0)) for item in normalized_items)
+            discount_breakdown = _build_discount_breakdown_for_customer(
+                customer=customer,
+                subtotal=subtotal,
+                total_cases=total_cases,
+            )
+            tax = float(body.get("tax") if body.get("tax") is not None else 0)
+            shipping_cost = float(body.get("shippingCost") or 0)
+            discount = float(discount_breakdown.get("totalDiscount") or 0)
+            total = float(subtotal + tax + shipping_cost - discount)
             with transaction.atomic():
                 order = _create_order_from_checkout_payload(
                     customer=customer,
@@ -4325,6 +4482,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                     shipping_longitude=shipping_longitude,
                     payment_status=body.get("paymentStatus") or "pending",
                     performed_by=(p or {}).get("userId"),
+                    discount_breakdown=discount_breakdown,
                 )
         except ValueError as e:
             return _err(str(e), 400)
@@ -5439,6 +5597,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
     pickup_address_error = _ensure_negros_occidental_address(
         latitude=None,
         longitude=None,
+        city=body.get("pickupCity"),
         province=body.get("pickupProvince"),
         require_coordinates=False,
     )

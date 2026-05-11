@@ -90,6 +90,10 @@ export function CustomerPortal() {
   const [pendingCancelOrder, setPendingCancelOrder] = useState<{ id: string; orderNumber: string } | null>(null)
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
   const [reviewByOrderId, setReviewByOrderId] = useState<Record<string, any>>({})
+  const [customerDiscountOption, setCustomerDiscountOption] = useState('NO_DISCOUNT')
+  const [customerDiscountStatus, setCustomerDiscountStatus] = useState('REMOVED')
+  const [customerDiscountPercent, setCustomerDiscountPercent] = useState(0)
+  const [customerDiscountAmountPerCase, setCustomerDiscountAmountPerCase] = useState(0)
   const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false)
   const {
@@ -354,6 +358,10 @@ export function CustomerPortal() {
     setProfilePhone(String(customer?.phone || '').trim())
     setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
     setProfileAvatarFile(null)
+    setCustomerDiscountOption(String(customer?.discountOption || 'NO_DISCOUNT').toUpperCase())
+    setCustomerDiscountStatus(String(customer?.discountStatus || 'REMOVED').toUpperCase())
+    setCustomerDiscountPercent(Number(customer?.discountPercent || 0))
+    setCustomerDiscountAmountPerCase(Number(customer?.discountAmountPerCase || 0))
   }
 
   useEffect(() => {
@@ -851,6 +859,60 @@ export function CustomerPortal() {
     () => selectedCartItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
     [selectedCartItems]
   )
+  const discountCasesAffected = useMemo(
+    () => selectedCartItems.reduce((sum, i) => sum + Math.max(0, Number(i.quantity || 0)), 0),
+    [selectedCartItems]
+  )
+  const checkoutDiscountBreakdown = useMemo(() => {
+    const normalizedOption = String(customerDiscountOption || 'NO_DISCOUNT').toUpperCase()
+    const normalizedStatus = String(customerDiscountStatus || 'REMOVED').toUpperCase()
+    const isActive = normalizedStatus === 'ACTIVE'
+    const presetPercentMap: Record<string, number> = {
+      NO_DISCOUNT: 0,
+      DISCOUNT_5: 5,
+      DISCOUNT_10: 10,
+      DISCOUNT_15: 15,
+      DISCOUNT_20: 20,
+      DISCOUNT_25: 25,
+    }
+    let name = 'No Discount'
+    let discountType = 'NO_DISCOUNT'
+    let discountPercent = 0
+    let amountPerCase = 0
+    if (isActive) {
+      if (normalizedOption in presetPercentMap) {
+        discountPercent = presetPercentMap[normalizedOption] || 0
+        discountType = discountPercent > 0 ? 'PERCENTAGE' : 'NO_DISCOUNT'
+        if (normalizedOption !== 'NO_DISCOUNT') name = `${discountPercent}% Discount`
+      } else if (normalizedOption === 'OTHER') {
+        name = 'Other (Manual)'
+        amountPerCase = Math.max(0, Number(customerDiscountAmountPerCase || 0))
+        discountPercent = Math.max(0, Number(customerDiscountPercent || 0))
+        discountType = amountPerCase > 0 ? 'AMOUNT_PER_CASE' : 'PERCENTAGE'
+      }
+    }
+    const perCaseDiscount = discountType === 'AMOUNT_PER_CASE'
+      ? amountPerCase
+      : ((selectedSubtotal / Math.max(1, discountCasesAffected)) * (discountPercent / 100))
+    const totalDiscount = isActive ? Math.min(selectedSubtotal, Math.max(0, perCaseDiscount * discountCasesAffected)) : 0
+    return {
+      name,
+      discountType,
+      discountPercent,
+      amountPerCase,
+      perCaseDiscount: isActive ? perCaseDiscount : 0,
+      casesAffected: discountCasesAffected,
+      totalDiscount,
+      finalTotal: Math.max(0, selectedSubtotal - totalDiscount),
+    }
+  }, [
+    customerDiscountOption,
+    customerDiscountStatus,
+    customerDiscountAmountPerCase,
+    customerDiscountPercent,
+    discountCasesAffected,
+    selectedSubtotal,
+  ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
   const canPlaceOrder = useMemo(
     () => selectedCartItems.length > 0 && Boolean(String(deliveryDate || '').trim()),
@@ -1057,6 +1119,15 @@ export function CustomerPortal() {
         shippingLongitude,
         notes,
         deliveryDate: deliveryDate || null,
+        discountPreview: {
+          type: checkoutDiscountBreakdown.discountType,
+          name: checkoutDiscountBreakdown.name,
+          percent: checkoutDiscountBreakdown.discountPercent,
+          amountPerCase: checkoutDiscountBreakdown.amountPerCase,
+          perCaseDiscount: checkoutDiscountBreakdown.perCaseDiscount,
+          casesAffected: checkoutDiscountBreakdown.casesAffected,
+          totalDiscount: checkoutDiscountBreakdown.totalDiscount,
+        },
         items: selectedCartItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
       })
       if (!response.ok || data?.success === false) {
@@ -1940,6 +2011,14 @@ export function CustomerPortal() {
             getProductImage={getProductImage}
             formatPeso={formatPeso}
             selectedSubtotal={selectedSubtotal}
+            discountName={checkoutDiscountBreakdown.name}
+            discountType={checkoutDiscountBreakdown.discountType}
+            discountPercent={checkoutDiscountBreakdown.discountPercent}
+            discountAmountPerCase={checkoutDiscountBreakdown.amountPerCase}
+            discountPerCase={checkoutDiscountBreakdown.perCaseDiscount}
+            discountCasesAffected={checkoutDiscountBreakdown.casesAffected}
+            totalDiscount={checkoutDiscountBreakdown.totalDiscount}
+            finalTotal={checkoutDiscountBreakdown.finalTotal}
             notes={notes}
             setNotes={setNotes}
             deliveryDate={deliveryDate}
