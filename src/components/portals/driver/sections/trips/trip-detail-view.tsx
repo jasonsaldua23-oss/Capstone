@@ -2562,6 +2562,9 @@ export function TripDetailView({
                                       </Button>
                                       {dropPoint.order ? (
                                         (() => {
+                                          const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                          const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                          if (isReplacementOrder) return null
                                           const openReplacement = getDropPointOpenReplacement(dropPoint)
                                           const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
                                           const replacementLocked = !openReplacement && hasResolvedReplacement
@@ -2718,12 +2721,6 @@ export function TripDetailView({
                                       {(dropPoint.order.items || []).map((item, index) => (
                                         <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600 md:text-sm">
                                           <p>{item.product?.name || 'Item'} x{Number(item.quantity || 0)}</p>
-                                          {getAvailableSpareQtyForItem(item) > 0 ? (
-                                            <div className="mt-1 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700 md:px-2.5 md:py-1.5 md:text-xs">
-                                              <p>Spare products: {getAvailableSpareQtyForItem(item)}</p>
-                                              <p>Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}</p>
-                                            </div>
-                                          ) : null}
                                         </div>
                                       ))}
                                     </div>
@@ -2746,18 +2743,6 @@ export function TripDetailView({
                             {dropPoint.status}
                           </Badge>
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="mt-2 h-8 border-sky-200 text-xs text-sky-700 hover:bg-sky-50"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedDropPointForDetails(dropPoint)
-                          }}
-                        >
-                          View Details
-                        </Button>
                         {dropPoint.contactPhone && (
                           <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
                             <Phone className="h-4 w-4" />
@@ -2803,6 +2788,9 @@ export function TripDetailView({
                               </Button>
                               {dropPoint.order ? (
                                 (() => {
+                                  const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                  const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                  if (isReplacementOrder) return null
                                   const openReplacement = getDropPointOpenReplacement(dropPoint)
                                   const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
                                   const replacementLocked = !openReplacement && hasResolvedReplacement

@@ -53,8 +53,14 @@ export function CustomerOrderDetailsDialog(props: any) {
     () => deliveryIssueRecords.filter((record: any) => record.orderId === selectedOrder?.id),
     [deliveryIssueRecords, selectedOrder?.id],
   )
+  const hasActiveReplacementRequest = useMemo(() => {
+    return selectedOrderReplacementRecords.some((record: any) => {
+      const rawStatus = String(record?.status || '').toUpperCase()
+      return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED'].includes(rawStatus)
+    })
+  }, [selectedOrderReplacementRecords])
 
-  const getReplacementQty = (record: any) => {
+  const getReplacementQty = (record: any): { qty: number; label: 'unit' | 'bottle' } => {
     const meta = typeof record?.notes === 'string' && record.notes.includes('Meta:')
       ? (() => {
           try {
@@ -64,6 +70,29 @@ export function CustomerOrderDetailsDialog(props: any) {
           }
         })()
       : {}
+    const descriptionText = String(record?.description || '')
+    const byUnitMatch = descriptionText.match(/By\s*Unit:\s*(\d+)/i)
+    const byBottleMatch = descriptionText.match(/By\s*Bottle:\s*(\d+)/i)
+
+    if (byUnitMatch) {
+      const qty = Number(byUnitMatch[1] || 0)
+      return { qty: Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 0, label: 'unit' }
+    }
+    if (byBottleMatch) {
+      const qty = Number(byBottleMatch[1] || 0)
+      return { qty: Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 0, label: 'bottle' }
+    }
+
+    const unitQty = Number((meta as any)?.replacementCases ?? (meta as any)?.quantityToReplaceCases ?? 0)
+    if (Number.isFinite(unitQty) && unitQty > 0) {
+      return { qty: Math.floor(unitQty), label: 'unit' }
+    }
+
+    const bottleQty = Number((meta as any)?.replacementBottles ?? (meta as any)?.quantityToReplaceBottles ?? 0)
+    if (Number.isFinite(bottleQty) && bottleQty > 0) {
+      return { qty: Math.floor(bottleQty), label: 'bottle' }
+    }
+
     const value = Number(
       record?.quantityReplaced ??
       record?.replacementQuantity ??
@@ -71,7 +100,10 @@ export function CustomerOrderDetailsDialog(props: any) {
       (meta as any)?.replacementQuantity ??
       0
     )
-    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+    return {
+      qty: Number.isFinite(value) && value > 0 ? Math.floor(value) : 0,
+      label: 'bottle',
+    }
   }
 
   const getPodUrl = (order: any) =>
@@ -83,12 +115,47 @@ export function CustomerOrderDetailsDialog(props: any) {
       order?.proofOfDeliveryUrl ||
       ''
     ).trim()
+  const selectedOrderIsDelivered = Boolean(selectedOrder && isOrderDelivered(selectedOrder))
+  const getOrderDisplayDateTime = (order: any) => {
+    const deliveredAt = String(order?.deliveredAt || '').trim()
+    if (deliveredAt) {
+      const dt = new Date(deliveredAt)
+      return {
+        date: dt.toLocaleDateString(),
+        time: dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+    }
+
+    const createdAt = String(order?.createdAt || '').trim()
+    if (createdAt) {
+      const dt = new Date(createdAt)
+      return {
+        date: dt.toLocaleDateString(),
+        time: dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+    }
+
+    // If only a date (YYYY-MM-DD) exists, avoid timezone-shifted fake times like 08:00 AM.
+    const deliveryDate = String(order?.deliveryDate || '').trim()
+    if (deliveryDate) {
+      return {
+        date: deliveryDate,
+        time: 'N/A',
+      }
+    }
+
+    return { date: 'N/A', time: 'N/A' }
+  }
 
   useEffect(() => {
     if (!selectedOrder) return
     const shouldOpenReplacement = Boolean((selectedOrder as any)?.__openReplacementRequest)
+    if (shouldOpenReplacement && hasActiveReplacementRequest) {
+      setIsReplacementRequestOpen(false)
+      return
+    }
     setIsReplacementRequestOpen(shouldOpenReplacement)
-  }, [selectedOrder])
+  }, [selectedOrder, hasActiveReplacementRequest])
 
   const selectableOrderItems = Array.isArray(selectedOrder?.items) ? selectedOrder.items : []
   const addReplacementLine = () => {
@@ -159,8 +226,9 @@ export function CustomerOrderDetailsDialog(props: any) {
                   </Badge>
                   <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-600 md:mt-2 md:text-sm">
                     <CalendarDays className="h-3.5 w-3.5 text-slate-500 md:h-4 md:w-4" />
-                    Delivered on {new Date(selectedOrder.deliveredAt || selectedOrder.deliveryDate || selectedOrder.createdAt).toLocaleDateString()} |{' '}
-                    {new Date(selectedOrder.deliveredAt || selectedOrder.deliveryDate || selectedOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {selectedOrderIsDelivered ? 'Delivered on ' : 'Ordered on '}
+                    {getOrderDisplayDateTime(selectedOrder).date} |{' '}
+                    {getOrderDisplayDateTime(selectedOrder).time}
                   </p>
                 </div>
               </div>
@@ -253,6 +321,11 @@ export function CustomerOrderDetailsDialog(props: any) {
               {selectedOrderReplacementRecords.length ? (
                 <div className="border-t border-slate-200 px-3 py-3">
                   <p className="mb-1 text-xs font-semibold text-slate-700">Replacement Details</p>
+                  {hasActiveReplacementRequest ? (
+                    <p className="mb-2 text-[11px] font-medium text-amber-700">
+                      A replacement request for this order is already in progress. You cannot submit another one yet.
+                    </p>
+                  ) : null}
                   {selectedOrderReplacementRecords.map((record: any) => {
                       const label = getReplacementStatusLabel(record.status)
                       const qtyReplaced = getReplacementQty(record)
@@ -260,7 +333,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                         <div key={record.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs">
                           <span className="text-slate-700">
                             {record.replacementProductName || record.originalProductName || 'Product replacement'}
-                            {qtyReplaced > 0 ? ` x${qtyReplaced} replaced` : ''}
+                            {qtyReplaced.qty > 0 ? ` x${qtyReplaced.qty} ${qtyReplaced.label}${qtyReplaced.qty > 1 ? 's' : ''} replaced` : ''}
                           </span>
                           <Badge className={getReplacementBadgeClass(label)}>{label}</Badge>
                         </div>
@@ -270,7 +343,9 @@ export function CustomerOrderDetailsDialog(props: any) {
               ) : (
                 <div className="border-t border-slate-200 px-3 py-5 text-center">
                   <p className="text-sm font-semibold text-slate-700">No replacement case filed for this order.</p>
-                  <p className="text-xs text-slate-500">All items were delivered successfully.</p>
+                  <p className="text-xs text-slate-500">
+                    {selectedOrderIsDelivered ? 'All items were delivered successfully.' : 'No replacement request has been submitted.'}
+                  </p>
                 </div>
               )}
             </div>
@@ -324,6 +399,11 @@ export function CustomerOrderDetailsDialog(props: any) {
       <DialogContent className="w-[95vw] max-w-[720px] rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-base font-semibold text-slate-900">Request Replacement</p>
         <p className="mt-1 text-xs text-slate-600">Select one or more products and set reason per product.</p>
+        {hasActiveReplacementRequest ? (
+          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-700">
+            A replacement request is already in progress for this order.
+          </p>
+        ) : null}
         <div className="mt-3 space-y-2">
           {replacementLines.map((line, index) => (
             <div key={line.key} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
@@ -335,7 +415,7 @@ export function CustomerOrderDetailsDialog(props: any) {
               </div>
               <div className="mb-2 inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
                 <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}>
-                  By Case
+                  By Unit
                 </button>
                 <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
                   By Bottle
@@ -353,7 +433,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                 </div>
                 <div className="space-y-1">
                   <p className="text-[11px] font-medium text-slate-600">Quantity</p>
-                  <input type="number" min={1} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.quantity} onChange={(e) => updateReplacementLine(line.key, { quantity: e.target.value })} placeholder={line.inputMode === 'case' ? 'Damaged cases' : 'Damaged bottles'} />
+                  <input type="number" min={1} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.quantity} onChange={(e) => updateReplacementLine(line.key, { quantity: e.target.value })} placeholder={line.inputMode === 'case' ? 'Damaged units' : 'Damaged bottles'} />
                 </div>
                 <div className="space-y-1">
                   <p className="text-[11px] font-medium text-slate-600">Reason</p>
@@ -399,8 +479,9 @@ export function CustomerOrderDetailsDialog(props: any) {
           ) : null}
           <Button
             className="h-9 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-500"
-            disabled={isSubmittingReplacement}
+            disabled={isSubmittingReplacement || hasActiveReplacementRequest}
             onClick={async () => {
+              if (hasActiveReplacementRequest) return
               const validLines = replacementLines.filter((line) => line.productId && Number(line.quantity) > 0)
               if (validLines.length === 0) return alert('Add at least one valid damaged product line')
               setIsSubmittingReplacement(true)
@@ -414,8 +495,8 @@ export function CustomerOrderDetailsDialog(props: any) {
                     ? inputQty * quantityPerCase
                     : inputQty
                   const modeNotes = line.inputMode === 'case'
-                    ? `By Case: ${inputQty} case(s), Qty/Case ${quantityPerCase}`
-                    : `By Bottle: ${inputQty} bottle(s), Qty/Case ${quantityPerCase}`
+                    ? `By Unit: ${inputQty} unit(s), Qty/Unit ${quantityPerCase}`
+                    : `By Bottle: ${inputQty} bottle(s), Qty/Unit ${quantityPerCase}`
                   await submitReplacementRequest(
                     selectedOrder.id,
                     submittedBottleQty,

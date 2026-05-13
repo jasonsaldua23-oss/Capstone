@@ -24,6 +24,7 @@ class OrderStatus(models.TextChoices):
     RESCHEDULED = "RESCHEDULED", "Rescheduled"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY", "Out For Delivery"
     DELIVERED = "DELIVERED", "Delivered"
+    REJECTED = "REJECTED", "Rejected"
     CANCELLED = "CANCELLED", "Cancelled"
 
 

@@ -1,6 +1,7 @@
 'use client'
 
-import { AlertTriangle, Boxes, ClipboardList, Loader2, PackageCheck } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Boxes, CalendarDays, ClipboardList, Loader2, PackageCheck, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,6 +20,90 @@ export function WarehouseReplacementsView({
   setSelectedReplacement,
   buildReplacementLines,
 }: WarehouseReplacementsViewProps) {
+  const [replacementDeliveryDate, setReplacementDeliveryDate] = useState('')
+  const getReplacementQtyDisplay = (entry: any, meta: any, mode: 'toReplace' | 'replaced') => {
+    const lines =
+      (Array.isArray(entry?.replacementLines) && entry.replacementLines.length ? entry.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(entry?.replacementItems) && entry.replacementItems.length ? entry.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+    const first = lines[0] || {}
+    const unitHint = String(
+      first?.productUnit ||
+      first?.replacementProductUnit ||
+      first?.originalProductUnit ||
+      first?.unit ||
+      ''
+    ).trim().toLowerCase()
+    const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
+    const byPackText = /\bby\s*pack\b/.test(contextText)
+    const byCaseText = /\bby\s*case\b/.test(contextText)
+    const byBottleText = /\bby\s*bottle\b/.test(contextText)
+    const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
+    const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
+    const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+    const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
+    const isPackUnit = unitHint.includes('pack') || byPackText
+
+    const caseQty = Number(
+      mode === 'toReplace'
+        ? (first?.damagedCases ?? first?.quantityToReplaceCases ?? first?.replacementCases)
+        : (first?.replacedCases ?? first?.quantityReplacedCases ?? first?.replacementCases)
+    )
+    const bottleQty = Number(
+      mode === 'toReplace'
+        ? (first?.damagedBottles ?? first?.quantityToReplaceBottles ?? first?.replacementBottles)
+        : (first?.replacedBottles ?? first?.quantityReplacedBottles ?? first?.replacementBottles)
+    )
+    if (Number.isFinite(caseQty) && caseQty > 0) return `${caseQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
+    if (Number.isFinite(bottleQty) && bottleQty > 0) return `${bottleQty} bottle(s)`
+
+    const fallbackQty = Number(
+      mode === 'toReplace'
+        ? (entry?.quantityToReplace ?? meta?.quantityToReplace ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+        : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+    )
+    const fallback = Math.max(0, Number.isFinite(fallbackQty) ? fallbackQty : 0)
+    if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) return `${fallback / qtyPerCase} case(s)`
+    if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) return `${fallback / qtyPerPack} pack(s)`
+    if (byBottleText) return `${fallback} bottle(s)`
+    return `${fallback}`
+  }
+  const replacementsBySource = useMemo(() => {
+    const customerRequests: any[] = []
+    const duringDelivery: any[] = []
+    const scheduledReplacements: any[] = []
+    scopedReplacements.forEach((item) => {
+      const meta = parseIssueMeta(item?.notes)
+      const rawStatus = String(item?.status || '').trim().toUpperCase()
+      const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+      const scheduledDeliveryDate = String(item?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
+      const replacementOrderId = String(item?.replacementOrderId || meta?.replacementOrderId || '').trim()
+      if ((scheduledDeliveryDate || replacementOrderId) && !isResolved) {
+        scheduledReplacements.push(item)
+        return
+      }
+      const mode = String(item?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
+      if (mode === 'CUSTOMER_SUBMITTED') {
+        customerRequests.push(item)
+      } else {
+        duringDelivery.push(item)
+      }
+    })
+    return { customerRequests, duringDelivery, scheduledReplacements }
+  }, [scopedReplacements, parseIssueMeta])
+
+  useEffect(() => {
+    if (!selectedReplacement) {
+      setReplacementDeliveryDate('')
+      return
+    }
+    const meta = parseIssueMeta(selectedReplacement.notes)
+    const scheduled = String(selectedReplacement?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
+    setReplacementDeliveryDate(scheduled)
+  }, [selectedReplacement])
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -28,7 +113,7 @@ export function WarehouseReplacementsView({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex h-full items-start gap-3 p-5">
             <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
@@ -64,6 +149,17 @@ export function WarehouseReplacementsView({
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-rose-50 p-2.5 text-rose-600">
+              <XCircle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Rejected</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.rejected}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
             <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
               <Boxes className="h-5 w-5" />
             </div>
@@ -73,17 +169,91 @@ export function WarehouseReplacementsView({
             </div>
           </CardContent>
         </Card>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-sky-50 p-2.5 text-sky-600">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Scheduled Replacements</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{replacementsBySource.scheduledReplacements.length}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
+        <CardContent className="border-b px-6 py-4">
+          <h3 className="text-base font-semibold text-slate-900">Scheduled Replacements</h3>
+          <p className="text-sm text-slate-500">Already scheduled and ready for Create Trip</p>
+        </CardContent>
         <CardContent className="p-0">
           {loadingReplacements ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
             </div>
-          ) : scopedReplacements.length === 0 ? (
+          ) : replacementsBySource.scheduledReplacements.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-gray-500">No replacement cases found</p>
+              <p className="text-gray-500">No scheduled replacements found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement Order #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Order #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Customer</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Scheduled Date</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replacementsBySource.scheduledReplacements.map((ret) => {
+                    const meta = parseIssueMeta(ret?.notes)
+                    const scheduledDate = String(ret?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
+                    const replacementOrderNumber = String(ret?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
+                    const statusLabel = formatIssueStatus(ret)
+                    return (
+                      <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{ret.replacementNumber}</td>
+                        <td className="p-4">{replacementOrderNumber || 'N/A'}</td>
+                        <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
+                        <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
+                        <td className="p-4">{scheduledDate || 'N/A'}</td>
+                        <td className="p-4">
+                          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">{statusLabel}</Badge>
+                        </td>
+                        <td className="p-4 min-w-[220px]">
+                          <Button size="sm" variant="outline" onClick={() => setSelectedReplacement(ret)}>
+                            View Details
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="border-b px-6 py-4">
+          <h3 className="text-base font-semibold text-slate-900">During Delivery Replacements</h3>
+          <p className="text-sm text-slate-500">Reported and handled while delivery is ongoing</p>
+        </CardContent>
+        <CardContent className="p-0">
+          {loadingReplacements ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : replacementsBySource.duringDelivery.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-gray-500">No during-delivery replacement cases found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -101,10 +271,13 @@ export function WarehouseReplacementsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {scopedReplacements.map((ret) => {
+                  {replacementsBySource.duringDelivery.map((ret) => {
                     const meta = parseIssueMeta(ret?.notes)
                     const issueReason = String(ret?.description || ret?.reason || 'No details provided')
-                    const replacementQty = Number(ret?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                    const rawStatus = String(ret?.status || '').trim().toUpperCase()
+                    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+                    const qtyToReplaceLabel = getReplacementQtyDisplay(ret, meta, 'toReplace')
+                    const qtyReplacedLabel = isResolved ? getReplacementQtyDisplay(ret, meta, 'replaced') : '0'
                     const evidenceUrls = Array.isArray(ret?.damagePhotoUrls) ? ret.damagePhotoUrls : []
                     const evidenceUrl = String(evidenceUrls[0] || ret?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
                     const hasEvidence = Boolean(evidenceUrl)
@@ -117,7 +290,99 @@ export function WarehouseReplacementsView({
                         <td className="p-4">
                           <p className="text-sm text-gray-900">{issueReason}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
+                            <span>Qty to replace: {qtyToReplaceLabel}</span>
+                            <span>Qty replaced: {qtyReplacedLabel}</span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
+                            {hasEvidence ? 'Photo Attached' : 'No Photo'}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
+                          <Badge
+                            className={
+                              statusLabel === 'Needs Follow-up'
+                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
+                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                            }
+                          >
+                            {statusLabel}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-gray-500">
+                          {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="p-4 min-w-[220px]">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedReplacement(ret)}
+                          >
+                            View Details
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="border-b px-6 py-4">
+          <h3 className="text-base font-semibold text-slate-900">Customer Replacement Requests</h3>
+          <p className="text-sm text-slate-500">Requests submitted directly by customers after delivery</p>
+        </CardContent>
+        <CardContent className="p-0">
+          {loadingReplacements ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : replacementsBySource.customerRequests.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-gray-500">No customer replacement requests found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Order #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Customer</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Reported</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replacementsBySource.customerRequests.map((ret) => {
+                    const meta = parseIssueMeta(ret?.notes)
+                    const issueReason = String(ret?.description || ret?.reason || 'No details provided')
+                    const rawStatus = String(ret?.status || '').trim().toUpperCase()
+                    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+                    const qtyToReplaceLabel = getReplacementQtyDisplay(ret, meta, 'toReplace')
+                    const qtyReplacedLabel = isResolved ? getReplacementQtyDisplay(ret, meta, 'replaced') : '0'
+                    const evidenceUrls = Array.isArray(ret?.damagePhotoUrls) ? ret.damagePhotoUrls : []
+                    const evidenceUrl = String(evidenceUrls[0] || ret?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+                    const hasEvidence = Boolean(evidenceUrl)
+                    const statusLabel = formatIssueStatus(ret)
+                    return (
+                      <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium">{ret.replacementNumber}</td>
+                        <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
+                        <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
+                        <td className="p-4">
+                          <p className="text-sm text-gray-900">{issueReason}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            <span>Qty to replace: {qtyToReplaceLabel}</span>
+                            <span>Qty replaced: {qtyReplacedLabel}</span>
                           </div>
                         </td>
                         <td className="p-4">
@@ -159,7 +424,7 @@ export function WarehouseReplacementsView({
       </Card>
 
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseIssueMeta(selectedReplacement.notes)
             const evidenceUrls = Array.isArray(selectedReplacement.damagePhotoUrls) ? selectedReplacement.damagePhotoUrls : []
@@ -168,6 +433,11 @@ export function WarehouseReplacementsView({
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
+            const isResolvedReplacement = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+            const isScheduledReplacement = Boolean(
+              String(selectedReplacement?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim() ||
+              String(selectedReplacement?.replacementOrderId || meta?.replacementOrderId || '').trim()
+            )
             const isResolvedCase = Boolean(
               selectedReplacement?.isClosed ||
               rawStatus === 'COMPLETED' ||
@@ -194,6 +464,7 @@ export function WarehouseReplacementsView({
             ] as Array<[string, string]>
             return (
               <>
+                <div className="space-y-4 p-6 pb-28">
                 <DialogHeader>
                   <DialogTitle>Replacement Details</DialogTitle>
                   <DialogDescription>Complete information for {selectedReplacement.replacementNumber}</DialogDescription>
@@ -205,48 +476,6 @@ export function WarehouseReplacementsView({
                       <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
                     </div>
                   ))}
-                </div>
-                <div className="rounded-md border bg-white px-3 py-3">
-                  <p className="text-xs font-medium text-slate-500">Actions</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {rawStatus === 'UNDER_REVIEW' ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void updateIssueStatus(selectedReplacement.id, 'APPROVED', {
-                            notes: 'Replacement approved for processing',
-                            createReplacementOrder: true,
-                          })}
-                          disabled={updatingReplacementId === selectedReplacement.id}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            const reason = window.prompt('Enter rejection reason:')
-                            if (!reason || !reason.trim()) return
-                            void updateIssueStatus(selectedReplacement.id, 'REJECTED', { notes: reason.trim() })
-                          }}
-                          disabled={updatingReplacementId === selectedReplacement.id}
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    ) : rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by warehouse staff' })}
-                        disabled={updatingReplacementId === selectedReplacement.id}
-                      >
-                        Under Review
-                      </Button>
-                    ) : null}
-                    {updatingReplacementId === selectedReplacement.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
-                  </div>
                 </div>
                 <div className="rounded-md border bg-white">
                   <div className="border-b px-3 py-2">
@@ -267,8 +496,8 @@ export function WarehouseReplacementsView({
                           <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplace}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplaced}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplaceDisplay ?? line.quantityToReplace}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplacedDisplay ?? line.quantityReplaced}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -281,6 +510,46 @@ export function WarehouseReplacementsView({
                     <img src={evidenceUrl} alt="Replacement evidence" className="mt-2 max-h-[360px] w-full rounded-md border object-contain" />
                   </div>
                 ) : null}
+                </div>
+                <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {rawStatus === 'APPROVED' ? (
+                        <>
+                          <input
+                            type="date"
+                            className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+                            value={replacementDeliveryDate}
+                            onChange={(event) => setReplacementDeliveryDate(event.target.value)}
+                          />
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 text-white hover:bg-blue-700"
+                            onClick={() => {
+                              if (!replacementDeliveryDate) return
+                              void updateIssueStatus(selectedReplacement.id, 'APPROVED', {
+                                notes: `Replacement delivery scheduled on ${replacementDeliveryDate}`,
+                                createReplacementOrder: true,
+                                replacementDeliveryDate,
+                              })
+                            }}
+                            disabled={updatingReplacementId === selectedReplacement.id || !replacementDeliveryDate}
+                          >
+                            Schedule Delivery
+                          </Button>
+                        </>
+                      ) : rawStatus === 'UNDER_REVIEW' || rawStatus === 'PENDING' || rawStatus === 'REPORTED' ? (
+                        <p className="text-sm text-slate-500">Waiting for admin review and approval.</p>
+                      ) : isScheduledReplacement && !isResolvedReplacement ? (
+                        <p className="text-sm text-blue-700">Scheduled replacement is already queued for Create Trip.</p>
+                      ) : (
+                        <p className="text-sm text-slate-500">This replacement is already finalized.</p>
+                      )}
+                      {updatingReplacementId === selectedReplacement.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
+                    </div>
+                  </div>
+                </div>
               </>
             )
           })() : null}

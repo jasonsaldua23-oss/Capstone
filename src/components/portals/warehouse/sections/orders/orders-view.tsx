@@ -1,6 +1,6 @@
 'use client'
 
-import { CircleCheck, Eye, Loader2 } from 'lucide-react'
+import { CircleCheck, Eye, Loader2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,6 +27,7 @@ export function WarehouseOrdersView({
   openOrderDetail,
   updateWarehouseOrderStatus,
   updatingOrderId,
+  openRejectDialog,
 }: WarehouseOrdersViewProps) {
   return (
     <Card>
@@ -137,12 +138,13 @@ export function WarehouseOrdersView({
                         </td>
                         <td className="p-4 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                         <td className="p-4">
-                          <Badge>{formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage)}</Badge>
+                          <Badge>{formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)}</Badge>
                         </td>
                         <td className="p-4">
                           {(() => {
                             const orderStatus = String(order.status || '').toUpperCase()
                             const isPendingApproval = String(order.paymentStatus || '').toLowerCase() === 'pending_approval'
+                            const canReject = isPendingApproval || orderStatus === 'PENDING'
                             return (
                               <div className="flex items-center gap-3">
                                 <Button
@@ -163,6 +165,16 @@ export function WarehouseOrdersView({
                                   title="Confirm Order"
                                 >
                                   {updatingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleCheck className="h-4 w-4" />}
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                                  onClick={() => openRejectDialog(order)}
+                                  disabled={!canReject || updatingOrderId === order.id}
+                                  title="Reject Order"
+                                >
+                                  <X className="h-4 w-4" />
                                 </Button>
                               </div>
                             )

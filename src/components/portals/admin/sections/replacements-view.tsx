@@ -62,6 +62,8 @@ export function ReplacementsView() {
   const [isLoading, setIsLoading] = useState(true)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
   const [selectedReplacement, setSelectedReplacement] = useState<any | null>(null)
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
 
   const fetchReplacements = async () => {
     setIsLoading(true)
@@ -120,11 +122,84 @@ export function ReplacementsView() {
       const parsed = JSON.parse(jsonText)
       return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
-      return {}
+      try {
+        const firstBrace = jsonText.indexOf('{')
+        if (firstBrace < 0) return {}
+        let depth = 0
+        let endIndex = -1
+        for (let i = firstBrace; i < jsonText.length; i += 1) {
+          const ch = jsonText[i]
+          if (ch === '{') depth += 1
+          if (ch === '}') {
+            depth -= 1
+            if (depth === 0) {
+              endIndex = i
+              break
+            }
+          }
+        }
+        if (endIndex < 0) return {}
+        const objectText = jsonText.slice(firstBrace, endIndex + 1)
+        const parsed = JSON.parse(objectText)
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
     }
   }
 
   const buildReplacementLines = (replacement: any, meta: any) => {
+    const rawStatus = String(replacement?.status || '').trim().toUpperCase()
+    const isReplacementCompleted = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
+      const unitHint = String(
+        line?.productUnit ||
+        line?.replacementProductUnit ||
+        line?.originalProductUnit ||
+        line?.unit ||
+        ''
+      ).trim().toLowerCase()
+      const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
+      const byPackText = /\bby\s*pack\b/.test(contextText)
+      const byCaseText = /\bby\s*case\b/.test(contextText)
+      const byBottleText = /\bby\s*bottle\b/.test(contextText)
+      const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
+      const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
+      const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+      const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
+      const isPackUnit = unitHint.includes('pack') || byPackText
+
+      const caseLikeQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases)
+          : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases)
+      )
+      const bottleQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles)
+          : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles)
+      )
+
+      if (Number.isFinite(caseLikeQty) && caseLikeQty > 0) {
+        return `${caseLikeQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
+      }
+      if (Number.isFinite(bottleQty) && bottleQty > 0) {
+        return `${bottleQty} bottle(s)`
+      }
+
+      const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+      if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) {
+        return `${fallback / qtyPerCase} case(s)`
+      }
+      if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) {
+        return `${fallback / qtyPerPack} pack(s)`
+      }
+      if (byBottleText) {
+        return `${fallback} bottle(s)`
+      }
+      return String(fallback)
+    }
+
     const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
       ? replacement.replacementLines
       : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
@@ -134,19 +209,107 @@ export function ReplacementsView() {
           : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
             ? meta.replacementItems
         : []
+    const orderNumberKey = String(replacement?.orderNumber || replacement?.order?.orderNumber || '').trim().toUpperCase()
+    const sourceOrder =
+      ordersForPricing.find((order) => String(order?.orderNumber || '').trim().toUpperCase() === orderNumberKey) ||
+      ordersForPricing.find((order) => String(order?.id || '') === String(replacement?.orderId || replacement?.order?.id || '')) ||
+      null
+    const sourceOrderItems = Array.isArray(sourceOrder?.items) ? sourceOrder.items : []
+    const fallbackProductName =
+      String(
+        sourceOrderItems[0]?.product?.name ||
+        sourceOrderItems[0]?.productName ||
+        sourceOrderItems[0]?.name ||
+        ''
+      ).trim() || 'N/A'
     const fallbackLine = {
-      originalProductName: replacement?.originalProductName || meta?.originalProductName || 'N/A',
-      replacementProductName: replacement?.replacementProductName || meta?.replacementProductName || replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      originalProductName:
+        replacement?.originalProductName ||
+        meta?.originalProductName ||
+        replacement?.order?.items?.[0]?.product?.name ||
+        replacement?.order?.items?.[0]?.productName ||
+        fallbackProductName ||
+        'N/A',
+      replacementProductName:
+        replacement?.replacementProductName ||
+        meta?.replacementProductName ||
+        replacement?.originalProductName ||
+        meta?.originalProductName ||
+        replacement?.order?.items?.[0]?.product?.name ||
+        replacement?.order?.items?.[0]?.productName ||
+        fallbackProductName ||
+        'N/A',
       quantityToReplace: replacement?.quantityToReplace ?? meta?.quantityToReplace ?? meta?.damagedQuantity ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
       quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
     }
     const lines = sourceLines.length ? sourceLines : [fallbackLine]
-    return lines.map((line: any) => ({
-      originalProductName: String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A'),
-      replacementProductName: String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A'),
-      quantityToReplace: Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0),
-      quantityReplaced: Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0),
-    }))
+    return lines.map((line: any) => {
+      const originalSize = String(line?.originalProductSize || replacement?.originalProductSize || meta?.originalProductSize || '').trim()
+      const replacementSize = String(line?.replacementProductSize || replacement?.replacementProductSize || meta?.replacementProductSize || originalSize || '').trim()
+      const originalBaseName = String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A')
+      const replacementBaseName = String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A')
+      const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
+      const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
+      const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
+      return {
+        originalProductName: originalSize ? `${originalBaseName} (${originalSize})` : originalBaseName,
+        replacementProductName: replacementSize ? `${replacementBaseName} (${replacementSize})` : replacementBaseName,
+        quantityToReplace,
+        quantityReplaced,
+        quantityToReplaceDisplay: toDisplayQty(line, quantityToReplace, 'toReplace'),
+        quantityReplacedDisplay: isReplacementCompleted ? toDisplayQty(line, quantityReplaced, 'replaced') : '0',
+      }
+    })
+  }
+
+  const getReplacementQtyDisplay = (entry: any, meta: any, mode: 'toReplace' | 'replaced') => {
+    const lines =
+      (Array.isArray(entry?.replacementLines) && entry.replacementLines.length ? entry.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(entry?.replacementItems) && entry.replacementItems.length ? entry.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+    const first = lines[0] || {}
+    const unitHint = String(
+      first?.productUnit ||
+      first?.replacementProductUnit ||
+      first?.originalProductUnit ||
+      first?.unit ||
+      ''
+    ).trim().toLowerCase()
+    const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
+    const byPackText = /\bby\s*pack\b/.test(contextText)
+    const byCaseText = /\bby\s*case\b/.test(contextText)
+    const byBottleText = /\bby\s*bottle\b/.test(contextText)
+    const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
+    const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
+    const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+    const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
+    const isPackUnit = unitHint.includes('pack') || byPackText
+
+    const caseQty = Number(
+      mode === 'toReplace'
+        ? (first?.damagedCases ?? first?.quantityToReplaceCases ?? first?.replacementCases)
+        : (first?.replacedCases ?? first?.quantityReplacedCases ?? first?.replacementCases)
+    )
+    const bottleQty = Number(
+      mode === 'toReplace'
+        ? (first?.damagedBottles ?? first?.quantityToReplaceBottles ?? first?.replacementBottles)
+        : (first?.replacedBottles ?? first?.quantityReplacedBottles ?? first?.replacementBottles)
+    )
+    if (Number.isFinite(caseQty) && caseQty > 0) return `${caseQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
+    if (Number.isFinite(bottleQty) && bottleQty > 0) return `${bottleQty} bottle(s)`
+
+    const fallbackQty = Number(
+      mode === 'toReplace'
+        ? (entry?.quantityToReplace ?? meta?.quantityToReplace ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+        : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+    )
+    const fallback = Math.max(0, Number.isFinite(fallbackQty) ? fallbackQty : 0)
+    if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) return `${fallback / qtyPerCase} case(s)`
+    if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) return `${fallback / qtyPerPack} pack(s)`
+    if (byBottleText) return `${fallback} bottle(s)`
+    return `${fallback}`
   }
 
   const formatIssueStatus = (item: any) => {
@@ -167,7 +330,6 @@ export function ReplacementsView() {
     if (['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'].includes(rawStatus)) return rawStatus
     if (rawStatus === 'REQUESTED') return 'REPORTED'
     if (['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)) return 'IN_PROGRESS'
-    if (rawStatus === 'REJECTED') return 'NEEDS_FOLLOW_UP'
     if (rawStatus === 'PROCESSED') return 'COMPLETED'
     return rawStatus || 'REPORTED'
   }
@@ -247,9 +409,20 @@ export function ReplacementsView() {
   const totalIssues = filteredReplacements.length
   const totalReplacedQty = filteredReplacements.reduce((sum, item) => {
     const meta = parseMeta(item?.notes)
-    const qty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+    const rawStatus = String(item?.status || '').trim().toUpperCase()
+    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    if (!isResolved) return sum
+    const qty = Number(item?.quantityReplaced ?? meta?.quantityReplaced ?? item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
     return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0)
   }, 0)
+  const scheduledReplacementsCount = filteredReplacements.filter((item) => {
+    const meta = parseMeta(item?.notes)
+    return Boolean(
+      String(item?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim() ||
+      String(item?.replacementOrderId || meta?.replacementOrderId || '').trim() ||
+      String(item?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
+    )
+  }).length
   const resolvedOnDelivery = filteredReplacements.filter((item) => {
     const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').toUpperCase()
@@ -267,7 +440,11 @@ export function ReplacementsView() {
   }).length
   const needsFollowUp = filteredReplacements.filter((item) => {
     const rawStatus = String(item?.status || '').toUpperCase()
-    return rawStatus === 'NEEDS_FOLLOW_UP' || rawStatus === 'REJECTED'
+    return rawStatus === 'NEEDS_FOLLOW_UP'
+  }).length
+  const rejectedCount = filteredReplacements.filter((item) => {
+    const rawStatus = String(item?.status || '').toUpperCase()
+    return rawStatus === 'REJECTED'
   }).length
   return (
     <div className="space-y-6">
@@ -312,7 +489,7 @@ export function ReplacementsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex h-full items-start gap-3 p-5">
             <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
@@ -348,12 +525,34 @@ export function ReplacementsView() {
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-rose-50 p-2.5 text-rose-600">
+              <XCircle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Rejected</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{rejectedCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
             <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
               <BarChart3 className="h-5 w-5" />
             </div>
             <div className="min-w-0">
               <p className="text-sm text-gray-500">Total Replaced Qty</p>
               <p className="mt-1 text-2xl font-bold leading-none">{totalReplacedQty}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-sky-50 p-2.5 text-sky-600">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Scheduled Replacements</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{scheduledReplacementsCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -392,8 +591,8 @@ export function ReplacementsView() {
                 <tbody>
                   {replacementsBySource.duringDelivery.map((item: any) => {
                     const meta = parseMeta(item?.notes)
-                    const issueReason = String(item?.description || item?.reason || 'No details provided')
-                    const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                    const rawStatus = String(item?.status || '').trim().toUpperCase()
+                    const qtyToReplaceLabel = getReplacementQtyDisplay(item, meta, 'toReplace')
                     const replacementLines = buildReplacementLines(item, meta)
                     const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
                     const orderItems =
@@ -455,9 +654,8 @@ export function ReplacementsView() {
                           <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
                         </td>
                         <td className="p-4">
-                          <p className="text-sm text-gray-900">{issueReason}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
+                            <span>Qty to replace: {qtyToReplaceLabel}</span>
                           </div>
                           <p className="mt-1 text-sm font-semibold text-red-600">- Total loss: {formatPeso(totalLoss)}</p>
                         </td>
@@ -532,8 +730,8 @@ export function ReplacementsView() {
                 <tbody>
                   {replacementsBySource.customerRequests.map((item: any) => {
                     const meta = parseMeta(item?.notes)
-                    const issueReason = String(item?.description || item?.reason || 'No details provided')
-                    const replacementQty = Number(item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+                    const rawStatus = String(item?.status || '').trim().toUpperCase()
+                    const qtyToReplaceLabel = getReplacementQtyDisplay(item, meta, 'toReplace')
                     const replacementLines = buildReplacementLines(item, meta)
                     const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
                     const orderItems =
@@ -595,9 +793,8 @@ export function ReplacementsView() {
                           <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
                         </td>
                         <td className="p-4">
-                          <p className="text-sm text-gray-900">{issueReason}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            {replacementQty > 0 ? <span>Qty replaced: {replacementQty}</span> : null}
+                            <span>Qty to replace: {qtyToReplaceLabel}</span>
                           </div>
                           <p className="mt-1 text-sm font-semibold text-red-600">- Total loss: {formatPeso(totalLoss)}</p>
                         </td>
@@ -640,7 +837,7 @@ export function ReplacementsView() {
       </Card>
 
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseMeta(selectedReplacement.notes)
             const evidenceUrls = Array.isArray(selectedReplacement.damagePhotoUrls) ? selectedReplacement.damagePhotoUrls : []
@@ -691,6 +888,14 @@ export function ReplacementsView() {
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
+            const isScheduledReplacement = Boolean(
+              String(selectedReplacement?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim() ||
+              String(selectedReplacement?.replacementOrderId || meta?.replacementOrderId || '').trim() ||
+              String(selectedReplacement?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
+            )
+            const baseResolution = String(selectedReplacement.description || '').trim()
+            const effectiveResolution = baseResolution || 'N/A'
+            const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
             const isResolvedCase = Boolean(
               selectedReplacement?.isClosed ||
               rawStatus === 'COMPLETED' ||
@@ -706,9 +911,12 @@ export function ReplacementsView() {
               ['Status', formatIssueStatus(selectedReplacement)],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
+              ['Resolution', effectiveResolution],
+              ['Replacement Mode', rawMode.replace(/_/g, ' ')],
             ] as Array<[string, string]>
             return (
               <>
+                <div className="space-y-4 p-6 pb-28">
                 <DialogHeader>
                   <DialogTitle>Replacement Details</DialogTitle>
                   <DialogDescription>Complete information for {selectedReplacement.replacementNumber || 'this replacement'}</DialogDescription>
@@ -720,50 +928,6 @@ export function ReplacementsView() {
                       <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
                     </div>
                   ))}
-                </div>
-                <div className="rounded-md border bg-white px-3 py-3">
-                  <p className="text-xs font-medium text-slate-500">Actions</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {rawStatus === 'UNDER_REVIEW' ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
-                            notes: 'Replacement approved for processing',
-                            createReplacementOrder: true,
-                          })}
-                          disabled={updatingReplacementId === selectedReplacement.id}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            const reason = window.prompt('Enter rejection reason:')
-                            if (!reason || !reason.trim()) return
-                            void updateIssueStatus(selectedReplacement.id, 'REJECTED', { notes: reason.trim() })
-                          }}
-                          disabled={updatingReplacementId === selectedReplacement.id}
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    ) : rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
-                        disabled={updatingReplacementId === selectedReplacement.id}
-                      >
-                        Under Review
-                      </Button>
-                    ) : null}
-                    {updatingReplacementId === selectedReplacement.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    ) : null}
-                  </div>
                 </div>
                 <div className="rounded-md border bg-white">
                   <div className="border-b px-3 py-2">
@@ -785,8 +949,8 @@ export function ReplacementsView() {
                           <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplace}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplaced}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplaceDisplay ?? line.quantityToReplace}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplacedDisplay ?? line.quantityReplaced}</td>
                             <td className="px-3 py-2 font-semibold text-red-600">- {formatPeso(replacementLineLoss[index] || 0)}</td>
                           </tr>
                         ))}
@@ -804,13 +968,106 @@ export function ReplacementsView() {
                     <img src={evidenceUrl} alt="Replacement evidence" className="mt-2 max-h-[360px] w-full rounded-md border object-contain" />
                   </div>
                 ) : null}
+                </div>
+                <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {rawStatus === 'UNDER_REVIEW' ? (
+                        <>
+                          <Button
+                            size="sm"
+                            className="bg-emerald-600 text-white hover:bg-emerald-700"
+                            onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
+                              notes: 'Replacement approved for processing',
+                            })}
+                            disabled={updatingReplacementId === selectedReplacement.id}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              setRejectReason('')
+                              setRejectDialogOpen(true)
+                            }}
+                            disabled={updatingReplacementId === selectedReplacement.id}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      ) : !isScheduledReplacement && rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                          onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
+                          disabled={updatingReplacementId === selectedReplacement.id}
+                        >
+                          Under Review
+                        </Button>
+                      ) : isScheduledReplacement ? (
+                        <p className="text-sm text-blue-700">Scheduled replacement is already queued for trip planning.</p>
+                      ) : (
+                        <p className="text-sm text-slate-500">This replacement is already finalized.</p>
+                      )}
+                      {updatingReplacementId === selectedReplacement.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
               </>
             )
           })() : null}
         </DialogContent>
       </Dialog>
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Replacement Request</DialogTitle>
+            <DialogDescription>
+              Provide a clear reason for rejection. This will be saved in the replacement record.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-slate-700">Rejection reason</label>
+            <textarea
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+              placeholder="Enter rejection reason..."
+            />
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setRejectDialogOpen(false)}
+                disabled={Boolean(selectedReplacement?.id && updatingReplacementId === selectedReplacement.id)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (!selectedReplacement?.id) return
+                  const reason = rejectReason.trim()
+                  if (!reason) {
+                    toast.error('Rejection reason is required')
+                    return
+                  }
+                  setRejectDialogOpen(false)
+                  void updateIssueStatus(selectedReplacement.id, 'REJECTED', { notes: reason })
+                }}
+                disabled={Boolean(selectedReplacement?.id && updatingReplacementId === selectedReplacement.id)}
+              >
+                Confirm Reject
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
-

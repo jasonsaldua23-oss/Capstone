@@ -279,6 +279,9 @@ export function HomeView({
           ) : (
             assignedOrderRows.map(({ trip, dropPoint, order }) => {
               const orderId = String(order.id || '')
+              const isReplacementOrder =
+                Boolean((order as any)?.isScheduledReplacement) ||
+                String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
               const warehouseStage = String(order.warehouseStage || 'READY_TO_LOAD').toUpperCase()
               const checklistDone = isWarehouseChecklistComplete(order)
               const pickupWarehouseName =
@@ -301,7 +304,7 @@ export function HomeView({
                 (order.items || []).flatMap((item) => {
                   const itemId = String(item.id)
                   const entries: [string, boolean][] = [[itemId, checklistDone]]
-                  if (getSpareProductInfo(item)) entries.push([`${itemId}:spare`, checklistDone])
+                  if (!isReplacementOrder && getSpareProductInfo(item)) entries.push([`${itemId}:spare`, checklistDone])
                   return entries
                 })
               )
@@ -343,7 +346,7 @@ export function HomeView({
                         const itemId = String(item.id)
                         const spareItemId = `${itemId}:spare`
                         const checked = Boolean(checklistState[itemId])
-                        const spareProductInfo = getSpareProductInfo(item)
+                        const spareProductInfo = !isReplacementOrder ? getSpareProductInfo(item) : null
                         return (
                           <div key={itemId} className="space-y-2">
                           <label className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>

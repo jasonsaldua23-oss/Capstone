@@ -12,9 +12,11 @@ import {
   Search,
   Star,
   Truck,
+  X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
 export function CustomerOrdersView(props: any) {
@@ -31,6 +33,7 @@ export function CustomerOrdersView(props: any) {
     getReplacementBadgeClass,
     visibleOrders,
     deliveryIssuesByOrderId,
+    deliveryIssueRecords,
     normalizeDeliveryStatus,
     reviewedOrderIds,
     orderRatings,
@@ -49,6 +52,131 @@ export function CustomerOrdersView(props: any) {
   } = props
   const PAGE_SIZE = 5
   const [currentPage, setCurrentPage] = useState(1)
+  const [selectedReplacementRecord, setSelectedReplacementRecord] = useState<any | null>(null)
+  const isReplacementOrder = (order: any): boolean =>
+    String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
+  const hasActiveReplacementCase = (order: any): boolean => {
+    const issue = deliveryIssuesByOrderId?.[order?.id]
+    const rawStatus = String(issue?.rawStatus || '').toUpperCase()
+    if (!rawStatus) return false
+    return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED'].includes(rawStatus)
+  }
+  const getReplacementRequestDisplay = (order: any): { qty: number; label: 'unit' | 'bottle' } | null => {
+    if (!isReplacementOrder(order)) return null
+    const notes = String(order?.notes || '')
+    const replacementNumberMatch = notes.match(/\bRET-\d{4}-\d{4}\b/i)
+    const replacementNumber = String(replacementNumberMatch?.[0] || '').trim().toUpperCase()
+    if (!replacementNumber) return null
+    const record = (Array.isArray(deliveryIssueRecords) ? deliveryIssueRecords : []).find(
+      (entry: any) => String(entry?.replacementNumber || '').trim().toUpperCase() === replacementNumber
+    )
+    if (!record) return null
+    const description = String(record?.description || '')
+    const byUnit = description.match(/By\s*Unit:\s*(\d+)/i)
+    if (byUnit) {
+      const qty = Number(byUnit[1] || 0)
+      if (Number.isFinite(qty) && qty > 0) return { qty: Math.floor(qty), label: 'unit' }
+    }
+    const byBottle = description.match(/By\s*Bottle:\s*(\d+)/i)
+    if (byBottle) {
+      const qty = Number(byBottle[1] || 0)
+      if (Number.isFinite(qty) && qty > 0) return { qty: Math.floor(qty), label: 'bottle' }
+    }
+    return null
+  }
+  const getReplacementRecordForOrder = (order: any): any | null => {
+    if (!isReplacementOrder(order)) return null
+    const notes = String(order?.notes || '')
+    const replacementNumberMatch = notes.match(/\bRET-\d{4}-\d{4}\b/i)
+    const replacementNumber = String(replacementNumberMatch?.[0] || '').trim().toUpperCase()
+    if (!replacementNumber) return null
+    const record = (Array.isArray(deliveryIssueRecords) ? deliveryIssueRecords : []).find(
+      (entry: any) => String(entry?.replacementNumber || '').trim().toUpperCase() === replacementNumber
+    )
+    return record || null
+  }
+  const getReplacementDisplayStatus = (record: any, linkedOrder?: any | null) => {
+    const rawStatus = String(record?.rawStatus || record?.status || '').trim().toUpperCase()
+    const orderStatus = String(linkedOrder?.status || record?.orderStatus || '').trim().toUpperCase()
+    if (rawStatus === 'CANCELLED' || orderStatus === 'CANCELLED') return 'Cancelled'
+    if (rawStatus === 'REJECTED') return 'Rejected'
+    return getReplacementStatusLabel(record?.status)
+  }
+  const formatQuantityWithUnit = (item: any): string => {
+    const qty = Number(item?.quantity || 0)
+    const rawUnit = String(item?.product?.unit || item?.productUnit || '').trim().toLowerCase()
+    const isBottle = rawUnit.includes('bottle')
+    const label = isBottle ? (qty === 1 ? 'bottle' : 'bottles') : (qty === 1 ? 'unit' : 'units')
+    return `x${qty} ${label}`
+  }
+  const getItemDisplayNameWithSize = (item: any): string => {
+    const baseName = String(item?.product?.name || 'Product').trim()
+    const product = item?.product || {}
+    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0 ? String(product.sizes[0] || '').trim() : ''
+    const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
+    const sizeLabel = sizeFromArray || sizeFromField
+    return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
+  }
+  const parseReplacementMeta = (record: any) => {
+    const notes = String(record?.notes || '')
+    const marker = notes.lastIndexOf('Meta:')
+    if (marker < 0) return {}
+    try {
+      return JSON.parse(notes.slice(marker + 5).trim())
+    } catch {
+      return {}
+    }
+  }
+  const getReplacementDisplayQty = (record: any) => {
+    const formatQty = (qty: number, kind: 'unit' | 'bottle') =>
+      `${Math.floor(qty)} ${kind}${qty > 1 ? 's' : ''}`
+    const description = String(record?.description || '')
+    const qtyPerUnitMatch = description.match(/Qty\/(?:Unit|Case)\s*(\d+)/i)
+    const qtyPerUnitFromDescription = Number(qtyPerUnitMatch?.[1] || 0)
+    const qtyPerUnitFromRecord = Number(record?.quantityPerCase || 0)
+    const qtyPerUnit =
+      (Number.isFinite(qtyPerUnitFromDescription) && qtyPerUnitFromDescription > 0 ? qtyPerUnitFromDescription : 0) ||
+      (Number.isFinite(qtyPerUnitFromRecord) && qtyPerUnitFromRecord > 0 ? qtyPerUnitFromRecord : 0) ||
+      0
+    const byUnit = description.match(/By\s*Unit:\s*(\d+)/i)
+    if (byUnit) {
+      const qty = Number(byUnit[1] || 0)
+      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'unit')
+    }
+    const byCase = description.match(/By\s*Case:\s*(\d+)/i)
+    if (byCase) {
+      const qty = Number(byCase[1] || 0)
+      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'unit')
+    }
+    const byBottle = description.match(/By\s*Bottle:\s*(\d+)/i)
+    if (byBottle) {
+      const qty = Number(byBottle[1] || 0)
+      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'bottle')
+    }
+    const meta = parseReplacementMeta(record)
+    const unitQty = Number(meta?.replacementCases ?? meta?.quantityToReplaceCases ?? 0)
+    if (Number.isFinite(unitQty) && unitQty > 0) return formatQty(unitQty, 'unit')
+    const bottleQty = Number(meta?.replacementBottles ?? meta?.quantityToReplaceBottles ?? 0)
+    if (Number.isFinite(bottleQty) && bottleQty > 0) return formatQty(bottleQty, 'bottle')
+    const fallback = Number(record?.quantityToReplace ?? meta?.quantityToReplace ?? record?.replacementQuantity ?? 0)
+    if (Number.isFinite(fallback) && fallback > 0) {
+      const mode = String(meta?.replacementInputMode || meta?.replacementMode || '').trim().toLowerCase()
+      if (mode === 'case' || mode === 'unit') {
+        if (qtyPerUnit > 0) {
+          const units = Math.max(1, Math.round(fallback / qtyPerUnit))
+          return formatQty(units, 'unit')
+        }
+        return formatQty(fallback, 'unit')
+      }
+      if (mode === 'bottle') return formatQty(fallback, 'bottle')
+      if (qtyPerUnit > 0 && fallback % qtyPerUnit === 0) {
+        const units = Math.max(1, Math.round(fallback / qtyPerUnit))
+        return formatQty(units, 'unit')
+      }
+      return formatQty(fallback, 'bottle')
+    }
+    return 'N/A'
+  }
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE))
   const pagedOrders = useMemo(() => {
@@ -131,21 +259,42 @@ export function CustomerOrdersView(props: any) {
         visibleReplacementRecords.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-500">No replacement records found.</div>
         ) : (
-          <div className="space-y-3 px-3 pt-4 md:px-6">
+          <div className="space-y-2.5 px-2.5 pt-2.5 md:px-4">
             {visibleReplacementRecords.map((record: any) => {
-              const statusLabel = getReplacementStatusLabel(record.status)
-              const order = orders.find((item: any) => item.id === record.orderId) || null
+              const recordOrderId = String(record?.orderId || '').trim()
+              const recordOrderNumber = String(record?.orderNumber || '').trim().toUpperCase()
+              const order = orders.find((item: any) =>
+                String(item?.id || '').trim() === recordOrderId ||
+                String(item?.orderNumber || '').trim().toUpperCase() === recordOrderNumber
+              ) || null
+              const statusLabel = getReplacementDisplayStatus(record, order)
+              const qtyLabel = getReplacementDisplayQty(record)
+              const reportedAt = record?.createdAt ? new Date(record.createdAt).toLocaleString() : 'N/A'
+              const productName = record?.originalProductName || record?.replacementProductName || 'Product'
               return (
-                <div
-                  key={record.id}
-                  onClick={() => {
-                    if (order) setSelectedOrder(order)
-                  }}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-900">{record.orderNumber || order?.orderNumber || 'Order'}</p>
+                <div key={record.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm md:px-3.5 md:py-3.5">
+                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2.5">
+                    <div>
+                      <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{record?.replacementNumber || 'Replacement'}</p>
+                      <p className="text-xs text-slate-500">Order: {record.orderNumber || order?.orderNumber || 'N/A'}</p>
+                    </div>
                     <Badge className={getReplacementBadgeClass(statusLabel)}>{statusLabel}</Badge>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs text-slate-700 md:grid-cols-2">
+                    <p><span className="font-semibold text-slate-900">Product:</span> {productName}</p>
+                    <p><span className="font-semibold text-slate-900">Quantity:</span> {qtyLabel}</p>
+                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reason:</span> {record?.reason || 'N/A'}</p>
+                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reported:</span> {reportedAt}</p>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      variant="outline"
+                      className="h-8 rounded-md text-[11px]"
+                      onClick={() => setSelectedReplacementRecord(record)}
+                    >
+                      View Replacement
+                      <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               )
@@ -159,12 +308,14 @@ export function CustomerOrdersView(props: any) {
           {pagedOrders.map((o: any) => {
             const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
             const orderItems = Array.isArray(o.items) ? o.items : []
+            const replacementRequestDisplay = getReplacementRequestDisplay(o)
             const isDelivered = normalizedStatus === 'DELIVERED'
             const isReviewed = reviewedOrderIds.has(o.id)
             const shouldOpenReviewDirectly = ordersTab === 'TO_REVIEW' && isDelivered && !isReviewed
             const submittedRating = Number(orderRatings[o.id] || 0)
             const hasSubmittedRating = submittedRating >= 1 && submittedRating <= 5
             const deliveryIssue = deliveryIssuesByOrderId[o.id]
+            const hasActiveReplacement = hasActiveReplacementCase(o)
             const hasReplacementCase = Boolean(deliveryIssue)
 
             return (
@@ -174,6 +325,9 @@ export function CustomerOrdersView(props: any) {
                     <div className="flex items-center gap-2">
                       <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
                       <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{o.orderNumber}</p>
+                      {isReplacementOrder(o) ? (
+                        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Scheduled Replacement</Badge>
+                      ) : null}
                     </div>
                     <p className="flex items-center gap-1.5 text-xs text-emerald-700">
                       <CalendarDays className="h-4 w-4" />
@@ -210,8 +364,12 @@ export function CustomerOrdersView(props: any) {
                               className="h-10 w-10 rounded-md border border-slate-200 bg-slate-50 object-cover"
                             />
                             <div>
-                              <p className="text-xs text-slate-800">{item?.product?.name || 'Product'}</p>
-                              <p className="text-xs text-slate-500">x{item?.quantity || 0}</p>
+                              <p className="text-xs text-slate-800">{getItemDisplayNameWithSize(item)}</p>
+                              <p className="text-xs text-slate-500">
+                                {replacementRequestDisplay
+                                  ? `x${replacementRequestDisplay.qty} ${replacementRequestDisplay.label}${replacementRequestDisplay.qty > 1 ? 's' : ''}`
+                                  : formatQuantityWithUnit(item)}
+                              </p>
                             </div>
                           </div>
                         ))}
@@ -253,6 +411,13 @@ export function CustomerOrdersView(props: any) {
                       variant="outline"
                       className="h-8 w-full rounded-md border-slate-300 text-[11px]"
                       onClick={() => {
+                        if (isReplacementOrder(o)) {
+                          const replacementRecord = getReplacementRecordForOrder(o)
+                          if (replacementRecord) {
+                            setSelectedReplacementRecord(replacementRecord)
+                            return
+                          }
+                        }
                         if (shouldOpenReviewDirectly) {
                           openRatingDialog(o)
                           return
@@ -275,7 +440,7 @@ export function CustomerOrdersView(props: any) {
                         }}
                       >
                         <Truck className="mr-1 h-3.5 w-3.5" />
-                        {isDelivered ? 'Buy Again' : 'Track Order'}
+                        {isDelivered ? 'Buy Again' : isReplacementOrder(o) ? 'Track Replacement' : 'Track Order'}
                       </Button>
                     ) : isDelivered ? (
                       <Button
@@ -303,10 +468,11 @@ export function CustomerOrdersView(props: any) {
                     {isDelivered ? (
                       <Button
                         variant="outline"
-                        className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50"
+                        className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={hasActiveReplacement}
                         onClick={() => setSelectedOrder({ ...o, __openReplacementRequest: true })}
                       >
-                        Request Replacement
+                        {hasActiveReplacement ? 'Replacement In Progress' : 'Request Replacement'}
                       </Button>
                     ) : null}
                   </div>
@@ -341,6 +507,83 @@ export function CustomerOrdersView(props: any) {
           </div>
         </div>
       )}
+      <Dialog open={!!selectedReplacementRecord} onOpenChange={(open) => !open && setSelectedReplacementRecord(null)}>
+        <DialogContent
+          showCloseButton={false}
+          className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-[760px] rounded-xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(2,6,23,0.30)]"
+        >
+        {selectedReplacementRecord ? (() => {
+            const selectedOrder = orders.find((item: any) =>
+              String(item?.id || '').trim() === String(selectedReplacementRecord?.orderId || '').trim() ||
+              String(item?.orderNumber || '').trim().toUpperCase() === String(selectedReplacementRecord?.orderNumber || '').trim().toUpperCase()
+            ) || null
+            const statusLabel = getReplacementDisplayStatus(selectedReplacementRecord, selectedOrder)
+            const meta = parseReplacementMeta(selectedReplacementRecord)
+            const evidenceUrl = String(
+              selectedReplacementRecord?.damagePhotoUrl ||
+              (Array.isArray(selectedReplacementRecord?.damagePhotoUrls) ? selectedReplacementRecord.damagePhotoUrls[0] : '') ||
+              meta?.damagePhotoUrl ||
+              ''
+            ).trim()
+            const qtyLabel = getReplacementDisplayQty(selectedReplacementRecord)
+            return (
+              <>
+                <DialogHeader className="px-4 py-3 md:px-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+                        <Package2 className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <DialogTitle className="text-[20px] font-semibold tracking-[-0.01em] text-slate-900">
+                          {selectedReplacementRecord?.replacementNumber || 'Replacement'}
+                        </DialogTitle>
+                        <div className="mt-1 flex items-center gap-2">
+                          <Badge className={getReplacementBadgeClass(statusLabel)}>{statusLabel}</Badge>
+                        </div>
+                        <DialogDescription className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
+                          <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
+                          {selectedReplacementRecord?.createdAt ? new Date(selectedReplacementRecord.createdAt).toLocaleString() : 'N/A'}
+                        </DialogDescription>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
+                      onClick={() => setSelectedReplacementRecord(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </DialogHeader>
+                <div className="space-y-3 px-4 pb-4 text-sm md:px-5 md:pb-5">
+                  <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                    <p><span className="font-semibold text-slate-900">Order #:</span> {selectedReplacementRecord?.orderNumber || 'N/A'}</p>
+                    <p><span className="font-semibold text-slate-900">Status:</span> {statusLabel}</p>
+                    <p><span className="font-semibold text-slate-900">Product:</span> {selectedReplacementRecord?.originalProductName || selectedReplacementRecord?.replacementProductName || 'N/A'}</p>
+                    <p><span className="font-semibold text-slate-900">Quantity:</span> {qtyLabel}</p>
+                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reason:</span> {selectedReplacementRecord?.reason || 'N/A'}</p>
+                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Description:</span> {selectedReplacementRecord?.description || 'N/A'}</p>
+                    <p><span className="font-semibold text-slate-900">Reported:</span> {selectedReplacementRecord?.createdAt ? new Date(selectedReplacementRecord.createdAt).toLocaleString() : 'N/A'}</p>
+                    <p><span className="font-semibold text-slate-900">Updated:</span> {selectedReplacementRecord?.updatedAt ? new Date(selectedReplacementRecord.updatedAt).toLocaleString() : 'N/A'}</p>
+                  </div>
+                  {evidenceUrl ? (
+                    <div className="rounded-xl border border-slate-200 p-3">
+                      <p className="mb-2 text-xs font-semibold text-slate-700">Evidence</p>
+                      <img src={evidenceUrl} alt="Replacement evidence" className="max-h-[320px] w-full rounded-md border object-contain" />
+                    </div>
+                  ) : null}
+                  <div className="flex justify-end pt-1">
+                    <Button className="h-9 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 md:h-10 md:text-sm" onClick={() => setSelectedReplacementRecord(null)}>
+                      Close
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )
+          })() : null}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

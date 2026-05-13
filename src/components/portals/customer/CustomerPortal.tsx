@@ -994,8 +994,8 @@ export function CustomerPortal() {
 
   const sortedFilteredOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
-      const aTime = a.deliveryDate ? new Date(a.deliveryDate).getTime() : new Date(a.createdAt).getTime()
-      const bTime = b.deliveryDate ? new Date(b.deliveryDate).getTime() : new Date(b.createdAt).getTime()
+      const aTime = new Date(a.createdAt).getTime()
+      const bTime = new Date(b.createdAt).getTime()
       return bTime - aTime
     })
   }, [filteredOrders])
@@ -1052,8 +1052,16 @@ export function CustomerPortal() {
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
       return bTime - aTime
     })
-    if (!query) return sorted
-    return sorted.filter((record) => {
+    // Keep only the latest replacement per order to avoid showing stale prior cases.
+    const latestByOrder = new Map<string, any>()
+    for (const record of sorted) {
+      const key = String(record?.orderId || record?.orderNumber || '').trim().toUpperCase()
+      if (!key) continue
+      if (!latestByOrder.has(key)) latestByOrder.set(key, record)
+    }
+    const latestOnly = Array.from(latestByOrder.values())
+    if (!query) return latestOnly
+    return latestOnly.filter((record) => {
       const haystack = [
         record.orderNumber,
         record.replacementNumber,
@@ -2043,6 +2051,7 @@ export function CustomerPortal() {
             getReplacementBadgeClass={getReplacementBadgeClass}
             visibleOrders={visibleOrders}
             deliveryIssuesByOrderId={deliveryIssuesByOrderId}
+            deliveryIssueRecords={deliveryIssueRecords}
             normalizeDeliveryStatus={normalizeDeliveryStatus}
             reviewedOrderIds={reviewedOrderIds}
             orderRatings={orderRatings}

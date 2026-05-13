@@ -33,16 +33,19 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   }, [])
 
   const dashboardOrderStats = useMemo(() => {
-    const totalOrders = Number(stats?.totalOrders || dashboardOrders.length || 0)
-    const outForDelivery = Number(stats?.inTransitOrders || 0)
-    const delivered = Number(stats?.deliveredOrders || 0)
+    const businessOrders = dashboardOrders.filter(
+      (order: any) => !String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
+    )
+    const totalOrders = businessOrders.length
+    const outForDelivery = businessOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'OUT_FOR_DELIVERY').length
+    const delivered = businessOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'DELIVERED').length
 
     return {
       totalOrders,
       outForDelivery,
       delivered,
     }
-  }, [dashboardOrders.length, stats])
+  }, [dashboardOrders])
 
   const activeTripsFromData = Number(stats?.activeTrips || 0)
   const availableDrivers = Number(stats?.availableDrivers || stats?.activeDrivers || 0)

@@ -95,13 +95,21 @@ export function TripsView() {
       const firstGroup = routePlans[0]
       if (firstGroup) {
         setSelectedRouteCity(firstGroup.city)
-        setSelectedRouteOrderIds([])
+        setSelectedRouteOrderIds(
+          toArray<any>(firstGroup.orders)
+            .filter((order: any) => Boolean(order?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-'))
+            .map((order: any) => String(order.id))
+        )
       }
     }
   }, [routePlans])
 
   const selectedRouteGroup = routePlans.find((group) => group.city === selectedRouteCity) || null
   const selectedRouteOrders = toArray<any>(selectedRouteGroup?.orders).filter((order) => selectedRouteOrderIds.includes(order.id))
+  const getScheduledReplacementOrderIds = (orders: any[]) =>
+    toArray<any>(orders)
+      .filter((order: any) => Boolean(order?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-'))
+      .map((order: any) => String(order.id))
   const selectedSavedRoute = savedRoutes.find((route) => route.id === selectedSavedRouteId) || null
   const selectedDriverAssignedVehicle = toArray<any>(drivers.find((d) => d.id === selectedRouteDriverId)?.vehicles)
     .map((entry) => entry?.vehicle)
@@ -250,8 +258,10 @@ export function TripsView() {
 
       const plans = getCollection<any>(data, ['routePlans']);
       setRoutePlans(plans);
-      setSelectedRouteCity(plans[0]?.city || '');
-      setSelectedRouteOrderIds([]);
+      const initialCity = plans[0]?.city || ''
+      setSelectedRouteCity(initialCity);
+      const initialOrders = toArray<any>(plans.find((group: any) => group.city === initialCity)?.orders)
+      setSelectedRouteOrderIds(getScheduledReplacementOrderIds(initialOrders));
       if (plans.length === 0) {
         setRoutePlanMessage({
           type: 'info',
@@ -772,7 +782,10 @@ export function TripsView() {
                     {routePlans.map((cityGroup: any) => (
                       <div key={cityGroup.city}>
                         <button 
-                          onClick={() => setSelectedRouteCity(cityGroup.city)}
+                          onClick={() => {
+                            setSelectedRouteCity(cityGroup.city)
+                            setSelectedRouteOrderIds(getScheduledReplacementOrderIds(toArray<any>(cityGroup.orders)))
+                          }}
                           className={`mb-1 w-full rounded-lg p-2 text-left text-sm font-semibold transition-colors ${
                             selectedRouteCity === cityGroup.city 
                               ? 'bg-blue-500 text-white' 
@@ -805,6 +818,9 @@ export function TripsView() {
                                     {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
                                   </span>
                                   <span className="truncate">{order.orderNumber || order.id}</span>
+                                  {(Boolean(order?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                  ) : null}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
                               </button>
@@ -902,7 +918,12 @@ export function TripsView() {
                           <div key={order.id} className="flex items-start gap-2 rounded-lg border bg-white p-3">
                             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-sm font-bold text-white">{idx + 1}</div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
+                              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                <span>{order.customerName || order.orderNumber}</span>
+                                {(Boolean(order?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                ) : null}
+                              </div>
                               <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
                               {order.products && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>

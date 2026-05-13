@@ -54,7 +54,7 @@ export type WarehouseOrdersViewProps = {
   setOrderMaxPriceFilter: (value: string) => void
   filteredOrders: any[]
   formatPeso: (value: number) => string
-  formatWarehouseOrderStatus: (status: any, paymentStatus?: any, warehouseStage?: any) => string
+  formatWarehouseOrderStatus: (status: any, paymentStatus?: any, warehouseStage?: any, notes?: any) => string
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
@@ -62,12 +62,14 @@ export type WarehouseOrdersViewProps = {
     reason?: string
   ) => Promise<void>
   updatingOrderId: string | null
+  openRejectDialog: (order: any) => void
 }
 
 export type WarehouseReplacementSummary = {
   totalCases: number
   resolvedOnDelivery: number
   needsFollowUp: number
+  rejected: number
   replacedQty: number
 }
 
@@ -80,7 +82,7 @@ export type WarehouseReplacementsViewProps = {
   updateIssueStatus: (
     replacementId: string,
     status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    options?: { notes?: string; createReplacementOrder?: boolean }
+    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string }
   ) => Promise<void>
   updatingReplacementId: string | null
   selectedReplacement: any | null
@@ -88,8 +90,10 @@ export type WarehouseReplacementsViewProps = {
   buildReplacementLines: (replacement: any, meta: any) => Array<{
     originalProductName: string
     replacementProductName: string
-    quantityToReplace: string
-    quantityReplaced: string
+    quantityToReplace: number
+    quantityReplaced: number
+    quantityToReplaceDisplay?: string
+    quantityReplacedDisplay?: string
   }>
 }
 

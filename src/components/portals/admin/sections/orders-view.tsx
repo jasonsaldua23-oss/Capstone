@@ -76,7 +76,7 @@ export function OrdersView() {
 
   const getItemSizeLabel = (item: any): string => {
     const fromProductSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes.filter(Boolean) : []
-    if (fromProductSizes.length > 0) return String(fromProductSizes[0])
+    if (fromProductSizes.length > 0) return fromProductSizes.map((v: any) => String(v).trim()).filter(Boolean).join(' ')
     const fromUnit = String(item?.product?.unit || item?.productUnit || '').trim()
     return fromUnit
   }
@@ -86,6 +86,11 @@ export function OrdersView() {
     const size = getItemSizeLabel(item)
     const qty = Number(item?.quantity || 0)
     return `${name}${size ? ` (${size})` : ''} x${qty}`
+  }
+
+  const isReplacementOrder = (order: any): boolean => {
+    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+    return Boolean(order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
   }
 
   useEffect(() => {
@@ -340,6 +345,7 @@ export function OrdersView() {
   const warehouseFilterOptions = useMemo(() => {
     const map = new Map<string, string>()
     orders.forEach((order) => {
+      if (isReplacementOrder(order)) return
       const warehouseId = String(getWarehouseIdFromRow(order) || '').trim()
       if (!warehouseId) return
       const label =
@@ -358,6 +364,7 @@ export function OrdersView() {
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
     orders.forEach((order) => {
+      if (isReplacementOrder(order)) return
       statuses.add(formatOrderStatus(order?.status, order?.paymentStatus))
     })
     return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
@@ -379,6 +386,8 @@ export function OrdersView() {
     const hasMaxPrice = orderMaxPriceFilter.trim() !== '' && Number.isFinite(maxPrice)
 
     return orders.filter((order) => {
+      if (isReplacementOrder(order)) return false
+
       if (warehouseFilterId !== 'all' && String(getWarehouseIdFromRow(order) || '').trim() !== warehouseFilterId) {
         return false
       }
@@ -779,13 +788,13 @@ export function OrdersView() {
                     {(selectedOrder.items || []).map((item: any) => (
                       <div key={item.id} className="flex justify-between gap-3 text-sm">
                         <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {item.spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number(item.spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)} | Policy {Number(item.spareProducts.minPercent || 0)}-{Number(item.spareProducts.maxPercent || 0)}%</p>
-                            </div>
-                          ) : null}
+                          <p>
+                            {item.product?.name || 'Product'}
+                            {String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '') || '').trim()
+                              ? ` ${String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '')).trim()}`
+                              : ''}
+                            {' '}x{item.quantity}
+                          </p>
                         </div>
                         <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                       </div>
@@ -794,7 +803,7 @@ export function OrdersView() {
                       <p>Total Before Discount: {formatPeso(Number(selectedOrder?.subtotal || 0))}</p>
                       <p>Discount: {selectedOrder?.discountDetails?.name || selectedOrder?.discountName || 'No Discount'}</p>
                       <p>Status: {selectedOrder?.discountDetails?.status || selectedOrder?.discountStatus || 'REMOVED'}</p>
-                      <p>Units Affected (Case/Pack/Bundle): {Number(selectedOrder?.discountDetails?.casesAffected || selectedOrder?.discountCasesAffected || 0)}</p>
+                      <p>Units Affected: {Number(selectedOrder?.discountDetails?.casesAffected || selectedOrder?.discountCasesAffected || 0)}</p>
                       <p>Total Discount: {formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))}</p>
                       <p>Total After Discount: {formatPeso(Number(selectedOrder?.totalAmount || 0))}</p>
                       <p>Applied By: {selectedOrder?.discountDetails?.appliedByName || selectedOrder?.discountAppliedByName || 'N/A'}</p>
@@ -882,13 +891,13 @@ export function OrdersView() {
                           }
                         />
                         <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {item.spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number(item.spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)}</p>
-                            </div>
-                          ) : null}
+                          <p>
+                            {item.product?.name || 'Product'}
+                            {String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '') || '').trim()
+                              ? ` ${String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '')).trim()}`
+                              : ''}
+                            {' '}x{item.quantity}
+                          </p>
                         </div>
                       </label>
                     ))}

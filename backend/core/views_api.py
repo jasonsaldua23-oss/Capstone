@@ -6,7 +6,7 @@ import math
 import requests
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -539,6 +539,250 @@ def _create_order_from_checkout_payload(
     return order
 
 
+def _extract_replacement_meta(notes: Any) -> dict[str, Any]:
+    raw_notes = str(notes or "")
+    marker = "Meta:"
+    marker_index = raw_notes.rfind(marker)
+    if marker_index < 0:
+        return {}
+    payload_raw = raw_notes[marker_index + len(marker):].strip()
+    if not payload_raw:
+        return {}
+    decoder = json.JSONDecoder()
+    try:
+        payload, _ = decoder.raw_decode(payload_raw)
+        if isinstance(payload, dict):
+            return payload
+    except (TypeError, ValueError):
+        pass
+    return {}
+
+
+def _upsert_replacement_meta(notes: Any, updates: dict[str, Any]) -> str:
+    raw_notes = str(notes or "").strip()
+    marker = "Meta:"
+    marker_index = raw_notes.rfind(marker)
+    prefix = raw_notes[:marker_index].rstrip() if marker_index >= 0 else raw_notes
+    meta = _extract_replacement_meta(raw_notes)
+    meta.update({k: v for k, v in updates.items() if v is not None})
+    if not meta:
+        return prefix
+    if prefix:
+        return f"{prefix}\nMeta: {json.dumps(meta)}"
+    return f"Meta: {json.dumps(meta)}"
+
+
+def _append_replacement_note_line(notes: Any, line: str) -> str:
+    trimmed_line = str(line or "").strip()
+    if not trimmed_line:
+        return str(notes or "").strip()
+    raw_notes = str(notes or "").strip()
+    marker = "Meta:"
+    marker_index = raw_notes.rfind(marker)
+    prefix = raw_notes[:marker_index].rstrip() if marker_index >= 0 else raw_notes
+    meta = _extract_replacement_meta(raw_notes)
+    updated_prefix = f"{prefix}\n{trimmed_line}".strip() if prefix else trimmed_line
+    if not meta:
+        return updated_prefix
+    return f"{updated_prefix}\nMeta: {json.dumps(meta)}"
+
+
+def _generate_next_replacement_order_number() -> str:
+    year = timezone.now().year
+    sequence = Order.objects.filter(order_number__startswith=f"RPL-{year}-").count() + 1
+    order_number = f"RPL-{year}-{str(sequence).zfill(4)}"
+    while Order.objects.filter(order_number=order_number).exists():
+        sequence += 1
+        order_number = f"RPL-{year}-{str(sequence).zfill(4)}"
+    return order_number
+
+
+def _create_scheduled_replacement_order(
+    replacement: Replacement,
+    *,
+    scheduled_date: date,
+    staff_user_id: str | None,
+) -> Order:
+    meta = _extract_replacement_meta(replacement.notes)
+    existing_order_id = str(meta.get("replacementOrderId") or "").strip()
+    if existing_order_id:
+        existing_order = Order.objects.filter(id=existing_order_id).first()
+        if existing_order:
+            return existing_order
+
+    source_order = (
+        Order.objects.select_related("customer")
+        .prefetch_related("items__product")
+        .filter(id=replacement.order_id)
+        .first()
+    )
+    if not source_order:
+        raise ValueError("Source order for replacement was not found")
+
+    source_items = list(source_order.items.select_related("product").all())
+    source_lines = []
+    if isinstance(meta.get("replacementLines"), list) and meta.get("replacementLines"):
+        source_lines = meta.get("replacementLines")
+    elif isinstance(meta.get("replacementItems"), list) and meta.get("replacementItems"):
+        source_lines = meta.get("replacementItems")
+    elif replacement.replacement_product_id and replacement.replacement_quantity:
+        source_lines = [{
+            "replacementProductId": replacement.replacement_product_id,
+            "quantityReplaced": replacement.replacement_quantity,
+            "quantityToReplace": replacement.replacement_quantity,
+        }]
+    elif replacement.replacement_quantity and source_items:
+        # Legacy records may not have structured replacement lines/product linkage.
+        # Fall back to the first source order item so scheduling can still proceed.
+        fallback_product_id = str(getattr(source_items[0], "product_id", "") or "").strip()
+        if fallback_product_id:
+            source_lines = [{
+                "replacementProductId": fallback_product_id,
+                "quantityReplaced": replacement.replacement_quantity,
+                "quantityToReplace": replacement.replacement_quantity,
+            }]
+    if not source_lines:
+        raise ValueError("No replacement items available to schedule")
+
+    replacement_order = Order.objects.create(
+        order_number=_generate_next_replacement_order_number(),
+        customer=source_order.customer,
+        status=OrderStatus.CONFIRMED,
+        priority="high",
+        subtotal=0,
+        tax=0,
+        shipping_cost=0,
+        discount=0,
+        total_amount=0,
+        payment_status="pending",
+        warehouse_id=source_order.warehouse_id,
+        shipping_name=source_order.shipping_name,
+        shipping_phone=source_order.shipping_phone,
+        shipping_address=source_order.shipping_address,
+        shipping_city=source_order.shipping_city,
+        shipping_province=source_order.shipping_province,
+        shipping_zip_code=source_order.shipping_zip_code,
+        shipping_country=source_order.shipping_country or "Philippines",
+        shipping_latitude=source_order.shipping_latitude,
+        shipping_longitude=source_order.shipping_longitude,
+        notes=f"Replacement delivery for {replacement.replacement_number} (source {source_order.order_number})",
+    )
+
+    subtotal = 0.0
+    notes_text = str(getattr(replacement, "description", "") or "") + " " + str(getattr(replacement, "notes", "") or "")
+    notes_lower = notes_text.lower()
+    for line in source_lines:
+        raw_qty = _int(line.get("quantityReplaced"), _int(line.get("quantityToReplace"), _int(line.get("quantity"), 0)))
+        qty_bottles = max(raw_qty, 0)
+        replacement_cases = max(0, _int(line.get("replacementCases"), 0))
+        replacement_bottles = max(0, _int(line.get("replacementBottles"), 0))
+        by_case = bool(re.search(r"\bby\s*case\b", notes_lower))
+        by_bottle = bool(re.search(r"\bby\s*bottle\b", notes_lower))
+        product_id = str(
+            line.get("replacementProductId")
+            or line.get("productId")
+            or line.get("originalProductId")
+            or ""
+        ).strip()
+        product = Product.objects.filter(id=product_id).first() if product_id else None
+
+        matched_source_item = None
+        if not product:
+            source_name = str(line.get("replacementProductName") or line.get("originalProductName") or "").strip().lower()
+            matched_source_item = next(
+                (item for item in source_items if str(getattr(item.product, "name", "") or "").strip().lower() == source_name),
+                None,
+            )
+            if matched_source_item:
+                product = matched_source_item.product
+        if not product and source_items:
+            # Last-resort mapping for legacy/blank replacement rows.
+            matched_source_item = source_items[0]
+            product = matched_source_item.product
+        if not product:
+            continue
+        if not matched_source_item:
+            matched_source_item = next((item for item in source_items if getattr(item, "product_id", None) == product.id), None)
+
+        quantity_per_case = max(
+            1,
+            _int(
+                line.get("quantityPerCase"),
+                _int(
+                    getattr(product, "quantity_per_unit", 0),
+                    _int(
+                        getattr(matched_source_item, "quantity_per_case", 0) if matched_source_item else 0,
+                        _int(
+                            getattr(getattr(matched_source_item, "product", None), "quantity_per_unit", 0)
+                            if matched_source_item else 0,
+                            1,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        if replacement_cases > 0:
+            qty = replacement_cases
+        elif replacement_bottles > 0:
+            qty = replacement_bottles
+        elif by_case and not by_bottle:
+            qty = max(1, qty_bottles // quantity_per_case) if qty_bottles > 0 else 0
+        else:
+            qty = qty_bottles
+        if qty <= 0:
+            continue
+
+        unit_price = float(
+            line.get("unitPrice")
+            or line.get("price")
+            or (matched_source_item.unit_price if matched_source_item else getattr(product, "price", 0))
+            or 0
+        )
+        line_total = unit_price * qty
+        subtotal += line_total
+        OrderItem.objects.create(
+            order=replacement_order,
+            product=product,
+            product_name=str(getattr(product, "name", "") or "").strip() or None,
+            product_sku=str(getattr(product, "sku", "") or "").strip() or None,
+            product_unit=_normalize_product_unit(getattr(product, "unit", None)),
+            quantity=qty,
+            unit_price=unit_price,
+            total_price=line_total,
+            notes=f"Replacement line from {replacement.replacement_number}",
+        )
+
+    if replacement_order.items.count() == 0:
+        replacement_order.delete()
+        raise ValueError("No valid replacement items found to schedule")
+
+    replacement_order.subtotal = subtotal
+    replacement_order.total_amount = subtotal
+    replacement_order.save(update_fields=["subtotal", "total_amount", "updated_at"])
+
+    scheduled_start = timezone.make_aware(datetime.combine(scheduled_date, time(hour=9, minute=0)))
+    OrderTimeline.objects.update_or_create(
+        order=replacement_order,
+        defaults={
+            "confirmed_at": timezone.now(),
+            "delivery_date": scheduled_start,
+        },
+    )
+
+    replacement.notes = _upsert_replacement_meta(
+        replacement.notes,
+        {
+            "replacementOrderId": replacement_order.id,
+            "replacementOrderNumber": replacement_order.order_number,
+            "scheduledDeliveryDate": scheduled_date.isoformat(),
+            "scheduledBy": staff_user_id,
+        },
+    )
+    replacement.save(update_fields=["notes", "updated_at"])
+    return replacement_order
+
+
 def _ensure_order_legacy_checklist_columns_defaults() -> None:
     global _order_legacy_checklist_columns_checked
     if _order_legacy_checklist_columns_checked:
@@ -984,6 +1228,28 @@ def _create_staff_notifications(
     )
 
 
+def _create_customer_notification(
+    *,
+    customer: Customer | None,
+    title: str,
+    message: str,
+    notification_type: str = "REPLACEMENT",
+    reference_type: str | None = None,
+    reference_id: str | None = None,
+) -> None:
+    if not customer:
+        return
+    Notification.objects.create(
+        customer=customer,
+        title=title,
+        message=message,
+        type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        is_read=False,
+    )
+
+
 def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = False) -> None:
     cookie_kwargs = {
         "httponly": True,
@@ -1131,17 +1397,7 @@ def _serialize_order(
 
 def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     data = _serialize_model(entry)
-    meta: dict[str, Any] = {}
-    notes = str(getattr(entry, "notes", "") or "")
-    marker = "Meta:"
-    marker_index = notes.rfind(marker)
-    if marker_index >= 0:
-        try:
-            parsed_meta = json.loads(notes[marker_index + len(marker):].strip())
-            if isinstance(parsed_meta, dict):
-                meta = parsed_meta
-        except (TypeError, ValueError):
-            meta = {}
+    meta = _extract_replacement_meta(getattr(entry, "notes", ""))
     order = getattr(entry, "order", None)
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip() or None
     if not warehouse_id:
@@ -1188,6 +1444,9 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         "warehouseProvince": data.get("warehouseProvince"),
     } if order else None
     data["replacementMode"] = _normalize_replacement_mode(data.get("replacementMode"))
+    data["scheduledDeliveryDate"] = str(meta.get("scheduledDeliveryDate") or "").strip() or None
+    data["replacementOrderId"] = str(meta.get("replacementOrderId") or "").strip() or None
+    data["replacementOrderNumber"] = str(meta.get("replacementOrderNumber") or "").strip() or None
     normalized_status = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
     data["workflowStatus"] = normalized_status
     is_partial_follow_up = (
@@ -1201,34 +1460,52 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     original_item = None
     if entry.original_order_item_id:
         original_item = OrderItem.objects.select_related("product").filter(id=entry.original_order_item_id).first()
+    if original_item is None and order is not None:
+        original_item = (
+            OrderItem.objects.select_related("product")
+            .filter(order_id=order.id)
+            .order_by("created_at", "id")
+            .first()
+        )
     replacement_product = None
     if entry.replacement_product_id:
         replacement_product = Product.objects.filter(id=entry.replacement_product_id).first()
+    quantity_replaced = _int(meta.get("quantityReplaced"), _int(entry.replacement_quantity, 0))
+    quantity_to_replace = _int(
+        meta.get("quantityToReplace", meta.get("damagedQuantity", meta.get("totalDamagedQuantity"))),
+        quantity_replaced,
+    )
+    remaining_quantity = max(quantity_to_replace - quantity_replaced, 0)
     if original_item:
-        quantity_replaced = _int(meta.get("quantityReplaced"), _int(entry.replacement_quantity, 0))
-        quantity_to_replace = _int(
-            meta.get("quantityToReplace", meta.get("damagedQuantity", meta.get("totalDamagedQuantity"))),
-            quantity_replaced,
-        )
-        remaining_quantity = max(quantity_to_replace - quantity_replaced, 0)
         data["originalOrderItem"] = {
             "id": original_item.id,
             "quantity": original_item.quantity,
             "product": _serialize_model(original_item.product) if original_item.product_id else None,
         }
-        data["originalProductName"] = getattr(original_item.product, "name", None)
-        data["originalProductSku"] = getattr(original_item.product, "sku", None)
+        original_product_name = str(getattr(original_item.product, "name", "") or getattr(original_item, "product_name", "") or "").strip() or None
+        original_product_sku = str(getattr(original_item.product, "sku", "") or getattr(original_item, "product_sku", "") or "").strip() or None
+        original_product_sizes = getattr(original_item.product, "sizes", None) if getattr(original_item, "product", None) else None
+        original_product_size = ", ".join([str(x).strip() for x in (original_product_sizes or []) if str(x).strip()]) if isinstance(original_product_sizes, list) else None
+        data["originalProductName"] = original_product_name
+        data["originalProductSku"] = original_product_sku
+        data["originalProductSize"] = original_product_size
         data["originalQuantity"] = original_item.quantity
         data["quantityToReplace"] = quantity_to_replace
         data["quantityReplaced"] = quantity_replaced
         data["remainingQuantity"] = remaining_quantity
+        replacement_product_name = str(getattr(replacement_product, "name", "") or "").strip() or original_product_name
+        replacement_product_sku = str(getattr(replacement_product, "sku", "") or "").strip() or original_product_sku
+        replacement_product_sizes = getattr(replacement_product, "sizes", None) if replacement_product else original_product_sizes
+        replacement_product_size = ", ".join([str(x).strip() for x in (replacement_product_sizes or []) if str(x).strip()]) if isinstance(replacement_product_sizes, list) else original_product_size
         replacement_lines = [
             {
                 "originalOrderItemId": original_item.id,
-                "originalProductName": getattr(original_item.product, "name", None),
-                "originalProductSku": getattr(original_item.product, "sku", None),
-                "replacementProductName": getattr(replacement_product, "name", None),
-                "replacementProductSku": getattr(replacement_product, "sku", None),
+                "originalProductName": original_product_name,
+                "originalProductSku": original_product_sku,
+                "originalProductSize": original_product_size,
+                "replacementProductName": replacement_product_name,
+                "replacementProductSku": replacement_product_sku,
+                "replacementProductSize": replacement_product_size,
                 "quantityToReplace": quantity_to_replace,
                 "quantityReplaced": quantity_replaced,
                 "remainingQuantity": remaining_quantity,
@@ -1237,10 +1514,21 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         # `replacementLines` is the canonical key; keep `replacementItems` for compatibility.
         data["replacementLines"] = replacement_lines
         data["replacementItems"] = replacement_lines
+    else:
+        # Last-resort fallback for legacy records where original item linkage is missing.
+        data["quantityToReplace"] = quantity_to_replace
+        data["quantityReplaced"] = quantity_replaced
+        data["remainingQuantity"] = remaining_quantity
     if replacement_product:
         data["replacementProduct"] = _serialize_model(replacement_product)
         data["replacementProductName"] = replacement_product.name
         data["replacementProductSku"] = replacement_product.sku
+        replacement_sizes = getattr(replacement_product, "sizes", None)
+        data["replacementProductSize"] = ", ".join([str(x).strip() for x in (replacement_sizes or []) if str(x).strip()]) if isinstance(replacement_sizes, list) else None
+    elif data.get("originalProductName") and not data.get("replacementProductName"):
+        data["replacementProductName"] = data.get("originalProductName")
+        data["replacementProductSku"] = data.get("originalProductSku")
+        data["replacementProductSize"] = data.get("originalProductSize")
     damage_photo_urls: list[str] = []
     raw_damage_photo_urls = str(getattr(entry, "damage_photo_urls", "") or "").strip()
     if raw_damage_photo_urls:
@@ -1769,23 +2057,66 @@ def _return_unused_spare_products_for_delivered_order(
                 performed_by=performed_by,
             )
 
-            return_batch_number = f"SPARE-RET-{order_item.id[-12:].upper()}"
-            stock_batch = StockBatch.objects.filter(batch_number=return_batch_number).first()
-            if stock_batch:
-                stock_batch.quantity = max(0, _int(stock_batch.quantity, 0) + transferable_qty)
+            # Return spare quantities back to the same inventory batches they were taken from.
+            load_out_transactions = list(
+                InventoryTransaction.objects.filter(
+                    product=product,
+                    reference_type=SPARE_PRODUCTS_REFERENCE_TYPE,
+                    reference_id=order_item.id,
+                    type="OUT",
+                    warehouse=inventory.warehouse,
+                ).order_by("-created_at")
+            )
+
+            batch_limits: list[tuple[str, int]] = []
+            for tx in load_out_transactions:
+                note = str(getattr(tx, "notes", "") or "")
+                match = re.search(r"batch\s+([A-Za-z0-9\-]+)", note, re.IGNORECASE)
+                if not match:
+                    continue
+                batch_number = str(match.group(1) or "").strip()
+                if not batch_number:
+                    continue
+                tx_qty = max(0, _int(getattr(tx, "quantity", 0), 0))
+                if tx_qty <= 0:
+                    continue
+                batch_limits.append((batch_number, tx_qty))
+
+            remaining_to_restore = transferable_qty
+            for batch_number, max_qty in batch_limits:
+                if remaining_to_restore <= 0:
+                    break
+                stock_batch = StockBatch.objects.filter(batch_number=batch_number, inventory=inventory).first()
+                if not stock_batch:
+                    continue
+                restore_qty = min(remaining_to_restore, max_qty)
+                if restore_qty <= 0:
+                    continue
+                stock_batch.quantity = max(0, _int(stock_batch.quantity, 0) + restore_qty)
                 stock_batch.status = "ACTIVE"
-                stock_batch.inventory = inventory
-                stock_batch.save(update_fields=["quantity", "status", "inventory", "updated_at"])
-            else:
-                StockBatch.objects.create(
-                    batch_number=return_batch_number,
-                    inventory=inventory,
-                    quantity=transferable_qty,
-                    receipt_date=timezone.now(),
-                    location_label="SPARE-RETURN",
-                    status="ACTIVE",
-                    created_by=performed_by,
+                stock_batch.save(update_fields=["quantity", "status", "updated_at"])
+                remaining_to_restore -= restore_qty
+
+            # Never create a new "SPARE-RET" batch. If there is remainder due to missing
+            # source-batch linkage, place it in an existing batch of the same inventory.
+            if remaining_to_restore > 0:
+                fallback_batch = (
+                    StockBatch.objects.filter(inventory=inventory)
+                    .order_by("receipt_date", "created_at")
+                    .first()
                 )
+                if fallback_batch:
+                    fallback_batch.quantity = max(0, _int(fallback_batch.quantity, 0) + remaining_to_restore)
+                    fallback_batch.status = "ACTIVE"
+                    fallback_batch.save(update_fields=["quantity", "status", "updated_at"])
+                else:
+                    logger.warning(
+                        "Unable to map %s returned spare qty to existing batch for order_item=%s warehouse=%s product=%s",
+                        remaining_to_restore,
+                        order_item.id,
+                        inventory.warehouse_id,
+                        product.id,
+                    )
 
 
 def _sorted_batches_for_policy(batches: list[StockBatch], policy: str) -> list[StockBatch]:
@@ -2403,6 +2734,19 @@ def _warehouse_staff_emails() -> list[str]:
     return sorted(set(out))
 
 
+def _ops_staff_emails() -> list[str]:
+    rows = User.objects.filter(
+        role__in=[RoleType.SUPER_ADMIN, RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
+        is_active=True,
+    ).values_list("email", flat=True)
+    out: list[str] = []
+    for email in rows:
+        value = _normalize_email(email)
+        if value:
+            out.append(value)
+    return sorted(set(out))
+
+
 def _email_new_order_to_warehouse_staff(order: Order) -> None:
     recipients = _warehouse_staff_emails()
     if not recipients:
@@ -2550,6 +2894,35 @@ def _email_order_confirmed_to_customer(order: Order) -> None:
         f"Delivery Address: {shipping_address}\n\n"
         f"We are now preparing your order for dispatch.\n\n"
         f"Thank you for ordering with us."
+    )
+    _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
+
+
+def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> None:
+    customer_email = _normalize_email(getattr(order.customer, "email", ""))
+    if not customer_email:
+        return
+
+    item_lines: list[str] = []
+    order_items = list(order.items.select_related("product").all()) if hasattr(order, "items") else []
+    for item in order_items:
+        product_name = str(getattr(getattr(item, "product", None), "name", "") or "Product").strip() or "Product"
+        quantity = int(getattr(item, "quantity", 0) or 0)
+        unit_price = float(getattr(item, "unit_price", 0) or 0)
+        subtotal = float(quantity * unit_price)
+        item_lines.append(f"- {product_name} x{quantity} ({subtotal:,.2f})")
+
+    subject = f"Order Rejected: {order.order_number}"
+    message = (
+        f"Your order request has been rejected.\n\n"
+        f"Order Number: {order.order_number}\n"
+        f"Customer: {getattr(order, 'shipping_name', '') or getattr(getattr(order, 'customer', None), 'name', '') or 'N/A'}\n"
+        f"Reason: {rejection_reason or 'No reason provided'}\n\n"
+        f"Order Details:\n"
+        f"{chr(10).join(item_lines) if item_lines else '- No items found'}\n\n"
+        f"Total Amount: {float(getattr(order, 'total_amount', 0) or 0):,.2f}\n"
+        f"Date: {timezone.localtime(getattr(order, 'created_at', timezone.now())).strftime('%Y-%m-%d %I:%M %p')}\n\n"
+        f"If you need help, please contact support."
     )
     _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
 
@@ -4530,6 +4903,35 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     if normalized_status not in allowed_statuses:
         return _err("Invalid replacement status", 400)
 
+    replacement_delivery_date_raw = str(body.get("replacementDeliveryDate") or "").strip()
+    replacement_delivery_date = None
+    if replacement_delivery_date_raw:
+        try:
+            replacement_delivery_date = datetime.fromisoformat(replacement_delivery_date_raw).date()
+        except ValueError:
+            return _err("Invalid replacementDeliveryDate. Expected YYYY-MM-DD", 400)
+
+    create_replacement_order = bool(body.get("createReplacementOrder"))
+    staff_role = str(staff.get("role") or "").strip().upper()
+    is_admin_role = staff_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
+    is_warehouse_role = staff_role == RoleType.WAREHOUSE_STAFF
+
+    if create_replacement_order and normalized_status not in {ReplacementStatus.APPROVED, ReplacementStatus.IN_PROGRESS}:
+        return _err("Replacement must be APPROVED before scheduling delivery", 400)
+    if create_replacement_order and not replacement_delivery_date:
+        return _err("replacementDeliveryDate is required when createReplacementOrder is true", 400)
+    if create_replacement_order and not is_warehouse_role:
+        return _err("Only warehouse staff can schedule replacement deliveries", 403)
+    if not create_replacement_order and not is_admin_role:
+        return _err("Only admin can set replacement UNDER_REVIEW, APPROVED, or REJECTED", 403)
+    if is_admin_role and normalized_status not in {ReplacementStatus.UNDER_REVIEW, ReplacementStatus.APPROVED, ReplacementStatus.REJECTED}:
+        return _err("Admin can only set replacement to UNDER_REVIEW, APPROVED, or REJECTED here", 400)
+    if create_replacement_order and str(_normalize_replacement_status(getattr(r, "status", None), r.replacement_mode) or "").upper() not in {
+        ReplacementStatus.APPROVED,
+        ReplacementStatus.IN_PROGRESS,
+    }:
+        return _err("Replacement must be approved by admin before warehouse can schedule it", 400)
+
     r.status = normalized_status
     status_notes = str(body.get("notes") or "").strip()
     if normalized_status == ReplacementStatus.REJECTED and not status_notes:
@@ -4539,12 +4941,77 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     if normalized_status in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}:
         r.processed_at = timezone.now()
         r.processed_by = staff.get("userId")
-    r.notes = f"{r.notes or ''}\n{normalized_status}{f': {status_notes}' if status_notes else ''}".strip()
+    if create_replacement_order and replacement_delivery_date:
+        replacement_order = _create_scheduled_replacement_order(
+            r,
+            scheduled_date=replacement_delivery_date,
+            staff_user_id=str(staff.get("userId") or "").strip() or None,
+        )
+        r.status = ReplacementStatus.IN_PROGRESS
+        if normalized_status == ReplacementStatus.APPROVED and not status_notes:
+            status_notes = "Replacement approved and scheduled for delivery"
+        _create_staff_notifications(
+            title="Replacement delivery scheduled",
+            message=(
+                f"{str(staff.get('name') or 'Staff').strip() or 'Staff'} scheduled {r.replacement_number} "
+                f"as order {replacement_order.order_number} for {replacement_delivery_date.isoformat()}."
+            ),
+            notification_type="REPLACEMENT",
+            reference_type="order",
+            reference_id=replacement_order.id,
+        )
+    final_status = str(r.status or normalized_status)
+    r.notes = _append_replacement_note_line(
+        r.notes,
+        f"{final_status}{f': {status_notes}' if status_notes else ''}",
+    )
     r.save()
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    serialized_replacement = _serialize_replacement(r)
+    replacement_lines = serialized_replacement.get("replacementLines") or serialized_replacement.get("replacementItems") or []
+    product_names: list[str] = []
+    for line in replacement_lines[:3]:
+        if not isinstance(line, dict):
+            continue
+        name = str(line.get("originalProductName") or line.get("replacementProductName") or "").strip()
+        if name:
+            product_names.append(name)
+    replacement_product_hint = ", ".join(product_names) if product_names else "N/A"
+    replacement_reason = str(getattr(r, "reason", "") or "").strip() or "N/A"
     _create_staff_notifications(
         title="Replacement updated",
-        message=f"{actor_name} changed replacement {r.replacement_number} to {normalized_status}.",
+        message=(
+            f"{actor_name} changed replacement {r.replacement_number} to {final_status}. "
+            f"Reason: {replacement_reason}. Product Ref: {replacement_product_hint}."
+        ),
+        notification_type="REPLACEMENT",
+        reference_type="replacement",
+        reference_id=r.id,
+    )
+    _send_transactional_email(
+        subject=f"Replacement Update: {r.replacement_number} - {final_status}",
+        message=(
+            f"Replacement status update\n\n"
+            f"Replacement: {r.replacement_number}\n"
+            f"Order: {getattr(getattr(r, 'order', None), 'order_number', 'N/A')}\n"
+            f"Updated by: {actor_name} ({staff_role})\n"
+            f"Status: {final_status}\n"
+            f"Product(s): {replacement_product_hint}\n"
+            f"Reason: {replacement_reason}\n"
+            f"{f'Scheduled delivery date: {replacement_delivery_date.isoformat()}\\n' if replacement_delivery_date else ''}"
+            f"{f'Notes: {status_notes}\\n' if status_notes else ''}"
+        ),
+        recipients=_ops_staff_emails(),
+    )
+    customer_obj = getattr(getattr(r, "order", None), "customer", None)
+    _create_customer_notification(
+        customer=customer_obj,
+        title="Replacement status updated",
+        message=(
+            f"Replacement {r.replacement_number} is now {final_status}. "
+            f"Reason: {replacement_reason}. "
+            f"{f'Scheduled delivery date: {replacement_delivery_date.isoformat()}. ' if replacement_delivery_date else ''}"
+        ),
         notification_type="REPLACEMENT",
         reference_type="replacement",
         reference_id=r.id,
@@ -4592,6 +5059,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         return err
     body = _json_body(request)
     status = body.get("status")
+    rejection_reason = str(body.get("reason") or "").strip()
     if not status:
         return _err("status is required")
     next_status = _normalize_order_status(status)
@@ -4643,7 +5111,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 _release_order_reservations(o, staff.get("userId"))
 
             o.status = next_status
-            o.save(update_fields=["status", "updated_at"])
+            if rejection_reason:
+                existing_notes = str(getattr(o, "notes", "") or "").strip()
+                note_line = f"Order Rejected: {rejection_reason}"
+                o.notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
+                o.save(update_fields=["status", "notes", "updated_at"])
+            else:
+                o.save(update_fields=["status", "updated_at"])
 
             timeline, _ = OrderTimeline.objects.get_or_create(order=o)
             now = timezone.now()
@@ -4673,6 +5147,10 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
 
     if str(staff.get("role") or "").strip().upper() == RoleType.WAREHOUSE_STAFF and next_status == OrderStatus.CONFIRMED:
         _email_order_confirmed_to_customer(updated)
+    # Rejection flow from portal actions carries a reason; notify customer by email with order details.
+    if rejection_reason:
+        updated_for_mail = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=updated.id)
+        _email_order_rejected_to_customer(updated_for_mail, rejection_reason)
 
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
 
@@ -5246,9 +5724,27 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         notes=f"Customer-submitted replacement request\nMeta: {json.dumps(meta)}",
     )
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
+    product_name_match = re.search(r"\[([^\]]+)\]", str(replacement.description or ""))
+    product_hint = str(product_name_match.group(1) if product_name_match else "").strip() or "N/A"
+    description_hint = str(replacement.description or "").strip() or "N/A"
     _create_staff_notifications(
         title="New replacement request",
-        message=f"{customer_name} submitted replacement request {replacement.replacement_number} for order {order.order_number}.",
+        message=(
+            f"{customer_name} submitted replacement request {replacement.replacement_number} for order {order.order_number}. "
+            f"Product: {product_hint}. Reason: {damage_type}. Details: {description_hint}."
+        ),
+        notification_type="REPLACEMENT",
+        reference_type="replacement",
+        reference_id=replacement.id,
+    )
+    _create_customer_notification(
+        customer=order.customer,
+        title="Replacement request submitted",
+        message=(
+            f"Replacement request {replacement.replacement_number} was submitted. "
+            f"Product: {product_hint}. Reason: {damage_type}. "
+            "You will be notified once admin reviews and approves/rejects it."
+        ),
         notification_type="REPLACEMENT",
         reference_type="replacement",
         reference_id=replacement.id,
@@ -5260,10 +5756,12 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
             f"Replacement: {replacement.replacement_number}\n"
             f"Order: {order.order_number}\n"
             f"Customer: {customer_name}\n"
+            f"Product: {product_hint}\n"
             f"Damaged items: {number_damaged_items}\n"
             f"Damage type: {damage_type}\n"
+            f"Details: {description_hint}\n"
         ),
-        recipients=_warehouse_staff_emails(),
+        recipients=_ops_staff_emails(),
     )
     return _ok({"success": True, "replacement": _serialize_replacement(replacement)}, 201)
 
@@ -6147,6 +6645,7 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 "id": o.id,
                 "orderId": o.id,
                 "orderNumber": o.order_number,
+                "isScheduledReplacement": str(o.order_number or "").strip().upper().startswith("RPL-"),
                 "customerName": o.customer.name,
                 "address": address,
                 "shippingAddress": address,

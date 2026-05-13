@@ -873,9 +873,13 @@ export function WarehousePortal() {
   const scopedOrders = useMemo(() => {
     if (!assignedWarehouse) return orders
     const hasOrderWarehouseRefs = orders.some((item) => item?.warehouseId)
-    if (!hasOrderWarehouseRefs) return orders
-    const filtered = orders.filter((item) => !item?.warehouseId || item?.warehouseId === assignedWarehouse.id)
-    return filtered.length > 0 ? filtered : orders
+    const warehouseScoped = hasOrderWarehouseRefs
+      ? orders.filter((item) => !item?.warehouseId || item?.warehouseId === assignedWarehouse.id)
+      : orders
+    return warehouseScoped.filter((item) => {
+      const number = String(item?.orderNumber || item?.order_number || '').trim().toUpperCase()
+      return !Boolean(item?.isScheduledReplacement) && !number.startsWith('RPL-')
+    })
   }, [assignedWarehouse, orders])
 
   const isDropPointCompleted = (status: unknown) => {
@@ -1391,6 +1395,7 @@ export function WarehousePortal() {
     let replacedQty = 0
     let resolvedOnDelivery = 0
     let needsFollowUp = 0
+    let rejected = 0
 
     for (const entry of scopedReplacements) {
       const meta = parseMeta(entry?.notes)
@@ -1402,19 +1407,50 @@ export function WarehousePortal() {
           : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
             ? 'IN_PROGRESS'
             : rawStatus === 'REJECTED'
-              ? 'NEEDS_FOLLOW_UP'
+              ? 'REJECTED'
               : rawStatus === 'PROCESSED'
                 ? 'COMPLETED'
                 : rawStatus
-      const qty = Number(entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
-      if (qty > 0) {
-        replacedQty += qty
+      if (status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED') {
+        const replacementLines =
+          (Array.isArray((entry as any)?.replacementLines) && (entry as any).replacementLines.length ? (entry as any).replacementLines : null) ||
+          (Array.isArray((meta as any)?.replacementLines) && (meta as any).replacementLines.length ? (meta as any).replacementLines : null) ||
+          []
+        const firstLine = replacementLines[0] || {}
+        const lineReplacedUnits = Number(
+          firstLine?.replacedCases ??
+          firstLine?.quantityReplacedCases ??
+          firstLine?.replacementCases
+        )
+        const lineReplacedBottles = Number(
+          firstLine?.replacedBottles ??
+          firstLine?.quantityReplacedBottles ??
+          firstLine?.replacementBottles
+        )
+        const fallbackQty = Number(
+          (entry as any)?.quantityReplaced ??
+          (meta as any)?.quantityReplaced ??
+          (entry as any)?.replacementQuantity ??
+          (meta as any)?.replacementQuantity ??
+          0
+        )
+        const qty = Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+          ? lineReplacedUnits
+          : Number.isFinite(lineReplacedBottles) && lineReplacedBottles > 0
+            ? lineReplacedBottles
+            : (Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0)
+        if (qty > 0) {
+          replacedQty += qty
+        }
       }
       if (status === 'RESOLVED_ON_DELIVERY') {
         resolvedOnDelivery += 1
       }
-      if (status === 'NEEDS_FOLLOW_UP') {
+      if (status === 'NEEDS_FOLLOW_UP' && mode !== 'CUSTOMER_SUBMITTED') {
         needsFollowUp += 1
+      }
+      if (status === 'REJECTED') {
+        rejected += 1
       }
     }
 
@@ -1422,6 +1458,7 @@ export function WarehousePortal() {
       replacedQty,
       resolvedOnDelivery,
       needsFollowUp,
+      rejected,
       totalCases: scopedReplacements.length,
     }
   }, [scopedReplacements])
@@ -1494,8 +1531,8 @@ export function WarehousePortal() {
     const inTransitTrips = scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length
     const openReplacements = scopedReplacements.filter((entry) => {
       const raw = String(entry.status || '').toUpperCase()
-      const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw === 'REJECTED' ? 'NEEDS_FOLLOW_UP' : raw
-      return !['RESOLVED_ON_DELIVERY', 'COMPLETED'].includes(normalized)
+      const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw
+      return !['RESOLVED_ON_DELIVERY', 'COMPLETED', 'REJECTED'].includes(normalized)
     }).length
     const utilizationStatus = usagePercent >= 90 ? 'Critical' : usagePercent >= 75 ? 'High' : usagePercent >= 55 ? 'Moderate' : 'Healthy'
     const skuVelocityData = scopedInventory
@@ -2746,13 +2783,16 @@ export function WarehousePortal() {
     return Math.ceil((end - start) / (1000 * 60 * 60 * 24))
   }
 
-  const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null) => {
+  const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null, notes?: string | null) => {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING APPROVAL'
     }
 
     const rawStatus = String(status || '').toUpperCase()
     const rawStage = String(warehouseStage || '').toUpperCase()
+    const noteText = String(notes || '').toLowerCase()
+
+    if (rawStatus === 'CANCELLED' && noteText.includes('order rejected')) return 'REJECTED'
 
     if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(rawStatus)) return 'DELIVERED'
     if (['FAILED', 'FAILED_DELIVERY', 'CANCELLED', 'REJECTED'].includes(rawStatus)) return 'CANCELLED'
@@ -2773,7 +2813,7 @@ export function WarehousePortal() {
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
     scopedOrders.forEach((order) => {
-      statuses.add(formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage))
+      statuses.add(formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))
     })
     return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
   }, [scopedOrders])
@@ -2794,7 +2834,7 @@ export function WarehousePortal() {
     }
 
     return scopedOrders.filter((order) => {
-      const normalizedStatus = formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage)
+      const normalizedStatus = formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
       if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
 
       const rawDate = String(order.deliveryDate || order.createdAt || '')
@@ -2848,6 +2888,16 @@ export function WarehousePortal() {
 
     const combined = [address, ...extras].filter(Boolean).join(', ')
     return combined || 'N/A'
+  }
+
+  const getOrderItemSizeLabel = (item: any): string => {
+    const productSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes : []
+    const combinedSizes = productSizes
+      .map((value: any) => String(value || '').trim())
+      .filter(Boolean)
+      .join(' ')
+    if (combinedSizes) return combinedSizes
+    return String(item?.product?.size || item?.product?.sizeLabel || item?.product?.unit || item?.productUnit || '').trim()
   }
 
   const updateWarehouseOrderStatus = async (
@@ -2911,11 +2961,86 @@ export function WarehousePortal() {
       const parsed = JSON.parse(jsonText)
       return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
-      return {}
+      try {
+        const decoder = (JSON as any)
+        if (typeof decoder?.parse !== 'function') return {}
+        const firstBrace = jsonText.indexOf('{')
+        if (firstBrace < 0) return {}
+        let depth = 0
+        let endIndex = -1
+        for (let i = firstBrace; i < jsonText.length; i += 1) {
+          const ch = jsonText[i]
+          if (ch === '{') depth += 1
+          if (ch === '}') {
+            depth -= 1
+            if (depth === 0) {
+              endIndex = i
+              break
+            }
+          }
+        }
+        if (endIndex < 0) return {}
+        const objectText = jsonText.slice(firstBrace, endIndex + 1)
+        const parsed = JSON.parse(objectText)
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
     }
   }
 
   const buildReplacementLines = (replacement: any, meta: any) => {
+    const rawStatus = String(replacement?.status || '').trim().toUpperCase()
+    const isReplacementCompleted = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
+      const unitHint = String(
+        line?.productUnit ||
+        line?.replacementProductUnit ||
+        line?.originalProductUnit ||
+        line?.unit ||
+        ''
+      ).trim().toLowerCase()
+      const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
+      const byPackText = /\bby\s*pack\b/.test(contextText)
+      const byCaseText = /\bby\s*case\b/.test(contextText)
+      const byBottleText = /\bby\s*bottle\b/.test(contextText)
+      const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
+      const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
+      const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+      const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
+      const isPackUnit = unitHint.includes('pack') || byPackText
+
+      const caseLikeQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases)
+          : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases)
+      )
+      const bottleQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles)
+          : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles)
+      )
+
+      if (Number.isFinite(caseLikeQty) && caseLikeQty > 0) {
+        return `${caseLikeQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
+      }
+      if (Number.isFinite(bottleQty) && bottleQty > 0) {
+        return `${bottleQty} bottle(s)`
+      }
+
+      const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+      if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) {
+        return `${fallback / qtyPerCase} case(s)`
+      }
+      if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) {
+        return `${fallback / qtyPerPack} pack(s)`
+      }
+      if (byBottleText) {
+        return `${fallback} bottle(s)`
+      }
+      return String(fallback)
+    }
+
     const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
       ? replacement.replacementLines
       : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
@@ -2925,19 +3050,57 @@ export function WarehousePortal() {
           : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
             ? meta.replacementItems
         : []
+    const orderNumberKey = String(replacement?.orderNumber || replacement?.order?.orderNumber || '').trim().toUpperCase()
+    const sourceOrder =
+      orders.find((order: any) => String(order?.orderNumber || '').trim().toUpperCase() === orderNumberKey) ||
+      orders.find((order: any) => String(order?.id || '') === String(replacement?.orderId || replacement?.order?.id || '')) ||
+      null
+    const sourceOrderItems = Array.isArray(sourceOrder?.items) ? sourceOrder.items : []
+    const fallbackProductName =
+      String(
+        sourceOrderItems[0]?.product?.name ||
+        sourceOrderItems[0]?.productName ||
+        sourceOrderItems[0]?.name ||
+        ''
+      ).trim() || 'N/A'
     const fallbackLine = {
-      originalProductName: replacement?.originalProductName || meta?.originalProductName || 'N/A',
-      replacementProductName: replacement?.replacementProductName || meta?.replacementProductName || replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      originalProductName:
+        replacement?.originalProductName ||
+        meta?.originalProductName ||
+        replacement?.order?.items?.[0]?.product?.name ||
+        replacement?.order?.items?.[0]?.productName ||
+        fallbackProductName ||
+        'N/A',
+      replacementProductName:
+        replacement?.replacementProductName ||
+        meta?.replacementProductName ||
+        replacement?.originalProductName ||
+        meta?.originalProductName ||
+        replacement?.order?.items?.[0]?.product?.name ||
+        replacement?.order?.items?.[0]?.productName ||
+        fallbackProductName ||
+        'N/A',
       quantityToReplace: replacement?.quantityToReplace ?? meta?.quantityToReplace ?? meta?.damagedQuantity ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
       quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
     }
     const lines = sourceLines.length ? sourceLines : [fallbackLine]
-    return lines.map((line: any) => ({
-      originalProductName: String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A'),
-      replacementProductName: String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A'),
-      quantityToReplace: Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0),
-      quantityReplaced: Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0),
-    }))
+    return lines.map((line: any) => {
+      const originalSize = String(line?.originalProductSize || replacement?.originalProductSize || meta?.originalProductSize || '').trim()
+      const replacementSize = String(line?.replacementProductSize || replacement?.replacementProductSize || meta?.replacementProductSize || originalSize || '').trim()
+      const originalBaseName = String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A')
+      const replacementBaseName = String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A')
+      const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
+      const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
+      const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
+      return {
+        originalProductName: originalSize ? `${originalBaseName} (${originalSize})` : originalBaseName,
+        replacementProductName: replacementSize ? `${replacementBaseName} (${replacementSize})` : replacementBaseName,
+        quantityToReplace,
+        quantityReplaced,
+        quantityToReplaceDisplay: toDisplayQty(line, quantityToReplace, 'toReplace'),
+        quantityReplacedDisplay: isReplacementCompleted ? toDisplayQty(line, quantityReplaced, 'replaced') : '0',
+      }
+    })
   }
 
   const formatIssueStatus = (entry: WarehouseReplacementItem) => {
@@ -2948,10 +3111,11 @@ export function WarehousePortal() {
         : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
           ? 'IN_PROGRESS'
           : rawStatus === 'REJECTED'
-            ? 'NEEDS_FOLLOW_UP'
+            ? 'REJECTED'
             : rawStatus === 'PROCESSED'
               ? 'COMPLETED'
               : rawStatus
+    if (normalizedStatus === 'REJECTED') return 'Rejected'
     if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
     if (normalizedStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
     if (normalizedStatus === 'COMPLETED') return 'Completed'
@@ -2962,7 +3126,7 @@ export function WarehousePortal() {
   const updateIssueStatus = async (
     replacementId: string,
     status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    options?: { notes?: string; createReplacementOrder?: boolean }
+    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string }
   ) => {
     setUpdatingReplacementId(replacementId)
     try {
@@ -2975,25 +3139,32 @@ export function WarehousePortal() {
           status,
           notes: options?.notes,
           createReplacementOrder: options?.createReplacementOrder,
+          replacementDeliveryDate: options?.replacementDeliveryDate,
         }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
-
-      toast.success(`Replacement updated to ${status.replace(/_/g, ' ')}`)
+      const nextReplacement = payload?.replacement || {}
+      const nextStatus = String(nextReplacement?.status || status || '').toUpperCase()
+      const schedulingFlow = Boolean(options?.createReplacementOrder && options?.replacementDeliveryDate)
+      if (schedulingFlow) {
+        toast.success('Replacement delivery scheduled')
+      } else {
+        toast.success(`Replacement updated to ${nextStatus.replace(/_/g, ' ')}`)
+      }
       emitDataSync(['replacements', 'orders'])
       setReplacements((prev) =>
         prev.map((entry) =>
           entry.id === replacementId
-            ? { ...entry, status, notes: options?.notes || entry.notes }
+            ? { ...entry, ...nextReplacement, status: nextStatus || entry.status, notes: nextReplacement?.notes || options?.notes || entry.notes }
             : entry
         )
       )
       setSelectedReplacement((current) =>
         current?.id === replacementId
-          ? { ...current, status, notes: options?.notes || current.notes }
+          ? { ...current, ...nextReplacement, status: nextStatus || current.status, notes: nextReplacement?.notes || options?.notes || current.notes }
           : current
       )
       void Promise.all([
@@ -3114,6 +3285,10 @@ export function WarehousePortal() {
               openOrderDetail={openOrderDetail}
               updateWarehouseOrderStatus={updateWarehouseOrderStatus}
               updatingOrderId={updatingOrderId}
+              openRejectDialog={(order) => {
+                setRejectReason('')
+                setRejectOrder(order)
+              }}
             />
           )}
 
@@ -3462,6 +3637,9 @@ export function WarehousePortal() {
                                     {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
                                   </span>
                                   <span className="truncate">{order.orderNumber || order.id}</span>
+                                  {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                  ) : null}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
                               </button>
@@ -3555,7 +3733,12 @@ export function WarehousePortal() {
                           <div key={order.id} className="flex items-start gap-2 rounded-lg border bg-white p-3">
                             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-sm font-bold text-white">{idx + 1}</div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
+                              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                <span>{order.customerName || order.orderNumber}</span>
+                                {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                ) : null}
+                              </div>
                               <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
                               {order.products && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
@@ -3654,6 +3837,12 @@ export function WarehousePortal() {
         <DialogContent className="max-h-[85vh] w-full max-w-4xl overflow-y-auto">
           {selectedOrder && (
             <>
+              {(() => {
+                const isReplacementOrderInDetails =
+                  Boolean((selectedOrder as any)?.isScheduledReplacement) ||
+                  String((selectedOrder as any)?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
+                return (
+                  <>
               <DialogHeader>
                 <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
                 <DialogDescription>{loadingOrderDetail ? 'Loading latest order details...' : undefined}</DialogDescription>
@@ -3691,13 +3880,13 @@ export function WarehousePortal() {
                     {(selectedOrder.items || []).map((item) => (
                       <div key={item.id} className="flex justify-between gap-3 text-sm">
                         <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {(item as any).spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number((item as any).spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)} | Policy {Number((item as any).spareProducts.minPercent || 0)}-{Number((item as any).spareProducts.maxPercent || 0)}%</p>
-                            </div>
-                          ) : null}
+                          <p>
+                            {item.product?.name || 'Product'}
+                            {getOrderItemSizeLabel(item)
+                              ? ` ${getOrderItemSizeLabel(item)}`
+                              : ''}
+                            {' '}x{item.quantity}
+                          </p>
                         </div>
                         <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                       </div>
@@ -3716,13 +3905,13 @@ export function WarehousePortal() {
                     {(selectedOrder.items || []).map((item) => (
                       <div key={item.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                         <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {(item as any).spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number((item as any).spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)}</p>
-                            </div>
-                          ) : null}
+                          <p>
+                            {item.product?.name || 'Product'}
+                            {getOrderItemSizeLabel(item)
+                              ? ` ${getOrderItemSizeLabel(item)}`
+                              : ''}
+                            {' '}x{item.quantity}
+                          </p>
                         </div>
                         <span className="font-medium text-gray-500">
                           Pending
@@ -3789,7 +3978,12 @@ export function WarehousePortal() {
 
                               return (
                                 <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
-                                  <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                  <span className="inline-flex items-center gap-2">
+                                    <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                    {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                    ) : null}
+                                  </span>
                                   <span className="text-xs uppercase text-slate-500">
                                     {rawStatus.replace(/_/g, ' ')}
                                     {rawStatus === 'RESCHEDULED' && scheduleLabel ? ` • ${scheduleLabel}` : ''}
@@ -3861,6 +4055,9 @@ export function WarehousePortal() {
                   )
                 })()}
               </div>
+                  </>
+                )
+              })()}
             </>
           )}
         </DialogContent>
@@ -3888,11 +4085,14 @@ export function WarehousePortal() {
                   <Button
                     className="flex-1 bg-red-600 hover:bg-red-700"
                     onClick={async () => {
-                      if (!['PREPARING'].includes(rejectOrder.status)) {
-                        toast.error('Order is not eligible for packing')
+                      const orderStatus = String(rejectOrder?.status || '').toUpperCase()
+                      const paymentStatus = String(rejectOrder?.paymentStatus || '').toLowerCase()
+                      const canReject = paymentStatus === 'pending_approval' || orderStatus === 'PENDING'
+                      if (!canReject) {
+                        toast.error('Only not-yet-approved orders can be rejected.')
                         return
                       }
-                      await updateWarehouseOrderStatus(rejectOrder.id, 'PREPARING', rejectReason.trim() || undefined)
+                      await updateWarehouseOrderStatus(rejectOrder.id, 'CANCELLED', rejectReason.trim() || undefined)
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}
@@ -4133,4 +4333,3 @@ export function WarehousePortal() {
     </div>
   )
 }
-
