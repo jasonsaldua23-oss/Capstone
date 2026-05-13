@@ -149,55 +149,54 @@ export function ReplacementsView() {
   }
 
   const buildReplacementLines = (replacement: any, meta: any) => {
-    const rawStatus = String(replacement?.status || '').trim().toUpperCase()
-    const isReplacementCompleted = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
     const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
-      const unitHint = String(
-        line?.productUnit ||
-        line?.replacementProductUnit ||
-        line?.originalProductUnit ||
-        line?.unit ||
-        ''
-      ).trim().toLowerCase()
       const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
-      const byPackText = /\bby\s*pack\b/.test(contextText)
-      const byCaseText = /\bby\s*case\b/.test(contextText)
       const byBottleText = /\bby\s*bottle\b/.test(contextText)
+      const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*unit\s*[:\-]?\s*(\d+)/i)
       const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
       const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
-      const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+      const qtyPerBundleMatch = contextText.match(/qty\s*\/\s*bundle\s*[:\-]?\s*(\d+)/i)
+      const qtyPerUnitFromFields = Number(line?.qtyPerUnit ?? line?.quantityPerUnit ?? replacement?.qtyPerUnit ?? replacement?.quantityPerUnit ?? meta?.qtyPerUnit ?? meta?.quantityPerUnit ?? NaN)
+      const qtyPerUnit = Number.isFinite(qtyPerUnitFromFields) && qtyPerUnitFromFields > 0 ? qtyPerUnitFromFields : (qtyPerUnitMatch ? Number(qtyPerUnitMatch[1]) : NaN)
+      const qtyPerCaseFromFields = Number(line?.qtyPerCase ?? line?.quantityPerCase ?? replacement?.qtyPerCase ?? replacement?.quantityPerCase ?? meta?.qtyPerCase ?? meta?.quantityPerCase ?? NaN)
+      const qtyPerCase = Number.isFinite(qtyPerCaseFromFields) && qtyPerCaseFromFields > 0 ? qtyPerCaseFromFields : (qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN)
       const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
-      const isPackUnit = unitHint.includes('pack') || byPackText
+      const qtyPerBundle = qtyPerBundleMatch ? Number(qtyPerBundleMatch[1]) : NaN
 
-      const caseLikeQty = Number(
-        mode === 'toReplace'
-          ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases)
-          : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases)
-      )
-      const bottleQty = Number(
-        mode === 'toReplace'
-          ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles)
-          : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles)
-      )
-
-      if (Number.isFinite(caseLikeQty) && caseLikeQty > 0) {
-        return `${caseLikeQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
-      }
-      if (Number.isFinite(bottleQty) && bottleQty > 0) {
-        return `${bottleQty} bottle(s)`
-      }
-
-      const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
-      if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) {
-        return `${fallback / qtyPerCase} case(s)`
-      }
-      if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) {
-        return `${fallback / qtyPerPack} pack(s)`
-      }
+      // Mirror getModalQtyDisplay from warehouse portal
       if (byBottleText) {
-        return `${fallback} bottle(s)`
+        const bottleQty = Number(
+          mode === 'toReplace'
+            ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles ?? line?.quantityToReplace)
+            : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles ?? line?.quantityReplaced)
+        )
+        if (Number.isFinite(bottleQty)) return `${bottleQty} bottle(s)`
+        const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+        return fallback > 0 ? `${fallback} bottle(s)` : '0'
       }
-      return String(fallback)
+
+      const directUnitQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases ?? line?.unitsToReplace ?? line?.quantityToReplaceUnits)
+          : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases ?? line?.unitsReplaced ?? line?.quantityReplacedUnits)
+      )
+      if (Number.isFinite(directUnitQty) && directUnitQty >= 0) return `${directUnitQty} unit(s)`
+
+      // Pick effective qtyPerUnit across all unit types
+      const effectiveQtyPerUnit = Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 ? qtyPerUnit
+        : Number.isFinite(qtyPerCase) && qtyPerCase > 0 ? qtyPerCase
+        : Number.isFinite(qtyPerPack) && qtyPerPack > 0 ? qtyPerPack
+        : Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 ? qtyPerBundle
+        : NaN
+
+      // Always use fallbackNumeric — it's the pre-computed qty (toReplace, replaced, OR remaining)
+      const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+      if (Number.isFinite(effectiveQtyPerUnit) && effectiveQtyPerUnit > 0 && fallback > 0) {
+        const units = fallback / effectiveQtyPerUnit
+        const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+        return `${unitsText} unit(s)`
+      }
+      return fallback > 0 ? `${fallback} unit(s)` : '0'
     }
 
     const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
@@ -240,7 +239,7 @@ export function ReplacementsView() {
         fallbackProductName ||
         'N/A',
       quantityToReplace: replacement?.quantityToReplace ?? meta?.quantityToReplace ?? meta?.damagedQuantity ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
-      quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
+      quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? 0,
     }
     const lines = sourceLines.length ? sourceLines : [fallbackLine]
     return lines.map((line: any) => {
@@ -250,14 +249,17 @@ export function ReplacementsView() {
       const replacementBaseName = String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A')
       const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
       const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
-      const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
+      const quantityReplaced = Math.max(0, rawQuantityReplaced)
+      const quantityRemaining = Math.max(0, quantityToReplace - quantityReplaced)
       return {
         originalProductName: originalSize ? `${originalBaseName} (${originalSize})` : originalBaseName,
         replacementProductName: replacementSize ? `${replacementBaseName} (${replacementSize})` : replacementBaseName,
         quantityToReplace,
         quantityReplaced,
+        quantityRemaining,
         quantityToReplaceDisplay: toDisplayQty(line, quantityToReplace, 'toReplace'),
-        quantityReplacedDisplay: isReplacementCompleted ? toDisplayQty(line, quantityReplaced, 'replaced') : '0',
+        quantityReplacedDisplay: quantityReplaced > 0 ? toDisplayQty(line, quantityReplaced, 'replaced') : '0',
+        quantityRemainingDisplay: quantityRemaining > 0 ? toDisplayQty(line, quantityRemaining, 'toReplace') : '0',
       }
     })
   }
@@ -279,13 +281,25 @@ export function ReplacementsView() {
     ).trim().toLowerCase()
     const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
     const byPackText = /\bby\s*pack\b/.test(contextText)
+    const byBundleText = /\bby\s*bundle\b/.test(contextText)
+    const byUnitText = /\bby\s*unit\b/.test(contextText)
     const byCaseText = /\bby\s*case\b/.test(contextText)
     const byBottleText = /\bby\s*bottle\b/.test(contextText)
+    const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*unit\s*[:\-]?\s*(\d+)/i)
     const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
     const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
-    const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+    const qtyPerBundleMatch = contextText.match(/qty\s*\/\s*bundle\s*[:\-]?\s*(\d+)/i)
+    const qtyPerUnitFromFields = Number(first?.qtyPerUnit ?? first?.quantityPerUnit ?? entry?.qtyPerUnit ?? entry?.quantityPerUnit ?? meta?.qtyPerUnit ?? meta?.quantityPerUnit ?? NaN)
+    const qtyPerUnit = Number.isFinite(qtyPerUnitFromFields) && qtyPerUnitFromFields > 0 ? qtyPerUnitFromFields : (qtyPerUnitMatch ? Number(qtyPerUnitMatch[1]) : NaN)
+    const qtyPerCaseFromFields = Number(first?.qtyPerCase ?? first?.quantityPerCase ?? entry?.qtyPerCase ?? entry?.quantityPerCase ?? meta?.qtyPerCase ?? meta?.quantityPerCase ?? NaN)
+    const qtyPerCase = Number.isFinite(qtyPerCaseFromFields) && qtyPerCaseFromFields > 0 ? qtyPerCaseFromFields : (qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN)
     const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
-    const isPackUnit = unitHint.includes('pack') || byPackText
+    const qtyPerBundle = qtyPerBundleMatch ? Number(qtyPerBundleMatch[1]) : NaN
+    const unitLabel =
+      unitHint.includes('pack') || byPackText ? 'pack(s)'
+        : unitHint.includes('bundle') || byBundleText ? 'bundle(s)'
+          : unitHint.includes('case') || byCaseText || byUnitText ? 'case(s)'
+              : 'bottle(s)'
 
     const caseQty = Number(
       mode === 'toReplace'
@@ -297,28 +311,219 @@ export function ReplacementsView() {
         ? (first?.damagedBottles ?? first?.quantityToReplaceBottles ?? first?.replacementBottles)
         : (first?.replacedBottles ?? first?.quantityReplacedBottles ?? first?.replacementBottles)
     )
-    if (Number.isFinite(caseQty) && caseQty > 0) return `${caseQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
+    if (Number.isFinite(caseQty) && caseQty > 0) return `${caseQty} ${unitLabel}`
     if (Number.isFinite(bottleQty) && bottleQty > 0) return `${bottleQty} bottle(s)`
 
     const fallbackQty = Number(
       mode === 'toReplace'
         ? (entry?.quantityToReplace ?? meta?.quantityToReplace ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
-        : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+        : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? 0)
     )
     const fallback = Math.max(0, Number.isFinite(fallbackQty) ? fallbackQty : 0)
-    if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) return `${fallback / qtyPerCase} case(s)`
-    if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) return `${fallback / qtyPerPack} pack(s)`
+    if (byUnitText && Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && fallback > 0) return `${fallback / qtyPerUnit} ${unitLabel}`
+    if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) return `${fallback / qtyPerCase} ${unitLabel}`
+    if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) return `${fallback / qtyPerPack} ${unitLabel}`
+    if (byBundleText && Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 && fallback > 0) return `${fallback / qtyPerBundle} ${unitLabel}`
     if (byBottleText) return `${fallback} bottle(s)`
-    return `${fallback}`
+    return fallback > 0 ? `${fallback} ${unitLabel}` : '0'
+  }
+
+  const getNormalizedQtyLineDisplay = (entry: any, meta: any, mode: 'toReplace' | 'replaced') => {
+    const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
+    const isByBottle = /\bby\s*bottle\b/.test(contextText)
+    if (isByBottle) return getReplacementQtyDisplay(entry, meta, mode)
+    const lines =
+      (Array.isArray(entry?.replacementLines) && entry.replacementLines.length ? entry.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(entry?.replacementItems) && entry.replacementItems.length ? entry.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+    const first = lines[0] || {}
+    const rawQty = Number(
+      mode === 'toReplace'
+        ? (entry?.quantityToReplace ?? meta?.quantityToReplace ?? first?.quantityToReplace ?? first?.damagedQuantity ?? 0)
+        : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? first?.quantityReplaced ?? first?.replacedQuantity ?? 0)
+    )
+    const directUnits = Number(
+      mode === 'toReplace'
+        ? (first?.damagedCases ?? first?.quantityToReplaceCases ?? first?.unitsToReplace ?? first?.quantityToReplaceUnits)
+        : (first?.replacedCases ?? first?.quantityReplacedCases ?? first?.unitsReplaced ?? first?.quantityReplacedUnits)
+    )
+    if (Number.isFinite(directUnits) && directUnits >= 0) return `${directUnits} unit(s)`
+    const detailsText = `${String(entry?.description || '')} ${String(entry?.notes || '')} ${String(entry?.reason || '')}`
+    const qtyPerGenericMatch = detailsText.match(/qty\s*\/\s*(?:unit|case|pack|bundle)\s*[:\-]?\s*(\d+)/i)
+    const qtyPerText = qtyPerGenericMatch ? Number(qtyPerGenericMatch[1]) : NaN
+    const qtyPerFromLine = Number(
+      first?.qtyPerUnit ??
+      first?.quantityPerUnit ??
+      first?.quantityPerCase ??
+      first?.unitsPerCase ??
+      first?.bottlesPerUnit ??
+      first?.bottlesPerCase ??
+      entry?.qtyPerUnit ??
+      entry?.quantityPerUnit ??
+      entry?.quantityPerCase ??
+      entry?.unitsPerCase ??
+      entry?.bottlesPerUnit ??
+      entry?.bottlesPerCase ??
+      meta?.qtyPerUnit ??
+      meta?.quantityPerUnit ??
+      meta?.quantityPerCase ??
+      meta?.unitsPerCase ??
+      meta?.bottlesPerUnit ??
+      meta?.bottlesPerCase ??
+      NaN
+    )
+    const perUnit = Number.isFinite(qtyPerFromLine) && qtyPerFromLine > 0
+      ? qtyPerFromLine
+      : qtyPerText
+    if (Number.isFinite(perUnit) && perUnit > 0 && Number.isFinite(rawQty) && rawQty >= 0) {
+      const units = rawQty / perUnit
+      const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+      return `${unitsText} unit(s)`
+    }
+    return getReplacementQtyDisplay(entry, meta, mode)
+  }
+
+  const getReplacementDetailsText = (entry: any, meta: any) => {
+    const lines =
+      (Array.isArray(entry?.replacementLines) && entry.replacementLines.length ? entry.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(entry?.replacementItems) && entry.replacementItems.length ? entry.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+    const first = lines[0] || {}
+    const productName = String(
+      first?.originalProductName ||
+      first?.productName ||
+      entry?.originalProductName ||
+      meta?.originalProductName ||
+      entry?.productName ||
+      entry?.order?.items?.[0]?.product?.name ||
+      entry?.order?.items?.[0]?.productName ||
+      'Product'
+    ).trim()
+    const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
+    const isByBottle = /\bby\s*bottle\b/.test(contextText)
+    const qtyToReplaceLabel = getReplacementQtyDisplay(entry, meta, 'toReplace')
+    const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*unit\s*[:\-]?\s*(\d+)/i)
+    const qtyPerUnitFromText = qtyPerUnitMatch ? Number(qtyPerUnitMatch[1]) : NaN
+    const qtyPerUnitFromLine = Number(
+      first?.qtyPerUnit ??
+      first?.quantityPerUnit ??
+      first?.quantityPerCase ??
+      first?.unitsPerCase ??
+      first?.bottlesPerUnit ??
+      first?.bottlesPerCase ??
+      entry?.qtyPerUnit ??
+      entry?.quantityPerUnit ??
+      entry?.quantityPerCase ??
+      entry?.unitsPerCase ??
+      entry?.bottlesPerUnit ??
+      entry?.bottlesPerCase ??
+      meta?.qtyPerUnit ??
+      meta?.quantityPerUnit ??
+      meta?.quantityPerCase ??
+      meta?.unitsPerCase ??
+      meta?.bottlesPerUnit ??
+      meta?.bottlesPerCase ??
+      NaN
+    )
+    const qtyPerUnitNumeric = Number.isFinite(qtyPerUnitFromText) && qtyPerUnitFromText > 0
+      ? qtyPerUnitFromText
+      : (Number.isFinite(qtyPerUnitFromLine) && qtyPerUnitFromLine > 0 ? qtyPerUnitFromLine : NaN)
+    const qtyPerUnit = Number.isFinite(qtyPerUnitNumeric) ? String(qtyPerUnitNumeric) : ''
+    const rawQtyToReplace = Number(
+      entry?.quantityToReplace ??
+      meta?.quantityToReplace ??
+      entry?.damagedQuantity ??
+      meta?.damagedQuantity ??
+      first?.quantityToReplace ??
+      first?.damagedQuantity ??
+      0
+    )
+    const modeLabel = isByBottle ? 'By Bottle' : 'By Unit'
+    let displayQty = qtyToReplaceLabel
+    const directUnitQty = Number(
+      first?.damagedCases ??
+      first?.quantityToReplaceCases ??
+      first?.replacementCases ??
+      first?.unitsToReplace ??
+      first?.quantityToReplaceUnits ??
+      NaN
+    )
+    if (!isByBottle && Number.isFinite(directUnitQty) && directUnitQty > 0) {
+      displayQty = `${directUnitQty} unit(s)`
+    }
+    if (!isByBottle && Number.isFinite(qtyPerUnitNumeric) && qtyPerUnitNumeric > 0 && Number.isFinite(rawQtyToReplace) && rawQtyToReplace > 0) {
+      const units = rawQtyToReplace / qtyPerUnitNumeric
+      if (Number.isFinite(units) && units > 0) {
+        const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+        displayQty = `${unitsText} unit(s)`
+      }
+    }
+    if (!isByBottle && (!Number.isFinite(qtyPerUnitNumeric) || qtyPerUnitNumeric <= 0) && Number.isFinite(rawQtyToReplace) && rawQtyToReplace > 0) {
+      const detailsText = `${String(entry?.description || '')} ${String(entry?.notes || '')} ${String(entry?.reason || '')}`
+      const qtyPerGenericMatch = detailsText.match(/qty\s*\/\s*(?:unit|case|pack|bundle)\s*[:\-]?\s*(\d+)/i)
+      const genericPerUnit = qtyPerGenericMatch ? Number(qtyPerGenericMatch[1]) : NaN
+      if (Number.isFinite(genericPerUnit) && genericPerUnit > 0) {
+        const units = rawQtyToReplace / genericPerUnit
+        if (Number.isFinite(units) && units > 0) {
+          const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+          displayQty = `${unitsText} unit(s)`
+        }
+      }
+    }
+    const base = `[${productName}] ${modeLabel}: ${displayQty}`
+    if (qtyPerUnit) return `${base}, Qty/Unit ${qtyPerUnit}.`
+    return `${base}.`
+  }
+
+  const hasOutstandingReplacementQty = (entry: any, meta: any): boolean => {
+    const lines = buildReplacementLines(entry, meta)
+    const totalQtyToReplace = lines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
+    const totalQtyReplaced = lines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+    if (totalQtyToReplace > 0) return totalQtyReplaced < totalQtyToReplace
+    const qtyToReplace = Number(
+      entry?.quantityToReplace ??
+      meta?.quantityToReplace ??
+      entry?.damagedQuantity ??
+      meta?.damagedQuantity ??
+      0
+    )
+    const qtyReplaced = Number(
+      entry?.quantityReplaced ??
+      meta?.quantityReplaced ??
+      0
+    )
+    return Number.isFinite(qtyToReplace) && Number.isFinite(qtyReplaced) && qtyToReplace > qtyReplaced
+  }
+  const hasStrictScheduledFollowUp = (entry: any): boolean => {
+    const scheduledDeliveryDate = String(entry?.scheduledDeliveryDate || '').trim()
+    const replacementOrderId = String(entry?.replacementOrderId || '').trim()
+    const replacementOrderNumber = String(entry?.replacementOrderNumber || '').trim()
+    return Boolean(scheduledDeliveryDate || replacementOrderId || replacementOrderNumber)
   }
 
   const formatIssueStatus = (item: any) => {
+    const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').toUpperCase()
+    const rawMode = String(item?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
+    const hasScheduledFollowUp = hasStrictScheduledFollowUp(item)
+    if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && hasScheduledFollowUp) {
+      return 'Scheduled for Delivery'
+    }
+    if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
+      return 'Approved'
+    }
+    if (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && hasOutstandingReplacementQty(item, meta)) {
+      return hasScheduledFollowUp ? 'Scheduled for Delivery' : 'Needs Follow-up'
+    }
     if (rawStatus === 'PENDING') return 'Pending'
     if (rawStatus === 'UNDER_REVIEW') return 'Under Review'
     if (rawStatus === 'APPROVED') return 'Approved'
     if (rawStatus === 'REJECTED') return 'Rejected'
-    if (rawStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
+    if (rawStatus === 'RESOLVED_ON_DELIVERY') return 'Completed'
     if (rawStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
     if (rawStatus === 'COMPLETED') return 'Completed'
     if (rawStatus === 'IN_PROGRESS') return 'In Progress'
@@ -326,12 +531,25 @@ export function ReplacementsView() {
   }
 
   const getNormalizedIssueStatus = (item: any) => {
+    const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').toUpperCase()
+    if (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && hasOutstandingReplacementQty(item, meta)) {
+      return 'NEEDS_FOLLOW_UP'
+    }
     if (['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'].includes(rawStatus)) return rawStatus
     if (rawStatus === 'REQUESTED') return 'REPORTED'
     if (['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)) return 'IN_PROGRESS'
     if (rawStatus === 'PROCESSED') return 'COMPLETED'
     return rawStatus || 'REPORTED'
+  }
+
+  const collectEvidenceUrls = (entry: any, meta: any): string[] => {
+    const urlsFromArray = Array.isArray(entry?.damagePhotoUrls) ? entry.damagePhotoUrls : []
+    const fallbackSingle = [entry?.damagePhotoUrl, meta?.damagePhotoUrl]
+    return [...urlsFromArray, ...fallbackSingle]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .filter((value, index, all) => all.indexOf(value) === index)
   }
 
   const updateIssueStatus = async (
@@ -410,22 +628,16 @@ export function ReplacementsView() {
   const totalReplacedQty = filteredReplacements.reduce((sum, item) => {
     const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').trim().toUpperCase()
-    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)
     if (!isResolved) return sum
-    const qty = Number(item?.quantityReplaced ?? meta?.quantityReplaced ?? item?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+    const qty = Number(item?.quantityReplaced ?? meta?.quantityReplaced ?? 0)
     return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0)
   }, 0)
-  const scheduledReplacementsCount = filteredReplacements.filter((item) => {
-    const meta = parseMeta(item?.notes)
-    return Boolean(
-      String(item?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim() ||
-      String(item?.replacementOrderId || meta?.replacementOrderId || '').trim() ||
-      String(item?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
-    )
-  }).length
+  const scheduledReplacementsCount = filteredReplacements.filter((item) => hasStrictScheduledFollowUp(item)).length
   const resolvedOnDelivery = filteredReplacements.filter((item) => {
     const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').toUpperCase()
+    if (hasOutstandingReplacementQty(item, meta)) return false
     const normalizedStatus =
       rawStatus === 'REQUESTED'
         ? 'REPORTED'
@@ -592,7 +804,10 @@ export function ReplacementsView() {
                   {replacementsBySource.duringDelivery.map((item: any) => {
                     const meta = parseMeta(item?.notes)
                     const rawStatus = String(item?.status || '').trim().toUpperCase()
-                    const qtyToReplaceLabel = getReplacementQtyDisplay(item, meta, 'toReplace')
+                    const issueReason = getReplacementDetailsText(item, meta)
+                    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)
+                    const qtyToReplaceLabel = getNormalizedQtyLineDisplay(item, meta, 'toReplace')
+                    const qtyReplacedLabel = isResolved ? getNormalizedQtyLineDisplay(item, meta, 'replaced') : '0'
                     const replacementLines = buildReplacementLines(item, meta)
                     const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
                     const orderItems =
@@ -636,12 +851,25 @@ export function ReplacementsView() {
                         matchedOrderItem?.product?.price ??
                         0
                       )
+                      const qtyPerCase = Math.max(1, Number(sourceLine?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerUnit ?? 1))
+                      const effectiveUnit = String(
+                        sourceLine?.productUnit ??
+                        sourceLine?.replacementProductUnit ??
+                        sourceLine?.originalProductUnit ??
+                        matchedOrderItem?.product?.unit ??
+                        matchedOrderItem?.unit ??
+                        ''
+                      ).trim().toLowerCase()
+                      const isBottleUnit = effectiveUnit.includes('bottle')
+                      const basePrice = Number.isFinite(unitPrice) ? unitPrice : 0
                       const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
-                      return sum + (Number.isFinite(unitPrice) ? unitPrice : 0) * qty
+                      const replacedQtyInBillingUnit = isBottleUnit ? qty : (qty / qtyPerCase)
+                      const lineLoss = replacedQtyInBillingUnit > 0 ? replacedQtyInBillingUnit * basePrice : 0
+                      return sum + lineLoss
                     }, 0)
-                    const evidenceUrls = Array.isArray(item?.damagePhotoUrls) ? item.damagePhotoUrls : []
-                    const evidenceUrl = String(evidenceUrls[0] || item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
-                    const hasEvidence = Boolean(evidenceUrl)
+                    const evidenceUrls = collectEvidenceUrls(item, meta)
+                    const evidenceCount = evidenceUrls.length
+                    const hasEvidence = evidenceCount > 0
                     const statusLabel = formatIssueStatus(item)
 
                     return (
@@ -654,14 +882,18 @@ export function ReplacementsView() {
                           <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
                         </td>
                         <td className="p-4">
+                          <p className="text-sm text-gray-900">{issueReason}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                             <span>Qty to replace: {qtyToReplaceLabel}</span>
+                            <span>Qty replaced: {qtyReplacedLabel}</span>
+                            {totalLoss > 0 ? (
+                              <span className="font-semibold text-red-600">Loss: {formatPeso(totalLoss)}</span>
+                            ) : null}
                           </div>
-                          <p className="mt-1 text-sm font-semibold text-red-600">- Total loss: {formatPeso(totalLoss)}</p>
                         </td>
                         <td className="p-4">
                           <Badge variant={hasEvidence ? 'default' : 'secondary'}>
-                            {hasEvidence ? 'Photo Attached' : 'No Photo'}
+                            {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
                           </Badge>
                         </td>
                         <td className="p-4">
@@ -731,7 +963,10 @@ export function ReplacementsView() {
                   {replacementsBySource.customerRequests.map((item: any) => {
                     const meta = parseMeta(item?.notes)
                     const rawStatus = String(item?.status || '').trim().toUpperCase()
-                    const qtyToReplaceLabel = getReplacementQtyDisplay(item, meta, 'toReplace')
+                    const issueReason = getReplacementDetailsText(item, meta)
+                    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)
+                    const qtyToReplaceLabel = getNormalizedQtyLineDisplay(item, meta, 'toReplace')
+                    const qtyReplacedLabel = isResolved ? getNormalizedQtyLineDisplay(item, meta, 'replaced') : '0'
                     const replacementLines = buildReplacementLines(item, meta)
                     const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
                     const orderItems =
@@ -775,12 +1010,25 @@ export function ReplacementsView() {
                         matchedOrderItem?.product?.price ??
                         0
                       )
+                      const qtyPerCase = Math.max(1, Number(sourceLine?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerUnit ?? 1))
+                      const effectiveUnit = String(
+                        sourceLine?.productUnit ??
+                        sourceLine?.replacementProductUnit ??
+                        sourceLine?.originalProductUnit ??
+                        matchedOrderItem?.product?.unit ??
+                        matchedOrderItem?.unit ??
+                        ''
+                      ).trim().toLowerCase()
+                      const isBottleUnit = effectiveUnit.includes('bottle')
+                      const basePrice = Number.isFinite(unitPrice) ? unitPrice : 0
                       const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
-                      return sum + (Number.isFinite(unitPrice) ? unitPrice : 0) * qty
+                      const replacedQtyInBillingUnit = isBottleUnit ? qty : (qty / qtyPerCase)
+                      const lineLoss = replacedQtyInBillingUnit > 0 ? replacedQtyInBillingUnit * basePrice : 0
+                      return sum + lineLoss
                     }, 0)
-                    const evidenceUrls = Array.isArray(item?.damagePhotoUrls) ? item.damagePhotoUrls : []
-                    const evidenceUrl = String(evidenceUrls[0] || item?.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
-                    const hasEvidence = Boolean(evidenceUrl)
+                    const evidenceUrls = collectEvidenceUrls(item, meta)
+                    const evidenceCount = evidenceUrls.length
+                    const hasEvidence = evidenceCount > 0
                     const statusLabel = formatIssueStatus(item)
 
                     return (
@@ -793,14 +1041,18 @@ export function ReplacementsView() {
                           <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
                         </td>
                         <td className="p-4">
+                          <p className="text-sm text-gray-900">{issueReason}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                             <span>Qty to replace: {qtyToReplaceLabel}</span>
+                            <span>Qty replaced: {qtyReplacedLabel}</span>
+                            {totalLoss > 0 ? (
+                              <span className="font-semibold text-red-600">Loss: {formatPeso(totalLoss)}</span>
+                            ) : null}
                           </div>
-                          <p className="mt-1 text-sm font-semibold text-red-600">- Total loss: {formatPeso(totalLoss)}</p>
                         </td>
                         <td className="p-4">
                           <Badge variant={hasEvidence ? 'default' : 'secondary'}>
-                            {hasEvidence ? 'Photo Attached' : 'No Photo'}
+                            {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
                           </Badge>
                         </td>
                         <td className="p-4">
@@ -840,8 +1092,7 @@ export function ReplacementsView() {
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseMeta(selectedReplacement.notes)
-            const evidenceUrls = Array.isArray(selectedReplacement.damagePhotoUrls) ? selectedReplacement.damagePhotoUrls : []
-            const evidenceUrl = String(evidenceUrls[0] || selectedReplacement.damagePhotoUrl || meta?.damagePhotoUrl || '').trim()
+            const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
@@ -867,39 +1118,58 @@ export function ReplacementsView() {
             const replacementLineLoss = replacementLines.map((line, index) => {
               const sourceLine = sourceLines[index] || {}
               const matchedOrderItem = orderItems.find((orderItem: any) => {
-                const srcOrderItemId = String(sourceLine?.orderItemId ?? '').trim()
+                const srcOrderItemId = String(sourceLine?.orderItemId ?? sourceLine?.originalOrderItemId ?? '').trim()
                 const oiId = String(orderItem?.id ?? '').trim()
                 if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
+                const srcProductId = String(
+                  sourceLine?.productId ??
+                  sourceLine?.originalProductId ??
+                  sourceLine?.replacementProductId ??
+                  ''
+                ).trim()
+                const oiProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
+                if (srcProductId && oiProductId && srcProductId === oiProductId) return true
                 const srcName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
-                const oiName = String(orderItem?.product?.name ?? '').trim().toLowerCase()
+                const oiName = String(orderItem?.product?.name ?? orderItem?.name ?? '').trim().toLowerCase()
                 return Boolean(srcName && oiName && srcName === oiName)
               })
               const unitPrice = Number(
                 sourceLine?.unitPrice ??
                 sourceLine?.price ??
                 sourceLine?.sellingPrice ??
+                sourceLine?.replacementUnitPrice ??
+                sourceLine?.originalUnitPrice ??
                 matchedOrderItem?.unitPrice ??
                 matchedOrderItem?.price ??
                 matchedOrderItem?.product?.price ??
                 0
               )
+              const qtyPerCase = Math.max(1, Number(sourceLine?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerUnit ?? 1))
+              const effectiveUnit = String(
+                sourceLine?.productUnit ??
+                sourceLine?.replacementProductUnit ??
+                sourceLine?.originalProductUnit ??
+                matchedOrderItem?.product?.unit ??
+                matchedOrderItem?.unit ??
+                ''
+              ).trim().toLowerCase()
+              const isBottleUnit = effectiveUnit.includes('bottle')
+              const basePrice = Number.isFinite(unitPrice) ? unitPrice : 0
               const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
-              return (Number.isFinite(unitPrice) ? unitPrice : 0) * qty
+              const replacedQtyInBillingUnit = isBottleUnit ? qty : (qty / qtyPerCase)
+              const lineLoss = replacedQtyInBillingUnit > 0 ? replacedQtyInBillingUnit * basePrice : 0
+              return lineLoss
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
-            const isScheduledReplacement = Boolean(
-              String(selectedReplacement?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim() ||
-              String(selectedReplacement?.replacementOrderId || meta?.replacementOrderId || '').trim() ||
-              String(selectedReplacement?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
-            )
+            const hasOutstanding = hasOutstandingReplacementQty(selectedReplacement, meta)
+            const isScheduledReplacement = hasStrictScheduledFollowUp(selectedReplacement)
             const baseResolution = String(selectedReplacement.description || '').trim()
             const effectiveResolution = baseResolution || 'N/A'
             const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
             const isResolvedCase = Boolean(
               selectedReplacement?.isClosed ||
-              rawStatus === 'COMPLETED' ||
-              rawStatus === 'RESOLVED_ON_DELIVERY' ||
+              ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstanding) ||
               (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
             )
             const details = [
@@ -940,82 +1210,117 @@ export function ReplacementsView() {
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>
                           <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
-                          <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
-                          <th className="px-3 py-2 text-left font-medium">Total Loss</th>
+                          <th className="px-3 py-2 text-left font-medium">Replaced</th>
+                          <th className="px-3 py-2 text-left font-medium">Loss</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {replacementLines.map((line, index) => (
+                        {replacementLines.map((line, index) => {
+                          const lineLoss = replacementLineLoss[index] || 0
+                          const remaining = Math.max(0, Number(line.quantityToReplace || 0) - Number(line.quantityReplaced || 0))
+                          return (
                           <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityToReplaceDisplay ?? line.quantityToReplace}</td>
+                            <td className="px-3 py-2">
+                              <p className="font-semibold text-slate-900">{line.quantityToReplaceDisplay ?? line.quantityToReplace}</p>
+                              {Number(line.quantityReplaced) > 0 && (
+                                <p className="text-xs text-emerald-700">Replaced: {line.quantityReplacedDisplay ?? line.quantityReplaced}</p>
+                              )}
+                              {remaining > 0 && (
+                                <p className="text-xs text-amber-700">Remaining: {line.quantityRemainingDisplay ?? remaining}</p>
+                              )}
+                            </td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplacedDisplay ?? line.quantityReplaced}</td>
-                            <td className="px-3 py-2 font-semibold text-red-600">- {formatPeso(replacementLineLoss[index] || 0)}</td>
+                            <td className="px-3 py-2 font-semibold text-red-600">{lineLoss > 0 ? `- ${formatPeso(lineLoss)}` : '—'}</td>
                           </tr>
-                        ))}
+                          )
+                        })}
                         <tr className="border-t bg-slate-50">
                           <td className="px-3 py-2 font-semibold text-slate-700" colSpan={4}>Total Loss</td>
-                          <td className="px-3 py-2 font-bold text-red-600">- {formatPeso(totalLoss)}</td>
+                          <td className="px-3 py-2 font-bold text-red-600">{totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : '—'}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
-                {evidenceUrl ? (
+                {evidenceUrls.length > 0 ? (
                   <div className="rounded-md border bg-white px-3 py-2">
-                    <p className="text-xs font-medium text-slate-500">Evidence</p>
-                    <img src={evidenceUrl} alt="Replacement evidence" className="mt-2 max-h-[360px] w-full rounded-md border object-contain" />
+                    <p className="text-xs font-medium text-slate-500">Evidence ({evidenceUrls.length})</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {evidenceUrls.map((url, index) => (
+                        <img
+                          key={`${url}-${index}`}
+                          src={url}
+                          alt={`Replacement evidence ${index + 1}`}
+                          className="max-h-[360px] w-full rounded-md border object-contain"
+                        />
+                      ))}
+                    </div>
                   </div>
                 ) : null}
                 </div>
                 <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {rawStatus === 'UNDER_REVIEW' ? (
-                        <>
-                          <Button
-                            size="sm"
-                            className="bg-emerald-600 text-white hover:bg-emerald-700"
-                            onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
-                              notes: 'Replacement approved for processing',
-                            })}
-                            disabled={updatingReplacementId === selectedReplacement.id}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => {
-                              setRejectReason('')
-                              setRejectDialogOpen(true)
-                            }}
-                            disabled={updatingReplacementId === selectedReplacement.id}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      ) : !isScheduledReplacement && rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
-                          onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
-                          disabled={updatingReplacementId === selectedReplacement.id}
-                        >
-                          Under Review
-                        </Button>
-                      ) : isScheduledReplacement ? (
-                        <p className="text-sm text-blue-700">Scheduled replacement is already queued for trip planning.</p>
-                      ) : (
-                        <p className="text-sm text-slate-500">This replacement is already finalized.</p>
-                      )}
-                      {updatingReplacementId === selectedReplacement.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      ) : null}
-                    </div>
+                    {(() => {
+                      const isCustomerRequest = rawMode.trim().toUpperCase() === 'CUSTOMER_SUBMITTED'
+                      if (!isCustomerRequest) {
+                        // Driver-reported replacement — admin is read-only, driver already handled it
+                        return (
+                          <div className="mt-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-700">
+                            This replacement was reported and handled by the driver during delivery. No admin action is required.
+                          </div>
+                        )
+                      }
+                      // Customer-submitted replacement — admin must review and approve/reject
+                      return (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {rawStatus === 'UNDER_REVIEW' ? (
+                            <>
+                              <Button
+                                size="sm"
+                                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                                onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
+                                  notes: 'Replacement approved for processing',
+                                })}
+                                disabled={updatingReplacementId === selectedReplacement.id}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => {
+                                  setRejectReason('')
+                                  setRejectDialogOpen(true)
+                                }}
+                                disabled={updatingReplacementId === selectedReplacement.id}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          ) : !isScheduledReplacement && rawStatus !== 'APPROVED' && rawStatus !== 'REJECTED' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                              onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
+                              disabled={updatingReplacementId === selectedReplacement.id}
+                            >
+                              Under Review
+                            </Button>
+                          ) : isScheduledReplacement ? (
+                            <p className="text-sm text-blue-700">Scheduled replacement is already queued for trip planning.</p>
+                          ) : (
+                            <p className="text-sm text-slate-500">This replacement is already finalized.</p>
+                          )}
+                          {updatingReplacementId === selectedReplacement.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                          ) : null}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               </>

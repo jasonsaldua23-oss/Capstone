@@ -89,7 +89,6 @@ export function WarehouseLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Warehouse Portal')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

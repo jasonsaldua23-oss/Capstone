@@ -83,7 +83,6 @@ export function DriverLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to AnnDrive')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

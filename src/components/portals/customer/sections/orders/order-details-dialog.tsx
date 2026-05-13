@@ -329,11 +329,13 @@ export function CustomerOrderDetailsDialog(props: any) {
                   {selectedOrderReplacementRecords.map((record: any) => {
                       const label = getReplacementStatusLabel(record.status)
                       const qtyReplaced = getReplacementQty(record)
+                      const isCompletedReplacement = label === 'Completed' || label === 'Resolved on Delivery'
+                      const qtyVerb = isCompletedReplacement ? 'replaced' : 'requested'
                       return (
                         <div key={record.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs">
                           <span className="text-slate-700">
                             {record.replacementProductName || record.originalProductName || 'Product replacement'}
-                            {qtyReplaced.qty > 0 ? ` x${qtyReplaced.qty} ${qtyReplaced.label}${qtyReplaced.qty > 1 ? 's' : ''} replaced` : ''}
+                            {qtyReplaced.qty > 0 ? ` x${qtyReplaced.qty} ${qtyReplaced.label}${qtyReplaced.qty > 1 ? 's' : ''} ${qtyVerb}` : ''}
                           </span>
                           <Badge className={getReplacementBadgeClass(label)}>{label}</Badge>
                         </div>

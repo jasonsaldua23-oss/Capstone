@@ -21,6 +21,15 @@ type AssignedOrderRow = {
     warehouseProvince?: string
     loadedAt?: string | null
     checklistQuantityVerified?: boolean
+    scheduledReplacement?: {
+      replacementId?: string
+      replacementNumber?: string
+      quantityToReplace?: number
+      quantityReplaced?: number
+      quantityRemaining?: number
+      unitMode?: string
+      qtyPerUnit?: number
+    } | null
     items?: Array<{
       id?: string
       quantity?: number
@@ -97,6 +106,57 @@ export function HomeView({
     return tripDate ? isSameLocalDate(tripDate, day) : false
   }
   const formatWarehouseStage = (stage: string | null | undefined) => String(stage || 'READY_TO_LOAD').toUpperCase().replace(/_/g, ' ')
+  const getItemDisplayNameWithSize = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
+    const product: any = item?.product || {}
+    const baseName = String(product?.name || 'Product').trim()
+    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
+      ? product.sizes.map((value: any) => String(value).trim()).filter(Boolean).join(', ')
+      : ''
+    const sizeFromField = String(product?.size || product?.sizeLabel || (item as any)?.size || '').trim()
+    const sizeLabel = sizeFromArray || sizeFromField
+    return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
+  }
+  const getItemQtyWithUnitLabel = (
+    order: AssignedOrderRow['order'],
+    item: NonNullable<AssignedOrderRow['order']['items']>[number],
+  ) => {
+    const replacementMeta: any = (order as any)?.scheduledReplacement || null
+    const replacementQty = Math.max(Number(replacementMeta?.quantityToReplace || 0), 0)
+    const replacementUnitMode = String(replacementMeta?.unitMode || '').trim().toUpperCase()
+    if (replacementQty > 0 && String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')) {
+      if (replacementUnitMode === 'BOTTLE') {
+        return `Qty ${replacementQty} bottle(s)`
+      }
+      const qtyPerUnit = Math.max(Number(replacementMeta?.qtyPerUnit || 0), 0)
+      if (qtyPerUnit > 0) {
+        const unitQty = replacementQty / qtyPerUnit
+        const unitText = Number.isInteger(unitQty) ? String(unitQty) : unitQty.toFixed(2).replace(/\.00$/, '')
+        return `Qty ${unitText} unit(s) (${replacementQty} bottle(s))`
+      }
+      return `Qty ${replacementQty} unit(s)`
+    }
+    const qty = Math.max(Number(item?.quantity || 0), 0)
+    const product: any = item?.product || {}
+    const unitHint = String(
+      (item as any)?.productUnit ||
+      (item as any)?.unit ||
+      (item as any)?.replacementUnit ||
+      product?.unit ||
+      ''
+    ).trim().toLowerCase()
+    if (unitHint.includes('bottle')) {
+      return `Qty ${qty} bottle(s)`
+    }
+    if (unitHint.includes('case')) {
+      const bottlesPerCase = Math.max(Number(product?.quantity_per_unit || (item as any)?.quantityPerCase || 0), 0)
+      if (bottlesPerCase > 0) {
+        const totalBottles = qty * bottlesPerCase
+        return `Qty ${qty} case(s) (${totalBottles} bottle(s))`
+      }
+      return `Qty ${qty} case(s)`
+    }
+    return `Qty ${qty} unit(s)`
+  }
   const getSpareProductInfo = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
     const spareProducts = item.spareProducts
     if (!spareProducts) return null
@@ -319,6 +379,11 @@ export function HomeView({
                     <div className="space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-bold tracking-tight text-slate-900">{order.orderNumber}</p>
+                        {isReplacementOrder ? (
+                          <Badge className="border border-blue-200 bg-blue-50 text-blue-700">
+                            Replacement
+                          </Badge>
+                        ) : null}
                         <Badge className={stageBadgeStyles[warehouseStage] || 'bg-slate-100 text-slate-700 border border-slate-200'}>
                           {formatWarehouseStage(order.warehouseStage)}
                         </Badge>
@@ -351,8 +416,8 @@ export function HomeView({
                           <div key={itemId} className="space-y-2">
                           <label className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                             <div>
-                              <p className="font-medium text-slate-900">{item.product?.name || 'Product'}</p>
-                              <p className="text-xs text-slate-500">Qty {Number(item.quantity || 0)}</p>
+                              <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
+                              <p className="text-xs text-slate-500">{getItemQtyWithUnitLabel(order, item)}</p>
                             </div>
                             <input
                               type="checkbox"
@@ -373,7 +438,7 @@ export function HomeView({
                           {spareProductInfo ? (
                             <label className={`ml-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checklistState[spareItemId] ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                               <div>
-                                <p className="font-medium text-slate-900">Spare products for {item.product?.name || 'Product'}</p>
+                                <p className="font-medium text-slate-900">Spare products for {getItemDisplayNameWithSize(item)}</p>
                                 <p className="text-xs text-slate-500">Qty {spareProductInfo.recommendedQuantity} | Total {spareProductInfo.totalLoadQuantity}</p>
                               </div>
                               <input

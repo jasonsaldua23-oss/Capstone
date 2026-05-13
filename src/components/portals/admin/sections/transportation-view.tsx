@@ -69,6 +69,9 @@ export function TransportationView() {
   const [deleteVehicleOpen, setDeleteVehicleOpen] = useState(false)
   const [vehicleToDelete, setVehicleToDelete] = useState<any | null>(null)
   const [isDeletingVehicle, setIsDeletingVehicle] = useState(false)
+  const [deleteDriverOpen, setDeleteDriverOpen] = useState(false)
+  const [driverToDelete, setDriverToDelete] = useState<any | null>(null)
+  const [isDeletingDriver, setIsDeletingDriver] = useState(false)
   const [vehicleForm, setVehicleForm] = useState({
     licensePlate: '',
     type: 'TRUCK',
@@ -269,20 +272,30 @@ export function TransportationView() {
     }
   }
 
-  const deleteDriver = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this driver?')) return
+  const promptDeleteDriver = (driver: any) => {
+    setDriverToDelete(driver)
+    setDeleteDriverOpen(true)
+  }
+
+  const deleteDriver = async () => {
+    if (!driverToDelete?.id) return
+    setIsDeletingDriver(true)
     try {
       const response = await fetch('/api/drivers', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, isActive: false }),
+        body: JSON.stringify({ id: driverToDelete.id, isActive: false }),
       })
       if (response.ok) {
         await fetchData()
+        setDeleteDriverOpen(false)
+        setDriverToDelete(null)
         toast.success('Driver deactivated successfully')
       }
     } catch (error) {
       toast.error('Failed to delete driver')
+    } finally {
+      setIsDeletingDriver(false)
     }
   }
 
@@ -316,13 +329,13 @@ export function TransportationView() {
     setSelectedTrip(trip)
   }
 
-  if (isLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin" /></div>
+  if (isLoading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Transportation Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Transportation Management</h1>
           <p className="text-gray-600">Fleet, trips, and driver management system</p>
         </div>
         <div className="flex gap-2">
@@ -380,10 +393,10 @@ export function TransportationView() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="w-full">
-        <TabsList className="w-full justify-start gap-2 overflow-x-auto">
-          <TabsTrigger value="vehicles">Fleet Management</TabsTrigger>
-          <TabsTrigger value="trips">Active Trips</TabsTrigger>
-          <TabsTrigger value="drivers">Drivers</TabsTrigger>
+        <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+          <TabsTrigger value="vehicles" className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
+          <TabsTrigger value="trips" className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
+          <TabsTrigger value="drivers" className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
         </TabsList>
 
         <TabsContent value="vehicles" className="space-y-4 mt-4">
@@ -620,7 +633,7 @@ export function TransportationView() {
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || '', licenseExpiry: driver.licenseExpiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => deleteDriver(driver.id)}>Delete</Button>
+                      <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
                     </div>
                   </div>
                 </CardContent>
@@ -717,47 +730,122 @@ export function TransportationView() {
       </Dialog>
 
       <Dialog open={!!selectedDropPointDetail} onOpenChange={(open) => !open && setSelectedDropPointDetail(null)}>
-        <DialogContent className="max-w-xl w-full rounded-2xl border border-slate-200 p-0">
+        <DialogContent className="max-w-xl w-full overflow-hidden rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
           {selectedDropPointDetail ? (
-            <div className="space-y-4 p-5">
-              <div className="border-b border-slate-200 pb-3">
-                <h3 className="text-[1.4rem] font-black tracking-[-0.02em] text-slate-900">Drop Point Details</h3>
+            <div className="space-y-4 p-6">
+              {/* Header */}
+              <div className="flex items-center gap-3 border-b border-slate-200/70 pb-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-[0_8px_18px_rgba(37,99,235,0.28)]">
+                  <MapPin className="h-5 w-5 text-white" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900">Drop Point Details</h3>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-[1.05rem] text-slate-700 space-y-2">
-                <p><span className="font-bold text-slate-900">Customer:</span> {selectedDropPointDetail.locationName || selectedDropPointDetail.contactName || 'N/A'}</p>
-                <p><span className="font-bold text-slate-900">Phone:</span> {selectedDropPointDetail.contactPhone || 'N/A'}</p>
-                <p><span className="font-bold text-slate-900">Address:</span> {selectedDropPointDetail.address || 'N/A'}</p>
-                <p><span className="font-bold text-slate-900">PO Number:</span> {selectedDropPointDetail.order?.orderNumber || 'N/A'}</p>
+
+              {/* Info card */}
+              <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)] space-y-2.5 text-sm">
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Customer</span>
+                  <span className="text-slate-700">{selectedDropPointDetail.locationName || selectedDropPointDetail.contactName || 'N/A'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Phone</span>
+                  <span className="text-slate-700">{selectedDropPointDetail.contactPhone || 'N/A'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Address</span>
+                  <span className="text-slate-700">{selectedDropPointDetail.address || 'N/A'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">PO Number</span>
+                  <span className="font-mono text-slate-800">{selectedDropPointDetail.order?.orderNumber || 'N/A'}</span>
+                </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900">PO Status:</span>
-                  <span className="inline-flex rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
-                    {String(selectedDropPointDetail.order?.status || 'N/A').replace(/_/g, ' ')}
+                  <span className="min-w-[108px] font-semibold text-slate-900">PO Status</span>
+                  {(() => {
+                    const raw = String(selectedDropPointDetail.order?.status || 'N/A').toUpperCase()
+                    const isActive = ['OUT_FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED'].includes(raw)
+                    const isDone = raw === 'DELIVERED'
+                    const isFailed = ['CANCELLED', 'FAILED', 'FAILED_DELIVERY', 'REJECTED'].includes(raw)
+                    return (
+                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                        isActive  ? 'border-sky-200 bg-sky-50 text-sky-700' :
+                        isDone    ? 'border-emerald-200 bg-emerald-50 text-emerald-700' :
+                        isFailed  ? 'border-red-200 bg-red-50 text-red-700' :
+                                    'border-slate-200 bg-slate-50 text-slate-600'
+                      }`}>
+                        {raw.replace(/_/g, ' ')}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Total Amount</span>
+                  <span className="font-semibold text-indigo-600">
+                    {selectedDropPointDetail.order?.totalAmount != null
+                      ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0))
+                      : 'N/A'}
                   </span>
                 </div>
-                <p><span className="font-bold text-slate-900">Total Amount:</span> {selectedDropPointDetail.order?.totalAmount != null ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0)) : 'N/A'}</p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-base font-bold text-slate-900">Order Items</p>
+
+              {/* Order Items */}
+              <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)]">
+                <p className="mb-3 text-sm font-semibold text-slate-900">Order Items</p>
                 {Array.isArray(selectedDropPointDetail.order?.items) && selectedDropPointDetail.order.items.length > 0 ? (
-                  <div className="mt-2 space-y-2 text-sm text-slate-700">
+                  <div className="space-y-2 text-sm">
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
-                      <div key={`dp-detail-item-${itemIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div key={`dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
-                        <p className="text-xs text-slate-600">Quantity: {Number(item?.quantity || 0)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-500">No order items.</p>
+                  <p className="text-sm text-slate-500">No order items.</p>
                 )}
               </div>
+
+              {/* Footer */}
               <div className="flex justify-end pt-1">
-                <Button variant="outline" className="h-11 min-w-24 rounded-xl" onClick={() => setSelectedDropPointDetail(null)}>Close</Button>
+                <Button
+                  variant="outline"
+                  className="h-10 min-w-24 rounded-xl border-white/50 bg-white/65 text-slate-700 backdrop-blur-md hover:bg-white/85 hover:text-slate-950"
+                  onClick={() => setSelectedDropPointDetail(null)}
+                >
+                  Close
+                </Button>
               </div>
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
+
+
+      <AlertDialog open={deleteDriverOpen} onOpenChange={setDeleteDriverOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600">Deactivate Driver?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will deactivate{' '}
+              <span className="font-semibold text-foreground">
+                {driverToDelete?.user?.name || driverToDelete?.name || 'this driver'}
+              </span>
+              . They will no longer appear as active. You can reactivate them later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingDriver}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={deleteDriver}
+              disabled={isDeletingDriver}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeletingDriver ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Deactivate Driver
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

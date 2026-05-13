@@ -96,7 +96,6 @@ export function CustomerLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success(data.created ? 'Account created successfully' : 'Welcome back')
       router.replace('/')
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
@@ -205,7 +204,6 @@ export function CustomerLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to AnnShop')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

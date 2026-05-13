@@ -387,6 +387,41 @@ function getDefaultRouteDate() {
   return `${year}-${month}-${day}`
 }
 
+function getLocalTodayDate() {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
+function getLocalTodayDayKey() {
+  return formatDayKey(getLocalTodayDate())
+}
+
+function parseDayKey(value: string) {
+  const [yearText, monthText, dayText] = String(value || '').split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) return null
+  return new Date(year, month - 1, day)
+}
+
+function normalizeToDayKey(value: string | null | undefined) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const base = raw.includes('T') ? raw.slice(0, 10) : raw
+  const parsed = parseDayKey(base)
+  return parsed ? formatDayKey(parsed) : ''
+}
+
+function isBeforeTodayDayKey(value: string | null | undefined) {
+  const dayKey = normalizeToDayKey(value)
+  if (!dayKey) return false
+  const parsed = parseDayKey(dayKey)
+  if (!parsed) return false
+  return parsed < getLocalTodayDate()
+}
+
 function formatDayKey(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -484,6 +519,7 @@ export function WarehousePortal() {
   const [loadingReplacements, setLoadingReplacements] = useState(true)
   const [loadingRoutePlans, setLoadingRoutePlans] = useState(false)
   const [creatingTripFromRoute, setCreatingTripFromRoute] = useState(false)
+  const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [routePlanMessage, setRoutePlanMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
@@ -2086,6 +2122,12 @@ export function WarehousePortal() {
       setRoutePlanMessage({ type: 'error', text: 'Select route date and warehouse first.' })
       return false
     }
+    if (isBeforeTodayDayKey(effectiveDate)) {
+      const message = 'Delivery date cannot be before today'
+      if (!silent) toast.error(message)
+      setRoutePlanMessage({ type: 'error', text: message })
+      return false
+    }
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
     setRoutePlans([])
@@ -2164,6 +2206,44 @@ export function WarehousePortal() {
     return fallbackCity || 'N/A'
   }
 
+  const editTripDropPoints = async (
+    trip: WarehouseTripItem,
+    changes: { addOrderIds?: string[]; removeDropPointIds?: string[] }
+  ) => {
+    const addOrderIds = (changes.addOrderIds || []).filter(Boolean)
+    const removeDropPointIds = (changes.removeDropPointIds || []).filter(Boolean)
+    if (addOrderIds.length === 0 && removeDropPointIds.length === 0) return
+    if (String(trip.status || '').toUpperCase() !== 'PLANNED') {
+      toast.error('Only planned trips can be edited')
+      return
+    }
+
+    setEditingTripId(trip.id)
+    try {
+      const response = await fetch(`/api/trips/${trip.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addOrderIds, removeDropPointIds }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to update trip')
+      }
+      const updatedTrip = data?.trip
+      if (updatedTrip?.id) {
+        setTrips((prev) => prev.map((entry) => (entry.id === updatedTrip.id ? updatedTrip : entry)))
+        setSelectedTrip((current) => (current?.id === updatedTrip.id ? updatedTrip : current))
+      }
+      await fetchOrdersData({ showLoading: false, silent: true })
+      emitDataSync(['trips', 'orders'])
+      toast.success('Trip updated')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update trip')
+    } finally {
+      setEditingTripId(null)
+    }
+  }
+
   const parseApiErrorMessage = (response: Response, payload: any, fallback: string) => {
     const fromPayload =
       String(payload?.error || '').trim() ||
@@ -2184,6 +2264,10 @@ export function WarehousePortal() {
     }
     if (!selectedDriverAssignedVehicle?.id) {
       toast.error('Selected driver has no assigned vehicle')
+      return
+    }
+    if (isBeforeTodayDayKey(selectedSavedRoute.date)) {
+      toast.error('Delivery date cannot be before today')
       return
     }
     setCreatingTripFromRoute(true)
@@ -2269,6 +2353,10 @@ export function WarehousePortal() {
     }
     if (!selectedDriverAssignedVehicle?.id) {
       toast.error('Selected driver has no assigned vehicle')
+      return
+    }
+    if (isBeforeTodayDayKey(routeDate)) {
+      toast.error('Delivery date cannot be before today')
       return
     }
 
@@ -2790,12 +2878,11 @@ export function WarehousePortal() {
 
     const rawStatus = String(status || '').toUpperCase()
     const rawStage = String(warehouseStage || '').toUpperCase()
-    const noteText = String(notes || '').toLowerCase()
-
-    if (rawStatus === 'CANCELLED' && noteText.includes('order rejected')) return 'REJECTED'
+    void notes
 
     if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(rawStatus)) return 'DELIVERED'
-    if (['FAILED', 'FAILED_DELIVERY', 'CANCELLED', 'REJECTED'].includes(rawStatus)) return 'CANCELLED'
+    if (rawStatus === 'REJECTED') return 'REJECTED'
+    if (['FAILED', 'FAILED_DELIVERY', 'CANCELLED'].includes(rawStatus)) return 'CANCELLED'
 
     if (['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(rawStatus) || rawStage === 'DISPATCHED') {
       return 'OUT FOR DELIVERY'
@@ -2902,7 +2989,7 @@ export function WarehousePortal() {
 
   const updateWarehouseOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -3002,13 +3089,23 @@ export function WarehousePortal() {
       ).trim().toLowerCase()
       const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
       const byPackText = /\bby\s*pack\b/.test(contextText)
+      const byBundleText = /\bby\s*bundle\b/.test(contextText)
+      const byUnitText = /\bby\s*unit\b/.test(contextText)
       const byCaseText = /\bby\s*case\b/.test(contextText)
       const byBottleText = /\bby\s*bottle\b/.test(contextText)
+      const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*unit\s*[:\-]?\s*(\d+)/i)
       const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
       const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
+      const qtyPerBundleMatch = contextText.match(/qty\s*\/\s*bundle\s*[:\-]?\s*(\d+)/i)
+      const qtyPerUnit = qtyPerUnitMatch ? Number(qtyPerUnitMatch[1]) : NaN
       const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
       const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
-      const isPackUnit = unitHint.includes('pack') || byPackText
+      const qtyPerBundle = qtyPerBundleMatch ? Number(qtyPerBundleMatch[1]) : NaN
+      const unitLabel =
+        unitHint.includes('pack') || byPackText ? 'pack(s)'
+          : unitHint.includes('bundle') || byBundleText ? 'bundle(s)'
+            : unitHint.includes('case') || byCaseText ? 'case(s)'
+              : 'unit(s)'
 
       const caseLikeQty = Number(
         mode === 'toReplace'
@@ -3021,20 +3118,20 @@ export function WarehousePortal() {
           : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles)
       )
 
-      if (Number.isFinite(caseLikeQty) && caseLikeQty > 0) {
-        return `${caseLikeQty} ${isPackUnit ? 'pack(s)' : 'case(s)'}`
-      }
+      if (Number.isFinite(caseLikeQty) && caseLikeQty > 0) return `${caseLikeQty} ${unitLabel}`
       if (Number.isFinite(bottleQty) && bottleQty > 0) {
         return `${bottleQty} bottle(s)`
       }
 
       const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+      if (byUnitText && Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && fallback > 0) return `${fallback / qtyPerUnit} ${unitLabel}`
       if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) {
-        return `${fallback / qtyPerCase} case(s)`
+        return `${fallback / qtyPerCase} ${unitLabel}`
       }
       if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) {
-        return `${fallback / qtyPerPack} pack(s)`
+        return `${fallback / qtyPerPack} ${unitLabel}`
       }
+      if (byBundleText && Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 && fallback > 0) return `${fallback / qtyPerBundle} ${unitLabel}`
       if (byBottleText) {
         return `${fallback} bottle(s)`
       }
@@ -3104,19 +3201,52 @@ export function WarehousePortal() {
   }
 
   const formatIssueStatus = (entry: WarehouseReplacementItem) => {
+    const meta = parseIssueMeta(entry?.notes)
+    const hasOutstandingReplacementQty = (() => {
+      const lines = buildReplacementLines(entry, meta)
+      const totalQtyToReplace = lines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
+      const totalQtyReplaced = lines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+      if (totalQtyToReplace > 0) return totalQtyReplaced < totalQtyToReplace
+      const qtyToReplace = Number(
+        entry?.quantityToReplace ??
+        meta?.quantityToReplace ??
+        entry?.damagedQuantity ??
+        meta?.damagedQuantity ??
+        0
+      )
+      const qtyReplaced = Number(
+        entry?.quantityReplaced ??
+        meta?.quantityReplaced ??
+        0
+      )
+      return Number.isFinite(qtyToReplace) && Number.isFinite(qtyReplaced) && qtyToReplace > qtyReplaced
+    })()
     const rawStatus = String(entry?.status || '').toUpperCase()
+    const rawMode = String((entry as any)?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
+    const scheduledDeliveryDate = String((entry as any)?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
+    const replacementOrderId = String((entry as any)?.replacementOrderId || meta?.replacementOrderId || '').trim()
+    const hasScheduledFollowUp = Boolean(scheduledDeliveryDate || replacementOrderId)
+    if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
+      return 'Approved'
+    }
+    if (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && hasOutstandingReplacementQty) {
+      return scheduledDeliveryDate || replacementOrderId ? 'Scheduled for Delivery' : 'Needs Follow-up'
+    }
     const normalizedStatus =
       rawStatus === 'REQUESTED'
         ? 'REPORTED'
-        : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+        : ['PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
           ? 'IN_PROGRESS'
           : rawStatus === 'REJECTED'
             ? 'REJECTED'
             : rawStatus === 'PROCESSED'
               ? 'COMPLETED'
               : rawStatus
+    if (normalizedStatus === 'PENDING') return 'Pending'
+    if (normalizedStatus === 'UNDER_REVIEW') return 'Under Review'
+    if (normalizedStatus === 'APPROVED') return 'Approved'
     if (normalizedStatus === 'REJECTED') return 'Rejected'
-    if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
+    if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Completed'
     if (normalizedStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
     if (normalizedStatus === 'COMPLETED') return 'Completed'
     if (normalizedStatus === 'IN_PROGRESS') return 'In Progress'
@@ -3126,7 +3256,7 @@ export function WarehousePortal() {
   const updateIssueStatus = async (
     replacementId: string,
     status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string }
+    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
     try {
@@ -3140,6 +3270,7 @@ export function WarehousePortal() {
           notes: options?.notes,
           createReplacementOrder: options?.createReplacementOrder,
           replacementDeliveryDate: options?.replacementDeliveryDate,
+          manualScheduleConfirmed: options?.manualScheduleConfirmed,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -3304,6 +3435,19 @@ export function WarehousePortal() {
               onDeleteTrip={(trip) => {
                 void deleteTrip(trip)
               }}
+              availableOrders={scopedOrders
+                .filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase()))
+                .map((order) => ({
+                  id: order.id,
+                  orderNumber: order.orderNumber,
+                  shippingName: order.shippingName || order.customer?.name || '',
+                  shippingCity: order.shippingCity || '',
+                  status: order.status,
+                }))}
+              onEditTripDropPoints={(trip, changes) => {
+                void editTripDropPoints(trip as WarehouseTripItem, changes)
+              }}
+              editingTripId={editingTripId}
             />
           )}
 
@@ -3548,7 +3692,7 @@ export function WarehousePortal() {
                   id="popup-route-date"
                   type="date"
                   value={routeDate}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={getLocalTodayDayKey()}
                   onChange={(e) => {
                     const nextDate = e.target.value
                     setRouteDate(nextDate)
@@ -4092,7 +4236,7 @@ export function WarehousePortal() {
                         toast.error('Only not-yet-approved orders can be rejected.')
                         return
                       }
-                      await updateWarehouseOrderStatus(rejectOrder.id, 'CANCELLED', rejectReason.trim() || undefined)
+                      await updateWarehouseOrderStatus(rejectOrder.id, 'REJECTED', rejectReason.trim() || undefined)
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}

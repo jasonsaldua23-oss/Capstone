@@ -84,6 +84,21 @@ const poppins = Poppins({
   weight: ['400', '500', '600', '700', '800'],
 })
 
+const getLocalDateOnly = () => {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
+const parseDateOnly = (value: string) => {
+  const [yearText, monthText, dayText] = String(value || '').split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) return null
+  return new Date(year, month - 1, day)
+}
+
 
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
@@ -915,7 +930,13 @@ export function CustomerPortal() {
   ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
   const canPlaceOrder = useMemo(
-    () => selectedCartItems.length > 0 && Boolean(String(deliveryDate || '').trim()),
+    () => {
+      const deliveryDateText = String(deliveryDate || '').trim()
+      if (!deliveryDateText) return false
+      const parsedDate = parseDateOnly(deliveryDateText)
+      if (!parsedDate) return false
+      return parsedDate >= getLocalDateOnly() && selectedCartItems.length > 0
+    },
     [selectedCartItems.length, deliveryDate]
   )
   const allCartSelected = useMemo(
@@ -1007,25 +1028,28 @@ export function CustomerPortal() {
     { id: 'REPLACEMENT', label: 'Replacement' },
   ]
 
+  const isReplacementOrder = (order: any): boolean =>
+    String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
+
   const tabFilteredOrders = useMemo(() => {
-    if (ordersTab === 'ALL') return sortedFilteredOrders
+    if (ordersTab === 'ALL') return sortedFilteredOrders.filter((order) => !isReplacementOrder(order))
 
     return sortedFilteredOrders.filter((order) => {
-      const raw = String(order.status || '').toUpperCase()
       const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
+      const replacementOrder = isReplacementOrder(order)
       if (ordersTab === 'TO_REVIEW') {
-        return normalized === 'DELIVERED' && !reviewedOrderIds.has(order.id)
+        return !replacementOrder && normalized === 'DELIVERED' && !reviewedOrderIds.has(order.id)
       }
       if (ordersTab === 'REPLACEMENT') {
-        return Boolean(deliveryIssuesByOrderId[order.id])
+        return replacementOrder
       }
       if (ordersTab === 'DELIVERED') {
-        return normalized === 'DELIVERED'
+        return !replacementOrder && normalized === 'DELIVERED'
       }
 
       return true
     })
-  }, [sortedFilteredOrders, ordersTab, reviewedOrderIds, deliveryIssuesByOrderId])
+  }, [sortedFilteredOrders, ordersTab, reviewedOrderIds])
 
   const visibleOrders = useMemo(() => {
     const query = ordersSearch.trim().toLowerCase()
@@ -1098,6 +1122,15 @@ export function CustomerPortal() {
     }
     if (!String(deliveryDate || '').trim()) {
       toast.error('Please select a delivery date before placing your order')
+      return
+    }
+    const parsedDeliveryDate = parseDateOnly(deliveryDate)
+    if (!parsedDeliveryDate) {
+      toast.error('Please select a valid delivery date')
+      return
+    }
+    if (parsedDeliveryDate < getLocalDateOnly()) {
+      toast.error('Delivery date cannot be before today')
       return
     }
     if (shippingLatitude === null || shippingLongitude === null) {

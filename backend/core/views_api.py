@@ -14,7 +14,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import F, Prefetch, Q, Sum
+from django.db.models import F, Max, Prefetch, Q, Sum
 from django.conf import settings
 from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
@@ -587,6 +587,38 @@ def _append_replacement_note_line(notes: Any, line: str) -> str:
     return f"{updated_prefix}\nMeta: {json.dumps(meta)}"
 
 
+def _replacement_has_outstanding_quantity(replacement: Replacement) -> bool:
+    serialized = _serialize_replacement(replacement)
+    lines_raw = serialized.get("replacementLines") or serialized.get("replacementItems") or []
+    lines: list[dict[str, Any]] = [line for line in lines_raw if isinstance(line, dict)]
+
+    total_qty_to_replace = 0
+    total_qty_replaced = 0
+    for line in lines:
+        qty_to_replace = max(0, _int(line.get("quantityToReplace"), 0))
+        qty_replaced = max(0, _int(line.get("quantityReplaced"), 0))
+        total_qty_to_replace += qty_to_replace
+        total_qty_replaced += qty_replaced
+    if total_qty_to_replace > 0:
+        return total_qty_replaced < total_qty_to_replace
+
+    qty_to_replace = max(
+        0,
+        _int(
+            serialized.get("quantityToReplace"),
+            _int(serialized.get("damagedQuantity"), 0),
+        ),
+    )
+    qty_replaced = max(
+        0,
+        _int(
+            serialized.get("quantityReplaced"),
+            _int(serialized.get("replacementQuantity"), 0),
+        ),
+    )
+    return qty_to_replace > qty_replaced
+
+
 def _generate_next_replacement_order_number() -> str:
     year = timezone.now().year
     sequence = Order.objects.filter(order_number__startswith=f"RPL-{year}-").count() + 1
@@ -671,8 +703,20 @@ def _create_scheduled_replacement_order(
     subtotal = 0.0
     notes_text = str(getattr(replacement, "description", "") or "") + " " + str(getattr(replacement, "notes", "") or "")
     notes_lower = notes_text.lower()
+    use_remaining_only = _normalize_replacement_mode(getattr(replacement, "replacement_mode", None)) == REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
+
     for line in source_lines:
-        raw_qty = _int(line.get("quantityReplaced"), _int(line.get("quantityToReplace"), _int(line.get("quantity"), 0)))
+        if use_remaining_only:
+            raw_qty = _int(
+                line.get("remainingQuantity"),
+                max(
+                    _int(line.get("quantityToReplace"), _int(line.get("quantity"), 0))
+                    - _int(line.get("quantityReplaced"), 0),
+                    0,
+                ),
+            )
+        else:
+            raw_qty = _int(line.get("quantityReplaced"), _int(line.get("quantityToReplace"), _int(line.get("quantity"), 0)))
         qty_bottles = max(raw_qty, 0)
         replacement_cases = max(0, _int(line.get("replacementCases"), 0))
         replacement_bottles = max(0, _int(line.get("replacementBottles"), 0))
@@ -722,14 +766,31 @@ def _create_scheduled_replacement_order(
             ),
         )
 
-        if replacement_cases > 0:
+        effective_unit = _normalize_product_unit(
+            line.get("productUnit")
+            or line.get("replacementProductUnit")
+            or line.get("originalProductUnit")
+            or getattr(product, "unit", None)
+        )
+        is_bottle_unit = "bottle" in str(effective_unit or "").strip().lower()
+
+        def _bottles_to_order_qty(bottles: int) -> int:
+            if bottles <= 0:
+                return 0
+            if is_bottle_unit:
+                return bottles
+            return int(math.ceil(bottles / max(1, quantity_per_case)))
+
+        if use_remaining_only:
+            qty = _bottles_to_order_qty(qty_bottles)
+        elif replacement_cases > 0:
             qty = replacement_cases
         elif replacement_bottles > 0:
-            qty = replacement_bottles
+            qty = _bottles_to_order_qty(replacement_bottles)
         elif by_case and not by_bottle:
-            qty = max(1, qty_bottles // quantity_per_case) if qty_bottles > 0 else 0
+            qty = _bottles_to_order_qty(qty_bottles)
         else:
-            qty = qty_bottles
+            qty = _bottles_to_order_qty(qty_bottles)
         if qty <= 0:
             continue
 
@@ -961,6 +1022,7 @@ _ORDER_STATUS_ALIASES: dict[str, str] = {
     "IN_TRANSIT": OrderStatus.OUT_FOR_DELIVERY,
     "UNAPPROVED": OrderStatus.PENDING,
     "FAILED_DELIVERY": OrderStatus.CANCELLED,
+    "REJECTED": OrderStatus.REJECTED,
 }
 
 
@@ -975,6 +1037,7 @@ def _normalize_order_status(value: Any) -> str:
         OrderStatus.RESCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
         OrderStatus.DELIVERED,
+        OrderStatus.REJECTED,
         OrderStatus.CANCELLED,
     }:
         return raw
@@ -993,11 +1056,12 @@ def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> s
         ReplacementStatus.REJECTED,
         ReplacementStatus.REPORTED,
         ReplacementStatus.IN_PROGRESS,
-        ReplacementStatus.RESOLVED_ON_DELIVERY,
         ReplacementStatus.NEEDS_FOLLOW_UP,
         ReplacementStatus.COMPLETED,
     }:
         return raw
+    if raw == ReplacementStatus.RESOLVED_ON_DELIVERY:
+        return ReplacementStatus.COMPLETED
     if raw == "REQUESTED":
         return ReplacementStatus.REPORTED
     if raw in {"APPROVED", "PICKED_UP", "IN_TRANSIT", "RECEIVED"}:
@@ -1022,7 +1086,23 @@ def _normalize_replacement_mode(value: Any) -> str:
     return raw
 
 
+def _is_linked_replacement_order_delivered(entry: Replacement) -> bool:
+    meta = _extract_replacement_meta(getattr(entry, "notes", ""))
+    replacement_order_id = str(meta.get("replacementOrderId") or "").strip()
+    replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip()
+    replacement_order = None
+    if replacement_order_id:
+        replacement_order = Order.objects.filter(id=replacement_order_id).only("status", "order_number").first()
+    elif replacement_order_number:
+        replacement_order = Order.objects.filter(order_number=replacement_order_number).only("status", "order_number").first()
+    if not replacement_order:
+        return False
+    return _normalize_order_status(getattr(replacement_order, "status", None)) == OrderStatus.DELIVERED
+
+
 def _is_replacement_closed(entry: Replacement) -> bool:
+    if _is_linked_replacement_order_delivered(entry):
+        return True
     normalized = _normalize_replacement_status(entry.status, entry.replacement_mode)
     return normalized in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}
 
@@ -1355,6 +1435,8 @@ def _serialize_order(
             items.append(row)
         data["items"] = items
 
+    data["scheduledReplacement"] = _get_scheduled_replacement_payload(order)
+
     if assigned_trip is None:
         assigned_trip = _select_trip_for_order(order.id, require_driver=True)
     assigned_driver = getattr(assigned_trip, "driver", None)
@@ -1448,6 +1530,14 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     data["replacementOrderId"] = str(meta.get("replacementOrderId") or "").strip() or None
     data["replacementOrderNumber"] = str(meta.get("replacementOrderNumber") or "").strip() or None
     normalized_status = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
+    delivered_linked_replacement_order = _is_linked_replacement_order_delivered(entry)
+    if delivered_linked_replacement_order:
+        normalized_status = ReplacementStatus.COMPLETED
+        # Once linked replacement order is delivered, this replacement must no longer
+        # be treated as scheduled/in-progress by downstream UIs.
+        data["scheduledDeliveryDate"] = None
+        data["replacementOrderId"] = None
+        data["replacementOrderNumber"] = None
     data["workflowStatus"] = normalized_status
     is_partial_follow_up = (
         data["replacementMode"] == REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
@@ -1475,6 +1565,15 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         meta.get("quantityToReplace", meta.get("damagedQuantity", meta.get("totalDamagedQuantity"))),
         quantity_replaced,
     )
+    replacement_mode = str(data.get("replacementMode") or "").strip().upper()
+    if (
+        replacement_mode == "CUSTOMER_SUBMITTED"
+        and normalized_status not in {ReplacementStatus.COMPLETED, ReplacementStatus.RESOLVED_ON_DELIVERY}
+    ):
+        # Customer-submitted requests should not show replaced quantity/loss before approval/completion.
+        quantity_replaced = 0
+    if delivered_linked_replacement_order and quantity_to_replace > quantity_replaced:
+        quantity_replaced = quantity_to_replace
     remaining_quantity = max(quantity_to_replace - quantity_replaced, 0)
     if original_item:
         data["originalOrderItem"] = {
@@ -1549,6 +1648,53 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     return data
 
 
+def _get_scheduled_replacement_payload(order: Order) -> dict[str, Any] | None:
+    order_number_upper = str(getattr(order, "order_number", "") or "").strip().upper()
+    if not order_number_upper.startswith("RPL-"):
+        return None
+    replacement = (
+        Replacement.objects.filter(
+            Q(notes__icontains=f'"replacementOrderId": "{order.id}"')
+            | Q(notes__icontains=f'"replacementOrderNumber": "{getattr(order, "order_number", "")}"')
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if not replacement:
+        return None
+
+    replacement_payload = _serialize_replacement(replacement)
+    replacement_lines_raw = replacement_payload.get("replacementLines") or replacement_payload.get("replacementItems") or []
+    replacement_lines = [line for line in replacement_lines_raw if isinstance(line, dict)]
+    total_qty_to_replace = 0
+    total_qty_replaced = 0
+    for line in replacement_lines:
+        total_qty_to_replace += max(0, _int(line.get("quantityToReplace"), 0))
+        total_qty_replaced += max(0, _int(line.get("quantityReplaced"), 0))
+    notes_text = f'{str(getattr(replacement, "description", "") or "")} {str(getattr(replacement, "notes", "") or "")}'.lower()
+    by_bottle = bool(re.search(r"\bby\s*bottle\b", notes_text))
+    first_line = replacement_lines[0] if replacement_lines else {}
+    qty_per_unit = max(
+        1,
+        _int(
+            first_line.get("quantityPerCase"),
+            _int(
+                first_line.get("qtyPerUnit"),
+                _int(first_line.get("quantityPerUnit"), 1),
+            ),
+        ),
+    )
+    return {
+        "replacementId": replacement_payload.get("id"),
+        "replacementNumber": replacement_payload.get("replacementNumber"),
+        "quantityToReplace": total_qty_to_replace,
+        "quantityReplaced": total_qty_replaced,
+        "quantityRemaining": max(total_qty_to_replace - total_qty_replaced, 0),
+        "unitMode": "BOTTLE" if by_bottle else "UNIT",
+        "qtyPerUnit": qty_per_unit,
+    }
+
+
 def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
     data = _serialize_model(trip)
     data["driver"] = _serialize_model(trip.driver, exclude={"password"}) if getattr(trip, "driver", None) else None
@@ -1616,6 +1762,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                     "isDriverAssigned": bool(trip.driver_id),
                     "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
+                    "scheduledReplacement": _get_scheduled_replacement_payload(dp.order),
                     "items": [
                         _serialize_order_item_with_spare_products(item, include_full_product=False)
                         for item in order_items
@@ -1755,11 +1902,16 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
     snapshot_name = str(getattr(item, "product_name", "") or "").strip()
     snapshot_sku = str(getattr(item, "product_sku", "") or "").strip()
     snapshot_unit = _normalize_product_unit(getattr(item, "product_unit", None))
+    product_size_label = _get_product_size_label(product) if product else ""
+    product_sizes = list(getattr(product, "sizes", []) or []) if product else []
     row["quantityPerCase"] = quantity_per_case
     if include_full_product:
         if product:
             row["product"] = _serialize_model(product)
             row["product"]["quantityPerCase"] = quantity_per_case
+            row["product"]["sizeLabel"] = product_size_label or None
+            row["product"]["size"] = product_size_label or None
+            row["product"]["sizes"] = product_sizes
         else:
             row["product"] = {
                 "id": None,
@@ -1767,6 +1919,9 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "name": snapshot_name or "Product",
                 "unit": snapshot_unit,
                 "quantityPerCase": 0,
+                "sizeLabel": None,
+                "size": None,
+                "sizes": [],
                 "isActive": False,
             }
     else:
@@ -1777,6 +1932,9 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "name": product.name,
                 "unit": _normalize_product_unit(product.unit),
                 "quantityPerCase": quantity_per_case,
+                "sizeLabel": product_size_label or None,
+                "size": product_size_label or None,
+                "sizes": product_sizes,
             }
             if product
             else {
@@ -1785,6 +1943,9 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "name": snapshot_name or "Product",
                 "unit": snapshot_unit,
                 "quantityPerCase": 0,
+                "sizeLabel": None,
+                "size": None,
+                "sizes": [],
             }
         )
     row["spareProducts"] = _spare_product_quantities(item.quantity, getattr(product, "unit", None) or snapshot_unit)
@@ -2440,10 +2601,11 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
             timeline.save(update_fields=["delivered_at", "updated_at"])
         return
 
-    if _normalize_order_status(order.status) == OrderStatus.CANCELLED:
-        raise ValueError("Cancelled orders cannot be marked as delivered")
+    if _normalize_order_status(order.status) in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+        raise ValueError("Cancelled/rejected orders cannot be marked as delivered")
 
     _finalize_order_inventory_on_delivery(order, performed_by)
+    _reconcile_replacement_bottle_remainder_on_delivery(order, performed_by)
     order.status = OrderStatus.DELIVERED
     order.save(update_fields=["status", "updated_at"])
 
@@ -2455,8 +2617,67 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
     timeline.save(update_fields=["shipped_at", "delivered_at", "updated_at"])
 
 
+def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_by: str | None) -> None:
+    order_number = str(getattr(order, "order_number", "") or "").strip().upper()
+    if not order_number.startswith("RPL-"):
+        return
+    scheduled = _get_scheduled_replacement_payload(order)
+    if not scheduled:
+        return
+    if str(scheduled.get("unitMode") or "").strip().upper() != "BOTTLE":
+        return
+    if InventoryTransaction.objects.filter(
+        reference_type="replacement_bottle_remainder",
+        reference_id=order.id,
+    ).exists():
+        return
+
+    order_items = list(order.items.select_related("product").all())
+    if len(order_items) != 1:
+        return
+    order_item = order_items[0]
+    product = getattr(order_item, "product", None)
+    if not product:
+        return
+    product_unit = _normalize_product_unit(getattr(product, "unit", None))
+    if product_unit == "bottle":
+        return
+
+    qty_per_case = max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
+    delivered_case_qty = max(0, _int(getattr(order_item, "quantity", 0), 0))
+    delivered_bottle_equivalent = delivered_case_qty * qty_per_case
+    expected_bottles = max(0, _int(scheduled.get("quantityToReplace"), 0))
+    remainder_bottles = max(0, delivered_bottle_equivalent - expected_bottles)
+    if remainder_bottles <= 0:
+        return
+
+    warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip() or None
+    inventory = Inventory.objects.filter(product=product, warehouse_id=warehouse_id).first() if warehouse_id else None
+    if not inventory:
+        inventory = Inventory.objects.filter(product=product).first()
+    if not inventory:
+        return
+
+    inventory.loose_bottles = max(0, _int(getattr(inventory, "loose_bottles", 0), 0) + remainder_bottles)
+    inventory.save(update_fields=["loose_bottles", "updated_at"])
+    InventoryTransaction.objects.create(
+        warehouse=getattr(inventory, "warehouse", None),
+        product=product,
+        type="IN",
+        quantity=remainder_bottles,
+        reference_type="replacement_bottle_remainder",
+        reference_id=order.id,
+        notes=(
+            f"RPL bottle reconciliation for {order.order_number}: "
+            f"expected {expected_bottles}, deducted {delivered_bottle_equivalent}, "
+            f"returned remainder {remainder_bottles} as loose bottles"
+        ),
+        performed_by=performed_by,
+    )
+
+
 def _reconcile_delivered_order_from_completed_drop_point(order: Order, performed_by: str | None = None) -> bool:
-    if _normalize_order_status(order.status) in {OrderStatus.DELIVERED, OrderStatus.CANCELLED}:
+    if _normalize_order_status(order.status) in {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
         return False
 
     completed_drop_point = (
@@ -2747,6 +2968,16 @@ def _ops_staff_emails() -> list[str]:
     return sorted(set(out))
 
 
+def _get_product_size_label(product: Any) -> str:
+    """Return a human-readable size string from a Product's sizes JSONField."""
+    sizes = getattr(product, "sizes", None)
+    if isinstance(sizes, list):
+        parts = [str(s).strip() for s in sizes if str(s).strip()]
+        if parts:
+            return ", ".join(parts)
+    return ""
+
+
 def _email_new_order_to_warehouse_staff(order: Order) -> None:
     recipients = _warehouse_staff_emails()
     if not recipients:
@@ -2755,15 +2986,18 @@ def _email_new_order_to_warehouse_staff(order: Order) -> None:
     order_items = list(order.items.select_related("product").all())
     item_lines: list[str] = []
     for item in order_items:
+        product = getattr(item, "product", None)
         product_name = (
-            str(getattr(getattr(item, "product", None), "name", "") or "").strip()
+            str(getattr(product, "name", "") or "").strip()
             or str(getattr(item, "product_name", "") or "").strip()
             or "Product"
         )
+        size_label = _get_product_size_label(product)
+        display_name = f"{product_name} ({size_label})" if size_label else product_name
         quantity = _int(getattr(item, "quantity", 0), 0)
         unit_price = float(getattr(item, "unit_price", 0) or 0)
         line_total = float(getattr(item, "total_price", 0) or (quantity * unit_price))
-        item_lines.append(f"- {product_name}: qty {quantity}, unit PHP {unit_price:.2f}, total PHP {line_total:.2f}")
+        item_lines.append(f"- {display_name}: qty {quantity}, unit PHP {unit_price:.2f}, total PHP {line_total:.2f}")
 
     items_block = "\n".join(item_lines) if item_lines else "- No order items found"
     shipping_address_parts = [
@@ -2825,7 +3059,9 @@ def _email_order_out_for_delivery_to_customer(order: Order) -> None:
         quantity = max(0, _int(getattr(item, "quantity", 0), 0))
         unit_price = float(getattr(item, "unit_price", 0) or 0)
         line_total = float(getattr(item, "total_price", 0) or (quantity * unit_price))
-        item_lines.append(f"- {product_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
+        size_label = _get_product_size_label(getattr(item, "product", None))
+        display_name = f"{product_name} ({size_label})" if size_label else product_name
+        item_lines.append(f"- {display_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
 
     products_text = "\n".join(item_lines) if item_lines else "- No product details available"
     total_amount = float(getattr(order, "total_amount", 0) or 0)
@@ -2866,14 +3102,17 @@ def _email_order_confirmed_to_customer(order: Order) -> None:
     order_items = list(order.items.select_related("product").all())
     item_lines: list[str] = []
     for item in order_items:
+        product = getattr(item, "product", None)
         product_name = (
-            str(getattr(getattr(item, "product", None), "name", "") or "").strip()
+            str(getattr(product, "name", "") or "").strip()
             or str(getattr(item, "product_name", "") or "").strip()
             or "Product"
         )
+        size_label = _get_product_size_label(product)
+        display_name = f"{product_name} ({size_label})" if size_label else product_name
         quantity = max(0, _int(getattr(item, "quantity", 0), 0))
         line_total = float(getattr(item, "total_price", 0) or 0)
-        item_lines.append(f"- {product_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
+        item_lines.append(f"- {display_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
     products_text = "\n".join(item_lines) if item_lines else "- No product details available"
 
     shipping_address_parts = [
@@ -2906,11 +3145,14 @@ def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> No
     item_lines: list[str] = []
     order_items = list(order.items.select_related("product").all()) if hasattr(order, "items") else []
     for item in order_items:
-        product_name = str(getattr(getattr(item, "product", None), "name", "") or "Product").strip() or "Product"
+        product = getattr(item, "product", None)
+        product_name = str(getattr(product, "name", "") or "Product").strip() or "Product"
+        size_label = _get_product_size_label(product)
+        display_name = f"{product_name} ({size_label})" if size_label else product_name
         quantity = int(getattr(item, "quantity", 0) or 0)
         unit_price = float(getattr(item, "unit_price", 0) or 0)
         subtotal = float(quantity * unit_price)
-        item_lines.append(f"- {product_name} x{quantity} ({subtotal:,.2f})")
+        item_lines.append(f"- {display_name} x{quantity} ({subtotal:,.2f})")
 
     subject = f"Order Rejected: {order.order_number}"
     message = (
@@ -2939,14 +3181,17 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
     if not recipients:
         return
     warehouse_name = str(getattr(getattr(inventory, "warehouse", None), "name", "") or "Warehouse").strip()
-    product_name = str(getattr(getattr(inventory, "product", None), "name", "") or "Product").strip()
-    sku = str(getattr(getattr(inventory, "product", None), "sku", "") or "").strip()
+    product = getattr(inventory, "product", None)
+    product_name = str(getattr(product, "name", "") or "Product").strip()
+    sku = str(getattr(product, "sku", "") or "").strip()
+    size_label = _get_product_size_label(product)
+    size_text = f" [{size_label}]" if size_label else ""
     sku_text = f" ({sku})" if sku else ""
-    subject = f"Low stock alert: {product_name}{sku_text}"
+    subject = f"Low stock alert: {product_name}{size_text}{sku_text}"
     message = (
         f"Stock level needs restocking.\n\n"
         f"Warehouse: {warehouse_name}\n"
-        f"Product: {product_name}{sku_text}\n"
+        f"Product: {product_name}{size_text}{sku_text}\n"
         f"Current Quantity: {current_qty}\n"
         f"Threshold: {threshold}\n"
         f"Trigger: {reason}\n"
@@ -4560,7 +4805,7 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     processing_orders = orders.filter(status=OrderStatus.PREPARING).count()
     in_transit_orders = orders.filter(status=OrderStatus.OUT_FOR_DELIVERY).count()
     delivered_orders = orders.filter(status=OrderStatus.DELIVERED).count()
-    cancelled_orders = orders.filter(status=OrderStatus.CANCELLED).count()
+    cancelled_orders = orders.filter(status__in=[OrderStatus.CANCELLED, OrderStatus.REJECTED]).count()
     loaded_orders = orders.filter(warehouse_stage=WarehouseStage.LOADED).count()
     total_orders = orders.count()
     total_revenue = float(orders.filter(status=OrderStatus.DELIVERED).aggregate(total=Sum("total_amount")).get("total") or 0)
@@ -4912,25 +5157,39 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             return _err("Invalid replacementDeliveryDate. Expected YYYY-MM-DD", 400)
 
     create_replacement_order = bool(body.get("createReplacementOrder"))
+    manual_schedule_confirmed = bool(body.get("manualScheduleConfirmed"))
     staff_role = str(staff.get("role") or "").strip().upper()
     is_admin_role = staff_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
     is_warehouse_role = staff_role == RoleType.WAREHOUSE_STAFF
 
-    if create_replacement_order and normalized_status not in {ReplacementStatus.APPROVED, ReplacementStatus.IN_PROGRESS}:
-        return _err("Replacement must be APPROVED before scheduling delivery", 400)
+    current_status_normalized = str(_normalize_replacement_status(getattr(r, "status", None), r.replacement_mode) or "").upper()
+    is_driver_partial_follow_up = (
+        str(getattr(r, "replacement_mode", "") or "").strip().upper() == REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
+        and current_status_normalized == ReplacementStatus.NEEDS_FOLLOW_UP
+    )
+    allowed_schedule_targets = {ReplacementStatus.APPROVED, ReplacementStatus.IN_PROGRESS}
+    if is_driver_partial_follow_up:
+        allowed_schedule_targets.add(ReplacementStatus.NEEDS_FOLLOW_UP)
+    if create_replacement_order and normalized_status not in allowed_schedule_targets:
+        return _err("Replacement is not eligible for scheduling delivery", 400)
     if create_replacement_order and not replacement_delivery_date:
         return _err("replacementDeliveryDate is required when createReplacementOrder is true", 400)
+    if create_replacement_order and not manual_schedule_confirmed:
+        return _err("Manual schedule confirmation is required", 400)
     if create_replacement_order and not is_warehouse_role:
         return _err("Only warehouse staff can schedule replacement deliveries", 403)
     if not create_replacement_order and not is_admin_role:
         return _err("Only admin can set replacement UNDER_REVIEW, APPROVED, or REJECTED", 403)
     if is_admin_role and normalized_status not in {ReplacementStatus.UNDER_REVIEW, ReplacementStatus.APPROVED, ReplacementStatus.REJECTED}:
         return _err("Admin can only set replacement to UNDER_REVIEW, APPROVED, or REJECTED here", 400)
-    if create_replacement_order and str(_normalize_replacement_status(getattr(r, "status", None), r.replacement_mode) or "").upper() not in {
-        ReplacementStatus.APPROVED,
-        ReplacementStatus.IN_PROGRESS,
-    }:
-        return _err("Replacement must be approved by admin before warehouse can schedule it", 400)
+    if create_replacement_order and current_status_normalized not in allowed_schedule_targets:
+        return _err("Replacement is not eligible for warehouse scheduling yet", 400)
+    if normalized_status in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}:
+        if _replacement_has_outstanding_quantity(r):
+            return _err(
+                "Replacement cannot be marked completed while there are still products to replace",
+                400,
+            )
 
     r.status = normalized_status
     status_notes = str(body.get("notes") or "").strip()
@@ -5070,6 +5329,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         OrderStatus.RESCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
         OrderStatus.DELIVERED,
+        OrderStatus.REJECTED,
         OrderStatus.CANCELLED,
     }
     if next_status not in allowed_statuses:
@@ -5089,12 +5349,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err("Delivered orders cannot be moved to another status", 400)
 
     allowed_transitions = {
-        OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.CANCELLED},
-        OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.CANCELLED},
-        OrderStatus.PREPARING: {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED},
-        OrderStatus.RESCHEDULED: {OrderStatus.PREPARING, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED},
-        OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.CANCELLED},
+        OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.PREPARING: {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.RESCHEDULED: {OrderStatus.PREPARING, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.DELIVERED: set(),
+        OrderStatus.REJECTED: set(),
         OrderStatus.CANCELLED: set(),
     }
     if next_status not in allowed_transitions.get(current_status, set()):
@@ -5107,7 +5368,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         with transaction.atomic():
             if next_status == OrderStatus.DELIVERED:
                 _finalize_order_inventory_on_delivery(o, staff.get("userId"))
-            elif next_status == OrderStatus.CANCELLED:
+            elif next_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
                 _release_order_reservations(o, staff.get("userId"))
 
             o.status = next_status
@@ -5126,6 +5387,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 "PREPARING": "processed_at",
                 "OUT_FOR_DELIVERY": "shipped_at",
                 "DELIVERED": "delivered_at",
+                "REJECTED": "cancelled_at",
                 "CANCELLED": "cancelled_at",
             }
             field = status_map.get(o.status)
@@ -5148,7 +5410,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     if str(staff.get("role") or "").strip().upper() == RoleType.WAREHOUSE_STAFF and next_status == OrderStatus.CONFIRMED:
         _email_order_confirmed_to_customer(updated)
     # Rejection flow from portal actions carries a reason; notify customer by email with order details.
-    if rejection_reason:
+    if rejection_reason and next_status == OrderStatus.REJECTED:
         updated_for_mail = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=updated.id)
         _email_order_rejected_to_customer(updated_for_mail, rejection_reason)
 
@@ -5467,7 +5729,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
-@require_http_methods(["DELETE"])
+@require_http_methods(["DELETE", "PATCH"])
 def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
     staff, err = _require_staff(request)
     if err:
@@ -5476,6 +5738,125 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
     trip = Trip.objects.filter(id=trip_id).first()
     if not trip:
         return _err("Trip not found", 404)
+
+    if request.method == "PATCH":
+        if str(trip.status or "").upper() != TripStatus.PLANNED:
+            return _err("Only planned trips can be edited", 409)
+        body = _json_body(request)
+        add_order_ids = [str(oid).strip() for oid in (body.get("addOrderIds") or []) if str(oid).strip()]
+        remove_drop_point_ids = [str(did).strip() for did in (body.get("removeDropPointIds") or []) if str(did).strip()]
+
+        if not add_order_ids and not remove_drop_point_ids:
+            return _err("No trip changes provided", 400)
+
+        terminal_drop_point_statuses = {"COMPLETED", "FAILED", "SKIPPED", "CANCELLED"}
+
+        with transaction.atomic():
+            if remove_drop_point_ids:
+                drop_points_to_remove = list(
+                    TripDropPoint.objects.select_for_update().filter(trip_id=trip.id, id__in=remove_drop_point_ids)
+                )
+                found_ids = {str(dp.id) for dp in drop_points_to_remove}
+                missing_ids = [dpid for dpid in remove_drop_point_ids if dpid not in found_ids]
+                if missing_ids:
+                    return _err("Some drop points were not found in this trip", 404)
+                blocked = [
+                    dp for dp in drop_points_to_remove if str(dp.status or "").upper() in terminal_drop_point_statuses
+                ]
+                if blocked:
+                    return _err("Completed/terminal drop points cannot be removed", 409)
+                TripDropPoint.objects.filter(id__in=[dp.id for dp in drop_points_to_remove]).delete()
+
+            if add_order_ids:
+                existing_order_ids_on_trip = set(
+                    TripDropPoint.objects.filter(trip_id=trip.id).values_list("order_id", flat=True)
+                )
+                duplicate_on_trip = [oid for oid in add_order_ids if oid in existing_order_ids_on_trip]
+                if duplicate_on_trip:
+                    return _err("Some orders are already in this trip", 409)
+
+                active_assigned_order_ids = set(
+                    TripDropPoint.objects.filter(
+                        order_id__in=add_order_ids,
+                        status__in=["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"],
+                    )
+                    .exclude(trip_id=trip.id)
+                    .values_list("order_id", flat=True)
+                )
+                if active_assigned_order_ids:
+                    assigned_orders = list(
+                        Order.objects.filter(id__in=active_assigned_order_ids).values_list("order_number", flat=True)
+                    )
+                    return _err(
+                        f"Order(s) already assigned to another trip: {', '.join(assigned_orders or sorted(active_assigned_order_ids))}",
+                        400,
+                    )
+
+                orders_map = {
+                    str(order.id): order
+                    for order in Order.objects.select_related("customer").filter(id__in=add_order_ids)
+                }
+                missing_order_ids = [oid for oid in add_order_ids if oid not in orders_map]
+                if missing_order_ids:
+                    return _err("Some orders were not found", 404)
+
+                max_sequence = (
+                    TripDropPoint.objects.filter(trip_id=trip.id).aggregate(max_seq=Max("sequence")).get("max_seq") or 0
+                )
+                next_sequence = int(max_sequence)
+                for order_id in add_order_ids:
+                    order = orders_map.get(order_id)
+                    if not order:
+                        continue
+                    next_sequence += 1
+                    drop_latitude = _to_float_or_none(order.shipping_latitude or getattr(order.customer, "latitude", None))
+                    drop_longitude = _to_float_or_none(order.shipping_longitude or getattr(order.customer, "longitude", None))
+                    TripDropPoint.objects.create(
+                        trip=trip,
+                        order=order,
+                        sequence=next_sequence,
+                        status="PENDING",
+                        location_name=(order.shipping_name or f"Order {order.order_number}"),
+                        address=_strip_default_country_suffix(order.shipping_address or "Address"),
+                        city=(order.shipping_city or "City"),
+                        province=(order.shipping_province or "Province"),
+                        zip_code=(order.shipping_zip_code or "00000"),
+                        latitude=drop_latitude,
+                        longitude=drop_longitude,
+                        contact_name=(order.shipping_name or None),
+                        contact_phone=(order.shipping_phone or None),
+                    )
+
+            reordered_drop_points = list(TripDropPoint.objects.filter(trip_id=trip.id).order_by("sequence", "id"))
+            for idx, point in enumerate(reordered_drop_points, start=1):
+                if point.sequence != idx:
+                    point.sequence = idx
+            if reordered_drop_points:
+                TripDropPoint.objects.bulk_update(reordered_drop_points, ["sequence"])
+
+            total_drop_points = TripDropPoint.objects.filter(trip_id=trip.id).count()
+            completed_drop_points = TripDropPoint.objects.filter(
+                trip_id=trip.id,
+                status__in=list(terminal_drop_point_statuses),
+            ).count()
+            trip.total_drop_points = total_drop_points
+            trip.completed_drop_points = completed_drop_points
+            trip.save(update_fields=["total_drop_points", "completed_drop_points", "updated_at"])
+
+        actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        _create_staff_notifications(
+            title="Trip updated",
+            message=(
+                f"{actor_name} updated trip {trip.trip_number}: "
+                f"+{len(add_order_ids)} added, -{len(remove_drop_point_ids)} removed."
+            ),
+            notification_type="TRIP",
+            reference_type="trip",
+            reference_id=trip.id,
+        )
+        trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
+        return _ok({"success": True, "trip": _serialize_trip(trip)})
+
     if str(trip.status or "").upper() != TripStatus.PLANNED:
         return _err("Only planned trips can be deleted", 409)
 
@@ -5593,7 +5974,7 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
         o = Order.objects.get(id=order_id, customer_id=p.get("userId"))
     except Order.DoesNotExist:
         return _err("Order not found", 404)
-    if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.CANCELLED}:
+    if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
         return _err("Order cannot be cancelled", 400)
 
     with transaction.atomic():
@@ -6151,20 +6532,49 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         if remaining <= 0:
             return 0, []
 
+        normalized_unit = _normalize_product_unit(getattr(product, "unit", None))
+        quantity_per_case = max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
         used_total = 0
         allocations: list[tuple[str, int]] = []
         inventory_rows = _resolve_inventory_rows_for_replacement(product, order)
         for inv in inventory_rows:
             if remaining <= 0:
                 break
-            available_qty = max(0, _int(getattr(inv, "quantity", 0), 0))
-            if available_qty <= 0:
+            available_cases = max(0, _int(getattr(inv, "quantity", 0), 0))
+            available_loose_bottles = max(0, _int(getattr(inv, "loose_bottles", 0), 0))
+            if normalized_unit == PRODUCT_UNIT_BOTTLE:
+                available_total = available_cases
+            else:
+                available_total = (available_cases * quantity_per_case) + available_loose_bottles
+            if available_total <= 0:
                 continue
-            take_qty = min(available_qty, remaining)
+
+            take_qty = min(available_total, remaining)
             if take_qty <= 0:
                 continue
-            inv.quantity = max(0, available_qty - take_qty)
-            inv.save(update_fields=["quantity", "updated_at"])
+
+            if normalized_unit == PRODUCT_UNIT_BOTTLE:
+                inv.quantity = max(0, available_cases - take_qty)
+                inv.save(update_fields=["quantity", "updated_at"])
+            else:
+                bottles_to_take = take_qty
+                # Consume loose bottles first.
+                consume_loose = min(available_loose_bottles, bottles_to_take)
+                available_loose_bottles -= consume_loose
+                bottles_to_take -= consume_loose
+                # Then consume full cases as needed.
+                if bottles_to_take > 0:
+                    cases_needed = math.ceil(bottles_to_take / max(1, quantity_per_case))
+                    cases_used = min(available_cases, cases_needed)
+                    available_cases -= cases_used
+                    bottles_from_cases = cases_used * quantity_per_case
+                    # If we opened extra bottles from the last case, put remainder back as loose bottles.
+                    extra_bottles = max(bottles_from_cases - bottles_to_take, 0)
+                    available_loose_bottles += extra_bottles
+                inv.quantity = max(0, available_cases)
+                inv.loose_bottles = max(0, available_loose_bottles)
+                inv.save(update_fields=["quantity", "loose_bottles", "updated_at"])
+
             InventoryTransaction.objects.create(
                 warehouse=inv.warehouse,
                 product=product,
@@ -6186,6 +6596,8 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         order = Order.objects.filter(id=order_id).first()
         if not order:
             return _err("orderId is required")
+        if str(getattr(order, "order_number", "") or "").strip().upper().startswith("RPL-"):
+            return _err("You cannot request replacement for a replacement order", 400)
         replacement_lines: list[dict[str, Any]] = []
         has_partial_line = False
         for index, raw_line in enumerate(replacement_lines_raw, start=1):
@@ -6220,30 +6632,40 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
             if resolved_on_delivery and quantity_replaced <= 0:
                 return _err(f"Replacement item {index} quantity replaced must be greater than zero", 400)
             stock = DriverSpareStock.objects.filter(driver_id=d.id, product=order_item.product).first()
-            available_qty = _int(getattr(stock, "on_hand_quantity", 0), 0)
-            if resolved_on_delivery and quantity_to_replace > available_qty:
+            available_units = _int(getattr(stock, "on_hand_quantity", 0), 0)
+            available_spare_bottles = max(0, available_units * quantity_per_case)
+            if resolved_on_delivery and quantity_to_replace > available_spare_bottles:
                 return _err(
-                    f"Replacement item {index} quantity to replace cannot exceed spare stock ({available_qty}) in RESOLVED mode",
+                    f"Replacement item {index} quantity to replace cannot exceed replacement stock ({available_spare_bottles}) in RESOLVED mode",
                     400,
                 )
-            if outcome == "PARTIALLY_REPLACED" and quantity_replaced > available_qty:
+            if outcome == "PARTIALLY_REPLACED" and quantity_replaced > available_spare_bottles:
                 return _err(
-                    f"Replacement item {index} quantity replaced cannot exceed spare stock ({available_qty}) in PARTIALLY_REPLACED mode",
+                    f"Replacement item {index} quantity replaced cannot exceed replacement stock ({available_spare_bottles}) in PARTIALLY_REPLACED mode",
                     400,
                 )
             inventory_rows = _resolve_inventory_rows_for_replacement(order_item.product, order)
-            available_inventory_qty = sum(max(0, _int(getattr(inv, "quantity", 0), 0)) for inv in inventory_rows)
-            if quantity_replaced > (available_qty + available_inventory_qty):
+            product_unit = _normalize_product_unit(getattr(order_item.product, "unit", None))
+            available_inventory_qty = 0
+            for inv in inventory_rows:
+                cases_qty = max(0, _int(getattr(inv, "quantity", 0), 0))
+                loose_qty = max(0, _int(getattr(inv, "loose_bottles", 0), 0))
+                if product_unit == PRODUCT_UNIT_BOTTLE:
+                    available_inventory_qty += cases_qty
+                else:
+                    available_inventory_qty += (cases_qty * quantity_per_case) + loose_qty
+            if quantity_replaced > (available_spare_bottles + available_inventory_qty):
                 return _err(
                     f"Insufficient replacement stock for {order_item.product.name}. "
-                    f"Needed {quantity_replaced}, available spare {available_qty}, inventory {available_inventory_qty}",
+                    f"Needed {quantity_replaced}, available spare {available_spare_bottles}, inventory {available_inventory_qty}",
                     400,
                 )
             replacement_lines.append({
                 "orderItem": order_item,
                 "product": order_item.product,
                 "stock": stock,
-                "availableQty": available_qty,
+                "availableQty": available_units,
+                "availableSpareBottles": available_spare_bottles,
                 "availableInventoryQty": available_inventory_qty,
                 "quantityToReplace": quantity_to_replace,
                 "quantityReplaced": quantity_replaced,
@@ -6281,19 +6703,21 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 deducted_from_inventory = 0
                 if quantity_replaced > 0:
                     stock = line["stock"]
-                    spare_available = max(0, _int(getattr(stock, "on_hand_quantity", 0), 0))
-                    if spare_available > 0:
-                        deducted_from_spare = min(spare_available, remaining_qty_to_deduct)
-                        stock.on_hand_quantity = max(0, spare_available - deducted_from_spare)
+                    spare_available_units = max(0, _int(getattr(stock, "on_hand_quantity", 0), 0))
+                    if spare_available_units > 0:
+                        units_needed = math.ceil(max(0, remaining_qty_to_deduct) / max(1, quantity_per_case))
+                        units_from_spare = min(spare_available_units, units_needed)
+                        deducted_from_spare = min(remaining_qty_to_deduct, units_from_spare * quantity_per_case)
+                        stock.on_hand_quantity = max(0, spare_available_units - units_from_spare)
                         stock.save(update_fields=["on_hand_quantity", "updated_at"])
                         InventoryTransaction.objects.create(
                             driver_id=d.id,
                             product=product,
                             type="OUT",
-                            quantity=deducted_from_spare,
+                            quantity=units_from_spare,
                             reference_type="replacement",
                             reference_id=order.id,
-                            notes="Driver replacement from spare products",
+                            notes=f"Driver replacement from replacement stock ({deducted_from_spare} bottles, {units_from_spare} units)",
                         )
                         remaining_qty_to_deduct -= deducted_from_spare
 
@@ -6342,7 +6766,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                     order=order,
                     customer_id=order.customer_id,
                     reason=str(body.get("reason") or "Damaged item"),
-                    description=body.get("description") or ("Replacement fulfilled by driver spare products" if resolved_on_delivery else "Partial replacement from driver spare products; follow-up required"),
+                    description=body.get("description") or ("Replacement fulfilled by driver replacement stock" if resolved_on_delivery else "Partial replacement from driver replacement stock; follow-up required"),
                     status=replacement_status,
                     requested_by="DRIVER",
                     replacement_mode=replacement_mode,
@@ -6361,9 +6785,23 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                     processed_by=p.get("userId") if resolved_on_delivery else None,
                     notes=f"{'Immediate replacement completed by driver' if resolved_on_delivery else 'Partial replacement reported by driver'}\nMeta: {json.dumps(meta)}",
                 ))
+            if outcome == "PARTIALLY_REPLACED":
+                for created in created_returns:
+                    serialized_created = _serialize_replacement(created)
+                    remaining_qty = max(_int(serialized_created.get("remainingQuantity"), 0), 0)
+                    if remaining_qty <= 0:
+                        continue
+                    created.notes = _append_replacement_note_line(
+                        created.notes,
+                        (
+                            f"Remaining quantity ({remaining_qty}) is ready for warehouse scheduling. "
+                            "No admin approval required."
+                        ),
+                    )
+                    created.save(update_fields=["notes", "updated_at"])
         serialized_returns = [_serialize_replacement(entry) for entry in created_returns]
         remaining_spare_products = sum(
-            max(_int(line["availableQty"], 0) - _int(line["quantityReplaced"], 0), 0)
+            max(_int(line["availableSpareBottles"], 0) - _int(line["quantityReplaced"], 0), 0)
             for line in replacement_lines
         )
         return _ok({
@@ -6442,27 +6880,45 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
         if order_item and qty > remaining_to_replace:
             return _err("quantity cannot exceed the remaining quantity to replace", 400)
         quantity_replaced = qty
+        if (previously_replaced_qty + quantity_replaced) < follow_up_quantity_to_replace:
+            return _err(
+                "Follow-up replacement cannot be marked resolved while there are still products to replace",
+                400,
+            )
     else:
         follow_up_quantity_to_replace = qty
 
     stock = DriverSpareStock.objects.filter(driver_id=d.id, product=product).first() if product else None
-    available_qty = _int(getattr(stock, "on_hand_quantity", 0), 0)
+    quantity_per_case_for_stock = max(1, _int(
+        getattr(order_item.product, "quantity_per_unit", 0) if order_item and getattr(order_item, "product", None) else 0,
+        _int(getattr(product, "quantity_per_unit", 0) if product else 0, 1),
+    ))
+    available_units = _int(getattr(stock, "on_hand_quantity", 0), 0)
+    available_spare_bottles = max(0, available_units * quantity_per_case_for_stock)
     available_inventory_qty = 0
     if product:
         inventory_rows = _resolve_inventory_rows_for_replacement(product, order)
-        available_inventory_qty = sum(max(0, _int(getattr(inv, "quantity", 0), 0)) for inv in inventory_rows)
+        normalized_product_unit = _normalize_product_unit(getattr(product, "unit", None))
+        available_inventory_qty = 0
+        for inv in inventory_rows:
+            cases_qty = max(0, _int(getattr(inv, "quantity", 0), 0))
+            loose_qty = max(0, _int(getattr(inv, "loose_bottles", 0), 0))
+            if normalized_product_unit == PRODUCT_UNIT_BOTTLE:
+                available_inventory_qty += cases_qty
+            else:
+                available_inventory_qty += (cases_qty * quantity_per_case_for_stock) + loose_qty
     if follow_up_return:
         if quantity_replaced > available_inventory_qty:
             return _err("Insufficient inventory stock for follow-up replacement quantity", 400)
-    elif outcome == "PARTIALLY_REPLACED" and quantity_replaced > available_qty:
+    elif outcome == "PARTIALLY_REPLACED" and quantity_replaced > available_spare_bottles:
         return _err(
-            f"partiallyReplacedQuantity cannot exceed spare stock ({available_qty}) in PARTIALLY_REPLACED mode",
+            f"partiallyReplacedQuantity cannot exceed replacement stock ({available_spare_bottles}) in PARTIALLY_REPLACED mode",
             400,
         )
-    elif quantity_replaced > (available_qty + available_inventory_qty):
+    elif quantity_replaced > (available_spare_bottles + available_inventory_qty):
         return _err(
             f"Insufficient replacement stock for selected replacement quantity. "
-            f"Needed {quantity_replaced}, available spare {available_qty}, inventory {available_inventory_qty}",
+            f"Needed {quantity_replaced}, available spare {available_spare_bottles}, inventory {available_inventory_qty}",
             400,
         )
     replacement_status = ReplacementStatus.RESOLVED_ON_DELIVERY if resolved_on_delivery else ReplacementStatus.NEEDS_FOLLOW_UP
@@ -6500,19 +6956,21 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 if deducted_from_inventory < quantity_replaced:
                     return _err("Insufficient inventory stock for follow-up replacement quantity", 400)
             else:
-                spare_available = max(0, _int(getattr(stock, "on_hand_quantity", 0), 0))
-                if spare_available > 0:
-                    deducted_from_spare = min(spare_available, quantity_replaced)
-                    stock.on_hand_quantity = max(0, spare_available - deducted_from_spare)
+                spare_available_units = max(0, _int(getattr(stock, "on_hand_quantity", 0), 0))
+                if spare_available_units > 0:
+                    units_needed = math.ceil(max(0, quantity_replaced) / max(1, quantity_per_case_for_stock))
+                    units_from_spare = min(spare_available_units, units_needed)
+                    deducted_from_spare = min(quantity_replaced, units_from_spare * quantity_per_case_for_stock)
+                    stock.on_hand_quantity = max(0, spare_available_units - units_from_spare)
                     stock.save(update_fields=["on_hand_quantity", "updated_at"])
                     InventoryTransaction.objects.create(
                         driver_id=d.id,
                         product=product,
                         type="OUT",
-                        quantity=deducted_from_spare,
+                        quantity=units_from_spare,
                         reference_type="replacement",
                         reference_id=order.id,
-                        notes="Driver replacement from spare products",
+                        notes=f"Driver replacement from replacement stock ({deducted_from_spare} bottles, {units_from_spare} units)",
                     )
                 remaining_for_inventory = quantity_replaced - deducted_from_spare
                 if remaining_for_inventory > 0:
@@ -6549,7 +7007,7 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 order=order,
                 customer_id=order.customer_id,
                 reason=str(body.get("reason") or "Damaged item"),
-                description=body.get("description") or ("Replacement fulfilled by driver spare products" if resolved_on_delivery else "Partial replacement from driver spare products; follow-up required"),
+                description=body.get("description") or ("Replacement fulfilled by driver replacement stock" if resolved_on_delivery else "Partial replacement from driver replacement stock; follow-up required"),
                 status=replacement_status,
                 requested_by="DRIVER",
                 replacement_mode=replacement_mode,
@@ -6568,9 +7026,21 @@ def driver_replacements_from_spare_products(request: HttpRequest) -> JsonRespons
                 processed_by=p.get("userId") if resolved_on_delivery else None,
                 notes=f"{'Immediate replacement completed by driver' if resolved_on_delivery else 'Partial replacement reported by driver'}\nMeta: {json.dumps(meta)}",
             )
+            if outcome == "PARTIALLY_REPLACED":
+                serialized_created = _serialize_replacement(r)
+                remaining_qty = max(_int(serialized_created.get("remainingQuantity"), 0), 0)
+                if remaining_qty > 0:
+                    r.notes = _append_replacement_note_line(
+                        r.notes,
+                        (
+                            f"Remaining quantity ({remaining_qty}) is ready for warehouse scheduling. "
+                            "No admin approval required."
+                        ),
+                    )
+                    r.save(update_fields=["notes", "updated_at"])
     serialized_return = _serialize_replacement(r)
     remaining_qty = _int(serialized_return.get("remainingQuantity"), max(qty - quantity_replaced, 0))
-    remaining_spare_products = max(available_qty - (0 if follow_up_return else deducted_from_spare), 0)
+    remaining_spare_products = max(available_spare_bottles - (0 if follow_up_return else deducted_from_spare), 0)
     return _ok({
         "success": True,
         "replacement": serialized_return,
@@ -6809,7 +7279,13 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     if next_status == "COMPLETED" and dp.order_id:
         open_replacements = []
         for entry in Replacement.objects.filter(order_id=dp.order_id, drop_point_id=dp.id):
-            if not _is_replacement_closed(entry):
+            mode = str(getattr(entry, "replacement_mode", "") or "").strip().upper()
+            status = str(getattr(entry, "status", "") or "").strip().upper()
+            is_scheduled_follow_up = (
+                mode == REPLACEMENT_MODE_SPARE_PRODUCTS_PARTIAL
+                and status in {ReplacementStatus.NEEDS_FOLLOW_UP, ReplacementStatus.IN_PROGRESS}
+            )
+            if not _is_replacement_closed(entry) and not is_scheduled_follow_up:
                 open_replacements.append(entry)
         if open_replacements:
             return _err("Drop point cannot be completed while a replacement follow-up is still open", 400)

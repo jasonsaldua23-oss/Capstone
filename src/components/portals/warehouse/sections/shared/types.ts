@@ -58,7 +58,7 @@ export type WarehouseOrdersViewProps = {
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => Promise<void>
   updatingOrderId: string | null
@@ -82,7 +82,7 @@ export type WarehouseReplacementsViewProps = {
   updateIssueStatus: (
     replacementId: string,
     status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string }
+    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
   ) => Promise<void>
   updatingReplacementId: string | null
   selectedReplacement: any | null

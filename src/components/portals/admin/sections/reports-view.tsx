@@ -302,11 +302,6 @@ export function ReportsView() {
         const orderItems = Array.isArray(relatedOrder?.items) ? relatedOrder.items : []
         const totalLossFromLines = sourceLines.reduce((sum: number, line: any) => {
           const qty = Math.max(Number(line?.quantityReplaced ?? line?.replacedQuantity ?? line?.quantity ?? item?.replacementQuantity ?? 0), 0)
-          const unitPrice =
-            Number(line?.unitPrice ?? line?.price ?? line?.sellingPrice ?? line?.replacementUnitPrice ?? line?.originalUnitPrice ?? NaN)
-
-          if (Number.isFinite(unitPrice)) return sum + unitPrice * qty
-
           const matchedOrderItem = orderItems.find((orderItem: any) => {
             const srcOrderItemId = String(line?.orderItemId ?? '').trim()
             const oiId = String(orderItem?.id ?? '').trim()
@@ -316,8 +311,40 @@ export function ReportsView() {
             return Boolean(srcProductId && oiProductId && srcProductId === oiProductId)
           })
 
-          const fallbackPrice = Number(matchedOrderItem?.unitPrice ?? matchedOrderItem?.price ?? matchedOrderItem?.product?.price ?? 0)
-          return sum + (Number.isFinite(fallbackPrice) ? fallbackPrice : 0) * qty
+          const unitPrice = Number(
+            line?.unitPrice ??
+            line?.price ??
+            line?.sellingPrice ??
+            line?.replacementUnitPrice ??
+            line?.originalUnitPrice ??
+            matchedOrderItem?.unitPrice ??
+            matchedOrderItem?.price ??
+            matchedOrderItem?.product?.price ??
+            NaN
+          )
+          const basePrice = Number.isFinite(unitPrice) ? unitPrice : 0
+          if (basePrice <= 0 || qty <= 0) return sum
+
+          const qtyPerCase = Math.max(
+            1,
+            Number(
+              line?.quantityPerCase ??
+              matchedOrderItem?.product?.quantityPerCase ??
+              matchedOrderItem?.product?.quantityPerUnit ??
+              1
+            )
+          )
+          const effectiveUnit = String(
+            line?.productUnit ??
+            line?.replacementProductUnit ??
+            line?.originalProductUnit ??
+            matchedOrderItem?.product?.unit ??
+            matchedOrderItem?.unit ??
+            ''
+          ).trim().toLowerCase()
+          const isBottleUnit = effectiveUnit.includes('bottle')
+          const replacedQtyInBillingUnit = isBottleUnit ? qty : (qty / qtyPerCase)
+          return sum + (replacedQtyInBillingUnit * basePrice)
         }, 0)
         const fallbackQty = Math.max(Number(item?.replacementQuantity ?? item?.quantityReplaced ?? 0), 0)
         const orderItemPrices = orderItems

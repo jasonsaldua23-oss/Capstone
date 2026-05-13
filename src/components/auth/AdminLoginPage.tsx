@@ -84,7 +84,6 @@ export function AdminLoginPage() {
       }
 
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Admin Portal')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

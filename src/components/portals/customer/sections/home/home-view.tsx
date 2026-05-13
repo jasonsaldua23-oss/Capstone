@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -110,7 +110,9 @@ export function CustomerHomeView({
               {sortedProducts.map((p, index) => {
                 const availableQty = p ? getAvailableQty(p) : 0
                 const sizeLabel = p
-                  ? (Array.isArray(p.sizes) && p.sizes.length > 0 ? String(p.sizes[0]) : 'N/A')
+                  ? (Array.isArray(p.sizes) && p.sizes.length > 0
+                      ? p.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
+                      : 'N/A')
                   : 'N/A'
                 const quantityPerUnit = p
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)

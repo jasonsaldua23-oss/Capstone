@@ -480,7 +480,7 @@ export function OrdersView() {
 
   const updateOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -790,9 +790,7 @@ export function OrdersView() {
                         <div>
                           <p>
                             {item.product?.name || 'Product'}
-                            {String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '') || '').trim()
-                              ? ` ${String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '')).trim()}`
-                              : ''}
+                            {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
                             {' '}x{item.quantity}
                           </p>
                         </div>
@@ -893,9 +891,7 @@ export function OrdersView() {
                         <div>
                           <p>
                             {item.product?.name || 'Product'}
-                            {String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '') || '').trim()
-                              ? ` ${String(item.product?.size || item.product?.sizeLabel || (Array.isArray(item.product?.sizes) ? item.product?.sizes[0] : '')).trim()}`
-                              : ''}
+                            {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
                             {' '}x{item.quantity}
                           </p>
                         </div>
@@ -963,11 +959,14 @@ export function OrdersView() {
                         toast.error('Rejection reason is required')
                         return
                       }
-                      if (!['PREPARING'].includes(rejectOrder.status)) {
-                        toast.error('You can only update eligible delivery orders')
+                      const orderStatus = String(rejectOrder?.status || '').toUpperCase()
+                      const paymentStatus = String(rejectOrder?.paymentStatus || '').toLowerCase()
+                      const canReject = paymentStatus === 'pending_approval' || orderStatus === 'PENDING'
+                      if (!canReject) {
+                        toast.error('Only not-yet-approved orders can be rejected')
                         return
                       }
-                      await updateOrderStatus(rejectOrder.id, 'PREPARING', rejectReason.trim())
+                      await updateOrderStatus(rejectOrder.id, 'REJECTED', rejectReason.trim())
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}

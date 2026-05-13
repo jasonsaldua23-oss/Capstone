@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from './shared'
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
@@ -51,60 +52,6 @@ const WEIGHT_BY_SIZE: Record<string, number> = {
   '2L (68 oz)': 2.08,
 }
 
-function getCollection<T>(payload: unknown, keys: string[]): T[] {
-  if (Array.isArray(payload)) return payload as T[]
-  if (!payload || typeof payload !== 'object') return []
-  const record = payload as Record<string, unknown>
-
-  for (const key of keys) {
-    if (Array.isArray(record[key])) return record[key] as T[]
-  }
-
-  if (Array.isArray(record.data)) return record.data as T[]
-  return []
-}
-
-function getWarehouseIdFromRow(row: any) {
-  const value = row?.warehouseId ?? row?.warehouse_id ?? row?.warehouse?.id ?? row?.warehouse
-  return typeof value === 'object' && value !== null ? String(value.id || '') : String(value || '')
-}
-
-function formatPeso(value: number) {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))
-}
-
-async function safeFetchJson(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-  options: { timeoutMs?: number } = {}
-): Promise<{ ok: boolean; status: number; data: any }> {
-  const timeoutMs = options.timeoutMs ?? 12000
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetch(input, {
-      cache: 'no-store',
-      credentials: 'include',
-      ...init,
-      signal: controller.signal,
-    })
-
-    const text = await response.text()
-    const data = text ? JSON.parse(text) : {}
-    return { ok: response.ok && data?.success !== false, status: response.status, data }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Request failed'
-    return { ok: false, status: 0, data: { error: message } }
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
 
 export function InventoryView() {
   const [inventory, setInventory] = useState<any[]>([])
@@ -494,7 +441,7 @@ export function InventoryView() {
                               <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
                               <p className="text-xs text-gray-500">
                                 {Array.isArray(item.product?.sizes) && item.product.sizes.length > 0
-                                  ? item.product.sizes[0]
+                                  ? item.product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
                                   : 'N/A'}
                               </p>
                             </div>
@@ -588,7 +535,7 @@ export function InventoryView() {
                     {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Delete Product
                   </Button>
-                  <Button className="flex-1 bg-black text-white hover:bg-black/90" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
+                  <Button className="flex-1" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
                     {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Save Changes
                   </Button>
@@ -762,7 +709,7 @@ export function InventoryView() {
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-black text-white hover:bg-black/90"
+                className="flex-1"
                 onClick={registerProduct}
                 disabled={isSubmittingProduct}
               >

@@ -521,42 +521,36 @@ export function WarehousesView() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-blue-50 p-1.5">
-                <Building2 className="h-3.5 w-3.5 text-blue-600" />
-              </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg p-2 bg-blue-100 text-blue-600"><Building2 className="h-4 w-4" /></div>
               <div>
-                <p className="text-xs text-gray-500">Total Warehouses</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{totalWarehouses}</p>
+                <p className="text-sm text-gray-600">Total Warehouses</p>
+                <p className="text-2xl font-bold">{totalWarehouses}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-emerald-50 p-1.5">
-                <Database className="h-3.5 w-3.5 text-emerald-600" />
-              </div>
+        <Card>
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg p-2 bg-emerald-100 text-emerald-600"><Database className="h-4 w-4" /></div>
               <div>
-                <p className="text-xs text-gray-500">Total Capacity</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{totalWarehouseCapacity.toLocaleString()}</p>
+                <p className="text-sm text-gray-600">Total Capacity</p>
+                <p className="text-2xl font-bold">{totalWarehouseCapacity.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-violet-50 p-1.5">
-                <TrendingUp className="h-3.5 w-3.5 text-violet-600" />
-              </div>
+        <Card>
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg p-2 bg-violet-100 text-violet-600"><TrendingUp className="h-4 w-4" /></div>
               <div>
-                <p className="text-xs text-gray-500">Avg Efficiency</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{avgEfficiency}%</p>
+                <p className="text-sm text-gray-600">Avg Efficiency</p>
+                <p className="text-2xl font-bold">{avgEfficiency}%</p>
               </div>
             </div>
           </CardContent>

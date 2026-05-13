@@ -112,7 +112,9 @@ export function CustomerOrdersView(props: any) {
   const getItemDisplayNameWithSize = (item: any): string => {
     const baseName = String(item?.product?.name || 'Product').trim()
     const product = item?.product || {}
-    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0 ? String(product.sizes[0] || '').trim() : ''
+    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
+      ? product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
+      : ''
     const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
     const sizeLabel = sizeFromArray || sizeFromField
     return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
@@ -173,10 +175,23 @@ export function CustomerOrdersView(props: any) {
         const units = Math.max(1, Math.round(fallback / qtyPerUnit))
         return formatQty(units, 'unit')
       }
-      return formatQty(fallback, 'bottle')
+      return formatQty(fallback, 'unit')
     }
     return 'N/A'
   }
+
+  const sanitizeReplacementText = (value: any): string => {
+    const raw = String(value || '').trim()
+    if (!raw) return 'N/A'
+    return raw
+      .replace(/driver\s+spare\s+products?/gi, 'replacement products')
+      .replace(/\bspare\s+products?\b/gi, 'replacement products')
+  }
+
+  const replacementTabOrders = useMemo(() => {
+    const base = Array.isArray(visibleOrders) && visibleOrders.length > 0 ? visibleOrders : orders
+    return (Array.isArray(base) ? base : []).filter((order: any) => isReplacementOrder(order))
+  }, [visibleOrders, orders])
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE))
   const pagedOrders = useMemo(() => {
@@ -256,45 +271,117 @@ export function CustomerOrdersView(props: any) {
           <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
         </div>
       ) : ordersTab === 'REPLACEMENT' ? (
-        visibleReplacementRecords.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-slate-500">No replacement records found.</div>
+        replacementTabOrders.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-slate-500">No replacement orders found.</div>
         ) : (
           <div className="space-y-2.5 px-2.5 pt-2.5 md:px-4">
-            {visibleReplacementRecords.map((record: any) => {
-              const recordOrderId = String(record?.orderId || '').trim()
-              const recordOrderNumber = String(record?.orderNumber || '').trim().toUpperCase()
-              const order = orders.find((item: any) =>
-                String(item?.id || '').trim() === recordOrderId ||
-                String(item?.orderNumber || '').trim().toUpperCase() === recordOrderNumber
-              ) || null
-              const statusLabel = getReplacementDisplayStatus(record, order)
-              const qtyLabel = getReplacementDisplayQty(record)
-              const reportedAt = record?.createdAt ? new Date(record.createdAt).toLocaleString() : 'N/A'
-              const productName = record?.originalProductName || record?.replacementProductName || 'Product'
+            {replacementTabOrders.map((o: any) => {
+              const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
+              const orderItems = Array.isArray(o.items) ? o.items : []
+              const replacementRequestDisplay = getReplacementRequestDisplay(o)
+              const isDelivered = normalizedStatus === 'DELIVERED'
+              const replacementRecord = getReplacementRecordForOrder(o)
+              const replacementStatusLabel = replacementRecord ? getReplacementDisplayStatus(replacementRecord, o) : null
+              const hasReplacementCase = Boolean(deliveryIssuesByOrderId[o.id])
               return (
-                <div key={record.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm md:px-3.5 md:py-3.5">
-                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2.5">
-                    <div>
-                      <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{record?.replacementNumber || 'Replacement'}</p>
-                      <p className="text-xs text-slate-500">Order: {record.orderNumber || order?.orderNumber || 'N/A'}</p>
+                <div key={o.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm md:px-3.5 md:py-3.5">
+                  <div className="grid gap-2.5 md:grid-cols-[1.35fr_1.05fr_0.72fr_0.8fr]">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                        <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{o.orderNumber}</p>
+                        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Replacement</Badge>
+                      </div>
+                      <p className="flex items-center gap-1.5 text-xs text-emerald-700">
+                        <CalendarDays className="h-4 w-4" />
+                        {normalizedStatus === 'DELIVERED' ? 'Delivered on ' : ''}
+                        {new Date(o.deliveredAt || o.deliveryDate || o.createdAt).toLocaleDateString()} ·{' '}
+                        {new Date(o.deliveredAt || o.deliveryDate || o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <div className="flex items-start gap-1.5 text-xs text-slate-700">
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                        <div>
+                          <p className="font-semibold text-slate-800">
+                            {String(
+                              o.customerName ||
+                              o.customer?.name ||
+                              o.shippingName ||
+                              o.contactName ||
+                              'Customer'
+                            )}
+                          </p>
+                          <p className="line-clamp-2 text-slate-600">{o.shippingAddress || 'No address provided'}</p>
+                        </div>
+                      </div>
                     </div>
-                    <Badge className={getReplacementBadgeClass(statusLabel)}>{statusLabel}</Badge>
-                  </div>
-                  <div className="mt-3 grid gap-2 text-xs text-slate-700 md:grid-cols-2">
-                    <p><span className="font-semibold text-slate-900">Product:</span> {productName}</p>
-                    <p><span className="font-semibold text-slate-900">Quantity:</span> {qtyLabel}</p>
-                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reason:</span> {record?.reason || 'N/A'}</p>
-                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reported:</span> {reportedAt}</p>
-                  </div>
-                  <div className="mt-3 flex justify-end">
-                    <Button
-                      variant="outline"
-                      className="h-8 rounded-md text-[11px]"
-                      onClick={() => setSelectedReplacementRecord(record)}
-                    >
-                      View Replacement
-                      <ChevronRight className="ml-1 h-3.5 w-3.5" />
-                    </Button>
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-900">Order Items</p>
+                      {orderItems.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {orderItems.map((item: any, index: number) => (
+                            <div key={`${o.id}-replacement-item-${item?.id || index}`} className="flex items-center gap-2">
+                              <img
+                                src={getProductImage(item?.product?.imageUrl)}
+                                alt={item?.product?.name || 'Product'}
+                                className="h-10 w-10 rounded-md border border-slate-200 bg-slate-50 object-cover"
+                              />
+                              <div>
+                                <p className="text-xs text-slate-800">{getItemDisplayNameWithSize(item)}</p>
+                                <p className="text-xs text-slate-500">
+                                  {replacementRequestDisplay
+                                    ? `x${replacementRequestDisplay.qty} ${replacementRequestDisplay.label}${replacementRequestDisplay.qty > 1 ? 's' : ''}`
+                                    : formatQuantityWithUnit(item)}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">No items</p>
+                      )}
+                      {isDelivered && !hasReplacementCase ? (
+                        <p className="text-xs text-slate-500">No replacement case filed for this order.</p>
+                      ) : null}
+                      {replacementStatusLabel ? (
+                        <Badge className={getReplacementBadgeClass(replacementStatusLabel)}>{replacementStatusLabel}</Badge>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">Total Amount</p>
+                      <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
+                        {formatPeso(o.totalAmount)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">{formatOrderStatus(o.status, o.paymentStatus)}</p>
+                    </div>
+
+                    <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
+                      <Button
+                        variant="outline"
+                        className="h-8 w-full rounded-md border-slate-300 text-[11px]"
+                        onClick={() => {
+                          const record = getReplacementRecordForOrder(o)
+                          if (record) {
+                            setSelectedReplacementRecord(record)
+                            return
+                          }
+                          setSelectedOrder(o)
+                        }}
+                      >
+                        View Details
+                        <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                      </Button>
+                      {isOrderTrackable(o.status) && !isDelivered ? (
+                        <Button
+                          className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
+                          onClick={() => openTrackView(o.id)}
+                        >
+                          <Truck className="mr-1 h-3.5 w-3.5" />
+                          Track Replacement
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               )
@@ -311,7 +398,7 @@ export function CustomerOrdersView(props: any) {
             const replacementRequestDisplay = getReplacementRequestDisplay(o)
             const isDelivered = normalizedStatus === 'DELIVERED'
             const isReviewed = reviewedOrderIds.has(o.id)
-            const shouldOpenReviewDirectly = ordersTab === 'TO_REVIEW' && isDelivered && !isReviewed
+            const shouldOpenReviewDirectly = ordersTab === 'TO_REVIEW' && isDelivered && !isReviewed && !isReplacementOrder(o)
             const submittedRating = Number(orderRatings[o.id] || 0)
             const hasSubmittedRating = submittedRating >= 1 && submittedRating <= 5
             const deliveryIssue = deliveryIssuesByOrderId[o.id]
@@ -326,7 +413,7 @@ export function CustomerOrdersView(props: any) {
                       <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
                       <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{o.orderNumber}</p>
                       {isReplacementOrder(o) ? (
-                        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Scheduled Replacement</Badge>
+                        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Replacement</Badge>
                       ) : null}
                     </div>
                     <p className="flex items-center gap-1.5 text-xs text-emerald-700">
@@ -428,7 +515,7 @@ export function CustomerOrdersView(props: any) {
                       {shouldOpenReviewDirectly ? 'Review' : 'View Details'}
                       <ChevronRight className="ml-1 h-3.5 w-3.5" />
                     </Button>
-                    {isOrderTrackable(o.status) ? (
+                    {isOrderTrackable(o.status) && !(isDelivered && isReplacementOrder(o)) ? (
                       <Button
                         className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
                         onClick={() => {
@@ -442,7 +529,7 @@ export function CustomerOrdersView(props: any) {
                         <Truck className="mr-1 h-3.5 w-3.5" />
                         {isDelivered ? 'Buy Again' : isReplacementOrder(o) ? 'Track Replacement' : 'Track Order'}
                       </Button>
-                    ) : isDelivered ? (
+                    ) : isDelivered && !isReplacementOrder(o) ? (
                       <Button
                         className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
                         onClick={() => {
@@ -465,12 +552,14 @@ export function CustomerOrdersView(props: any) {
                         Cancel Order
                       </Button>
                     ) : null}
-                    {isDelivered ? (
+                    {isDelivered && !isReplacementOrder(o) ? (
                       <Button
                         variant="outline"
                         className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={hasActiveReplacement}
-                        onClick={() => setSelectedOrder({ ...o, __openReplacementRequest: true })}
+                        onClick={() => {
+                          setSelectedOrder({ ...o, __openReplacementRequest: true })
+                        }}
                       >
                         {hasActiveReplacement ? 'Replacement In Progress' : 'Request Replacement'}
                       </Button>
@@ -519,12 +608,16 @@ export function CustomerOrdersView(props: any) {
             ) || null
             const statusLabel = getReplacementDisplayStatus(selectedReplacementRecord, selectedOrder)
             const meta = parseReplacementMeta(selectedReplacementRecord)
-            const evidenceUrl = String(
-              selectedReplacementRecord?.damagePhotoUrl ||
-              (Array.isArray(selectedReplacementRecord?.damagePhotoUrls) ? selectedReplacementRecord.damagePhotoUrls[0] : '') ||
-              meta?.damagePhotoUrl ||
-              ''
-            ).trim()
+            const evidenceUrls = Array.from(new Set(
+              [
+                selectedReplacementRecord?.damagePhotoUrl,
+                ...(Array.isArray(selectedReplacementRecord?.damagePhotoUrls) ? selectedReplacementRecord.damagePhotoUrls : []),
+                meta?.damagePhotoUrl,
+                ...(Array.isArray(meta?.damagePhotos) ? meta.damagePhotos : []),
+              ]
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)
+            ))
             const qtyLabel = getReplacementDisplayQty(selectedReplacementRecord)
             return (
               <>
@@ -562,15 +655,24 @@ export function CustomerOrdersView(props: any) {
                     <p><span className="font-semibold text-slate-900">Status:</span> {statusLabel}</p>
                     <p><span className="font-semibold text-slate-900">Product:</span> {selectedReplacementRecord?.originalProductName || selectedReplacementRecord?.replacementProductName || 'N/A'}</p>
                     <p><span className="font-semibold text-slate-900">Quantity:</span> {qtyLabel}</p>
-                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reason:</span> {selectedReplacementRecord?.reason || 'N/A'}</p>
-                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Description:</span> {selectedReplacementRecord?.description || 'N/A'}</p>
+                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Reason:</span> {sanitizeReplacementText(selectedReplacementRecord?.reason)}</p>
+                    <p className="md:col-span-2"><span className="font-semibold text-slate-900">Description:</span> {sanitizeReplacementText(selectedReplacementRecord?.description)}</p>
                     <p><span className="font-semibold text-slate-900">Reported:</span> {selectedReplacementRecord?.createdAt ? new Date(selectedReplacementRecord.createdAt).toLocaleString() : 'N/A'}</p>
                     <p><span className="font-semibold text-slate-900">Updated:</span> {selectedReplacementRecord?.updatedAt ? new Date(selectedReplacementRecord.updatedAt).toLocaleString() : 'N/A'}</p>
                   </div>
-                  {evidenceUrl ? (
+                  {evidenceUrls.length > 0 ? (
                     <div className="rounded-xl border border-slate-200 p-3">
-                      <p className="mb-2 text-xs font-semibold text-slate-700">Evidence</p>
-                      <img src={evidenceUrl} alt="Replacement evidence" className="max-h-[320px] w-full rounded-md border object-contain" />
+                      <p className="mb-2 text-xs font-semibold text-slate-700">Evidence ({evidenceUrls.length})</p>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {evidenceUrls.map((url, index) => (
+                          <img
+                            key={`${url}-${index}`}
+                            src={url}
+                            alt={`Replacement evidence ${index + 1}`}
+                            className="max-h-[320px] w-full rounded-md border object-contain"
+                          />
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   <div className="flex justify-end pt-1">

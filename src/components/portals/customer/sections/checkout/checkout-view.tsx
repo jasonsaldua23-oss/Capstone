@@ -60,6 +60,10 @@ export function CustomerCheckoutView({
   isPlacingOrder,
   canPlaceOrder,
 }: CustomerCheckoutViewProps) {
+  const today = new Date()
+  const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const minDeliveryDate = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`
+
   return (
     <section className="-mx-4 -mt-4 bg-white/55 pb-20 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
       <div className="border-b bg-white px-3 py-3 md:rounded-t-xl">
@@ -164,7 +168,7 @@ export function CustomerCheckoutView({
               <Input
                 type="date"
                 value={deliveryDate}
-                min={new Date().toISOString().split('T')[0]}
+                min={minDeliveryDate}
                 onChange={e => setDeliveryDate(e.target.value)}
                 className="h-10 rounded-xl border-slate-200 bg-white text-[13px] text-slate-700 focus-visible:ring-emerald-500 md:h-11 md:text-sm"
               />
