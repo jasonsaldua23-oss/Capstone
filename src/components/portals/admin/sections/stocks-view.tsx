@@ -70,7 +70,7 @@ export function StocksView() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <CardTitle>Stocks</CardTitle>
             <CardDescription>Batch-based stock-in records with receipt date, expiry date, and days left.</CardDescription>

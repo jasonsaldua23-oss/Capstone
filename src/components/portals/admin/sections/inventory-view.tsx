@@ -356,7 +356,7 @@ export function InventoryView() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <CardTitle>Inventory</CardTitle>
             </div>
@@ -584,7 +584,7 @@ export function InventoryView() {
             <DialogTitle>Register New Product</DialogTitle>
             <DialogDescription>Add a new product to your inventory system.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="md:col-span-2 space-y-1">
               <label className="text-sm font-medium text-gray-700">Select Warehouse *</label>
               <select

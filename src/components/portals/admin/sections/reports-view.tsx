@@ -1247,7 +1247,7 @@ export function ReportsView() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-[34px] leading-tight font-bold text-slate-800">Reports & Analytics</h1>
           <p className="text-sm text-slate-500">Order, transport, warehouse, replacement, and feedback reports</p>
@@ -1364,7 +1364,7 @@ export function ReportsView() {
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">In Progress</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.inProgress}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Completion</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.averageCompletion}%</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-2 gap-4">
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg">Trip Status Trend (Area)</CardTitle>
@@ -1462,7 +1462,7 @@ export function ReportsView() {
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-emerald-600">+15.4% vs prev {rangeDays} days</p></CardHeader></Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-2 gap-4">
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg">Warehouse Capacity vs Used</CardTitle>
@@ -1544,7 +1544,7 @@ export function ReportsView() {
             </div>
             <Card className={chartCardClassName}>
               <CardHeader className="pb-3">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle className="text-3xl font-bold tracking-tight text-slate-800">Stock In vs Stock Out Trend</CardTitle>
                     <CardDescription>Track stock movement over time</CardDescription>

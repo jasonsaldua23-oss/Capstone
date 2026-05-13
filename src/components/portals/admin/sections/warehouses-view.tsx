@@ -521,7 +521,7 @@ export function WarehousesView() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-3">
@@ -557,7 +557,7 @@ export function WarehousesView() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           <div className="col-span-full flex items-center justify-center h-64">
             {/* Loader2 icon removed */}
@@ -602,7 +602,7 @@ export function WarehousesView() {
             <DialogTitle>Add Warehouse</DialogTitle>
             <DialogDescription>Create a new storage facility.</DialogDescription>
           </DialogHeader>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -689,7 +689,7 @@ export function WarehousesView() {
             <DialogTitle>Manage Warehouse</DialogTitle>
             <DialogDescription>Update warehouse details and status.</DialogDescription>
           </DialogHeader>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -851,7 +851,7 @@ export function WarehousesView() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="rounded-xl border bg-gradient-to-br from-slate-50 via-white to-blue-50/40 p-4 shadow-sm">
                     <p className="mb-2 text-sm font-medium text-gray-600">Used vs Free Capacity</p>
                     <ChartContainer
@@ -895,7 +895,7 @@ export function WarehousesView() {
                       </PieChart>
                     </ChartContainer>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm items-start content-start auto-rows-min self-start">
+                  <div className="grid grid-cols-3 gap-3 text-sm items-start content-start auto-rows-min self-start">
                     <div className="rounded-xl border bg-white p-3 shadow-sm h-fit self-start">
                       <p className="text-gray-500">Used</p>
                       <p className="text-lg font-semibold text-blue-700">{usagePercent}%</p>
@@ -913,7 +913,7 @@ export function WarehousesView() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-3 gap-4">
               <Card className="lg:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Capacity Trend (Last 7 Days)</CardTitle>
@@ -952,7 +952,7 @@ export function WarehousesView() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-3 gap-4">
               <Card className="lg:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">SKU Velocity Chart</CardTitle>
@@ -1036,7 +1036,7 @@ export function WarehousesView() {
                 <CardDescription>Quick operational signals inside this warehouse.</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="grid grid-cols-2 gap-2">
                   {warehouseActivities.map((activity) => (
                     <div key={activity.id} className="rounded-md border bg-gray-50 px-3 py-2 text-sm text-gray-700">
                       <p className="text-sm font-medium text-gray-900">{activity.label}</p>

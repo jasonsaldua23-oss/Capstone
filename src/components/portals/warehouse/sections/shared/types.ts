@@ -6,6 +6,7 @@ export type WarehouseDashboardViewProps = {
   scopedInventory: any[]
   lowStockCount: number
   pendingReplacementCases: number
+  totalReplacementCases: number
   warehouseOrdersChartConfig: ChartConfig
   weeklyTrendData: any[]
   transactionDateFrom: string
@@ -71,6 +72,8 @@ export type WarehouseReplacementSummary = {
   needsFollowUp: number
   rejected: number
   replacedQty: number
+  replacedBottleQty: number
+  replacedCaseQty: number
 }
 
 export type WarehouseReplacementsViewProps = {

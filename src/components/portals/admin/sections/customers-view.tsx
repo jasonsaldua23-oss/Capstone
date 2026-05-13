@@ -367,7 +367,7 @@ export function CustomersView() {
 
       <Card>
         <CardContent className="p-3">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          <div className="flex flex-row items-center gap-2">
             <Input
               placeholder="Search by client name or email..."
               value={search}

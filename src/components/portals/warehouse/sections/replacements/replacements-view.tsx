@@ -273,6 +273,17 @@ export function WarehouseReplacementsView({
       entry?.order?.items?.[0]?.productName ||
       'Product'
     ).trim()
+    const productSize = String(
+      first?.originalProductSize ||
+      first?.productSize ||
+      entry?.originalProductSize ||
+      meta?.originalProductSize ||
+      entry?.productSize ||
+      entry?.order?.items?.[0]?.product?.size ||
+      entry?.order?.items?.[0]?.size ||
+      ''
+    ).trim()
+    const productLabel = productSize ? `${productName} ${productSize}` : productName
     const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
     const isByBottle = /\bby\s*bottle\b/.test(contextText)
     const qtyToReplaceLabel = getReplacementQtyDisplay(entry, meta, 'toReplace')
@@ -344,8 +355,8 @@ export function WarehouseReplacementsView({
         }
       }
     }
-    const base = `[${productName}] ${modeLabel}: ${displayQty}`
-    if (qtyPerUnit) return `${base}, Qty/Unit ${qtyPerUnit}.`
+    const base = `${productLabel} ${modeLabel}: ${displayQty}`
+    if (qtyPerUnit) return `${base}\nQty/Unit: ${qtyPerUnit}`
     return `${base}.`
   }
   const replacementsBySource = useMemo(() => {
@@ -389,7 +400,7 @@ export function WarehouseReplacementsView({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex h-full items-start gap-3 p-5">
             <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
@@ -440,7 +451,18 @@ export function WarehouseReplacementsView({
               <Boxes className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm text-gray-500">Total Replaced Qty</p>
+              <p className="text-sm text-gray-500">Replaced Bottles</p>
+              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.replacedBottleQty}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <CardContent className="flex h-full items-start gap-3 p-5">
+            <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600">
+              <ClipboardList className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">Replaced Unit</p>
               <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.replacedQty}</p>
             </div>
           </CardContent>
@@ -552,9 +574,6 @@ export function WarehouseReplacementsView({
                     const issueReason = getReplacementDetailsText(ret, meta)
                     const rawStatus = String(ret?.status || '').trim().toUpperCase()
                     const outstanding = hasOutstandingReplacementQty(ret, meta)
-                    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !outstanding
-                    const qtyToReplaceLabel = getNormalizedQtyLineDisplay(ret, meta, 'toReplace')
-                    const qtyReplacedLabel = isResolved ? getNormalizedQtyLineDisplay(ret, meta, 'replaced') : '0'
                     const evidenceUrls = collectEvidenceUrls(ret, meta)
                     const evidenceCount = evidenceUrls.length
                     const hasEvidence = evidenceCount > 0
@@ -565,11 +584,7 @@ export function WarehouseReplacementsView({
                         <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
-                          <p className="text-sm text-gray-900">{issueReason}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span>Qty to replace: {qtyToReplaceLabel}</span>
-                            <span>Qty replaced: {qtyReplacedLabel}</span>
-                          </div>
+                          <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
                         </td>
                         <td className="p-4">
                           <Badge variant={hasEvidence ? 'default' : 'secondary'}>
@@ -679,9 +694,6 @@ export function WarehouseReplacementsView({
                     const issueReason = getReplacementDetailsText(ret, meta)
                     const rawStatus = String(ret?.status || '').trim().toUpperCase()
                     const outstanding = hasOutstandingReplacementQty(ret, meta)
-                    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !outstanding
-                    const qtyToReplaceLabel = getNormalizedQtyLineDisplay(ret, meta, 'toReplace')
-                    const qtyReplacedLabel = isResolved ? getNormalizedQtyLineDisplay(ret, meta, 'replaced') : '0'
                     const evidenceUrls = collectEvidenceUrls(ret, meta)
                     const evidenceCount = evidenceUrls.length
                     const hasEvidence = evidenceCount > 0
@@ -692,11 +704,7 @@ export function WarehouseReplacementsView({
                         <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
-                          <p className="text-sm text-gray-900">{issueReason}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span>Qty to replace: {qtyToReplaceLabel}</span>
-                            <span>Qty replaced: {qtyReplacedLabel}</span>
-                          </div>
+                          <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
                         </td>
                         <td className="p-4">
                           <Badge variant={hasEvidence ? 'default' : 'secondary'}>
@@ -768,7 +776,7 @@ export function WarehouseReplacementsView({
               ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstandingReplacementQty) ||
               (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
             )
-            const baseResolution = String(selectedReplacement.description || '').trim()
+            const baseResolution = getReplacementDetailsText(selectedReplacement, meta).trim()
             const effectiveResolution = isResolvedCase
               ? (baseResolution.replace(/;?\s*follow-?up required\.?/i, '').trim() || 'Resolved')
               : (baseResolution || 'N/A')

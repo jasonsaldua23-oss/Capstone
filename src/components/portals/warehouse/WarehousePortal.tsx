@@ -1429,9 +1429,100 @@ export function WarehousePortal() {
     }
 
     let replacedQty = 0
+    let replacedBottleQty = 0
+    let replacedCaseQty = 0
     let resolvedOnDelivery = 0
     let needsFollowUp = 0
     let rejected = 0
+
+    const getReplacementLinesForKpi = (entry: any, meta: any) =>
+      (Array.isArray((entry as any)?.replacementLines) && (entry as any).replacementLines.length ? (entry as any).replacementLines : null) ||
+      (Array.isArray((meta as any)?.replacementLines) && (meta as any).replacementLines.length ? (meta as any).replacementLines : null) ||
+      (Array.isArray((entry as any)?.replacementItems) && (entry as any).replacementItems.length ? (entry as any).replacementItems : null) ||
+      (Array.isArray((meta as any)?.replacementItems) && (meta as any).replacementItems.length ? (meta as any).replacementItems : null) ||
+      []
+
+    const getBottleReplacedQtyForKpi = (entry: any, meta: any): number => {
+      const replacementLines = getReplacementLinesForKpi(entry, meta)
+      const firstLine = replacementLines[0] || {}
+      const lineBottleQty = Number(
+        firstLine?.replacedBottles ??
+        firstLine?.quantityReplacedBottles ??
+        firstLine?.replacementBottles
+      )
+      if (Number.isFinite(lineBottleQty) && lineBottleQty > 0) return lineBottleQty
+
+      const topBottleQty = Number(
+        (entry as any)?.replacementBottles ??
+        (meta as any)?.replacementBottles ??
+        (entry as any)?.replacedBottles ??
+        (meta as any)?.replacedBottles ??
+        0
+      )
+      if (Number.isFinite(topBottleQty) && topBottleQty > 0) return topBottleQty
+
+      // Fallback: text-based bottle classification when structural bottle qty is absent.
+      const contextText = `${String((entry as any)?.reason || '')} ${String((entry as any)?.description || '')} ${String((entry as any)?.notes || '')}`.toLowerCase()
+      const hasBottleText = /\bbottle(?:s)?\b/.test(contextText)
+      const hasUnitEvidence = Number(
+        firstLine?.replacedCases ??
+        firstLine?.quantityReplacedCases ??
+        firstLine?.replacementCases ??
+        (entry as any)?.replacementCases ??
+        (meta as any)?.replacementCases ??
+        (entry as any)?.quantityReplacedCases ??
+        (meta as any)?.quantityReplacedCases ??
+        0
+      ) > 0
+      if (!hasBottleText || hasUnitEvidence) return 0
+
+      return getCanonicalReplacedQtyForKpi(entry, meta)
+    }
+
+    const getCanonicalReplacedQtyForKpi = (entry: any, meta: any): number => {
+      const qty = Number(
+        (entry as any)?.replacementQuantity ??
+        (meta as any)?.replacementQuantity ??
+        (entry as any)?.quantityReplaced ??
+        (meta as any)?.quantityReplaced ??
+        0
+      )
+      return Number.isFinite(qty) && qty > 0 ? qty : 0
+    }
+
+    const getUnitReplacedQtyForKpi = (entry: any, meta: any): number => {
+      const replacementLines = getReplacementLinesForKpi(entry, meta)
+      const firstLine = replacementLines[0] || {}
+      const directUnitQty = Number(
+        firstLine?.replacedCases ??
+        firstLine?.quantityReplacedCases ??
+        firstLine?.replacementCases ??
+        (entry as any)?.replacementCases ??
+        (meta as any)?.replacementCases ??
+        (entry as any)?.quantityReplacedCases ??
+        (meta as any)?.quantityReplacedCases ??
+        0
+      )
+      if (Number.isFinite(directUnitQty) && directUnitQty > 0) return directUnitQty
+
+      const qtyPerCase = Number(
+        firstLine?.quantityPerCase ??
+        firstLine?.qtyPerUnit ??
+        firstLine?.quantityPerUnit ??
+        (entry as any)?.quantityPerCase ??
+        (meta as any)?.quantityPerCase ??
+        (entry as any)?.qtyPerUnit ??
+        (meta as any)?.qtyPerUnit ??
+        0
+      )
+      const canonicalQty = getCanonicalReplacedQtyForKpi(entry, meta)
+      if (Number.isFinite(qtyPerCase) && qtyPerCase > 0 && canonicalQty > 0) {
+        const units = canonicalQty / qtyPerCase
+        return Number.isFinite(units) && units > 0 ? units : 0
+      }
+      // Keep unit KPI strict: no raw-quantity fallback, to avoid bottle leakage.
+      return 0
+    }
 
     for (const entry of scopedReplacements) {
       const meta = parseMeta(entry?.notes)
@@ -1448,20 +1539,13 @@ export function WarehousePortal() {
                 ? 'COMPLETED'
                 : rawStatus
       if (status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED') {
-        const replacementLines =
-          (Array.isArray((entry as any)?.replacementLines) && (entry as any).replacementLines.length ? (entry as any).replacementLines : null) ||
-          (Array.isArray((meta as any)?.replacementLines) && (meta as any).replacementLines.length ? (meta as any).replacementLines : null) ||
-          []
+        const replacementLines = getReplacementLinesForKpi(entry, meta)
         const firstLine = replacementLines[0] || {}
+        const bottleQty = getBottleReplacedQtyForKpi(entry, meta)
         const lineReplacedUnits = Number(
           firstLine?.replacedCases ??
           firstLine?.quantityReplacedCases ??
           firstLine?.replacementCases
-        )
-        const lineReplacedBottles = Number(
-          firstLine?.replacedBottles ??
-          firstLine?.quantityReplacedBottles ??
-          firstLine?.replacementBottles
         )
         const fallbackQty = Number(
           (entry as any)?.quantityReplaced ??
@@ -1470,13 +1554,26 @@ export function WarehousePortal() {
           (meta as any)?.replacementQuantity ??
           0
         )
-        const qty = Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
-          ? lineReplacedUnits
-          : Number.isFinite(lineReplacedBottles) && lineReplacedBottles > 0
-            ? lineReplacedBottles
-            : (Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0)
-        if (qty > 0) {
+        const canonicalQty = getCanonicalReplacedQtyForKpi(entry, meta)
+        const unitQty = getUnitReplacedQtyForKpi(entry, meta)
+        const qty = unitQty > 0
+          ? unitQty
+          : Number.isFinite(fallbackQty) && fallbackQty > 0
+            ? fallbackQty
+            : Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+              ? lineReplacedUnits
+              : 0
+        if (bottleQty <= 0 && qty > 0) {
           replacedQty += qty
+        }
+
+        if (bottleQty > 0) {
+          replacedBottleQty += bottleQty
+        } else {
+          const caseQty = Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+            ? lineReplacedUnits
+            : (unitQty > 0 ? unitQty : (canonicalQty > 0 ? canonicalQty : (Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0)))
+          if (caseQty > 0) replacedCaseQty += caseQty
         }
       }
       if (status === 'RESOLVED_ON_DELIVERY') {
@@ -1492,6 +1589,8 @@ export function WarehousePortal() {
 
     return {
       replacedQty,
+      replacedBottleQty,
+      replacedCaseQty,
       resolvedOnDelivery,
       needsFollowUp,
       rejected,
@@ -3352,7 +3451,8 @@ export function WarehousePortal() {
           onLogout={handleLogout}
         />
 
-        <main className="flex-1 p-4 md:p-6 overflow-auto">
+        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+          <div className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100">
           {!hasAssignedWarehouse && (
             <Card>
               <CardHeader>
@@ -3381,6 +3481,7 @@ export function WarehousePortal() {
               scopedInventory={scopedInventory}
               lowStockCount={lowStockCount}
               pendingReplacementCases={replacementSummary.needsFollowUp}
+              totalReplacementCases={replacementSummary.totalCases}
               warehouseOrdersChartConfig={warehouseOrdersChartConfig}
               weeklyTrendData={weeklyTrendData}
               transactionDateFrom={transactionDateFrom}
@@ -3485,7 +3586,7 @@ export function WarehousePortal() {
 
           {activeView === 'inventory' && (
             <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
-              <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+              <TabsList className="h-auto w-full flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
                 <TabsTrigger
                   value="inventory"
                   className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
@@ -3664,6 +3765,7 @@ export function WarehousePortal() {
 
             </>
           )}
+          </div>
         </main>
       </div>
 

@@ -345,7 +345,7 @@ export function TransportationView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-3">
@@ -464,7 +464,7 @@ export function TransportationView() {
             {vehicles.map((vehicle: any) => (
               <Card key={vehicle.id}>
                 <CardContent className="pt-6">
-                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div className="flex flex-row items-start justify-between gap-3">
                     <div>
                       <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
                       <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>

@@ -594,7 +594,7 @@ export function AdminPortal() {
         </div>
 
         {/* Navigation Menu */}
-        <nav className="flex-1 overflow-hidden px-2 py-4 space-y-1">
+        <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
           {navItems.map((item) => {
             const IconComponent = item.icon
             return (
@@ -649,7 +649,7 @@ export function AdminPortal() {
       case 'inventory':
         return (
           <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
-            <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+            <TabsList className="h-auto w-full flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
               <TabsTrigger
                 value="inventory"
                 className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
@@ -743,7 +743,7 @@ export function AdminPortal() {
                     {unreadFilteredNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[26rem] p-0">
+                <DropdownMenuContent align="end" className="w-[min(26rem,calc(100vw-1rem))] p-0">
                   <div className="flex items-center justify-between px-3 py-2">
                     <div className="text-sm font-medium">Notifications</div>
                     <Button
@@ -812,8 +812,10 @@ export function AdminPortal() {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 md:p-6 overflow-auto">
-          {renderActiveView()}
+        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+          <div className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100">
+            {renderActiveView()}
+          </div>
         </main>
       </div>
     </div>

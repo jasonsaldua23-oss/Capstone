@@ -1,7 +1,7 @@
 'use client'
 
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
-import { AlertTriangle, Boxes, Loader2, Warehouse, TrendingUp, Package, ShoppingCart, MapPin, CircleCheck, Truck } from 'lucide-react'
+import { AlertTriangle, Boxes, Loader2, Warehouse, TrendingUp, Package, ShoppingCart, CircleCheck, Truck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ export function WarehouseDashboardView({
   scopedInventory,
   lowStockCount,
   pendingReplacementCases,
+  totalReplacementCases,
   warehouseOrdersChartConfig,
   weeklyTrendData,
   transactionDateFrom,
@@ -51,9 +52,13 @@ export function WarehouseDashboardView({
   }, [])
 
   const dashboardOrderStats = useMemo(() => {
-    const totalOrders = dashboardOrders.length || 0
-    const outForDelivery = dashboardOrders.filter(o => o?.status === 'IN_TRANSIT').length
-    const delivered = dashboardOrders.filter(o => o?.status === 'DELIVERED').length
+    const nonReplacementOrders = dashboardOrders.filter((order) => {
+      const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+      return !Boolean(order?.isScheduledReplacement) && !orderNumber.startsWith('RPL-')
+    })
+    const totalOrders = nonReplacementOrders.length || 0
+    const outForDelivery = nonReplacementOrders.filter((o) => o?.status === 'IN_TRANSIT').length
+    const delivered = nonReplacementOrders.filter((o) => o?.status === 'DELIVERED').length
 
     return {
       totalOrders,
@@ -137,7 +142,7 @@ export function WarehouseDashboardView({
       </div>
 
       {/* Order Status Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-4 gap-5">
         <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-100 shadow-[0_18px_40px_rgba(37,99,235,0.16)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(37,99,235,0.22)]">
           <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-blue-300/25 blur-2xl" />
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
@@ -155,11 +160,11 @@ export function WarehouseDashboardView({
           <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-rose-300/25 blur-2xl" />
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
             <div className="inline-flex w-fit rounded-2xl border border-rose-200/60 bg-white/70 p-2.5 text-rose-700 backdrop-blur">
-              <MapPin className="h-5 w-5" />
+              <Package className="h-5 w-5" />
             </div>
             <div className="mt-4">
-              <p className="text-4xl font-extrabold leading-none tracking-tight text-rose-900">{dashboardOrderStats.outForDelivery.toLocaleString()}</p>
-              <p className="mt-2 text-sm leading-tight font-medium text-rose-900/70">Out for Delivery</p>
+              <p className="text-4xl font-extrabold leading-none tracking-tight text-rose-900">{totalReplacementCases.toLocaleString()}</p>
+              <p className="mt-2 text-sm leading-tight font-medium text-rose-900/70">Replacement Cases</p>
             </div>
           </CardContent>
         </Card>
@@ -192,7 +197,7 @@ export function WarehouseDashboardView({
       </div>
 
       {/* Enhanced Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-gradient-to-br from-white via-blue-50/70 to-indigo-100/60 shadow-[0_14px_32px_rgba(37,99,235,0.12)] transition-all duration-300 hover:-translate-y-0.5">
           <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-blue-300/20 blur-2xl" />
           <CardContent className="relative flex h-full items-start gap-3 p-6">
@@ -230,9 +235,8 @@ export function WarehouseDashboardView({
               <AlertTriangle className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-rose-900/75">Low Stock Items</p>
-              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-rose-900">{lowStockCount}</p>
-              <p className="mt-2 text-xs text-rose-900/60">{stockHealthPercentage}% of inventory</p>
+              <p className="text-sm font-medium text-rose-900/75">Pending Replacements</p>
+              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-rose-900">{pendingReplacementCases || 0}</p>
             </div>
           </CardContent>
         </Card>
@@ -298,7 +302,7 @@ export function WarehouseDashboardView({
       </Card>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="bg-gradient-to-br from-indigo-600 to-purple-700 text-white">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -347,7 +351,7 @@ export function WarehouseDashboardView({
           <CardDescription className="text-base text-slate-500">Quick view of stock levels across all items</CardDescription>
         </CardHeader>
         <CardContent className="relative">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div className="relative overflow-hidden rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 to-teal-100/70 p-5 shadow-[0_10px_24px_rgba(16,185,129,0.14)]">
               <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-emerald-300/30 blur-xl" />
               <div className="mb-3 inline-flex rounded-xl bg-white/65 p-2 text-emerald-700">
@@ -394,7 +398,7 @@ export function WarehouseDashboardView({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -499,12 +503,12 @@ export function WarehouseDashboardView({
 
       <Card className="rounded-2xl border-0 shadow-sm">
         <CardHeader>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-end justify-between gap-3">
             <div>
               <CardTitle>Inventory Transactions</CardTitle>
               <CardDescription>All inventory movement records for this warehouse.</CardDescription>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2">
               <Input
                 type="date"
                 value={transactionDateFrom}

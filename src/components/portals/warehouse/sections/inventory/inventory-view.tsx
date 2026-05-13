@@ -144,12 +144,12 @@ export function WarehouseInventoryView({
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-end justify-between gap-3">
             <div>
               <CardTitle>Inventory Transactions</CardTitle>
               <CardDescription>All inventory movement records for this warehouse.</CardDescription>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2">
               <Input
                 type="date"
                 value={transactionDateFrom}
