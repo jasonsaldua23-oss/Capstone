@@ -111,6 +111,12 @@ interface ProductOption {
   price?: number
   unit?: string
   sizes?: string[]
+  isOverstocked?: boolean
+  overstockInfo?: {
+    available: number
+    threshold: number
+    daysSinceRestock: number
+  } | null
 }
 
 interface StockBatchItem {
@@ -357,10 +363,12 @@ interface StockRow {
   id: string
   productId: string
   quantity: string
+  manufacturedDate: string
   expiryDate: string
   validationErrors: {
     productId?: string
     quantity?: string
+    manufacturedDate?: string
     expiryDate?: string
   }
 }
@@ -541,7 +549,7 @@ export function WarehousePortal() {
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false)
   const [stockInWarehouseId, setStockInWarehouseId] = useState('')
   const [stockRows, setStockRows] = useState<StockRow[]>([
-    { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
+    { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
   ])
   const [profileName, setProfileName] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
@@ -576,6 +584,21 @@ export function WarehousePortal() {
       0,
       Number((item as any)?.minStock ?? (item as any)?.threshold ?? (item as any)?.min_stock ?? 0) || 0
     )
+  const isOverstockedInventoryItem = (item: InventoryItem | null | undefined) => {
+    if (!item) return false
+    const threshold = getItemThreshold(item)
+    if (threshold <= 0) return false
+    const qty = Number((item as any)?.quantity ?? 0) || 0
+    const reserved = Number((item as any)?.reservedQuantity ?? (item as any)?.reserved_quantity ?? 0) || 0
+    const available = Math.max(0, qty - reserved)
+    if (available < threshold * 3) return false
+    const lastRestockedRaw = (item as any)?.lastRestockedAt ?? (item as any)?.last_restocked_at ?? (item as any)?.updatedAt ?? (item as any)?.updated_at
+    if (!lastRestockedRaw) return false
+    const lastRestockedAt = new Date(lastRestockedRaw)
+    if (Number.isNaN(lastRestockedAt.getTime())) return false
+    const daysInOverstockMs = Date.now() - lastRestockedAt.getTime()
+    return daysInOverstockMs >= (7 * 24 * 60 * 60 * 1000)
+  }
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
@@ -1323,13 +1346,31 @@ export function WarehousePortal() {
       const productId = String(item?.product?.id || '').trim()
       if (!productId || seen.has(productId)) continue
       seen.add(productId)
+      const threshold = getItemThreshold(item)
+      const qty = Number((item as any)?.quantity ?? 0) || 0
+      const reserved = Number((item as any)?.reservedQuantity ?? (item as any)?.reserved_quantity ?? 0) || 0
+      const available = Math.max(0, qty - reserved)
+      const lastRestockedRaw = (item as any)?.lastRestockedAt ?? (item as any)?.last_restocked_at ?? (item as any)?.updatedAt ?? (item as any)?.updated_at
+      const lastRestockedAt = lastRestockedRaw ? new Date(lastRestockedRaw) : null
+      const daysSinceRestock = lastRestockedAt && !Number.isNaN(lastRestockedAt.getTime())
+        ? Math.max(0, Math.floor((Date.now() - lastRestockedAt.getTime()) / (24 * 60 * 60 * 1000)))
+        : 0
+      const isOverstocked = isOverstockedInventoryItem(item)
       fromInventory.push({
         id: productId,
         sku: String(item?.product?.sku || '').trim(),
         name: String(item?.product?.name || '').trim(),
         price: Number(item?.product?.price || 0),
         unit: String(item?.product?.unit || 'case').trim(),
-        sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : []
+        sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : [],
+        isOverstocked,
+        overstockInfo: isOverstocked
+          ? {
+              available,
+              threshold,
+              daysSinceRestock,
+            }
+          : null,
       })
     }
 
@@ -1699,7 +1740,7 @@ export function WarehousePortal() {
           acc.critical += 1
         } else if (minStock > 0 && available <= minStock) {
           acc.low += 1
-        } else if (minStock > 0 && available >= minStock * 2) {
+        } else if (isOverstockedInventoryItem(item)) {
           acc.overstocked += 1
         } else {
           acc.healthy += 1
@@ -1777,7 +1818,7 @@ export function WarehousePortal() {
         id: 'latest-batch',
         label: 'Latest stock-in',
         detail: latestBatch
-          ? `${latestBatch.batchNumber} received (${new Date(latestBatch.receiptDate).toLocaleDateString()})`
+          ? `${latestBatch.batchNumber} manufactured (${new Date(latestBatch.receiptDate).toLocaleDateString()})`
           : 'No recent stock-in record found',
       },
     ]
@@ -2776,7 +2817,7 @@ export function WarehousePortal() {
 
   const resetStockInForm = () => {
     setStockRows([
-      { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
+      { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
     ])
     if (!isWarehouseScopedUser || !assignedWarehouse?.id) {
       setStockInWarehouseId('')
@@ -2789,6 +2830,7 @@ export function WarehousePortal() {
       id: `row-${Date.now()}-${Math.random()}`,
       productId: '',
       quantity: '',
+      manufacturedDate: '',
       expiryDate: '',
       validationErrors: {}
     }
@@ -2814,6 +2856,15 @@ export function WarehousePortal() {
   const validateStockRow = (row: StockRow) => {
     const errors: StockRow['validationErrors'] = {}
     if (!row.productId.trim()) errors.productId = 'Product is required'
+    const selectedProduct = availableExistingProducts.find((p) => p.id === row.productId.trim())
+    if (selectedProduct?.isOverstocked) {
+      const info = selectedProduct.overstockInfo
+      if (info) {
+        errors.productId = `Overstocked: available ${info.available}, threshold ${info.threshold}, ${info.daysSinceRestock} days since restock`
+      } else {
+        errors.productId = 'Product is overstocked and cannot be restocked right now'
+      }
+    }
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
     return errors
@@ -2852,7 +2903,8 @@ export function WarehousePortal() {
 
       const productIdentifier = parts[0]
       const quantity = parts[1]
-      const expiryDate = parts[2] || ''
+      const manufacturedDate = parts[2] || ''
+      const expiryDate = parts[3] || ''
 
       // Find product by SKU or name
       const matchedProduct = availableExistingProducts.find(
@@ -2864,6 +2916,7 @@ export function WarehousePortal() {
           id: `row-${Date.now()}-${Math.random()}`,
           productId: matchedProduct.id,
           quantity: quantity,
+          manufacturedDate: manufacturedDate,
           expiryDate: expiryDate,
           validationErrors: {}
         })
@@ -2921,6 +2974,7 @@ export function WarehousePortal() {
     const batches = stockRows.map(row => ({
       productId: row.productId,
       quantity: Number(row.quantity),
+      manufacturedDate: row.manufacturedDate || null,
       expiryDate: row.expiryDate || null
     }))
 
@@ -4367,9 +4421,9 @@ export function WarehousePortal() {
           resetStockInForm()
         }}
       >
-        <DialogContent className="flex h-[85vh] w-[95vw] max-w-4xl flex-col overflow-hidden p-5">
+        <DialogContent className="flex h-[86vh] w-[86vw] max-w-[800px] sm:max-w-[800px] flex-col overflow-hidden p-6">
           <DialogHeader className="mb-2">
-            <DialogTitle className="text-3xl font-bold">Bulk Add Stock</DialogTitle>
+            <DialogTitle className="text-3xl font-bold">Add Stock</DialogTitle>
             <DialogDescription className="text-lg mt-2">Add multiple stock entries by batch</DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col">
@@ -4393,24 +4447,26 @@ export function WarehousePortal() {
             ) : null}
 
             {/* Stock Rows Table */}
-            <div className="border rounded-md overflow-hidden">
-              {/* Sticky Header */}
-              <div className="sticky top-0 z-20 grid grid-cols-[2fr_0.9fr_1.2fr_36px] gap-2 bg-gray-100 border-b p-3 font-semibold text-sm text-gray-700">
-                <div className="px-2.5">Product</div>
-                <div className="px-2.5">Quantity</div>
-                <div className="px-2.5">Expiry Date</div>
-                <div></div>
-              </div>
+            <div className="overflow-x-auto rounded-md border">
+              <div className="min-w-[700px]">
+                {/* Sticky Header */}
+                <div className="sticky top-0 z-20 grid grid-cols-[minmax(160px,1.7fr)_minmax(72px,0.65fr)_minmax(120px,0.95fr)_minmax(120px,0.95fr)_24px] gap-1.5 border-b bg-gray-100 px-2.5 py-3 text-sm font-semibold text-gray-700">
+                  <div className="px-2.5">Product</div>
+                  <div className="px-2.5">Quantity</div>
+                  <div className="px-2.5">Manufactured Date</div>
+                  <div className="px-2.5">Expiry Date</div>
+                  <div></div>
+                </div>
 
-              {/* Rows */}
-              <div className="max-h-[45vh] overflow-y-auto">
+                {/* Rows */}
+                <div className="max-h-[50vh] overflow-y-auto">
                 {stockRows.map((row, idx) => (
-                  <div key={row.id} className="grid grid-cols-[2fr_0.9fr_1.2fr_36px] gap-2 border-b p-3 items-start bg-white hover:bg-gray-50 transition">
+                  <div key={row.id} className="grid grid-cols-[minmax(160px,1.7fr)_minmax(72px,0.65fr)_minmax(120px,0.95fr)_minmax(120px,0.95fr)_24px] items-start gap-1.5 border-b bg-white px-2.5 py-3 transition hover:bg-gray-50">
                     {/* Product Select */}
                     <div className="min-w-0 space-y-1">
                       <select
                         title="Select Product"
-                        className={`h-9 w-full rounded-md border px-2.5 py-1.5 text-xs font-medium ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
+                        className={`h-10 min-w-0 w-full rounded-md border px-2 py-1.5 text-sm font-medium ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
                         value={row.productId}
                         onChange={(e) => updateStockRow(row.id, 'productId', e.target.value)}
                       >
@@ -4423,14 +4479,19 @@ export function WarehousePortal() {
                             ? ` (${product.sizes.join(', ')})`
                             : ''
                           return (
-                            <option key={product.id} value={product.id} disabled={selectedInAnotherRow}>
-                              {product.name}{sizeString}
+                            <option key={product.id} value={product.id} disabled={selectedInAnotherRow || Boolean(product.isOverstocked)}>
+                              {product.name}{sizeString}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
                             </option>
                           )
                         })}
                       </select>
                       {row.validationErrors.productId && (
                         <p className="text-xs text-red-600">{row.validationErrors.productId}</p>
+                      )}
+                      {!row.validationErrors.productId && availableExistingProducts.some((p) => p.isOverstocked) && (
+                        <p className="text-xs text-amber-700">
+                          Some products are blocked: overstocked (available is at least 3x threshold for 7+ days).
+                        </p>
                       )}
                     </div>
 
@@ -4440,7 +4501,7 @@ export function WarehousePortal() {
                         id={`qty-${row.id}`}
                         type="number"
                         placeholder="0"
-                        className={`h-9 text-xs ${row.validationErrors.quantity ? 'border-red-500 bg-red-50' : ''}`}
+                        className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.quantity ? 'border-red-500 bg-red-50' : ''}`}
                         value={row.quantity}
                         onChange={(e) => updateStockRow(row.id, 'quantity', e.target.value)}
                       />
@@ -4449,12 +4510,26 @@ export function WarehousePortal() {
                       )}
                     </div>
 
+                    {/* Manufactured Date Input */}
+                    <div className="min-w-0 space-y-1">
+                      <Input
+                        id={`mfg-${row.id}`}
+                        type="date"
+                        className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.manufacturedDate ? 'border-red-500 bg-red-50' : ''}`}
+                        value={row.manufacturedDate}
+                        onChange={(e) => updateStockRow(row.id, 'manufacturedDate', e.target.value)}
+                      />
+                      {row.validationErrors.manufacturedDate && (
+                        <p className="text-xs text-red-600">{row.validationErrors.manufacturedDate}</p>
+                      )}
+                    </div>
+
                     {/* Expiry Date Input */}
                     <div className="min-w-0 space-y-1">
                       <Input
                         id={`expiry-${row.id}`}
                         type="date"
-                        className={`h-9 text-xs ${row.validationErrors.expiryDate ? 'border-red-500 bg-red-50' : ''}`}
+                        className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.expiryDate ? 'border-red-500 bg-red-50' : ''}`}
                         value={row.expiryDate}
                         onChange={(e) => updateStockRow(row.id, 'expiryDate', e.target.value)}
                       />
@@ -4467,7 +4542,7 @@ export function WarehousePortal() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className={`h-9 w-9 mt-0.5 ${stockRows.length === 1 ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-red-600 hover:text-red-700 hover:bg-red-50'}`}
+                      className={`mt-0.5 h-10 w-7 ${stockRows.length === 1 ? 'cursor-not-allowed text-gray-400 opacity-50' : 'text-red-600 hover:bg-red-50 hover:text-red-700'}`}
                       onClick={() => removeStockRow(row.id)}
                       disabled={stockRows.length === 1}
                       title={stockRows.length === 1 ? 'Cannot remove last row' : 'Remove row'}
@@ -4476,6 +4551,7 @@ export function WarehousePortal() {
                     </Button>
                   </div>
                 ))}
+                </div>
               </div>
             </div>
 

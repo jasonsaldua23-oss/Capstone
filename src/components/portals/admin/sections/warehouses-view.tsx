@@ -263,6 +263,15 @@ export function WarehousesView() {
       toast.error('Name, code, address, city, province and zip code are required')
       return
     }
+    if (!form.capacity.trim()) {
+      toast.error('Capacity is required')
+      return
+    }
+    const capacityValue = Number(form.capacity)
+    if (!Number.isFinite(capacityValue) || capacityValue <= 0) {
+      toast.error('Capacity must be a valid number greater than 0')
+      return
+    }
 
     const latitudeValue = form.latitude.trim() ? Number(form.latitude) : null
     const longitudeValue = form.longitude.trim() ? Number(form.longitude) : null
@@ -292,7 +301,7 @@ export function WarehousesView() {
           country: form.country.trim() || 'Philippines',
           latitude: latitudeValue,
           longitude: longitudeValue,
-          capacity: form.capacity ? Number(form.capacity) : 1000,
+          capacity: capacityValue,
           managerId: form.managerId || null,
           isActive: form.isActive,
         }),
@@ -472,14 +481,21 @@ export function WarehousesView() {
   const stockHealthCounts = warehouseInventoryItems.reduce(
     (acc: { healthy: number; low: number; critical: number; overstocked: number }, item: any) => {
       const qty = Number(item?.quantity || 0)
-      const reserved = Number(item?.reservedQuantity || 0)
-      const minStock = Math.max(0, Number(item?.minStock || 0))
-      const maxStock = Math.max(0, Number(item?.maxStock || 0))
+      const reserved = Number(item?.reservedQuantity ?? item?.reserved_quantity ?? 0)
+      const minStock = Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0))
       const available = Math.max(0, qty - reserved)
+      const lastRestockedRaw = item?.lastRestockedAt ?? item?.last_restocked_at ?? item?.updatedAt ?? item?.updated_at
+      const lastRestockedAt = lastRestockedRaw ? new Date(lastRestockedRaw) : null
+      const overstockPersistedForSevenDays = Boolean(
+        lastRestockedAt &&
+        !Number.isNaN(lastRestockedAt.getTime()) &&
+        (Date.now() - lastRestockedAt.getTime()) >= (7 * 24 * 60 * 60 * 1000)
+      )
+      const isOverstocked = minStock > 0 && available >= (minStock * 3) && overstockPersistedForSevenDays
 
-      if (available <= minStock) acc.critical += 1
-      else if (available <= Math.ceil(minStock * 1.2)) acc.low += 1
-      else if (maxStock > 0 && available >= Math.floor(maxStock * 0.9)) acc.overstocked += 1
+      if (minStock > 0 && available <= Math.max(1, Math.floor(minStock * 0.5))) acc.critical += 1
+      else if (minStock > 0 && available <= minStock) acc.low += 1
+      else if (isOverstocked) acc.overstocked += 1
       else acc.healthy += 1
 
       return acc

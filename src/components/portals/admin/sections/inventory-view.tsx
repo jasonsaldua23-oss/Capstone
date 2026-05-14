@@ -189,8 +189,8 @@ export function InventoryView() {
 
   const getReservedQty = (item: any) => Number(item.reservedQuantity ?? item.reserved_quantity ?? 0)
   const getAvailableQty = (item: any) => Math.max(0, (item.quantity ?? 0) - getReservedQty(item))
-  const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? 0)
-  const getStockStatus = (item: any) => ((item.quantity ?? 0) <= getThreshold(item) * 1.5 ? 'restock' : 'healthy')
+  const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? item.min_stock ?? 0)
+  const getStockStatus = (item: any) => (getAvailableQty(item) <= getThreshold(item) * 1.5 ? 'restock' : 'healthy')
   const filteredInventory = useMemo(() => {
     if (selectedWarehouseId === 'all') return inventory
     return inventory.filter((item) => getWarehouseIdFromRow(item) === selectedWarehouseId)

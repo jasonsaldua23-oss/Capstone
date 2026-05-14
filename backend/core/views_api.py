@@ -2060,9 +2060,7 @@ def _allocate_inventory_for_spare_products(
             continue
 
         batch.quantity -= take_qty
-        if batch.quantity <= 0:
-            batch.status = "DEPLETED"
-        batch.save(update_fields=["quantity", "status", "updated_at"])
+        _persist_stock_batch_quantity(batch)
 
         previous_qty = max(0, int(inventory.quantity or 0))
         inventory.quantity = max(0, previous_qty - take_qty)
@@ -2302,6 +2300,17 @@ def _sorted_batches_for_policy(batches: list[StockBatch], policy: str) -> list[S
             b.id,
         ),
     )
+
+
+def _persist_stock_batch_quantity(batch: StockBatch) -> None:
+    """
+    Delete depleted stock batches so empty entries are removed from inventory views.
+    """
+    if _int(getattr(batch, "quantity", 0), 0) <= 0:
+        batch.delete()
+        return
+    batch.status = "ACTIVE"
+    batch.save(update_fields=["quantity", "status", "updated_at"])
 
 
 def _extract_allocation_policy_from_notes(notes: Any) -> str:
@@ -2740,9 +2749,7 @@ def _allocate_inventory_for_order_item(
             continue
 
         batch.quantity -= take_qty
-        if batch.quantity <= 0:
-            batch.status = "DEPLETED"
-        batch.save(update_fields=["quantity", "status", "updated_at"])
+        _persist_stock_batch_quantity(batch)
 
         previous_qty = max(0, int(inventory.quantity or 0))
         inventory.quantity = max(0, previous_qty - take_qty)
@@ -2822,7 +2829,13 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     client_id = getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "")
     if not client_id:
         raise ValueError("Google OAuth is not configured")
-    return google_id_token.verify_oauth2_token(credential, google_requests.Request(), client_id)
+    # Allow small server/client clock drift to avoid false "Token used too early" failures.
+    return google_id_token.verify_oauth2_token(
+        credential,
+        google_requests.Request(),
+        client_id,
+        clock_skew_in_seconds=300,
+    )
 
 
 def _otp_mail_ready() -> bool:
@@ -3199,6 +3212,37 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
     _send_transactional_email(subject=subject, message=message, recipients=recipients)
 
 
+def _is_inventory_overstocked_for_restock_block(inventory: Inventory) -> bool:
+    """
+    Overstock guard for stock-in:
+    - available >= threshold * 3
+    - condition has persisted for at least 7 days
+    """
+    threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
+    if threshold <= 0:
+        return False
+    available = max(
+        0,
+        _int(getattr(inventory, "quantity", 0), 0) - _int(getattr(inventory, "reserved_quantity", 0), 0),
+    )
+    if available < (threshold * 3):
+        return False
+
+    reference_ts = (
+        getattr(inventory, "last_restocked_at", None)
+        or getattr(inventory, "updated_at", None)
+        or getattr(inventory, "created_at", None)
+    )
+    if not reference_ts:
+        return False
+
+    try:
+        sustained_until = reference_ts + timedelta(days=7)
+    except Exception:
+        return False
+    return timezone.now() >= sustained_until
+
+
 def _otp_secret() -> str:
     return str(getattr(settings, "OTP_SECRET_KEY", "") or settings.SECRET_KEY or "otp-fallback-secret")
 
@@ -3386,8 +3430,9 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
 
     try:
         claims = _verify_google_token(credential)
-    except ValueError:
-        return _err("Invalid Google credential", 401)
+    except ValueError as exc:
+        logger.warning("Invalid Google credential during customer auth: %s", str(exc))
+        return _err(f"Invalid Google credential: {str(exc)}", 401)
     except Exception:
         logger.exception("Google customer token verification failed")
         return _err("Google authentication service is temporarily unavailable", 503)
@@ -3904,10 +3949,13 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         rows = list(qs[off : off + size])
         return _ok({"success": True, "warehouses": [_serialize_model(x) for x in rows], "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
-    required = ["name", "code", "address", "city", "province", "zipCode"]
+    required = ["name", "code", "address", "city", "province", "zipCode", "capacity"]
     for f in required:
         if not body.get(f):
             return _err(f"{f} is required")
+    capacity_value = _int(body.get("capacity"), 0)
+    if capacity_value <= 0:
+        return _err("capacity must be greater than 0", 400)
     address_error = _ensure_negros_occidental_address(
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
@@ -3927,7 +3975,7 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         country=DEFAULT_COUNTRY,
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
-        capacity=_int(body.get("capacity"), 1000),
+        capacity=capacity_value,
         manager_id=body.get("managerId"),
         is_active=bool(body.get("isActive", True)),
     )
@@ -3967,6 +4015,14 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         )
         return _ok({"success": True})
     body = _json_body(request)
+    if "capacity" in body:
+        raw_capacity = body.get("capacity")
+        if raw_capacity in (None, ""):
+            return _err("capacity is required", 400)
+        capacity_value = _int(raw_capacity, 0)
+        if capacity_value <= 0:
+            return _err("capacity must be greater than 0", 400)
+        body["capacity"] = capacity_value
     mapping = [("name", "name"), ("code", "code"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("latitude", "latitude"), ("longitude", "longitude"), ("capacity", "capacity"), ("managerId", "manager_id")]
     for key, attr in mapping:
         if key in body:
@@ -4231,6 +4287,8 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         product=product,
         defaults={"quantity": qty, "reserved_quantity": 0, "threshold": max(1, int(qty * 0.15)), "last_restocked_at": timezone.now()},
     )
+    if not created and _is_inventory_overstocked_for_restock_block(item):
+        return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days).", 400)
     if not created:
         item.quantity += qty
         item.loose_bottles = max(0, _int(getattr(item, "loose_bottles", 0), 0) + loose_bottles)
@@ -4327,6 +4385,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
             .filter(inventory__product__in=_real_products(Product.objects.all()))
             .filter(inventory__warehouse__in=_real_warehouses(Warehouse.objects.all()))
+            .filter(quantity__gt=0)
             .order_by("-created_at")
         )
         total = qs.count()
@@ -4337,6 +4396,14 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
     qty = _int(body.get("quantity"), 0)
     if qty <= 0:
         return _err("quantity must be > 0")
+
+    manufactured_raw = str(body.get("manufacturedDate") or body.get("manufactured_date") or "").strip()
+    manufactured_date = None
+    if manufactured_raw:
+        try:
+            manufactured_date = datetime.fromisoformat(manufactured_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return _err("Invalid manufacturedDate", 400)
 
     expiry_raw = str(body.get("expiryDate") or body.get("expiry_date") or "").strip()
     expiry_date = None
@@ -4412,12 +4479,14 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                         "last_restocked_at": timezone.now(),
                     },
                 )
+                if not created and _is_inventory_overstocked_for_restock_block(inv):
+                    return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days).", 400)
 
             batch = StockBatch.objects.create(
                 batch_number=str(body.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}"),
                 inventory=inv,
                 quantity=qty,
-                receipt_date=timezone.now(),
+                receipt_date=manufactured_date or timezone.now(),
                 expiry_date=expiry_date,
                 location_label=body.get("locationLabel"),
                 status=body.get("status") or "ACTIVE",
@@ -4481,6 +4550,14 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 
         product_id = str(batch_item.get("productId") or "").strip()
         qty = _int(batch_item.get("quantity"), 0)
+        manufactured_raw = str(batch_item.get("manufacturedDate") or "").strip()
+        manufactured_date = None
+        if manufactured_raw:
+            try:
+                manufactured_date = datetime.fromisoformat(manufactured_raw.replace("Z", "+00:00"))
+            except ValueError:
+                return _err(f"Batch {idx}: Invalid manufacturedDate format", 400)
+
         expiry_raw = str(batch_item.get("expiryDate") or "").strip()
 
         if not product_id:
@@ -4500,9 +4577,11 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 return _err(f"Batch {idx}: Invalid expiryDate format", 400)
 
         validated_batches.append({
+            "index": idx,
             "product_id": product_id,
             "product": product,
             "quantity": qty,
+            "manufactured_date": manufactured_date,
             "expiry_date": expiry_date,
             "batch_number": str(batch_item.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}-{idx}"),
             "location_label": batch_item.get("locationLabel"),
@@ -4532,13 +4611,18 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                         "last_restocked_at": timezone.now(),
                     },
                 )
+                if not created and _is_inventory_overstocked_for_restock_block(inv):
+                    return _err(
+                        f"Batch {batch_data['index']}: cannot add stock for overstocked product (>= 3x threshold for 7+ days).",
+                        400,
+                    )
 
                 # Create stock batch
                 batch = StockBatch.objects.create(
                     batch_number=batch_data["batch_number"],
                     inventory=inv,
                     quantity=qty,
-                    receipt_date=timezone.now(),
+                    receipt_date=batch_data.get("manufactured_date") or timezone.now(),
                     expiry_date=expiry_date,
                     location_label=batch_data["location_label"],
                     status=batch_data["status"],

@@ -178,7 +178,7 @@ export function CustomerCheckoutView({
       )}
 
       {selectedCartItems.length > 0 ? (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
+        <div className="fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
           <div className="flex items-center gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 md:text-sm">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
