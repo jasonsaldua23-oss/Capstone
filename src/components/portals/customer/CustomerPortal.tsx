@@ -111,6 +111,9 @@ export function CustomerPortal() {
   const [customerDiscountAmountPerCase, setCustomerDiscountAmountPerCase] = useState(0)
   const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false)
+  const [orderFilterStatus, setOrderFilterStatus] = useState('ALL')
+  const [orderFilterDateFrom, setOrderFilterDateFrom] = useState('')
+  const [orderFilterDateTo, setOrderFilterDateTo] = useState('')
   const {
     activeView,
     setActiveView,
@@ -988,7 +991,32 @@ export function CustomerPortal() {
     shippingZipCode,
   ])
 
-  const filteredOrders = useMemo(() => orders, [orders])
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
+      const orderDate = new Date(order.createdAt)
+
+      if (orderFilterStatus !== 'ALL' && normalized !== orderFilterStatus) return false
+
+      if (orderFilterDateFrom) {
+        const from = parseDateOnly(orderFilterDateFrom)
+        if (from) {
+          const fromStart = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0)
+          if (orderDate.getTime() < fromStart.getTime()) return false
+        }
+      }
+
+      if (orderFilterDateTo) {
+        const to = parseDateOnly(orderFilterDateTo)
+        if (to) {
+          const toEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999)
+          if (orderDate.getTime() > toEnd.getTime()) return false
+        }
+      }
+
+      return true
+    })
+  }, [orders, orderFilterStatus, orderFilterDateFrom, orderFilterDateTo])
 
   const deliveryIssuesByOrderId = useMemo(() => {
     const byOrderId: Record<string, DeliveryIssueSummary> = {}
@@ -2325,10 +2353,67 @@ export function CustomerPortal() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Filter Orders</DialogTitle>
-            <DialogDescription>Coming soon - More filter options available</DialogDescription>
+            <DialogDescription>Refine the list by status and date range.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">Filters are currently under development. Use the search bar above to find orders by ID or date.</p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">Status</label>
+              <select
+                value={orderFilterStatus}
+                onChange={(event) => setOrderFilterStatus(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                title="Order status filter"
+              >
+                <option value="ALL">All statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="PROCESSING">Processing</option>
+                <option value="OUT_FOR_DELIVERY">Out for delivery</option>
+                <option value="DELIVERED">Delivered</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Date from</label>
+                <input
+                  type="date"
+                  value={orderFilterDateFrom}
+                  onChange={(event) => setOrderFilterDateFrom(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Date to</label>
+                <input
+                  type="date"
+                  value={orderFilterDateTo}
+                  onChange={(event) => setOrderFilterDateTo(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={() => {
+                  setOrderFilterStatus('ALL')
+                  setOrderFilterDateFrom('')
+                  setOrderFilterDateTo('')
+                }}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="h-9 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-500"
+                onClick={() => setIsFilterDialogOpen(false)}
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

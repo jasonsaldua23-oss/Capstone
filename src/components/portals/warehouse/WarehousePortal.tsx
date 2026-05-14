@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { Poppins } from 'next/font/google'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -59,6 +61,11 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsL
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
+})
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
 })
 
 interface WarehouseItem {
@@ -3463,7 +3470,7 @@ export function WarehousePortal() {
   }
 
   return (
-    <div className="relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]">
+    <div className={`${poppins.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-14 top-10 h-64 w-64 rounded-full bg-cyan-200/20 blur-3xl" />
         <div className="absolute right-[-4rem] top-28 h-72 w-72 rounded-full bg-sky-300/15 blur-3xl" />
@@ -3506,7 +3513,15 @@ export function WarehousePortal() {
         />
 
         <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
-          <div className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={activeView}
+              initial={{ opacity: 0, y: 10, filter: 'blur(3px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+              className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100"
+            >
           {!hasAssignedWarehouse && (
             <Card>
               <CardHeader>
@@ -3819,7 +3834,8 @@ export function WarehousePortal() {
 
             </>
           )}
-          </div>
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 

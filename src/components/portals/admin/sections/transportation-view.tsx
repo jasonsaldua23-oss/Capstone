@@ -393,11 +393,13 @@ export function TransportationView() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="w-full">
-        <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-          <TabsTrigger value="vehicles" className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
-          <TabsTrigger value="trips" className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
-          <TabsTrigger value="drivers" className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className="h-auto w-fit min-w-max gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+            <TabsTrigger value="vehicles" className="shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
+            <TabsTrigger value="trips" className="shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
+            <TabsTrigger value="drivers" className="shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="vehicles" className="space-y-4 mt-4">
           <Dialog open={addVehicleOpen} onOpenChange={setAddVehicleOpen}>
@@ -796,6 +798,16 @@ export function TransportationView() {
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
                       <div key={`dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Size: {(() => {
+                            const product = item?.product || {}
+                            const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
+                              ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
+                              : ''
+                            const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
+                            return fromSizes || fromField || 'N/A'
+                          })()}
+                        </p>
                         <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                       </div>
                     ))}

@@ -4946,8 +4946,6 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
         if p.get("type") == "customer":
             requester_id = str(p.get("userId") or "").strip()
             customer_scope_q = Q(customer_id=requester_id)
-            if requester_id:
-                customer_scope_q |= Q(customer__user_id=requester_id)
             qs = qs.filter(customer_scope_q)
         total = qs.count()
         rows = list(qs[off : off + size])
@@ -4981,7 +4979,6 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
             return _err("customerId is required")
         customer = (
             Customer.objects.filter(id=customer_ref).first()
-            or Customer.objects.filter(user_id=customer_ref).first()
         )
         if not customer:
             return _err("Customer not found", 404)

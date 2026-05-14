@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { motion } from 'framer-motion'
 import { LogOut } from 'lucide-react'
 
 type SidebarNavItem = {
@@ -36,21 +37,32 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
 
       <ScrollArea className="flex-1 p-2">
         <nav className="space-y-1">
-          {navItems.map((navItem) => (
-            <Button
-              key={navItem.id}
-              variant={activeView === navItem.id ? 'secondary' : 'ghost'}
-              className={`w-full justify-start gap-3 ${
-                activeView === navItem.id
-                  ? 'border border-white/50 bg-linear-to-r from-cyan-600/95 via-sky-600/95 to-emerald-500/90 text-white shadow-[0_14px_30px_rgba(8,145,178,0.26)]'
-                  : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
-              }`}
-              onClick={() => onSelectView(navItem.id)}
-            >
-              <navItem.icon className="h-4 w-4" />
-              {navItem.label}
-            </Button>
-          ))}
+          {navItems.map((navItem) => {
+            const isActive = activeView === navItem.id
+            return (
+              <motion.div key={navItem.id} layout transition={{ type: 'spring', stiffness: 440, damping: 32 }}>
+                <Button
+                  variant="ghost"
+                  className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${
+                    isActive
+                      ? 'text-white'
+                      : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
+                  }`}
+                  onClick={() => onSelectView(navItem.id)}
+                >
+                  {isActive ? (
+                    <motion.span
+                      layoutId="warehouse-sidebar-active-pill"
+                      className="absolute inset-0 rounded-md border border-white/50 bg-linear-to-r from-cyan-600/95 via-sky-600/95 to-emerald-500/90 text-white shadow-[0_14px_30px_rgba(8,145,178,0.26)]"
+                      transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                    />
+                  ) : null}
+                  <navItem.icon className="relative z-[1] h-4 w-4" />
+                  <span className="relative z-[1]">{navItem.label}</span>
+                </Button>
+              </motion.div>
+            )
+          })}
         </nav>
       </ScrollArea>
 

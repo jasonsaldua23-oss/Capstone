@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Poppins } from 'next/font/google'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
@@ -12,6 +13,11 @@ import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+})
 
 export function AdminLoginPage() {
   const router = useRouter()
@@ -94,14 +100,14 @@ export function AdminLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className={`${poppins.className} min-h-screen bg-gray-50 flex items-center justify-center px-4`}>
         <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
+    <div className={`${poppins.className} min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10`}>
       <Toaster position="top-right" />
       <Card className="w-full max-w-md border-slate-200 bg-white shadow-xl">
         <CardHeader className="space-y-3">

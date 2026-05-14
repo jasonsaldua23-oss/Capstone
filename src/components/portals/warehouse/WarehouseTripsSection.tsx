@@ -466,6 +466,16 @@ export function WarehouseTripsSection({
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
                       <div key={`warehouse-dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Size: {(() => {
+                            const product = item?.product || {}
+                            const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
+                              ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
+                              : ''
+                            const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
+                            return fromSizes || fromField || 'N/A'
+                          })()}
+                        </p>
                         <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                       </div>
                     ))}

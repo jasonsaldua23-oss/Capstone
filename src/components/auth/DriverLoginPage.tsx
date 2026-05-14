@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Poppins } from 'next/font/google'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
@@ -12,6 +13,11 @@ import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+})
 
 export function DriverLoginPage() {
   const router = useRouter()
@@ -93,7 +99,7 @@ export function DriverLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-[#ecf7ff] flex items-center justify-center px-4">
+      <div className={`${poppins.className} min-h-screen bg-[#ecf7ff] flex items-center justify-center px-4`}>
         <div className="flex items-center gap-3 rounded-2xl bg-white/90 px-5 py-3 shadow-lg ring-1 ring-zinc-200">
           <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
           <span className="text-sm font-medium text-zinc-700">Preparing driver dashboard...</span>
@@ -103,7 +109,7 @@ export function DriverLoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf7f2] px-2 py-2 sm:min-h-screen sm:px-4 sm:py-8">
+    <div className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf7f2] px-2 py-2 sm:min-h-screen sm:px-4 sm:py-8`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-8 top-6 h-32 w-32 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl sm:-left-16 sm:top-12 sm:h-64 sm:w-64" />
         <div className="absolute -right-8 bottom-4 h-32 w-32 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl sm:-right-20 sm:bottom-6 sm:h-64 sm:w-64" />

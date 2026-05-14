@@ -155,18 +155,18 @@ export function CustomerHomeView({
                           )}
                         </div>
 
-                        <div className="min-w-0 flex-1 space-y-0 leading-tight">
-                          <p className="line-clamp-1 text-[0.8rem] font-semibold leading-tight text-slate-900 md:text-[1.2rem] md:font-semibold">
+                        <div className="min-w-0 flex-1 space-y-0.5 leading-tight">
+                          <p className="line-clamp-1 text-[1.05rem] font-semibold leading-tight text-slate-900 md:text-[1.45rem] md:font-semibold">
                             {p?.name || 'Product Name'}
                           </p>
-                          <p className="text-[0.8rem] font-semibold leading-tight text-slate-900 md:text-[1.15rem] md:font-semibold md:text-slate-900">
+                          <p className="text-[1rem] font-bold leading-tight text-slate-900 md:text-[1.35rem] md:font-bold md:text-slate-900">
                             {p ? formatPeso(p.price || 0) : '$ Price'}
                           </p>
-                          <p className="text-[9px] text-slate-500">Size: {sizeLabel}</p>
-                          <p className="text-[9px] text-slate-500">
+                          <p className="text-[12px] text-slate-500 md:text-[14px]">Size: {sizeLabel}</p>
+                          <p className="text-[12px] text-slate-500 md:text-[14px]">
                             Qty/Unit: {quantityPerUnit > 0 ? quantityPerUnit : 'N/A'}
                           </p>
-                          <p className="text-[9px] text-emerald-700">
+                          <p className="text-[12px] font-medium text-emerald-700 md:text-[14px]">
                             {availableQty > 0 ? `${availableQty} available` : 'Out of stock'}
                           </p>
                         </div>

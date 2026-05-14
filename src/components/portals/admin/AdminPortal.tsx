@@ -4,6 +4,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic'
+import { Poppins } from 'next/font/google'
+import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { useAuth } from '@/app/page';
@@ -58,6 +60,11 @@ const AddressMapPicker = dynamic(
   () => import('@/components/maps/AddressMapPicker').then((mod) => mod.AddressMapPicker),
   { ssr: false }
 )
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+})
 
 //   lowStockItems: number
 //   pendingReturns: number
@@ -597,24 +604,33 @@ export function AdminPortal() {
         <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
           {navItems.map((item) => {
             const IconComponent = item.icon
+            const isActive = activeView === item.id
             return (
-              <Button
-                key={item.id}
-                variant={activeView === item.id ? 'default' : 'ghost'}
-                className={`w-full justify-start gap-3 ${
-                  activeView === item.id
-                    ? 'border border-white/50 bg-linear-to-r from-sky-600/95 via-blue-600/95 to-cyan-500/95 text-white shadow-[0_14px_30px_rgba(37,99,235,0.28)] hover:from-sky-500 hover:via-blue-500 hover:to-cyan-400'
-                    : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
-                }`}
-                onClick={() => {
-                  setActiveView(item.id)
-                  if (item.id === 'inventory') setInventorySubView('stocks')
-                  setSidebarOpen(false)
-                }}
-              >
-                <IconComponent className="h-4 w-4" />
-                <span>{item.label}</span>
-              </Button>
+              <motion.div key={item.id} layout transition={{ type: 'spring', stiffness: 440, damping: 32 }}>
+                <Button
+                  variant="ghost"
+                  className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${
+                    isActive
+                      ? 'text-white'
+                      : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
+                  }`}
+                  onClick={() => {
+                    setActiveView(item.id)
+                    if (item.id === 'inventory') setInventorySubView('stocks')
+                    setSidebarOpen(false)
+                  }}
+                >
+                  {isActive ? (
+                    <motion.span
+                      layoutId="admin-sidebar-active-pill"
+                      className="absolute inset-0 rounded-md border border-white/50 bg-linear-to-r from-sky-600/95 via-blue-600/95 to-cyan-500/95 shadow-[0_14px_30px_rgba(37,99,235,0.28)]"
+                      transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                    />
+                  ) : null}
+                  <IconComponent className="relative z-[1] h-4 w-4" />
+                  <span className="relative z-[1]">{item.label}</span>
+                </Button>
+              </motion.div>
             )
           })}
         </nav>
@@ -693,7 +709,7 @@ export function AdminPortal() {
   }
 
   return (
-    <div className="relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]">
+    <div className={`${poppins.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-16 top-8 h-64 w-64 rounded-full bg-sky-300/20 blur-3xl" />
         <div className="absolute right-[-4rem] top-24 h-72 w-72 rounded-full bg-cyan-200/20 blur-3xl" />
@@ -813,9 +829,18 @@ export function AdminPortal() {
 
         {/* Page Content */}
         <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
-          <div className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100">
-            {renderActiveView()}
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={activeView}
+              initial={{ opacity: 0, y: 10, filter: 'blur(3px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+              className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100"
+            >
+              {renderActiveView()}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
     </div>
