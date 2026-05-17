@@ -172,6 +172,18 @@ class Warehouse(models.Model):
         db_table = "Warehouse"
 
 
+class WarehouseStaffAssignment(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="staff_assignments")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="warehouse_assignments")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "WarehouseStaffAssignment"
+        constraints = [models.UniqueConstraint(fields=["warehouse", "user"], name="unique_warehouse_staff_assignment")]
+
+
 class Product(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     sku = models.CharField(max_length=120, unique=True)
@@ -409,6 +421,7 @@ class Trip(models.Model):
     driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trips")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="trips")
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
+    created_by_user_id = models.CharField(max_length=25, blank=True, null=True)
     status = models.CharField(max_length=50, choices=TripStatus.choices, default=TripStatus.PLANNED)
     start_latitude = models.FloatField(blank=True, null=True)
     start_longitude = models.FloatField(blank=True, null=True)

@@ -138,7 +138,19 @@ export function WarehouseOrdersView({
                         </td>
                         <td className="p-4 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                         <td className="p-4">
-                          <Badge>{formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)}</Badge>
+                          <div className="space-y-1">
+                            <Badge>{String((order as any)?._displayStatus || formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))}</Badge>
+                            {(() => {
+                              const summary = (order as any)?._fulfillmentSummary
+                              if (!summary || Number(summary.totalLegs || 0) <= 1) return null
+                              return (
+                                <p className="text-[11px] text-slate-500">
+                                  Legs: {Number(summary.deliveredLegs || 0)}/{Number(summary.totalLegs || 0)} delivered
+                                  {Number(summary.unassignedTripCount || 0) > 0 ? ` | ${Number(summary.unassignedTripCount)} without trip` : ''}
+                                </p>
+                              )
+                            })()}
+                          </div>
                         </td>
                         <td className="p-4">
                           {(() => {

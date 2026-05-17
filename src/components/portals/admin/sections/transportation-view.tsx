@@ -42,6 +42,7 @@ import {
   getWarehouseIdFromRow,
   formatRoleLabel,
   safeFetchJson,
+  deriveOrderFulfillmentSummary,
 } from './shared'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
@@ -114,9 +115,58 @@ export function TransportationView() {
     fetchData()
   }, [])
 
+  useEffect(() => {
+    let focusPayload: any = null
+    try {
+      const raw = window.sessionStorage.getItem('admin_transport_focus')
+      if (!raw) return
+      focusPayload = JSON.parse(raw)
+    } catch {
+      focusPayload = null
+    }
+    if (!focusPayload?.orderId || trips.length === 0) return
+
+    const targetOrderId = String(focusPayload.orderId)
+    const matchedTrip = trips.find((trip) =>
+      Array.isArray(trip?.dropPoints) &&
+      trip.dropPoints.some((point: any) => String(point?.orderId || point?.order?.id || '') === targetOrderId)
+    )
+
+    if (matchedTrip) {
+      setActiveTab('trips')
+      setSelectedTrip(matchedTrip)
+      toast.success(`Opened trip for order ${focusPayload.orderNumber || targetOrderId}`)
+      try {
+        window.sessionStorage.removeItem('admin_transport_focus')
+      } catch {
+        // ignore
+      }
+    }
+  }, [trips])
+
   const activeTripsCount = trips.filter((trip) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))).length
   const driversOnDutyCount = drivers.filter((driver) => driver?.isActive !== false).length
   const maintenanceCount = vehicles.filter((vehicle) => String(vehicle?.status).toUpperCase().includes('MAINTENANCE')).length
+
+  const tripFulfillmentAlerts = useMemo(() => {
+    let legsWithoutTrip = 0
+    let ordersWithSplit = 0
+    let capacityRiskTrips = 0
+    trips.forEach((trip) => {
+      const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+      let tripQty = 0
+      points.forEach((point: any) => {
+        if (!point?.order) return
+        const summary = deriveOrderFulfillmentSummary(point.order)
+        if (summary.needsSplit) ordersWithSplit += 1
+        legsWithoutTrip += summary.legs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
+        tripQty += summary.legs.reduce((sum: number, leg: any) => sum + Number(leg.allocatedQty || 0), 0)
+      })
+      const capacity = Number(trip?.vehicle?.capacity || 0)
+      if (capacity > 0 && tripQty > capacity) capacityRiskTrips += 1
+    })
+    return { legsWithoutTrip, ordersWithSplit, capacityRiskTrips }
+  }, [trips])
 
   const isDriverAssignable = (driver: any) => {
     const status = String(driver?.status || '').toUpperCase()
@@ -514,6 +564,11 @@ export function TransportationView() {
         </TabsContent>
 
         <TabsContent value="trips" className="space-y-4 mt-4">
+          <Card>
+            <CardContent className="pt-4 text-sm text-slate-700">
+              Split orders: {tripFulfillmentAlerts.ordersWithSplit} | Legs without trip: {tripFulfillmentAlerts.legsWithoutTrip} | Capacity risk trips: {tripFulfillmentAlerts.capacityRiskTrips}
+            </CardContent>
+          </Card>
           {trips.length === 0 ? (
             <Card>
               <CardContent className="pt-6 text-sm text-gray-500">No active trips found.</CardContent>
@@ -526,6 +581,11 @@ export function TransportationView() {
                 const vehicleName = trip?.vehicle?.licensePlate || 'Unassigned'
                 const origin = trip?.origin || trip?.warehouse?.city || 'Warehouse'
                 const destination = trip?.destination || trip?.destinationCity || 'Destination'
+                const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+                const legCount = points.reduce((sum: number, point: any) => {
+                  if (!point?.order) return sum
+                  return sum + deriveOrderFulfillmentSummary(point.order).legs.length
+                }, 0)
                 return (
                   <Card key={trip.id}>
                     <CardContent className="p-4">
@@ -537,6 +597,7 @@ export function TransportationView() {
                           </div>
                           <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} | Driver: {driverName}</p>
                           <p className="text-[13px] text-gray-600">Route: {origin} {'->'} {destination}</p>
+                          <p className="text-[12px] text-slate-500">Fulfillment legs on trip: {legCount}</p>
                         </div>
                         <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => openTripDetails(trip)}>View Details</Button>
                       </div>
@@ -739,6 +800,11 @@ export function TransportationView() {
                                           ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
                                           : 'Coordinates: Not available'}
                                       </p>
+                                      {point?.order ? (
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                          Fulfillment legs: {deriveOrderFulfillmentSummary(point.order).deliveredLegs}/{deriveOrderFulfillmentSummary(point.order).totalLegs} delivered
+                                        </p>
+                                      ) : null}
                                       <div className="mt-4">
                                         <Button
                                           type="button"

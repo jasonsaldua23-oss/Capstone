@@ -43,6 +43,7 @@ import {
   formatRoleLabel,
   fetchAllPaginatedCollection,
   safeFetchJson,
+  deriveOrderFulfillmentSummary,
 } from './shared'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
@@ -55,11 +56,13 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
-export function OrdersView() {
-  const ORDERS_CACHE_KEY = 'admin_orders_cache_v1'
+export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: () => void } = {}) {
+  const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
+  const [orderDetailsById, setOrderDetailsById] = useState<Record<string, any>>({})
+  const hydrationInFlightRef = useRef<Record<string, boolean>>({})
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -170,7 +173,7 @@ export function OrdersView() {
       isFetchingOrders = true
       try {
         const result = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=preview',
+          '/api/orders?includeItems=preview&includeFulfillments=true&includeWarehouseAllocations=true',
           'orders',
           { cache: 'no-store' },
           { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
@@ -178,7 +181,7 @@ export function OrdersView() {
 
         if (!result.ok) {
           // Fallback: try a simpler single-page request before failing.
-          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=200', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=200&includeFulfillments=true&includeWarehouseAllocations=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
           if (fallback.ok && isMounted) {
             const fallbackOrders = getCollection<any>(fallback.data, ['orders'])
             if (fallbackOrders.length > 0) {
@@ -235,6 +238,8 @@ export function OrdersView() {
 
         const params = new URLSearchParams({
           includeItems: 'preview',
+          includeFulfillments: 'true',
+          includeWarehouseAllocations: 'true',
           sort: 'updated_at',
           page: '1',
           pageSize: '200',
@@ -318,7 +323,12 @@ export function OrdersView() {
       const response = await fetch(`/api/orders/${order.id}`, { credentials: 'include' })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false || !payload?.order) return
-      setSelectedOrder(payload.order)
+      const fullOrder = payload.order
+      setSelectedOrder(fullOrder)
+      if (fullOrder?.id) {
+        setOrderDetailsById((prev) => ({ ...prev, [String(fullOrder.id)]: fullOrder }))
+        setOrders((prev) => prev.map((row) => (String(row?.id) === String(fullOrder.id) ? { ...row, ...fullOrder } : row)))
+      }
     } catch (error) {
       console.error('Failed to load full order details:', error)
     } finally {
@@ -343,19 +353,120 @@ export function OrdersView() {
     return value.replace(/_/g, ' ')
   }
 
+  const getDisplayOrderStatus = (order: any) => {
+    const summary = deriveOrderFulfillmentSummary(order)
+    if (summary.totalLegs > 1) {
+      if (summary.fulfillmentStatus === 'PARTIALLY_FULFILLED') return 'PARTIALLY FULFILLED'
+      if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
+      if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
+    }
+    return formatOrderStatus(order?.status, order?.paymentStatus)
+  }
+
+  const getOrderWarehouseMeta = (order: any) => {
+    const idSet = new Set<string>()
+    const nameSet = new Set<string>()
+
+    const add = (idLike: unknown, nameLike: unknown) => {
+      const id = String(idLike || '').trim()
+      const name = String(nameLike || '').trim()
+      if (id) idSet.add(id)
+      if (name && name.toLowerCase() !== 'unassigned') nameSet.add(name)
+    }
+    const parseMaybeList = (value: unknown): string[] => {
+      if (Array.isArray(value)) return value.map((entry) => String(entry || '').trim()).filter(Boolean)
+      if (typeof value !== 'string') return []
+      const raw = value.trim()
+      if (!raw) return []
+      if (raw.startsWith('[') && raw.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) return parsed.map((entry) => String(entry || '').trim()).filter(Boolean)
+        } catch {
+          // fallback to csv
+        }
+      }
+      return raw.split(',').map((entry) => entry.trim()).filter(Boolean)
+    }
+
+    const summary = deriveOrderFulfillmentSummary(order)
+    summary.legs.forEach((leg: any) => add(leg?.warehouseId, leg?.warehouseName))
+
+    add(order?.warehouseId ?? order?.warehouse_id, order?.warehouseName ?? order?.warehouseCode)
+
+    parseMaybeList(order?.warehouseIds).forEach((id) => add(id, ''))
+    toArray<any>(order?.warehouses).forEach((warehouse) =>
+      add(warehouse?.id ?? warehouse?.warehouseId ?? warehouse?.warehouse_id, warehouse?.name ?? warehouse?.code ?? warehouse?.warehouseName)
+    )
+    toArray<any>(order?.allocations).forEach((allocation) =>
+      add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+    )
+    toArray<any>(order?.warehouseAllocations).forEach((allocation) =>
+      add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+    )
+
+    toArray<any>(order?.items).forEach((item) => {
+      add(item?.warehouseId ?? item?.warehouse_id ?? item?.warehouse?.id, item?.warehouseName ?? item?.warehouse?.name ?? item?.warehouse?.code)
+      toArray<any>(item?.allocations).forEach((allocation) =>
+        add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+      )
+      toArray<any>(item?.warehouseAllocations).forEach((allocation) =>
+        add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+      )
+    })
+
+    const ids = Array.from(idSet.values())
+    const names = Array.from(nameSet.values())
+    return { ids, names, hasMultipleWarehouses: ids.length > 1 || names.length > 1 }
+  }
+
+  const getOrderWarehouseIds = (order: any): string[] => {
+    const meta = getOrderWarehouseMeta(order)
+    if (meta.ids.length > 0) return meta.ids
+    const fallbackId = String(getWarehouseIdFromRow(order) || '').trim()
+    return fallbackId ? [fallbackId] : []
+  }
+
+  const getOrderWarehouseNames = (order: any): string[] => {
+    const meta = getOrderWarehouseMeta(order)
+    if (meta.names.length > 0) return meta.names
+    const fallbackName = String(order?.warehouseName || order?.warehouseCode || '').trim()
+    return fallbackName ? [fallbackName] : []
+  }
+
+  const needsWarehouseHydration = (order: any) => {
+    const meta = getOrderWarehouseMeta(order)
+    if (meta.ids.length > 0 || meta.names.length > 0) return false
+    const key = String(order?.id || '')
+    if (!key) return false
+    return !orderDetailsById[key]
+  }
+
   const warehouseFilterOptions = useMemo(() => {
     const map = new Map<string, string>()
     orders.forEach((order) => {
       if (isReplacementOrder(order)) return
-      const warehouseId = String(getWarehouseIdFromRow(order) || '').trim()
-      if (!warehouseId) return
-      const label =
-        String(order?.warehouseName || '').trim() ||
-        String(order?.warehouseCode || '').trim() ||
-        warehouseId
-      if (!map.has(warehouseId)) {
-        map.set(warehouseId, label)
-      }
+      const summary = deriveOrderFulfillmentSummary(order)
+      summary.legs.forEach((leg: any) => {
+        const warehouseId = String(leg?.warehouseId || '').trim()
+        if (!warehouseId) return
+        const label =
+          String(leg?.warehouseName || '').trim() ||
+          String(order?.warehouseName || '').trim() ||
+          String(order?.warehouseCode || '').trim() ||
+          warehouseId
+        if (!map.has(warehouseId)) {
+          map.set(warehouseId, label)
+        }
+      })
+      const meta = getOrderWarehouseMeta(order)
+      meta.ids.forEach((warehouseId) => {
+        if (!warehouseId) return
+        if (!map.has(warehouseId)) {
+          const fallbackLabel = meta.names[0] || warehouseId
+          map.set(warehouseId, fallbackLabel)
+        }
+      })
     })
     return Array.from(map.entries())
       .map(([id, label]) => ({ id, label }))
@@ -364,9 +475,10 @@ export function OrdersView() {
 
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
+    statuses.add('PARTIALLY FULFILLED')
     orders.forEach((order) => {
       if (isReplacementOrder(order)) return
-      statuses.add(formatOrderStatus(order?.status, order?.paymentStatus))
+      statuses.add(getDisplayOrderStatus(order))
     })
     return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
   }, [orders])
@@ -389,11 +501,12 @@ export function OrdersView() {
     return orders.filter((order) => {
       if (isReplacementOrder(order)) return false
 
-      if (warehouseFilterId !== 'all' && String(getWarehouseIdFromRow(order) || '').trim() !== warehouseFilterId) {
-        return false
+      if (warehouseFilterId !== 'all') {
+        const warehouseIds = getOrderWarehouseIds(order)
+        if (!warehouseIds.includes(warehouseFilterId)) return false
       }
 
-      const normalizedStatus = formatOrderStatus(order?.status, order?.paymentStatus)
+      const normalizedStatus = getDisplayOrderStatus(order)
       if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
 
       const rawDate = String(order?.deliveryDate || order?.createdAt || '')
@@ -413,6 +526,51 @@ export function OrdersView() {
       return true
     })
   }, [orders, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter])
+
+  const fulfillmentAlerts = useMemo(() => {
+    let unallocated = 0
+    let missingTrips = 0
+    let splitOrders = 0
+    filteredOrders.forEach((order) => {
+      const summary = deriveOrderFulfillmentSummary(order)
+      if (summary.needsSplit) splitOrders += 1
+      if (summary.unassignedTripCount > 0) missingTrips += 1
+      const allocated = summary.legs.reduce((sum: number, leg: any) => sum + Number(leg.allocatedQty || 0), 0)
+      const required = toArray<any>(order.items).reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
+      if (allocated < required) unallocated += 1
+    })
+    return { unallocated, missingTrips, splitOrders }
+  }, [filteredOrders])
+
+  useEffect(() => {
+    const candidates = orders
+      .filter((order) => needsWarehouseHydration(order))
+      .slice(0, 8)
+
+    if (candidates.length === 0) return
+
+    candidates.forEach((order) => {
+      const id = String(order?.id || '')
+      if (!id || hydrationInFlightRef.current[id]) return
+      hydrationInFlightRef.current[id] = true
+
+      void (async () => {
+        try {
+          const response = await fetch(`/api/orders/${id}`, { credentials: 'include', cache: 'no-store' })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok || payload?.success === false || !payload?.order) return
+          const fullOrder = payload.order
+          const fullId = String(fullOrder?.id || id)
+          setOrderDetailsById((prev) => ({ ...prev, [fullId]: fullOrder }))
+          setOrders((prev) => prev.map((row) => (String(row?.id) === fullId ? { ...row, ...fullOrder } : row)))
+        } catch {
+          // best effort enrichment only
+        } finally {
+          hydrationInFlightRef.current[id] = false
+        }
+      })()
+    })
+  }, [orders, orderDetailsById])
 
   useEffect(() => {
     if (warehouseFilterId === 'all') return
@@ -567,7 +725,7 @@ export function OrdersView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
-          <p className="text-gray-500">View customer purchase orders and fulfillment status</p>
+          <p className="text-gray-700">View customer purchase orders and fulfillment status</p>
         </div>
       </div>
 
@@ -661,6 +819,12 @@ export function OrdersView() {
       </Card>
 
       <Card>
+        <CardHeader className="pb-0">
+          <CardTitle className="text-base">Fulfillment Monitoring</CardTitle>
+          <CardDescription className="text-gray-700">
+            Split orders: {fulfillmentAlerts.splitOrders} | Missing trip legs: {fulfillmentAlerts.missingTrips} | Unallocated qty: {fulfillmentAlerts.unallocated}
+          </CardDescription>
+        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
@@ -680,13 +844,13 @@ export function OrdersView() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left p-4 font-medium text-gray-600">ORDER ID</th>
-                    <th className="text-left p-4 font-medium text-gray-600">CUSTOMER</th>
-                    <th className="text-left p-4 font-medium text-gray-600">PRODUCTS</th>
-                    <th className="text-left p-4 font-medium text-gray-600">WAREHOUSE</th>
-                    <th className="text-left p-4 font-medium text-gray-600">DELIVERY</th>
-                    <th className="text-left p-4 font-medium text-gray-600">VALUE</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">CUSTOMER</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">PRODUCTS</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">WAREHOUSE</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">DELIVERY</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">VALUE</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -700,7 +864,7 @@ export function OrdersView() {
                       </td>
                       <td className="p-4">
                         <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
-                        <p className="text-sm text-gray-500">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
+                        <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
                       </td>
                       <td className="p-4">
                         <p className="font-medium text-gray-900">
@@ -714,8 +878,34 @@ export function OrdersView() {
                         </p>
                       </td>
                       <td className="p-4">
-                        <p className="font-medium text-gray-900">{order.warehouseName || order.warehouseCode || 'Unassigned'}</p>
-                        <p className="text-sm text-gray-500">{order.warehouseCity || order.warehouseProvince || 'N/A'}</p>
+                        {(() => {
+                          const enrichedOrder =
+                            orderDetailsById[String(order.id)] ||
+                            (selectedOrder?.id === order.id ? selectedOrder : null) ||
+                            order
+                          const summary = deriveOrderFulfillmentSummary(enrichedOrder)
+                          const warehouseMeta = getOrderWarehouseMeta(enrichedOrder)
+                          const warehouseNames = getOrderWarehouseNames(enrichedOrder)
+                          const warehouseText = warehouseNames.length > 0
+                            ? warehouseNames.slice(0, 2).join(', ')
+                            : warehouseMeta.hasMultipleWarehouses
+                              ? 'Multiple warehouses'
+                              : 'Pending warehouse allocation'
+                          const extraWarehouseCount = warehouseNames.length > 2 ? warehouseNames.length - 2 : 0
+                          return (
+                            <div className="space-y-1">
+                              <p className="font-medium text-gray-900">
+                                {warehouseText}
+                                {extraWarehouseCount > 0 ? ` +${extraWarehouseCount} more` : ''}
+                              </p>
+                              <p className="text-xs text-gray-700">
+                                Legs: {summary.deliveredLegs}/{summary.totalLegs} delivered
+                                {summary.unassignedTripCount > 0 ? ` | ${summary.unassignedTripCount} without trip` : ''}
+                                {!warehouseMeta.hasMultipleWarehouses && warehouseNames.length === 0 ? ' | awaiting warehouse assignment' : ''}
+                              </p>
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td className="p-4 text-gray-600">
                         {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
@@ -764,7 +954,7 @@ export function OrdersView() {
                         <Truck className="h-5 w-5" />
                       </div>
                     </div>
-                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</p>
+                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{getDisplayOrderStatus(selectedOrder)}</p>
                   </div>
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4">
                     <div className="mb-2 flex items-center justify-between">
@@ -783,6 +973,55 @@ export function OrdersView() {
                         Driver not assigned
                       </div>
                     )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
+                  <div className="space-y-2">
+                    {deriveOrderFulfillmentSummary(selectedOrder).legs.map((leg: any) => (
+                      <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
+                            {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Trip: {leg.tripNumber || leg.tripId || 'Not assigned'} | Allocated Qty: {Number(leg.allocatedQty || 0)}
+                        </p>
+                        {!leg.tripId && !leg.tripNumber ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <p className="text-xs font-medium text-amber-700">Needs trip assignment.</p>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 rounded-md px-2 text-[11px]"
+                              onClick={() => {
+                                try {
+                                  window.sessionStorage.setItem(
+                                    'admin_transport_focus',
+                                    JSON.stringify({
+                                      orderId: String(selectedOrder?.id || ''),
+                                      orderNumber: String(selectedOrder?.orderNumber || ''),
+                                      warehouseId: String(leg?.warehouseId || ''),
+                                      at: Date.now(),
+                                    })
+                                  )
+                                } catch {
+                                  // best effort only
+                                }
+                                setSelectedOrder(null)
+                                onOpenTransportation?.()
+                              }}
+                            >
+                              Open in Transportation
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
                 </div>
 

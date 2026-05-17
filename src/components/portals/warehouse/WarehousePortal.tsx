@@ -944,10 +944,45 @@ export function WarehousePortal() {
 
   const scopedOrders = useMemo(() => {
     if (!assignedWarehouse) return orders
-    const hasOrderWarehouseRefs = orders.some((item) => item?.warehouseId)
-    const warehouseScoped = hasOrderWarehouseRefs
-      ? orders.filter((item) => !item?.warehouseId || item?.warehouseId === assignedWarehouse.id)
-      : orders
+    const belongsToAssignedWarehouse = (item: any) => {
+      const assignedId = String(assignedWarehouse.id || '').trim()
+      if (!assignedId) return true
+
+      const directId = String(item?.warehouseId || item?.warehouse_id || '').trim()
+      if (directId && directId === assignedId) return true
+
+      const idsFromArray = Array.isArray(item?.warehouseIds)
+        ? item.warehouseIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+        : []
+      if (idsFromArray.includes(assignedId)) return true
+
+      const allocationIds = Array.isArray(item?.warehouseAllocations)
+        ? item.warehouseAllocations
+            .map((allocation: any) => String(allocation?.warehouseId || allocation?.warehouse_id || allocation?.warehouse?.id || '').trim())
+            .filter(Boolean)
+        : []
+      if (allocationIds.includes(assignedId)) return true
+
+      const fulfillmentIds = Array.isArray(item?.fulfillments)
+        ? item.fulfillments
+            .map((leg: any) => String(leg?.warehouseId || leg?.warehouse_id || leg?.warehouse?.id || '').trim())
+            .filter(Boolean)
+        : []
+      if (fulfillmentIds.includes(assignedId)) return true
+
+      // Keep legacy behavior for orders that still have no warehouse references yet.
+      return !directId && idsFromArray.length === 0 && allocationIds.length === 0 && fulfillmentIds.length === 0
+    }
+
+    const hasOrderWarehouseRefs = orders.some((item) => {
+      const directId = String(item?.warehouseId || item?.warehouse_id || '').trim()
+      const hasIds = Array.isArray(item?.warehouseIds) && item.warehouseIds.some((value: any) => String(value || '').trim())
+      const hasAllocations = Array.isArray(item?.warehouseAllocations) && item.warehouseAllocations.some((allocation: any) => String(allocation?.warehouseId || allocation?.warehouse_id || allocation?.warehouse?.id || '').trim())
+      const hasFulfillments = Array.isArray(item?.fulfillments) && item.fulfillments.some((leg: any) => String(leg?.warehouseId || leg?.warehouse_id || leg?.warehouse?.id || '').trim())
+      return Boolean(directId || hasIds || hasAllocations || hasFulfillments)
+    })
+
+    const warehouseScoped = hasOrderWarehouseRefs ? orders.filter(belongsToAssignedWarehouse) : orders
     return warehouseScoped.filter((item) => {
       const number = String(item?.orderNumber || item?.order_number || '').trim().toUpperCase()
       return !Boolean(item?.isScheduledReplacement) && !number.startsWith('RPL-')
@@ -2023,7 +2058,7 @@ export function WarehousePortal() {
   }
 
   const fetchOrderMarker = async () => {
-    const result = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&sort=updated_at', { cache: 'no-store', credentials: 'include' })
+    const result = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&includeFulfillments=true&includeWarehouseAllocations=true&sort=updated_at', { cache: 'no-store', credentials: 'include' })
     if (!result.ok) {
       throw new Error(result.error || 'Failed orders fetch')
     }
@@ -2066,7 +2101,7 @@ export function WarehousePortal() {
     const maxPages = 100
     const fetchPage = (page: number) =>
       safeFetchJson(
-        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none`,
+        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none&includeFulfillments=true&includeWarehouseAllocations=true`,
         { cache: 'no-store', credentials: 'include' }
       )
 
@@ -2113,6 +2148,8 @@ export function WarehousePortal() {
         if (latestOrderUpdatedAtRef.current) {
           const deltaParams = new URLSearchParams({
             includeItems: 'none',
+            includeFulfillments: 'true',
+            includeWarehouseAllocations: 'true',
             sort: 'updated_at',
             page: '1',
             pageSize: '200',
@@ -2301,7 +2338,15 @@ export function WarehousePortal() {
         throw new Error(data?.error || 'Failed to generate route plan')
       }
 
-      const plans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
+      const rawPlans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
+      const plans = rawPlans
+        .map((group: any) => ({
+          ...group,
+          orders: (Array.isArray(group?.orders) ? group.orders : []).filter(
+            (order: any) => Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0
+          ),
+        }))
+        .filter((group: any) => (Array.isArray(group?.orders) ? group.orders.length : 0) > 0)
       setRoutePlans(plans)
       setSelectedRouteCity(plans[0]?.city || '')
       setSelectedRouteOrderIds([])
@@ -3037,6 +3082,167 @@ export function WarehousePortal() {
     return Math.ceil((end - start) / (1000 * 60 * 60 * 24))
   }
 
+  const normalizeFulfillmentStatus = (status: unknown) => {
+    const value = String(status || '').trim().toUpperCase()
+    if (!value) return 'PENDING'
+    if (value === 'IN_TRANSIT' || value === 'OUT_FOR_DELIVERY' || value === 'DISPATCHED') return 'IN_TRANSIT'
+    if (value === 'DELIVERED' || value === 'COMPLETED' || value === 'FULFILLED' || value === 'ARRIVED') return 'DELIVERED'
+    if (value === 'FAILED' || value === 'FAILED_DELIVERY') return 'FAILED'
+    return value
+  }
+
+  const extractFulfillmentLegs = (order: any) => {
+    const toList = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : [])
+    const getWarehouseKey = (entry: { warehouseId?: string | null; warehouseName?: string | null }) => {
+      const id = String(entry?.warehouseId || '').trim()
+      if (id) return `id:${id}`
+      const name = String(entry?.warehouseName || '').trim().toLowerCase()
+      return name ? `name:${name}` : ''
+    }
+
+    const directLegs = Array.isArray(order?.fulfillments)
+      ? order.fulfillments
+      : Array.isArray(order?.shipments)
+        ? order.shipments
+        : Array.isArray(order?.fulfillmentLegs)
+          ? order.fulfillmentLegs
+          : []
+
+    const normalizedDirectLegs = directLegs.map((leg: any, index: number) => {
+        const legItems = Array.isArray(leg?.items) ? leg.items : []
+        const allocatedQty = Number(
+          leg?.allocatedQty ??
+          leg?.allocatedQuantity ??
+          legItems.reduce((sum: number, item: any) => sum + Number(item?.allocatedQty ?? item?.quantity ?? 0), 0)
+        ) || 0
+        return {
+          id: String(leg?.id || `${order?.id || 'order'}-leg-${index}`),
+          warehouseId: String(leg?.warehouseId ?? leg?.warehouse_id ?? leg?.warehouse?.id ?? '').trim(),
+          warehouseName: String(leg?.warehouseName ?? leg?.warehouse?.name ?? order?.warehouseName ?? order?.warehouseCode ?? '').trim() || 'Unassigned',
+          status: normalizeFulfillmentStatus(leg?.status ?? order?.status),
+          tripId: leg?.tripId ? String(leg.tripId) : null,
+          tripNumber: String(leg?.trip?.tripNumber || leg?.tripNumber || '').trim() || null,
+          allocatedQty,
+        }
+      })
+
+    const topLevelAllocations = [
+      ...toList<any>(order?.warehouseAllocations),
+      ...toList<any>(order?.allocations),
+    ]
+    const itemLevelAllocations = toList<any>(order?.items).flatMap((item: any) => [
+      ...toList<any>(item?.warehouseAllocations),
+      ...toList<any>(item?.allocations),
+    ])
+    // Avoid double counting the same allocations when payload includes both top-level and item-level mirrors.
+    const allocationLegs = topLevelAllocations.length > 0 ? topLevelAllocations : itemLevelAllocations
+    const normalizedAllocationLegsRaw = allocationLegs.map((allocation: any, index: number) => {
+        const warehouseId = String(
+          allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id ?? ''
+        ).trim()
+        const warehouseName = String(
+          allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouseCode ?? allocation?.warehouse?.code ?? ''
+        ).trim()
+        const allocatedQty = Number(
+          allocation?.allocatedQty ?? allocation?.allocatedQuantity ?? allocation?.quantity ?? 0
+        ) || 0
+        return {
+          id: String(allocation?.id || `${order?.id || 'order'}-alloc-leg-${index}`),
+          warehouseId,
+          warehouseName: warehouseName || (warehouseId ? `Warehouse ${warehouseId}` : 'Unassigned'),
+          status: normalizeFulfillmentStatus(order?.status),
+          tripId: null,
+          tripNumber: null,
+          allocatedQty,
+        }
+      })
+    const allocationByWarehouse = new Map<string, any>()
+    normalizedAllocationLegsRaw.forEach((leg: any, index: number) => {
+      const key = getWarehouseKey(leg) || `unknown:${index}`
+      const existing = allocationByWarehouse.get(key)
+      if (!existing) {
+        allocationByWarehouse.set(key, { ...leg })
+        return
+      }
+      allocationByWarehouse.set(key, {
+        ...existing,
+        allocatedQty: Number(existing.allocatedQty || 0) + Number(leg.allocatedQty || 0),
+        warehouseId: existing.warehouseId || leg.warehouseId,
+        warehouseName: existing.warehouseName !== 'Unassigned' ? existing.warehouseName : leg.warehouseName,
+      })
+    })
+    const normalizedAllocationLegs = Array.from(allocationByWarehouse.values())
+
+    if (normalizedDirectLegs.length > 0) {
+      const allocationQtyByWarehouseKey = new Map<string, number>()
+      normalizedAllocationLegs.forEach((leg: any) => {
+        const key = getWarehouseKey(leg)
+        if (!key) return
+        allocationQtyByWarehouseKey.set(key, Number(leg?.allocatedQty || 0))
+      })
+      const hydratedDirectLegs = normalizedDirectLegs.map((leg: any) => {
+        const key = getWarehouseKey(leg)
+        const fallbackQty = key ? Number(allocationQtyByWarehouseKey.get(key) || 0) : 0
+        const currentQty = Number(leg?.allocatedQty || 0)
+        if (currentQty > 0 || fallbackQty <= 0) return leg
+        return { ...leg, allocatedQty: fallbackQty }
+      })
+
+      const directWarehouseKeys = new Set(
+        hydratedDirectLegs.map((leg: any) => getWarehouseKey(leg)).filter(Boolean)
+      )
+      const extras = normalizedAllocationLegs
+        .filter((leg: any) => {
+          const key = getWarehouseKey(leg)
+          return key && !directWarehouseKeys.has(key)
+        })
+        .map((leg: any) => ({
+          ...leg,
+          status: 'PENDING',
+        }))
+      return [...hydratedDirectLegs, ...extras]
+    }
+
+    if (normalizedAllocationLegs.length > 0) {
+      return normalizedAllocationLegs
+    }
+
+    const fallbackItems = Array.isArray(order?.items) ? order.items : []
+    return [{
+      id: `${String(order?.id || 'order')}-leg-0`,
+      warehouseName: String(order?.warehouseName || order?.warehouseCode || '').trim() || 'Unassigned',
+      status: normalizeFulfillmentStatus(order?.status),
+      tripId: order?.tripId ? String(order.tripId) : null,
+      tripNumber: String(order?.tripNumber || order?.progress?.trip?.tripNumber || '').trim() || null,
+      allocatedQty: fallbackItems.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0),
+    }]
+  }
+
+  const deriveOrderFulfillmentSummary = (order: any) => {
+    const legs = extractFulfillmentLegs(order)
+    const deliveredCount = legs.filter((leg: any) => leg.status === 'DELIVERED').length
+    const failedCount = legs.filter((leg: any) => leg.status === 'FAILED' || leg.status === 'CANCELLED').length
+    const unassignedTripCount = legs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
+    const total = legs.length
+    const fulfillmentStatus = total === 0
+      ? 'PENDING'
+      : deliveredCount === total
+        ? 'FULFILLED'
+        : deliveredCount > 0
+          ? 'PARTIALLY_FULFILLED'
+          : failedCount === total
+            ? 'FAILED'
+            : 'IN_PROGRESS'
+    return {
+      legs,
+      totalLegs: total,
+      deliveredLegs: deliveredCount,
+      unassignedTripCount,
+      needsSplit: total > 1,
+      fulfillmentStatus,
+    }
+  }
+
   const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null, notes?: string | null) => {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING APPROVAL'
@@ -3063,10 +3269,21 @@ export function WarehousePortal() {
     return rawStatus.replace(/_/g, ' ')
   }
 
+  const getWarehouseDisplayOrderStatus = (order: any) => {
+    const summary = deriveOrderFulfillmentSummary(order)
+    if (summary.totalLegs > 1) {
+      if (summary.fulfillmentStatus === 'PARTIALLY_FULFILLED') return 'PARTIALLY FULFILLED'
+      if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
+      if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
+    }
+    return formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
+  }
+
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
+    statuses.add('PARTIALLY FULFILLED')
     scopedOrders.forEach((order) => {
-      statuses.add(formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))
+      statuses.add(getWarehouseDisplayOrderStatus(order))
     })
     return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
   }, [scopedOrders])
@@ -3087,7 +3304,7 @@ export function WarehousePortal() {
     }
 
     return scopedOrders.filter((order) => {
-      const normalizedStatus = formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
+      const normalizedStatus = getWarehouseDisplayOrderStatus(order)
       if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
 
       const rawDate = String(order.deliveryDate || order.createdAt || '')
@@ -3103,6 +3320,8 @@ export function WarehousePortal() {
       const amount = Number(order.totalAmount || 0)
       if (hasMinPrice && amount < minPrice) return false
       if (hasMaxPrice && amount > maxPrice) return false
+      ;(order as any)._displayStatus = normalizedStatus
+      ;(order as any)._fulfillmentSummary = deriveOrderFulfillmentSummary(order)
       return true
     })
   }, [scopedOrders, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter])
@@ -3603,6 +3822,8 @@ export function WarehousePortal() {
             <WarehouseTripsSection
               loadingTrips={loadingTrips}
               scopedTrips={scopedTrips}
+              currentStaffUserId={String((user as any)?.userId || (user as any)?.id || '')}
+              assignedWarehouseId={assignedWarehouse?.id}
               assignedWarehouseName={assignedWarehouse?.name}
               tripStatusColors={tripStatusColors}
               selectedTrip={selectedTrip}
@@ -3619,6 +3840,8 @@ export function WarehousePortal() {
                   shippingName: order.shippingName || order.customer?.name || '',
                   shippingCity: order.shippingCity || '',
                   status: order.status,
+                  allocatedQtyForSelectedWarehouse: Number((order as any)?.allocatedQtyForSelectedWarehouse || 0),
+                  totalOrderQty: Number((order as any)?.totalOrderQty || 0),
                 }))}
               onEditTripDropPoints={(trip, changes) => {
                 void editTripDropPoints(trip as WarehouseTripItem, changes)
@@ -3881,29 +4104,6 @@ export function WarehousePortal() {
                   className="mt-1 h-9 text-sm"
                 />
               </div>
-              <div className="mb-2">
-                <label htmlFor="warehouse-select" className="text-sm font-medium text-gray-700">Select Warehouse</label>
-                <select
-                  id="warehouse-select"
-                  value={routeWarehouseId}
-                  onChange={(e) => {
-                    const nextWarehouseId = e.target.value
-                    setRouteWarehouseId(nextWarehouseId)
-                    if (createRouteOpen && routeDate && nextWarehouseId) {
-                      void createRoutePlan(true, routeDate, nextWarehouseId)
-                    }
-                  }}
-                  title="Select warehouse"
-                  className="mt-1 h-9 w-full rounded-md border bg-white px-2.5 text-sm"
-                >
-                  <option value="">-- Choose Warehouse --</option>
-                  {warehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name} ({warehouse.city})
-                    </option>
-                  ))}
-                </select>
-              </div>
               <Button className="mt-1 mb-2 h-9 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Filter Orders
@@ -3964,6 +4164,23 @@ export function WarehousePortal() {
                                   ) : null}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
+                                {Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0 ? (
+                                  <div className="mt-0.5 space-y-0.5">
+                                    {(order as any).productAllocations.map((line: any, index: number) => (
+                                      <div
+                                        key={`${String(line?.itemId || index)}`}
+                                        className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                      >
+                                        {String(line?.productName || 'Product')}
+                                        {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className={`text-[10px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    Allocated: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
+                                  </div>
+                                )}
                               </button>
                             ))}
                           </div>
@@ -4064,6 +4281,23 @@ export function WarehousePortal() {
                               <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
                               {order.products && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
+                              )}
+                              {Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0 ? (
+                                <div className="mt-0.5 space-y-0.5">
+                                  {(order as any).productAllocations.map((line: any, index: number) => (
+                                    <div
+                                      key={`${String(line?.itemId || index)}-map`}
+                                      className={`text-[11px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                    >
+                                      {String(line?.productName || 'Product')}
+                                      {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className={`mt-0.5 text-[11px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                  Allocated for this warehouse: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
+                                </div>
                               )}
                               {order.latitude && order.longitude && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">Coordinates: {order.latitude}, {order.longitude}</div>
@@ -4183,7 +4417,7 @@ export function WarehousePortal() {
                         <Truck className="h-5 w-5" />
                       </div>
                     </div>
-                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{formatWarehouseOrderStatus(selectedOrder.status, selectedOrder.paymentStatus, selectedOrder.warehouseStage)}</p>
+                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{getWarehouseDisplayOrderStatus(selectedOrder)}</p>
                   </div>
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4.5">
                     <div className="mb-2 flex items-center justify-between">
@@ -4200,6 +4434,27 @@ export function WarehousePortal() {
                         Driver not assigned
                       </div>
                     )}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
+                  <div className="space-y-2">
+                    {deriveOrderFulfillmentSummary(selectedOrder).legs.map((leg: any) => (
+                      <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
+                            {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Trip: {leg.tripNumber || leg.tripId || 'Not assigned'} | Allocated Qty: {Number(leg.allocatedQty || 0)}
+                        </p>
+                        {!leg.tripId && !leg.tripNumber ? (
+                          <p className="mt-1 text-xs font-medium text-amber-700">Needs trip assignment.</p>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
@@ -4223,8 +4478,32 @@ export function WarehousePortal() {
                     </span>
                     Order Details
                   </p>
-                  <div className="space-y-2">
-                    {(selectedOrder.items || []).map((item) => (
+                  {(() => {
+                    const assignedWarehouseId = String(assignedWarehouse?.id || '').trim()
+                    const orderItems = Array.isArray(selectedOrder.items) ? selectedOrder.items : []
+                    const getItemAllocatedForWarehouse = (item: any) => {
+                      const allocs = Array.isArray(item?.warehouseAllocations) ? item.warehouseAllocations : []
+                      const fromItem = allocs
+                        .filter((entry: any) => String(entry?.warehouseId || entry?.warehouse_id || '').trim() === assignedWarehouseId)
+                        .reduce((sum: number, entry: any) => sum + Number(entry?.allocatedQty || entry?.quantity || 0), 0)
+                      if (fromItem > 0) return fromItem
+                      const orderHasAllocationData = Array.isArray(selectedOrder?.warehouseAllocations) && selectedOrder.warehouseAllocations.length > 0
+                      if (orderHasAllocationData) return 0
+                      return Number(item?.quantity || 0)
+                    }
+                    const warehouseScopedTotal = orderItems.reduce((sum: number, item: any) => {
+                      const allocatedQty = getItemAllocatedForWarehouse(item)
+                      const unitPrice = Number(item?.unitPrice ?? item?.unit_price ?? 0)
+                      const lineTotal = Number(item?.totalPrice ?? item?.total_price ?? 0)
+                      const safeLineTotal = lineTotal > 0 ? lineTotal : unitPrice * Number(item?.quantity || 0)
+                      const qty = Number(item?.quantity || 0)
+                      const ratio = qty > 0 ? allocatedQty / qty : 0
+                      return sum + (ratio > 0 ? safeLineTotal * ratio : 0)
+                    }, 0)
+
+                    return (
+                      <div className="space-y-2">
+                        {orderItems.map((item: any) => (
                       <div key={item.id} className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-start gap-2.5">
                           <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
@@ -4240,15 +4519,25 @@ export function WarehousePortal() {
                               {getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
                               {' '}x{item.quantity}
                             </p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">
+                              Allocated for this warehouse: {getItemAllocatedForWarehouse(item)}
+                            </p>
                             <CompactDiscountLine value={formatPeso(Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
                           </div>
                         </div>
                         <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                       </div>
                     ))}
-                    <div className="h-px bg-slate-200" />
-                    <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">Total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span></p>
-                  </div>
+                        <div className="h-px bg-slate-200" />
+                        <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
+                          Warehouse scoped total: <span className="text-emerald-700">{formatPeso(warehouseScopedTotal || 0)}</span>
+                        </p>
+                        <p className="text-right text-xs text-slate-500">
+                          Order total: {formatPeso(selectedOrder.totalAmount || 0)}
+                        </p>
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div className="hidden">
                   <div className="mb-2 flex items-center justify-between gap-3">

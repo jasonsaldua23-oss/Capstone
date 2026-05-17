@@ -650,7 +650,7 @@ export function AdminPortal() {
       case 'dashboard':
         return <DashboardView stats={stats} isLoading={isLoading} />
       case 'orders':
-        return <OrdersView />
+        return <OrdersView onOpenTransportation={() => setActiveView('transportation')} />
       case 'trips':
         return <TripsView />
       case 'transportation':

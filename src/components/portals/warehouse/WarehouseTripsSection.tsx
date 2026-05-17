@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type Dispatch, type SetStateAction } from 'react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,6 +18,12 @@ type TripDropPointItem = {
 type TripItem = {
   id: string
   tripNumber: string
+  createdByUserId?: string
+  warehouseId?: string
+  warehouse?: {
+    id?: string
+    name?: string
+  }
   status: string
   tripSchedule?: string | null
   totalDropPoints?: number
@@ -37,6 +43,8 @@ type TripItem = {
 type WarehouseTripsSectionProps = {
   loadingTrips: boolean
   scopedTrips: TripItem[]
+  currentStaffUserId?: string
+  assignedWarehouseId?: string
   assignedWarehouseName?: string
   tripStatusColors: Record<string, string>
   selectedTrip: TripItem | null
@@ -49,6 +57,8 @@ type WarehouseTripsSectionProps = {
     shippingName?: string
     shippingCity?: string
     status?: string
+    allocatedQtyForSelectedWarehouse?: number
+    totalOrderQty?: number
   }>
   onEditTripDropPoints: (trip: TripItem, changes: { addOrderIds?: string[]; removeDropPointIds?: string[] }) => void
   editingTripId?: string | null
@@ -57,6 +67,8 @@ type WarehouseTripsSectionProps = {
 export function WarehouseTripsSection({
   loadingTrips,
   scopedTrips,
+  currentStaffUserId,
+  assignedWarehouseId,
   assignedWarehouseName,
   tripStatusColors,
   selectedTrip,
@@ -68,9 +80,102 @@ export function WarehouseTripsSection({
   editingTripId,
 }: WarehouseTripsSectionProps) {
   const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
-  void availableOrders
-  void onEditTripDropPoints
-  void editingTripId
+  const [allocatingPoint, setAllocatingPoint] = useState<any | null>(null)
+  const [allocateOrderId, setAllocateOrderId] = useState('')
+  const [confirmAllocateOpen, setConfirmAllocateOpen] = useState(false)
+  const isTripCreator = useMemo(() => {
+    const currentUserId = String(currentStaffUserId || '').trim()
+    const creatorUserId = String((selectedTrip as any)?.createdByUserId || '').trim()
+    return Boolean(currentUserId) && Boolean(creatorUserId) && currentUserId === creatorUserId
+  }, [currentStaffUserId, selectedTrip])
+  const isCreatorWarehouseByTripWarehouse = useMemo(() => {
+    const assignedId = String(assignedWarehouseId || '').trim()
+    const tripWarehouseId = String((selectedTrip as any)?.warehouseId || (selectedTrip as any)?.warehouse?.id || '').trim()
+    return Boolean(assignedId) && Boolean(tripWarehouseId) && assignedId === tripWarehouseId
+  }, [assignedWarehouseId, selectedTrip])
+  const selectedAllocateOrder = useMemo(
+    () => availableOrders.find((order) => String(order.id) === allocateOrderId) || null,
+    [availableOrders, allocateOrderId]
+  )
+  const allocationLegsForPoint = useMemo(() => {
+    const legs = Array.isArray(allocatingPoint?.order?.fulfillments)
+      ? allocatingPoint.order.fulfillments
+      : Array.isArray(allocatingPoint?.order?.shipments)
+        ? allocatingPoint.order.shipments
+        : Array.isArray(allocatingPoint?.order?.fulfillmentLegs)
+          ? allocatingPoint.order.fulfillmentLegs
+          : []
+    return legs
+      .map((leg: any) => {
+        const allocatedQty = Number(
+          leg?.allocatedQty ?? leg?.allocatedQuantity ?? leg?.quantity ?? 0
+        )
+        return {
+          warehouseId: String(leg?.warehouseId || leg?.warehouse_id || leg?.warehouse?.id || '').trim(),
+          warehouseName: String(leg?.warehouseName || leg?.warehouse?.name || leg?.warehouseCode || leg?.warehouse?.code || 'Warehouse').trim(),
+          tripId: String(leg?.tripId || leg?.trip?.id || '').trim(),
+          tripNumber: String(leg?.tripNumber || leg?.trip?.tripNumber || '').trim(),
+          allocatedQty,
+        }
+      })
+      .filter((leg: any) => Number(leg.allocatedQty || 0) > 0)
+  }, [allocatingPoint])
+  const currentDropPointOrderAllocation = useMemo(() => {
+    const currentOrderId = String(allocatingPoint?.order?.id || '').trim()
+    if (!currentOrderId) return null
+    return availableOrders.find((order) => String(order.id) === currentOrderId) || null
+  }, [availableOrders, allocatingPoint])
+  const currentWarehouseAllocationFromLegs = useMemo(() => {
+    const warehouseId = String(assignedWarehouseId || '').trim()
+    const warehouseName = String(assignedWarehouseName || '').trim().toLowerCase()
+    if (allocationLegsForPoint.length === 0) return { allocated: 0, total: 0 }
+    let matchedLegs = allocationLegsForPoint.filter((leg: any) => warehouseId && String(leg?.warehouseId || '').trim() === warehouseId)
+    if (matchedLegs.length === 0 && warehouseName) {
+      matchedLegs = allocationLegsForPoint.filter((leg: any) => String(leg?.warehouseName || '').trim().toLowerCase() === warehouseName)
+    }
+    return {
+      allocated: matchedLegs.reduce((sum: number, leg: any) => sum + Number(leg?.allocatedQty || 0), 0),
+      total: allocationLegsForPoint.reduce((sum: number, leg: any) => sum + Number(leg?.allocatedQty || 0), 0),
+    }
+  }, [allocationLegsForPoint, assignedWarehouseId, assignedWarehouseName])
+  const getWarehouseAllocatedQtyFromPoint = (point: any): number => {
+    const legs = Array.isArray(point?.order?.fulfillments)
+      ? point.order.fulfillments
+      : Array.isArray(point?.order?.shipments)
+        ? point.order.shipments
+        : Array.isArray(point?.order?.fulfillmentLegs)
+          ? point.order.fulfillmentLegs
+          : []
+    const warehouseId = String(assignedWarehouseId || '').trim()
+    const warehouseName = String(assignedWarehouseName || '').trim().toLowerCase()
+    const normalized = legs.map((leg: any) => ({
+      warehouseId: String(leg?.warehouseId || leg?.warehouse_id || leg?.warehouse?.id || '').trim(),
+      warehouseName: String(leg?.warehouseName || leg?.warehouse?.name || leg?.warehouseCode || leg?.warehouse?.code || '').trim().toLowerCase(),
+      allocatedQty: Number(leg?.allocatedQty ?? leg?.allocatedQuantity ?? leg?.quantity ?? 0),
+    }))
+    let matched = normalized.filter((leg: any) => warehouseId && leg.warehouseId === warehouseId)
+    if (matched.length === 0 && warehouseName) {
+      matched = normalized.filter((leg: any) => leg.warehouseName === warehouseName)
+    }
+    return matched.reduce((sum: number, leg: any) => sum + Number(leg.allocatedQty || 0), 0)
+  }
+  const getItemAllocatedQtyForAssignedWarehouse = (item: any): number => {
+    const itemAllocs = Array.isArray(item?.warehouseAllocations) ? item.warehouseAllocations : []
+    return itemAllocs
+      .filter((alloc: any) => String(alloc?.warehouseId || alloc?.warehouse_id || '').trim() === String(assignedWarehouseId || '').trim())
+      .reduce((sum: number, alloc: any) => sum + Number(alloc?.allocatedQty ?? alloc?.allocatedQuantity ?? alloc?.quantity ?? 0), 0)
+  }
+  const getOrderAllocationSummaryForAssignedWarehouse = (point: any): { allocated: number; total: number } => {
+    const items = Array.isArray(point?.order?.items) ? point.order.items : []
+    const allocated = items.reduce((sum: number, item: any) => sum + Math.max(0, Number(getItemAllocatedQtyForAssignedWarehouse(item) || 0)), 0)
+    const total = items.reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.quantity || 0)), 0)
+    return { allocated, total }
+  }
+  const canAllocateFromPoint = (point: any, tripStatusKey: string): boolean => {
+    if (tripStatusKey !== 'PLANNED') return false
+    const items = Array.isArray(point?.order?.items) ? point.order.items : []
+    return items.some((item: any) => getItemAllocatedQtyForAssignedWarehouse(item) > 0)
+  }
   const formatPeso = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(amount)
   const formatTripSchedule = (value: string | null | undefined) => {
@@ -328,16 +433,54 @@ export function WarehouseTripsSection({
                                     ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
                                     : 'Coordinates: Not available'}
                                 </p>
+                                {Number(point?.order?.allocatedQtyForSelectedWarehouse || 0) > 0 ? (
+                                  <p className="mt-1 text-[11px] text-emerald-700">
+                                    Allocated: {Number(point.order.allocatedQtyForSelectedWarehouse || 0)} / {Number(point?.order?.totalOrderQty || 0)}
+                                  </p>
+                                ) : null}
+                                {(() => {
+                                  const legs = Array.isArray(point?.order?.fulfillments)
+                                    ? point.order.fulfillments
+                                    : Array.isArray(point?.order?.shipments)
+                                      ? point.order.shipments
+                                      : Array.isArray(point?.order?.fulfillmentLegs)
+                                        ? point.order.fulfillmentLegs
+                                        : []
+                                  if (legs.length === 0) return null
+                                  const delivered = legs.filter((leg: any) => {
+                                    const s = String(leg?.status || '').toUpperCase()
+                                    return ['DELIVERED', 'COMPLETED', 'FULFILLED', 'ARRIVED'].includes(s)
+                                  }).length
+                                  return (
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      Fulfillment legs: {delivered}/{legs.length} delivered
+                                    </p>
+                                  )
+                                })()}
                                 <div className="mt-4">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-8 rounded-lg border-slate-300 px-3 text-[11px] font-medium text-slate-900 hover:bg-slate-50"
-                                    onClick={() => setSelectedDropPointDetail(point)}
-                                  >
-                                    <Eye className="mr-2 h-4 w-4" />
-                                    View Details
-                                  </Button>
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 rounded-lg border-slate-300 px-3 text-[11px] font-medium text-slate-900 hover:bg-slate-50"
+                                      onClick={() => setSelectedDropPointDetail(point)}
+                                    >
+                                      <Eye className="mr-2 h-4 w-4" />
+                                      View Details
+                                    </Button>
+                                    {canAllocateFromPoint(point, statusKey) ? (
+                                      <Button
+                                        type="button"
+                                        className="h-8 rounded-lg px-3 text-[11px] font-medium"
+                                        onClick={() => {
+                                          setAllocatingPoint(point)
+                                          setAllocateOrderId('')
+                                        }}
+                                      >
+                                        Allocate
+                                      </Button>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -357,7 +500,12 @@ export function WarehouseTripsSection({
                   <Button
                     variant="outline"
                     className="h-10 min-w-[86px] rounded-lg border-slate-300 px-4 text-sm font-medium text-slate-900 hover:bg-slate-50"
-                    onClick={() => setSelectedTrip(null)}
+                    onClick={() => {
+                      setAllocatingPoint(null)
+                      setAllocateOrderId('')
+                      setConfirmAllocateOpen(false)
+                      setSelectedTrip(null)
+                    }}
                   >
                     Close
                   </Button>
@@ -433,9 +581,38 @@ export function WarehouseTripsSection({
                 <p className="mb-3 text-sm font-semibold text-slate-900">Order Items</p>
                 {Array.isArray(selectedDropPointDetail.order?.items) && selectedDropPointDetail.order.items.length > 0 ? (
                   <div className="space-y-2 text-sm">
-                    {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
+                    {(() => {
+                      const items = Array.isArray(selectedDropPointDetail.order?.items) ? selectedDropPointDetail.order.items : []
+                      const isOwnerSideView = Boolean(isTripCreator || isCreatorWarehouseByTripWarehouse)
+                      const tripWarehouseId = String((selectedTrip as any)?.warehouseId || (selectedTrip as any)?.warehouse?.id || '').trim()
+                      return items.map((item: any, itemIndex: number) => {
+                        const itemQty = Math.max(0, Number(item?.quantity || 0))
+                        const itemAllocs = Array.isArray(item?.warehouseAllocations) ? item.warehouseAllocations : []
+                        const allocatedForThisItem = itemAllocs
+                          .filter((alloc: any) => String(alloc?.warehouseId || alloc?.warehouse_id || '').trim() === String(assignedWarehouseId || '').trim())
+                          .reduce((sum: number, alloc: any) => sum + Number(alloc?.allocatedQty ?? alloc?.allocatedQuantity ?? alloc?.quantity ?? 0), 0)
+                        const allocatedForTripWarehouseItem = itemAllocs
+                          .filter((alloc: any) => String(alloc?.warehouseId || alloc?.warehouse_id || '').trim() === tripWarehouseId)
+                          .reduce((sum: number, alloc: any) => sum + Number(alloc?.allocatedQty ?? alloc?.allocatedQuantity ?? alloc?.quantity ?? 0), 0)
+                        const effectiveAllocatedQty = isOwnerSideView
+                          ? Math.min(itemQty, Math.max(allocatedForTripWarehouseItem, 0))
+                          : allocatedForThisItem
+                        const isFullyAllocated = itemQty > 0 && effectiveAllocatedQty >= itemQty
+                        const isPartiallyAllocated = effectiveAllocatedQty > 0 && !isFullyAllocated
+                        return (
                       <div key={`warehouse-dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
-                        <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                            isFullyAllocated
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : isPartiallyAllocated
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-amber-200 bg-amber-50 text-amber-700'
+                          }`}>
+                            {isFullyAllocated ? 'Allocated' : isPartiallyAllocated ? 'Partially Allocated' : 'Not Allocated Yet'}
+                          </span>
+                        </div>
                         <p className="mt-0.5 text-xs text-slate-500">
                           Size: {(() => {
                             const product = item?.product || {}
@@ -447,8 +624,11 @@ export function WarehouseTripsSection({
                           })()}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">Allocated Qty (this warehouse): {effectiveAllocatedQty}</p>
                       </div>
-                    ))}
+                        )
+                      })
+                    })()}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500">No order items.</p>
@@ -467,6 +647,158 @@ export function WarehouseTripsSection({
               </div>
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!allocatingPoint} onOpenChange={(open) => !open && setAllocatingPoint(null)}>
+        <DialogContent className="max-w-lg">
+          {allocatingPoint ? (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-slate-900">Allocate Drop Point</h3>
+              <p className="text-sm text-slate-600">
+                Drop point: {allocatingPoint?.order?.orderNumber || allocatingPoint?.locationName || 'Drop point'}
+              </p>
+              {currentDropPointOrderAllocation ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <p className="font-medium text-slate-900">{currentDropPointOrderAllocation.orderNumber}</p>
+                  <p className="mt-1 text-emerald-700">
+                    {(() => {
+                      const summary = getOrderAllocationSummaryForAssignedWarehouse(allocatingPoint)
+                      return `Your allocation in this order: ${Number(summary.allocated || 0)} / ${Number(summary.total || 0)}`
+                    })()}
+                  </p>
+                  {allocationLegsForPoint.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {allocationLegsForPoint.map((leg: any, idx: number) => (
+                        <p key={`${leg.warehouseName}-${leg.tripId || 'no-trip'}-${idx}`} className="text-xs text-slate-600">
+                          {leg.warehouseName}: {Number(leg.allocatedQty || 0)} {leg.tripNumber ? `| Trip ${leg.tripNumber}` : '| Not assigned'}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {Array.isArray(allocatingPoint?.order?.items) && allocatingPoint.order.items.length > 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="mb-2 text-sm font-semibold text-slate-900">Items For Allocation</p>
+                  <div className="space-y-2">
+                    {(() => {
+                      const pendingItems = allocatingPoint.order.items.filter((item: any) => {
+                        const orderQty = Math.max(0, Number(item?.quantity || 0))
+                        const allocatedQty = Math.max(0, Number(getItemAllocatedQtyForAssignedWarehouse(item) || 0))
+                        return allocatedQty < orderQty
+                      })
+                      if (pendingItems.length === 0) {
+                        return <p className="text-xs text-slate-500">All items are already allocated for this warehouse.</p>
+                      }
+                      return pendingItems.map((item: any, idx: number) => (
+                        <div key={`alloc-item-${idx}`} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs">
+                          <p className="font-medium text-slate-900">{item?.product?.name || 'Item'}</p>
+                          <p className="text-slate-600">
+                            Size: {(() => {
+                              const product = item?.product || {}
+                              const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
+                                ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
+                                : ''
+                              const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
+                              return fromSizes || fromField || 'N/A'
+                            })()}
+                          </p>
+                          <p className="text-slate-600">Order Qty: {Number(item?.quantity || 0)}</p>
+                          <p className="text-slate-700">Allocated Qty (this warehouse): {getItemAllocatedQtyForAssignedWarehouse(item)}</p>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                </div>
+              ) : null}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {availableOrders
+                  .filter((order) => {
+                    const currentOrderId = String(allocatingPoint?.order?.id || '').trim()
+                    return !currentOrderId || String(order.id) !== currentOrderId
+                  })
+                  .filter((order) => Number(order.allocatedQtyForSelectedWarehouse || 0) > 0)
+                  .map((order) => (
+                    <label key={order.id} className="flex cursor-pointer items-start justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900">{order.orderNumber}</p>
+                        <p className="text-xs text-emerald-700">
+                          Allocated: {Number(order.allocatedQtyForSelectedWarehouse || 0)} / {Number(order.totalOrderQty || 0)}
+                        </p>
+                      </div>
+                      <input
+                        type="radio"
+                        name="allocate-order"
+                        checked={allocateOrderId === String(order.id)}
+                        onChange={() => setAllocateOrderId(String(order.id))}
+                      />
+                    </label>
+                  ))}
+                {availableOrders
+                  .filter((order) => {
+                    const currentOrderId = String(allocatingPoint?.order?.id || '').trim()
+                    return !currentOrderId || String(order.id) !== currentOrderId
+                  })
+                  .filter((order) => Number(order.allocatedQtyForSelectedWarehouse || 0) > 0).length === 0 ? (
+                  <p className="text-sm text-slate-500">No other allocated orders available for this drop point.</p>
+                ) : null}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setAllocatingPoint(null)}>Cancel</Button>
+                <Button
+                  disabled={!allocateOrderId}
+                  onClick={() => setConfirmAllocateOpen(true)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={confirmAllocateOpen} onOpenChange={setConfirmAllocateOpen}>
+        <DialogContent className="max-w-md">
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-slate-900">Confirm Allocation</h3>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+              <p className="text-slate-600">
+                Drop point: <span className="font-medium text-slate-900">{allocatingPoint?.order?.orderNumber || allocatingPoint?.locationName || 'Drop point'}</span>
+              </p>
+              <p className="mt-1 text-slate-600">
+                Replace with: <span className="font-medium text-slate-900">{selectedAllocateOrder?.orderNumber || 'N/A'}</span>
+              </p>
+              {selectedAllocateOrder ? (
+                <p className="mt-1 text-emerald-700">
+                  Allocation: {Number(selectedAllocateOrder.allocatedQtyForSelectedWarehouse || 0)} / {Number(selectedAllocateOrder.totalOrderQty || 0)}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmAllocateOpen(false)}>Back</Button>
+              <Button
+                disabled={!selectedTrip || !allocatingPoint || !allocateOrderId || editingTripId === selectedTrip?.id}
+                onClick={() => {
+                  if (!selectedTrip || !allocatingPoint || !allocateOrderId) return
+                  onEditTripDropPoints(selectedTrip, {
+                    addOrderIds: [allocateOrderId],
+                    removeDropPointIds: [String(allocatingPoint.id || '')],
+                  })
+                  setConfirmAllocateOpen(false)
+                  setAllocatingPoint(null)
+                  setAllocateOrderId('')
+                }}
+              >
+                {editingTripId === selectedTrip?.id ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

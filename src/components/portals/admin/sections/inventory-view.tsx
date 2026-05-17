@@ -356,13 +356,13 @@ export function InventoryView() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>Inventory</CardTitle>
             </div>
-            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+            <div className="flex w-full flex-wrap gap-2 md:w-auto md:flex-nowrap">
               <select
-                className="h-10 min-w-[180px] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:w-[220px] sm:flex-none"
+                className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm md:w-[260px] md:flex-none"
                 value={selectedWarehouseId}
                 onChange={(event) => setSelectedWarehouseId(event.target.value)}
                 title="Filter by warehouse"
@@ -379,7 +379,7 @@ export function InventoryView() {
                   setProductSkuSeed(createSkuSeed())
                   setRegisterProductOpen(true)
                 }}
-                className="whitespace-nowrap"
+                className="shrink-0 whitespace-nowrap"
               >
                 Register Product
               </Button>
@@ -394,8 +394,8 @@ export function InventoryView() {
           ) : filteredInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] text-sm">
+            <div className="w-full overflow-x-auto pb-1">
+              <table className="w-full min-w-[1220px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
@@ -457,8 +457,8 @@ export function InventoryView() {
                         <td className="p-2.5 font-semibold text-orange-600">{reservedQty}</td>
                         <td className="p-2.5 text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
                         <td className="p-2.5">
-                          {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
-                          {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
+                          {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
+                          {status === 'restock' && <Badge className="whitespace-nowrap bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                         </td>
                         <td className="p-2.5">
                           <Button

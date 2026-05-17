@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import hmac
 import json
 import logging
@@ -51,6 +51,7 @@ from .models import (
     Vehicle,
     VehicleStatus,
     Warehouse,
+    WarehouseStaffAssignment,
 )
 
 
@@ -248,6 +249,19 @@ def _ok(data: dict[str, Any], status: int = 200) -> JsonResponse:
 
 def _err(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"success": False, "error": message}, status=status)
+
+
+def _get_allowed_warehouse_ids_for_staff(user_id: str) -> set[str]:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return set()
+    direct_manager_ids = set(
+        Warehouse.objects.filter(manager_id=normalized_user_id).values_list("id", flat=True)
+    )
+    assigned_ids = set(
+        WarehouseStaffAssignment.objects.filter(user_id=normalized_user_id).values_list("warehouse_id", flat=True)
+    )
+    return {str(warehouse_id).strip() for warehouse_id in (direct_manager_ids | assigned_ids) if str(warehouse_id).strip()}
 
 
 def _int(v: Any, default: int) -> int:
@@ -1371,6 +1385,9 @@ def _serialize_order(
     *,
     warehouse_lookup: dict[str, Warehouse] | None = None,
     assigned_trip: Trip | None = None,
+    fulfillment_legs: list[dict[str, Any]] | None = None,
+    warehouse_allocations: list[dict[str, Any]] | None = None,
+    item_warehouse_allocations: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
@@ -1432,8 +1449,28 @@ def _serialize_order(
         items = []
         for item in order.items.select_related("product").all():
             row = _serialize_order_item_with_spare_products(item, include_full_product=True)
+            item_id = str(getattr(item, "id", "") or "").strip()
+            if item_warehouse_allocations is not None and item_id:
+                allocs = item_warehouse_allocations.get(item_id, [])
+                row["warehouseAllocations"] = allocs
+                row["allocatedQtyTotal"] = sum(max(0, _int(entry.get("allocatedQty"), 0)) for entry in allocs)
             items.append(row)
         data["items"] = items
+
+    if fulfillment_legs is not None:
+        data["fulfillments"] = fulfillment_legs
+    if warehouse_allocations is not None:
+        data["warehouseAllocations"] = warehouse_allocations
+        data["warehouseIds"] = [str((row or {}).get("warehouseId") or "").strip() for row in warehouse_allocations if str((row or {}).get("warehouseId") or "").strip()]
+        data["warehouses"] = [
+            {
+                "id": str((row or {}).get("warehouseId") or "").strip() or None,
+                "name": str((row or {}).get("warehouseName") or "").strip() or None,
+                "code": str((row or {}).get("warehouseCode") or "").strip() or None,
+            }
+            for row in warehouse_allocations
+            if str((row or {}).get("warehouseId") or "").strip()
+        ]
 
     data["scheduledReplacement"] = _get_scheduled_replacement_payload(order)
 
@@ -1475,6 +1512,192 @@ def _serialize_order(
             },
         }
     return data
+
+
+def _build_order_fulfillment_legs_map(order_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    normalized_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
+    if not normalized_ids:
+        return {}
+
+    points = (
+        TripDropPoint.objects.select_related("trip")
+        .filter(order_id__in=normalized_ids)
+        .order_by("order_id", "sequence", "created_at", "id")
+    )
+
+    warehouse_ids = {
+        str(getattr(point.trip, "warehouse_id", "") or "").strip()
+        for point in points
+        if getattr(point, "trip", None) is not None
+    }
+    warehouse_ids = {warehouse_id for warehouse_id in warehouse_ids if warehouse_id}
+    warehouse_lookup = {
+        warehouse.id: warehouse
+        for warehouse in Warehouse.objects.filter(id__in=list(warehouse_ids))
+    } if warehouse_ids else {}
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for point in points:
+        order_id = str(getattr(point, "order_id", "") or "").strip()
+        if not order_id:
+            continue
+        trip = getattr(point, "trip", None)
+        warehouse_id = str(getattr(trip, "warehouse_id", "") or "").strip() or None
+        warehouse = warehouse_lookup.get(warehouse_id or "") if warehouse_id else None
+        status_value = _normalize_order_status(getattr(point, "status", None) or getattr(trip, "status", None))
+        out.setdefault(order_id, []).append(
+            {
+                "id": str(getattr(point, "id", "") or "").strip() or None,
+                "warehouseId": warehouse_id,
+                "warehouseName": str(getattr(warehouse, "name", "") or "").strip() or None,
+                "warehouseCode": str(getattr(warehouse, "code", "") or "").strip() or None,
+                "status": status_value,
+                "tripId": str(getattr(trip, "id", "") or "").strip() or None,
+                "tripNumber": str(getattr(trip, "trip_number", "") or "").strip() or None,
+                "sequence": getattr(point, "sequence", None),
+            }
+        )
+    return out
+
+
+def _build_order_warehouse_allocations_map(order_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    normalized_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
+    if not normalized_ids:
+        return {}
+
+    order_items = list(
+        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id")
+    )
+    if not order_items:
+        return {}
+
+    order_by_item_id = {
+        str(item.id): str(item.order_id)
+        for item in order_items
+        if str(item.id or "").strip() and str(item.order_id or "").strip()
+    }
+    item_ids = list(order_by_item_id.keys())
+    if not item_ids:
+        return {}
+
+    tx_rows = list(
+        InventoryTransaction.objects.filter(
+            reference_type="order_item_reserve",
+            reference_id__in=item_ids,
+            type="RESERVE",
+        ).values("reference_id", "warehouse_id", "quantity")
+    )
+    if not tx_rows:
+        return {}
+
+    warehouse_ids = {
+        str(row.get("warehouse_id") or "").strip()
+        for row in tx_rows
+        if str(row.get("warehouse_id") or "").strip()
+    }
+    warehouse_lookup = {
+        warehouse.id: warehouse
+        for warehouse in Warehouse.objects.filter(id__in=list(warehouse_ids))
+    } if warehouse_ids else {}
+
+    grouped_qty: dict[str, dict[str, int]] = {}
+    for row in tx_rows:
+        ref_id = str(row.get("reference_id") or "").strip()
+        warehouse_id = str(row.get("warehouse_id") or "").strip()
+        if not ref_id or not warehouse_id:
+            continue
+        order_id = order_by_item_id.get(ref_id)
+        if not order_id:
+            continue
+        qty = max(0, _int(row.get("quantity"), 0))
+        grouped_qty.setdefault(order_id, {})
+        grouped_qty[order_id][warehouse_id] = grouped_qty[order_id].get(warehouse_id, 0) + qty
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for order_id, by_wh in grouped_qty.items():
+        rows: list[dict[str, Any]] = []
+        for warehouse_id, qty in sorted(by_wh.items(), key=lambda entry: entry[0]):
+            warehouse = warehouse_lookup.get(warehouse_id)
+            rows.append(
+                {
+                    "warehouseId": warehouse_id,
+                    "warehouseName": str(getattr(warehouse, "name", "") or "").strip() or None,
+                    "warehouseCode": str(getattr(warehouse, "code", "") or "").strip() or None,
+                    "allocatedQty": qty,
+                }
+            )
+        out[order_id] = rows
+    return out
+
+
+def _build_order_item_warehouse_allocations_map(order_ids: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    normalized_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
+    if not normalized_ids:
+        return {}
+
+    order_items = list(
+        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id")
+    )
+    if not order_items:
+        return {}
+
+    order_by_item_id = {
+        str(item.id): str(item.order_id)
+        for item in order_items
+        if str(item.id or "").strip() and str(item.order_id or "").strip()
+    }
+    item_ids = list(order_by_item_id.keys())
+    if not item_ids:
+        return {}
+
+    tx_rows = list(
+        InventoryTransaction.objects.filter(
+            reference_type="order_item_reserve",
+            reference_id__in=item_ids,
+            type="RESERVE",
+        ).values("reference_id", "warehouse_id", "quantity")
+    )
+    if not tx_rows:
+        return {}
+
+    warehouse_ids = {
+        str(row.get("warehouse_id") or "").strip()
+        for row in tx_rows
+        if str(row.get("warehouse_id") or "").strip()
+    }
+    warehouse_lookup = {
+        warehouse.id: warehouse
+        for warehouse in Warehouse.objects.filter(id__in=list(warehouse_ids))
+    } if warehouse_ids else {}
+
+    grouped: dict[str, dict[str, dict[str, int]]] = {}
+    for row in tx_rows:
+        item_id = str(row.get("reference_id") or "").strip()
+        warehouse_id = str(row.get("warehouse_id") or "").strip()
+        if not item_id or not warehouse_id:
+            continue
+        order_id = order_by_item_id.get(item_id)
+        if not order_id:
+            continue
+        grouped.setdefault(order_id, {})
+        grouped[order_id].setdefault(item_id, {})
+        grouped[order_id][item_id][warehouse_id] = grouped[order_id][item_id].get(warehouse_id, 0) + max(0, _int(row.get("quantity"), 0))
+
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for order_id, by_item in grouped.items():
+        out[order_id] = {}
+        for item_id, by_wh in by_item.items():
+            allocs: list[dict[str, Any]] = []
+            for warehouse_id, qty in sorted(by_wh.items(), key=lambda entry: entry[0]):
+                warehouse = warehouse_lookup.get(warehouse_id)
+                allocs.append({
+                    "warehouseId": warehouse_id,
+                    "warehouseName": str(getattr(warehouse, "name", "") or "").strip() or None,
+                    "warehouseCode": str(getattr(warehouse, "code", "") or "").strip() or None,
+                    "allocatedQty": qty,
+                })
+            out[order_id][item_id] = allocs
+    return out
 
 
 def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
@@ -1731,6 +1954,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                 if getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date:
                     trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
                 order_items = list(dp.order.items.all())
+                item_allocations_by_order = _build_order_item_warehouse_allocations_map([str(dp.order.id)]).get(str(dp.order.id), {})
                 try:
                     order_returns = list(dp.order.replacements.all())
                 except Exception:
@@ -1764,7 +1988,10 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                     "totalAmount": dp.order.total_amount,
                     "scheduledReplacement": _get_scheduled_replacement_payload(dp.order),
                     "items": [
-                        _serialize_order_item_with_spare_products(item, include_full_product=False)
+                        {
+                            **_serialize_order_item_with_spare_products(item, include_full_product=False),
+                            "warehouseAllocations": item_allocations_by_order.get(str(getattr(item, "id", "") or "").strip(), []),
+                        }
                         for item in order_items
                     ],
                     "replacements": [
@@ -4025,10 +4252,30 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         role = str(staff.get("role") or "").strip().upper()
         user_id = str(staff.get("userId") or "").strip()
         if role == "WAREHOUSE_STAFF" and user_id:
-            qs = qs.filter(manager_id=user_id)
+            qs = qs.filter(id__in=list(_get_allowed_warehouse_ids_for_staff(user_id)))
         total = qs.count()
         rows = list(qs[off : off + size])
-        return _ok({"success": True, "warehouses": [_serialize_model(x) for x in rows], "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+        assignment_rows = WarehouseStaffAssignment.objects.filter(
+            warehouse_id__in=[str(row.id) for row in rows]
+        ).values_list("warehouse_id", "user_id")
+        staff_ids_by_warehouse: dict[str, list[str]] = {}
+        for warehouse_id_value, user_id_value in assignment_rows:
+            warehouse_key = str(warehouse_id_value or "").strip()
+            user_key = str(user_id_value or "").strip()
+            if not warehouse_key or not user_key:
+                continue
+            staff_ids_by_warehouse.setdefault(warehouse_key, []).append(user_key)
+        payload_rows = []
+        for row in rows:
+            serialized = _serialize_model(row)
+            staff_ids = sorted(set(staff_ids_by_warehouse.get(str(row.id), [])))
+            manager_id = str(getattr(row, "manager_id", "") or "").strip()
+            if manager_id and manager_id not in staff_ids:
+                staff_ids.append(manager_id)
+                staff_ids.sort()
+            serialized["staffIds"] = staff_ids
+            payload_rows.append(serialized)
+        return _ok({"success": True, "warehouses": payload_rows, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
     required = ["name", "code", "address", "city", "province", "zipCode", "capacity"]
     for f in required:
@@ -4060,6 +4307,12 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         manager_id=body.get("managerId"),
         is_active=bool(body.get("isActive", True)),
     )
+    requested_staff_ids = [str(value or "").strip() for value in (body.get("staffIds") or []) if str(value or "").strip()]
+    manager_id = str(body.get("managerId") or "").strip()
+    if manager_id and manager_id not in requested_staff_ids:
+        requested_staff_ids.append(manager_id)
+    for staff_id in sorted(set(requested_staff_ids)):
+        WarehouseStaffAssignment.objects.get_or_create(warehouse_id=w.id, user_id=staff_id)
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
         title="Warehouse added",
@@ -4082,7 +4335,17 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
     except Warehouse.DoesNotExist:
         return _err("Warehouse not found", 404)
     if request.method == "GET":
-        return _ok({"success": True, "warehouse": _serialize_model(w)})
+        warehouse_data = _serialize_model(w)
+        staff_ids = list(
+            WarehouseStaffAssignment.objects.filter(warehouse_id=w.id).values_list("user_id", flat=True)
+        )
+        manager_id = str(getattr(w, "manager_id", "") or "").strip()
+        normalized_staff_ids = sorted({str(staff_id or "").strip() for staff_id in staff_ids if str(staff_id or "").strip()})
+        if manager_id and manager_id not in normalized_staff_ids:
+            normalized_staff_ids.append(manager_id)
+            normalized_staff_ids.sort()
+        warehouse_data["staffIds"] = normalized_staff_ids
+        return _ok({"success": True, "warehouse": warehouse_data})
     if request.method == "DELETE":
         w.is_active = False
         w.save(update_fields=["is_active", "updated_at"])
@@ -4125,7 +4388,28 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
     if "isActive" in body:
         w.is_active = bool(body.get("isActive"))
     w.save()
-    return _ok({"success": True, "warehouse": _serialize_model(w)})
+    if "staffIds" in body or "managerId" in body:
+        requested_staff_ids = [str(value or "").strip() for value in (body.get("staffIds") or []) if str(value or "").strip()]
+        manager_id = str(getattr(w, "manager_id", "") or "").strip()
+        if manager_id and manager_id not in requested_staff_ids:
+            requested_staff_ids.append(manager_id)
+        requested_staff_set = set(requested_staff_ids)
+        existing_assignments = list(WarehouseStaffAssignment.objects.filter(warehouse_id=w.id))
+        existing_user_ids = {str(entry.user_id or "").strip() for entry in existing_assignments if str(entry.user_id or "").strip()}
+        for assignment in existing_assignments:
+            if str(assignment.user_id or "").strip() not in requested_staff_set:
+                assignment.delete()
+        for user_id_value in sorted(requested_staff_set - existing_user_ids):
+            WarehouseStaffAssignment.objects.create(warehouse_id=w.id, user_id=user_id_value)
+    warehouse_data = _serialize_model(w)
+    warehouse_data["staffIds"] = sorted(
+        {
+            str(user_id or "").strip()
+            for user_id in WarehouseStaffAssignment.objects.filter(warehouse_id=w.id).values_list("user_id", flat=True)
+            if str(user_id or "").strip()
+        }
+    )
+    return _ok({"success": True, "warehouse": warehouse_data})
 
 
 @csrf_exempt
@@ -4327,7 +4611,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         allowed_warehouse_ids: set[str] | None = None
         if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
             allowed_warehouse_ids = set(
-                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+                _get_allowed_warehouse_ids_for_staff(staff_user_id)
             )
             if not allowed_warehouse_ids:
                 return _ok(
@@ -4428,7 +4712,7 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
     allowed_warehouse_ids: set[str] | None = None
     if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
         allowed_warehouse_ids = set(
-            Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+            _get_allowed_warehouse_ids_for_staff(staff_user_id)
         )
         if not allowed_warehouse_ids:
             return _ok({"success": True, "transactions": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
@@ -4484,7 +4768,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         allowed_warehouse_ids: set[str] | None = None
         if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
             allowed_warehouse_ids = set(
-                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+                _get_allowed_warehouse_ids_for_staff(staff_user_id)
             )
             if not allowed_warehouse_ids:
                 return _ok({"success": True, "stockBatches": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
@@ -5163,6 +5447,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         include_replacements = str(request.GET.get("includeReplacements") or "").strip().lower() == "true"
         include_orders = request.GET.get("includeOrders", "true") != "false"
         include_items = str(request.GET.get("includeItems", "full") or "full").strip().lower()
+        include_fulfillments = str(request.GET.get("includeFulfillments") or "").strip().lower() in {"1", "true", "yes"}
         updated_after = _parse_iso_datetime(request.GET.get("updatedAfter"))
         sort = str(request.GET.get("sort") or "").strip().lower()
         where = Q()
@@ -5173,7 +5458,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             staff_user_id = str(p.get("userId") or "").strip()
             if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
                 allowed_warehouse_ids = set(
-                    Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+                    _get_allowed_warehouse_ids_for_staff(staff_user_id)
                 )
                 if not allowed_warehouse_ids:
                     return _ok({
@@ -5185,7 +5470,21 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                         "pageSize": size,
                         "totalPages": 0 if include_orders else 0,
                     })
-                where &= Q(warehouse_id__in=list(allowed_warehouse_ids))
+                # Include direct warehouse-bound orders and split-allocation orders
+                # whose stock reservations belong to this warehouse.
+                reserved_order_ids = list(
+                    OrderItem.objects.filter(
+                        id__in=InventoryTransaction.objects.filter(
+                            reference_type="order_item_reserve",
+                            type="RESERVE",
+                            warehouse_id__in=list(allowed_warehouse_ids),
+                        ).values_list("reference_id", flat=True)
+                    ).values_list("order_id", flat=True)
+                )
+                where &= (
+                    Q(warehouse_id__in=list(allowed_warehouse_ids))
+                    | Q(id__in=reserved_order_ids)
+                )
         if request.GET.get("status"):
             where &= Q(status=_normalize_order_status(request.GET.get("status")))
         if updated_after:
@@ -5204,6 +5503,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         warehouse_ids = {str(getattr(order, "warehouse_id", "") or "").strip() for order in orders if str(getattr(order, "warehouse_id", "") or "").strip()}
         warehouse_lookup = {warehouse.id: warehouse for warehouse in Warehouse.objects.filter(id__in=warehouse_ids)} if warehouse_ids else {}
         assigned_trip_map = _build_assigned_trip_map(order_ids, require_driver=True)
+        fulfillment_legs_map = _build_order_fulfillment_legs_map(order_ids) if include_fulfillments else {}
+        warehouse_allocations_map = _build_order_warehouse_allocations_map(order_ids)
+        item_warehouse_allocations_map = _build_order_item_warehouse_allocations_map(order_ids)
         out = []
         for o in orders:
             try:
@@ -5216,6 +5518,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 include_items=include_items != "none",
                 warehouse_lookup=warehouse_lookup,
                 assigned_trip=assigned_trip_map.get(str(getattr(o, "id", "") or "").strip()),
+                fulfillment_legs=fulfillment_legs_map.get(str(getattr(o, "id", "") or "").strip()) if include_fulfillments else None,
+                warehouse_allocations=warehouse_allocations_map.get(str(getattr(o, "id", "") or "").strip(), []),
+                item_warehouse_allocations=item_warehouse_allocations_map.get(str(getattr(o, "id", "") or "").strip(), {}),
             )
             if include_items == "preview" and "items" in row:
                 row["itemCount"] = len(row["items"])
@@ -5507,7 +5812,21 @@ def order_detail(request: HttpRequest, order_id: str) -> JsonResponse:
             o = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order_id)
     except ValueError as e:
         logger.warning("Unable to reconcile delivered order %s: %s", o.id, e)
-    return _ok({"success": True, "order": _serialize_order(o, include_progress=True)})
+    legs_map = _build_order_fulfillment_legs_map([str(o.id)])
+    warehouse_allocations_map = _build_order_warehouse_allocations_map([str(o.id)])
+    item_warehouse_allocations_map = _build_order_item_warehouse_allocations_map([str(o.id)])
+    return _ok(
+        {
+            "success": True,
+            "order": _serialize_order(
+                o,
+                include_progress=True,
+                fulfillment_legs=legs_map.get(str(o.id), []),
+                warehouse_allocations=warehouse_allocations_map.get(str(o.id), []),
+                item_warehouse_allocations=item_warehouse_allocations_map.get(str(o.id), {}),
+            ),
+        }
+    )
 
 
 @csrf_exempt
@@ -5767,11 +6086,25 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         allowed_warehouse_ids: set[str] | None = None
         if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
             allowed_warehouse_ids = set(
-                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+                _get_allowed_warehouse_ids_for_staff(staff_user_id)
             )
             if not allowed_warehouse_ids:
                 return _ok({"success": True, "trips": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
-            qs = qs.filter(warehouse_id__in=list(allowed_warehouse_ids))
+            # Show trips directly tied to the staff's warehouse assignments
+            # and trips that carry orders allocated to those same warehouses.
+            reserved_order_ids = list(
+                OrderItem.objects.filter(
+                    id__in=InventoryTransaction.objects.filter(
+                        reference_type="order_item_reserve",
+                        type="RESERVE",
+                        warehouse_id__in=list(allowed_warehouse_ids),
+                    ).values_list("reference_id", flat=True)
+                ).values_list("order_id", flat=True)
+            )
+            qs = qs.filter(
+                Q(warehouse_id__in=list(allowed_warehouse_ids))
+                | Q(drop_points__order_id__in=reserved_order_ids)
+            ).distinct()
         requested_warehouse_id = str(request.GET.get("warehouseId") or "").strip()
         if requested_warehouse_id:
             if allowed_warehouse_ids is not None and requested_warehouse_id not in allowed_warehouse_ids:
@@ -5843,18 +6176,65 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
     except (User.DoesNotExist, Vehicle.DoesNotExist):
         return _err("Driver or vehicle not found", 404)
     requested_order_ids = [str(oid) for oid in (body.get("orderIds") or []) if str(oid).strip()]
-    active_assigned_order_ids = set(
+    requested_warehouse_id = str(body.get("warehouseId") or "").strip()
+    if not requested_warehouse_id:
+        return _err("warehouseId is required", 400)
+
+    staff_role = str(staff.get("role") or "").strip().upper()
+    staff_user_id = str(staff.get("userId") or "").strip()
+    if staff_role != "WAREHOUSE_STAFF":
+        return _err("Only warehouse staff can create trips", 403)
+    if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+        allowed_warehouse_ids = set(
+            _get_allowed_warehouse_ids_for_staff(staff_user_id)
+        )
+        if requested_warehouse_id not in allowed_warehouse_ids:
+            return _err("Forbidden: trip warehouse is outside your assigned warehouse scope", 403)
+
+    orders_to_assign = list(
+        Order.objects.filter(id__in=requested_order_ids).prefetch_related("items__product").all()
+    )
+    orders_by_id = {str(order.id): order for order in orders_to_assign}
+    missing_order_ids = [oid for oid in requested_order_ids if oid not in orders_by_id]
+    if missing_order_ids:
+        return _err("Some orders were not found", 404)
+
+    order_allocations_map = _build_order_warehouse_allocations_map(requested_order_ids)
+    incompatible_orders: list[str] = []
+    for order_id in requested_order_ids:
+        order = orders_by_id.get(order_id)
+        if not order:
+            continue
+        allowed_order_warehouse_ids = set()
+        direct_order_warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
+        if direct_order_warehouse_id:
+            allowed_order_warehouse_ids.add(direct_order_warehouse_id)
+        for allocation in order_allocations_map.get(order_id, []):
+            wid = str((allocation or {}).get("warehouseId") or "").strip()
+            if wid:
+                allowed_order_warehouse_ids.add(wid)
+
+        # Enforce warehouse-leg correctness for split orders and direct-bound orders.
+        # Orders with no warehouse binding at all are not eligible for trip assignment.
+        if not allowed_order_warehouse_ids or requested_warehouse_id not in allowed_order_warehouse_ids:
+            incompatible_orders.append(str(getattr(order, "order_number", order_id)))
+
+    if incompatible_orders:
+        return _err(
+            "Order(s) are not allocated to the selected warehouse: " + ", ".join(incompatible_orders),
+            400,
+        )
+    already_assigned_order_ids = set(
         TripDropPoint.objects.filter(
             order_id__in=requested_order_ids,
-            status__in=["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"],
         ).values_list("order_id", flat=True)
     )
-    if active_assigned_order_ids:
+    if already_assigned_order_ids:
         assigned_orders = list(
-            Order.objects.filter(id__in=active_assigned_order_ids).values_list("order_number", flat=True)
+            Order.objects.filter(id__in=already_assigned_order_ids).values_list("order_number", flat=True)
         )
         return _err(
-            f"Order(s) already assigned to a trip: {', '.join(assigned_orders or sorted(active_assigned_order_ids))}",
+            f"Order(s) already assigned to a trip: {', '.join(assigned_orders or sorted(already_assigned_order_ids))}",
             400,
         )
 
@@ -5866,7 +6246,6 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
         # Calculate weight of new orders being assigned
         new_orders_weight = 0.0
-        orders_to_assign = Order.objects.filter(id__in=requested_order_ids).prefetch_related("items__product").all()
         for order in orders_to_assign:
             new_orders_weight += _calculate_order_weight(order)
 
@@ -5894,14 +6273,15 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                     trip_number=_generate_next_trip_number(),
                     driver=driver,
                     vehicle=vehicle,
-                    warehouse_id=body.get("warehouseId"),
+                    warehouse_id=requested_warehouse_id,
+                    created_by_user_id=staff_user_id or None,
                     status=body.get("status") or TripStatus.PLANNED,
                     planned_start_at=planned_start_at,
                     notes=body.get("notes"),
                 )
                 seq = 1
                 for oid in requested_order_ids:
-                    order = Order.objects.filter(id=str(oid)).first()
+                    order = orders_by_id.get(str(oid))
                     if not order:
                         continue
                     drop_latitude = _to_float_or_none(order.shipping_latitude or getattr(order.customer, "latitude", None))
@@ -5990,20 +6370,19 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                 if duplicate_on_trip:
                     return _err("Some orders are already in this trip", 409)
 
-                active_assigned_order_ids = set(
+                already_assigned_order_ids = set(
                     TripDropPoint.objects.filter(
                         order_id__in=add_order_ids,
-                        status__in=["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"],
                     )
                     .exclude(trip_id=trip.id)
                     .values_list("order_id", flat=True)
                 )
-                if active_assigned_order_ids:
+                if already_assigned_order_ids:
                     assigned_orders = list(
-                        Order.objects.filter(id__in=active_assigned_order_ids).values_list("order_number", flat=True)
+                        Order.objects.filter(id__in=already_assigned_order_ids).values_list("order_number", flat=True)
                     )
                     return _err(
-                        f"Order(s) already assigned to another trip: {', '.join(assigned_orders or sorted(active_assigned_order_ids))}",
+                        f"Order(s) already assigned to another trip: {', '.join(assigned_orders or sorted(already_assigned_order_ids))}",
                         400,
                     )
 
@@ -6014,6 +6393,36 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                 missing_order_ids = [oid for oid in add_order_ids if oid not in orders_map]
                 if missing_order_ids:
                     return _err("Some orders were not found", 404)
+
+                staff_role = str(staff.get("role") or "").strip().upper()
+                staff_user_id = str(staff.get("userId") or "").strip()
+                if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+                    allowed_warehouse_ids = set(
+                        _get_allowed_warehouse_ids_for_staff(staff_user_id)
+                    )
+                    if not allowed_warehouse_ids:
+                        return _err("Forbidden: no warehouse assignment found for this staff", 403)
+                    order_allocations_map = _build_order_warehouse_allocations_map(add_order_ids)
+                    inaccessible_orders: list[str] = []
+                    for order_id in add_order_ids:
+                        order = orders_map.get(order_id)
+                        if not order:
+                            continue
+                        order_warehouse_ids = set()
+                        direct_order_warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
+                        if direct_order_warehouse_id:
+                            order_warehouse_ids.add(direct_order_warehouse_id)
+                        for allocation in order_allocations_map.get(order_id, []):
+                            wid = str((allocation or {}).get("warehouseId") or "").strip()
+                            if wid:
+                                order_warehouse_ids.add(wid)
+                        if not order_warehouse_ids.intersection(allowed_warehouse_ids):
+                            inaccessible_orders.append(str(getattr(order, "order_number", order_id)))
+                    if inaccessible_orders:
+                        return _err(
+                            "Order(s) are outside your warehouse scope: " + ", ".join(inaccessible_orders),
+                            403,
+                        )
 
                 max_sequence = (
                     TripDropPoint.objects.filter(trip_id=trip.id).aggregate(max_seq=Max("sequence")).get("max_seq") or 0
@@ -6220,7 +6629,7 @@ def replacements_collection(request: HttpRequest) -> JsonResponse:
         allowed_warehouse_ids: set[str] | None = None
         if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
             allowed_warehouse_ids = set(
-                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+                _get_allowed_warehouse_ids_for_staff(staff_user_id)
             )
             if not allowed_warehouse_ids:
                 return _ok({"success": True, "replacements": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
@@ -6234,7 +6643,7 @@ def replacements_collection(request: HttpRequest) -> JsonResponse:
             staff_role = str(p.get("role") or "").strip().upper()
             if staff_role == "WAREHOUSE_STAFF":
                 allowed_warehouse_ids = set(
-                    Warehouse.objects.filter(manager_id=str(p.get("userId") or "").strip()).values_list("id", flat=True)
+                    _get_allowed_warehouse_ids_for_staff(str(p.get("userId") or "").strip())
                 )
                 if warehouse_id not in allowed_warehouse_ids:
                     return _err("Forbidden", 403)
@@ -7299,15 +7708,20 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
             except ValueError:
                 return _err("Invalid date. Expected YYYY-MM-DD", 400)
 
+        # Do not over-restrict by global order status here; split-warehouse orders can have
+        # one leg already moving while another leg still needs trip planning.
         oqs = _real_orders(
             Order.objects.select_related("customer", "timeline")
             .prefetch_related("items__product")
-            .filter(status__in=[OrderStatus.PREPARING, OrderStatus.CONFIRMED])
+            .exclude(status__in=[OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED])
         ).order_by("created_at")
 
-        active_route_order_ids = TripDropPoint.objects.filter(
+        active_drop_points_qs = TripDropPoint.objects.filter(
             status__in=["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"]
-        ).values_list("order_id", flat=True)
+        )
+        if warehouse_id:
+            active_drop_points_qs = active_drop_points_qs.filter(trip__warehouse_id=warehouse_id)
+        active_route_order_ids = active_drop_points_qs.values_list("order_id", flat=True)
         oqs = oqs.exclude(id__in=active_route_order_ids)
 
         if route_date:
@@ -7330,13 +7744,64 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 warehouse_start_lat = _to_float_or_none(getattr(warehouse, "latitude", None))
                 warehouse_start_lng = _to_float_or_none(getattr(warehouse, "longitude", None))
 
+        candidate_orders = list(oqs[:600])
+        candidate_order_ids = [str(getattr(order, "id", "") or "").strip() for order in candidate_orders if str(getattr(order, "id", "") or "").strip()]
+        allocations_map = _build_order_warehouse_allocations_map(candidate_order_ids) if candidate_order_ids else {}
+        item_allocations_map = _build_order_item_warehouse_allocations_map(candidate_order_ids) if candidate_order_ids else {}
+        if warehouse_id and candidate_orders:
+            warehouse_scoped_candidates = []
+            for order in candidate_orders:
+                direct_warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
+                if direct_warehouse_id == warehouse_id:
+                    warehouse_scoped_candidates.append(order)
+                    continue
+                order_allocations = allocations_map.get(str(getattr(order, "id", "") or "").strip(), [])
+                has_selected_warehouse_allocation = any(
+                    str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
+                    for allocation in order_allocations
+                )
+                if has_selected_warehouse_allocation:
+                    warehouse_scoped_candidates.append(order)
+            candidate_orders = warehouse_scoped_candidates
+
         orders = []
         grouped_by_city: dict[str, list[dict[str, Any]]] = {}
-        for o in oqs[:300]:
+        for o in candidate_orders[:300]:
             city = str((o.shipping_city or None) or "Unknown").strip() or "Unknown"
             latitude = _to_float_or_none((o.shipping_latitude or None) or o.customer.latitude)
             longitude = _to_float_or_none((o.shipping_longitude or None) or o.customer.longitude)
             address = str((o.shipping_address or None) or "").strip()
+            order_allocations = allocations_map.get(str(getattr(o, "id", "") or "").strip(), [])
+            allocated_qty_for_selected_warehouse = 0
+            if warehouse_id:
+                allocated_qty_for_selected_warehouse = sum(
+                    max(_int((allocation or {}).get("allocatedQty"), 0), 0)
+                    for allocation in order_allocations
+                    if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
+                )
+            total_order_qty = sum(max(_int(item.quantity, 0), 0) for item in o.items.all())
+            product_allocations: list[dict[str, Any]] = []
+            for item in o.items.select_related("product").all():
+                item_id = str(getattr(item, "id", "") or "").strip()
+                item_allocations = (item_allocations_map.get(str(getattr(o, "id", "") or "").strip(), {}) or {}).get(item_id, [])
+                allocated_for_selected_warehouse = 0
+                if warehouse_id:
+                    allocated_for_selected_warehouse = sum(
+                        max(_int((allocation or {}).get("allocatedQty"), 0), 0)
+                        for allocation in item_allocations
+                        if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
+                    )
+                size_label = _get_product_size_label(getattr(item, "product", None))
+                product_name = str(getattr(getattr(item, "product", None), "name", "") or getattr(item, "product_name", "") or "Product").strip() or "Product"
+                product_allocations.append(
+                    {
+                        "itemId": item_id or None,
+                        "productName": product_name,
+                        "sizeLabel": size_label or None,
+                        "allocatedQtyForSelectedWarehouse": allocated_for_selected_warehouse,
+                        "totalQty": max(_int(getattr(item, "quantity", 0), 0), 0),
+                    }
+                )
             products_preview = ", ".join(
                 [
                     f"{item.product.name} x{item.quantity}"
@@ -7361,6 +7826,9 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 "shippingLatitude": latitude,
                 "shippingLongitude": longitude,
                 "products": products_preview,
+                "productAllocations": product_allocations,
+                "allocatedQtyForSelectedWarehouse": allocated_qty_for_selected_warehouse,
+                "totalOrderQty": total_order_qty,
                 "sequence": len(grouped_by_city.get(city, [])) + 1,
                 "distanceKm": None,
                 "status": o.status,

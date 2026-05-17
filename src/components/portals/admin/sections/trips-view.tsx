@@ -256,7 +256,15 @@ export function TripsView() {
         throw new Error(data?.error || 'Failed to generate route plan');
       }
 
-      const plans = getCollection<any>(data, ['routePlans']);
+      const rawPlans = getCollection<any>(data, ['routePlans']);
+      const plans = rawPlans
+        .map((group: any) => ({
+          ...group,
+          orders: toArray<any>(group?.orders).filter(
+            (order: any) => Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0
+          ),
+        }))
+        .filter((group: any) => toArray<any>(group?.orders).length > 0)
       setRoutePlans(plans);
       const initialCity = plans[0]?.city || ''
       setSelectedRouteCity(initialCity);
@@ -855,6 +863,9 @@ export function TripsView() {
                                   ) : null}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
+                                <div className={`text-[10px] ${Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                  Allocated: {Number(order?.allocatedQtyForSelectedWarehouse || 0)} / {Number(order?.totalOrderQty || 0)}
+                                </div>
                               </button>
                             ))}
                           </div>
@@ -960,6 +971,9 @@ export function TripsView() {
                               {order.products && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
                               )}
+                              <div className={`mt-0.5 text-[11px] ${Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                Allocated for this warehouse: {Number(order?.allocatedQtyForSelectedWarehouse || 0)} / {Number(order?.totalOrderQty || 0)}
+                              </div>
                               {order.latitude && order.longitude && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">?? {order.latitude}, {order.longitude}</div>
                               )}
