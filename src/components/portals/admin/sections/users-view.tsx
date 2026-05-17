@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +23,23 @@ import { validatePasswordPolicy } from '@/lib/password-policy'
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
+}
+
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits starting with 09)
+function isValidPhilippinePhone(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '')
+  return /^09\d{9}$/.test(cleaned)
+}
+
+function formatPhilippinePhoneInput(value: string): string {
+  // Remove non-digits, limit to 11 digits starting with 09
+  let cleaned = value.replace(/\D/g, '')
+  if (cleaned.length > 11) cleaned = cleaned.slice(0, 11)
+  // Ensure starts with 09
+  if (cleaned.length >= 2 && !cleaned.startsWith('09')) {
+    cleaned = '09' + cleaned.slice(2)
+  }
+  return cleaned
 }
 
 function formatRoleLabel(role: string | null | undefined) {
@@ -407,7 +424,16 @@ export function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input autoComplete="off" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input
+                autoComplete="off"
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+              />
+              {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567)</p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>
@@ -526,7 +552,16 @@ export function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input autoComplete="off" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input
+                autoComplete="off"
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+              />
+              {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567)</p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>

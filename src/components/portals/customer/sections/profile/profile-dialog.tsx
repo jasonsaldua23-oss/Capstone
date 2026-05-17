@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,24 @@ export function CustomerProfileDialog(props: any) {
     saveProfile,
     isSavingProfile,
   } = props
+
+  // Philippine mobile number validation: 09XXXXXXXXX (11 digits starting with 09)
+  const isValidPhilippinePhone = (phone: string): boolean => {
+    const cleaned = phone.replace(/\D/g, '')
+    return /^09\d{9}$/.test(cleaned)
+  }
+
+  const phoneError = useMemo(() => {
+    if (!profilePhone || profilePhone.length === 0) return null
+    if (!isValidPhilippinePhone(profilePhone)) {
+      return 'Please enter a valid Philippine mobile number (e.g., 09171234567)'
+    }
+    return null
+  }, [profilePhone])
+
+  const canSaveProfile = useMemo(() => {
+    return !phoneError && profilePhone.length > 0
+  }, [phoneError, profilePhone])
 
   return (
     <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
@@ -66,9 +85,23 @@ export function CustomerProfileDialog(props: any) {
                 id="customer-profile-phone"
                 value={profilePhone}
                 onChange={(e) => setProfilePhone(e.target.value)}
-                placeholder="Enter your phone number"
-                className="border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500"
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                onInput={(e) => {
+                  // Auto-format: remove non-digits, limit to 11 digits starting with 09
+                  let value = e.currentTarget.value.replace(/\D/g, '')
+                  if (value.length > 11) value = value.slice(0, 11)
+                  // Ensure starts with 09
+                  if (value.length >= 2 && !value.startsWith('09')) {
+                    value = '09' + value.slice(2)
+                  }
+                  setProfilePhone(value)
+                }}
+                className={`border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500 ${phoneError ? 'border-red-300 focus-visible:ring-red-400' : ''}`}
               />
+              {phoneError && (
+                <p className="text-xs text-red-600">{phoneError}</p>
+              )}
             </div>
             <div className="space-y-2 rounded-md border border-emerald-100 bg-emerald-50/40 p-3">
               <Label className="text-slate-900">Delivery Address</Label>
@@ -91,10 +124,11 @@ export function CustomerProfileDialog(props: any) {
             </div>
             <Button
               onClick={async () => {
+                if (!canSaveProfile) return
                 const saved = await saveProfile()
                 if (saved) setIsProfileDialogOpen(false)
               }}
-              disabled={isSavingProfile}
+              disabled={isSavingProfile || !canSaveProfile}
               className="w-full bg-emerald-600 text-white hover:bg-emerald-500"
             >
               {isSavingProfile ? (

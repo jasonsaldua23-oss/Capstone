@@ -265,6 +265,11 @@ interface WarehouseTripItem {
   id: string
   tripNumber: string
   warehouseId?: string
+  warehouse?: {
+    id?: string
+    name?: string
+    code?: string
+  }
   status: string
   totalDropPoints?: number
   completedDropPoints?: number
@@ -548,6 +553,7 @@ export function WarehousePortal() {
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
+  const [tripToDelete, setTripToDelete] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
@@ -876,9 +882,12 @@ export function WarehousePortal() {
       toast.error('Only planned trips can be deleted')
       return
     }
+    setTripToDelete(trip)
+  }
 
-    const confirmed = window.confirm(`Delete trip ${trip.tripNumber}? Orders from this trip can be routed again after deletion.`)
-    if (!confirmed) return
+  const confirmDeleteTrip = async () => {
+    if (!tripToDelete) return
+    const trip = tripToDelete
 
     try {
       const response = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' })
@@ -899,6 +908,30 @@ export function WarehousePortal() {
       toast.success('Trip deleted')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete trip')
+    } finally {
+      setTripToDelete(null)
+    }
+  }
+
+  const unassignOrderItemsFromTrip = async (tripId: string, orderId: string, warehouseId: string, itemIds: string[]) => {
+    try {
+      const response = await fetch(`/api/trips/${tripId}/unassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, warehouseId, itemIds }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to unassign items')
+      }
+      await fetchTripsData()
+      await fetchOrdersData()
+      emitDataSync(['trips', 'orders'])
+      toast.success(`Unassigned ${data?.deletedCount || 0} items from trip`)
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to unassign items')
+      return false
     }
   }
 
@@ -2406,11 +2439,13 @@ export function WarehousePortal() {
 
   const editTripDropPoints = async (
     trip: WarehouseTripItem,
-    changes: { addOrderIds?: string[]; removeDropPointIds?: string[] }
+    changes: { addOrderIds?: string[]; removeDropPointIds?: string[]; assignWarehouseLegs?: boolean; assignWarehouseId?: string }
   ) => {
     const addOrderIds = (changes.addOrderIds || []).filter(Boolean)
     const removeDropPointIds = (changes.removeDropPointIds || []).filter(Boolean)
-    if (addOrderIds.length === 0 && removeDropPointIds.length === 0) return
+    const assignWarehouseLegs = Boolean(changes.assignWarehouseLegs)
+    const assignWarehouseId = String(changes.assignWarehouseId || '').trim()
+    if (addOrderIds.length === 0 && removeDropPointIds.length === 0 && !assignWarehouseLegs) return
     if (String(trip.status || '').toUpperCase() !== 'PLANNED') {
       toast.error('Only planned trips can be edited')
       return
@@ -2421,7 +2456,7 @@ export function WarehousePortal() {
       const response = await fetch(`/api/trips/${trip.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addOrderIds, removeDropPointIds }),
+        body: JSON.stringify({ addOrderIds, removeDropPointIds, assignWarehouseLegs, assignWarehouseId }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -3822,7 +3857,6 @@ export function WarehousePortal() {
             <WarehouseTripsSection
               loadingTrips={loadingTrips}
               scopedTrips={scopedTrips}
-              currentStaffUserId={String((user as any)?.userId || (user as any)?.id || '')}
               assignedWarehouseId={assignedWarehouse?.id}
               assignedWarehouseName={assignedWarehouse?.name}
               tripStatusColors={tripStatusColors}
@@ -3831,6 +3865,9 @@ export function WarehousePortal() {
               onOpenCreateTripFlow={() => setCreateRouteOpen(true)}
               onDeleteTrip={(trip) => {
                 void deleteTrip(trip)
+              }}
+              onUnassignOrderItems={(tripId, orderId, warehouseId, itemIds) => {
+                void unassignOrderItemsFromTrip(tripId, orderId, warehouseId, itemIds)
               }}
               availableOrders={scopedOrders
                 .filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase()))
@@ -4999,6 +5036,29 @@ export function WarehousePortal() {
             >
               {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Delete Product
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!tripToDelete} onOpenChange={(open) => !open && setTripToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-amber-600">Delete Trip?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete trip{' '}
+              <span className="font-semibold text-foreground">{tripToDelete?.tripNumber}</span>?
+              <br /><br />
+              Orders from this trip can be routed again after deletion.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setTripToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteTrip}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete Trip
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
