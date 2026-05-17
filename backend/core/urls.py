@@ -12,6 +12,8 @@ urlpatterns = [
     path("auth/register", v.auth_register),
     path("auth/email-verification/request", v.auth_email_verification_request),
     path("auth/email-verification/confirm", v.auth_email_verification_confirm),
+    path("auth/email-verification/request-existing", v.auth_email_verification_request_existing),
+    path("auth/email-verification/confirm-existing", v.auth_email_verification_confirm_existing),
     path("auth/me", v.auth_me),
     path("auth/logout", v.auth_logout),
     path("auth/password-reset/request-otp", v.auth_password_reset_request_otp),

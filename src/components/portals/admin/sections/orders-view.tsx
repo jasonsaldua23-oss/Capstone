@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, User, Mail, Phone, PackageCheck, Route, Car, CalendarClock, Camera } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -44,6 +44,7 @@ import {
   fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -565,8 +566,8 @@ export function OrdersView() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
-          <p className="text-gray-500">Manage customer orders and fulfillment</p>
+          <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
+          <p className="text-gray-500">View customer purchase orders and fulfillment status</p>
         </div>
       </div>
 
@@ -743,100 +744,142 @@ export function OrdersView() {
       </Card>
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-        <DialogContent className="flex max-h-[90vh] w-[92vw] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-[980px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
           {selectedOrder && (
             <>
-              <DialogHeader className="shrink-0">
-                <DialogTitle>Order Progress - {selectedOrder.orderNumber}</DialogTitle>
+              <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 sm:px-7">
+                <DialogTitle className="flex items-center gap-3 text-[0.98rem] font-bold tracking-tight text-slate-900 sm:text-[1.3rem]">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:h-11 sm:w-11">
+                    <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
+                  </span>
+                  <span>Order Progress - {selectedOrder.orderNumber}</span>
+                </DialogTitle>
               </DialogHeader>
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                <div className="rounded-md border p-3">
-                  <p className="text-xs text-gray-500">Order Status</p>
-                  <p className="font-semibold">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="text-xs text-gray-500">Warehouse Stage</p>
-                  <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
-                  {selectedOrder.isDriverAssigned ? (
-                    <p className="text-xs text-gray-600">
-                      Driver: {selectedOrder.assignedDriverName || 'Assigned'}
-                    </p>
-                  ) : (
-                    <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 shadow-[0_6px_14px_rgba(239,68,68,0.14)]">
-                      Driver not assigned
-                    </div>
-                  )}
-                  {(selectedOrder.exceptionHoldReason || selectedOrder.exceptionShortLoadQty || selectedOrder.exceptionDamagedOnLoadingQty) ? (
-                    <p className="text-xs text-red-600">
-                      Exceptions: short load {Number(selectedOrder.exceptionShortLoadQty || 0)}, damaged {Number(selectedOrder.exceptionDamagedOnLoadingQty || 0)}
-                      {selectedOrder.exceptionHoldReason ? `, hold: ${selectedOrder.exceptionHoldReason}` : ''}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="rounded-md border p-3 space-y-1">
-                  <p className="font-medium">Client Information</p>
-                  <p className="text-sm text-gray-700">{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">
-                    {formatOrderAddress(selectedOrder)}
-                  </p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="font-medium mb-2">Order Details</p>
-                  <div className="space-y-1">
-                    {(selectedOrder.items || []).map((item: any) => (
-                      <div key={item.id} className="flex justify-between gap-3 text-sm">
-                        <div>
-                          <p>
-                            {item.product?.name || 'Product'}
-                            {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
-                            {' '}x{item.quantity}
-                          </p>
-                        </div>
-                        <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
+              <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-7 sm:py-6">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Order Status</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
+                        <Truck className="h-5 w-5" />
                       </div>
-                    ))}
-                    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
-                      <p>Total Before Discount: {formatPeso(Number(selectedOrder?.subtotal || 0))}</p>
-                      <p>Discount: {selectedOrder?.discountDetails?.name || selectedOrder?.discountName || 'No Discount'}</p>
-                      <p>Status: {selectedOrder?.discountDetails?.status || selectedOrder?.discountStatus || 'REMOVED'}</p>
-                      <p>Units Affected: {Number(selectedOrder?.discountDetails?.casesAffected || selectedOrder?.discountCasesAffected || 0)}</p>
-                      <p>Total Discount: {formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))}</p>
-                      <p>Total After Discount: {formatPeso(Number(selectedOrder?.totalAmount || 0))}</p>
-                      <p>Applied By: {selectedOrder?.discountDetails?.appliedByName || selectedOrder?.discountAppliedByName || 'N/A'}</p>
                     </div>
-                    <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
+                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Warehouse Stage</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-blue-700 sm:h-11 sm:w-11">
+                        <Building2 className="h-5 w-5" />
+                      </div>
+                    </div>
+                    <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
+                    {selectedOrder.isDriverAssigned ? (
+                      <p className="mt-1 text-sm text-slate-700">
+                        Driver: {selectedOrder.assignedDriverName || 'Assigned'}
+                      </p>
+                    ) : (
+                      <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                        Driver not assigned
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="font-medium">Progress</p>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-indigo-50 text-indigo-600">
+                      <User className="h-5 w-5" />
+                    </span>
+                    Client Information
+                  </p>
+                  <div className="space-y-2 text-slate-700">
+                    <p className="flex items-center gap-3 text-sm sm:text-base"><User className="h-5 w-5 text-slate-500" />{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
+                    <p className="flex items-center gap-3 text-sm text-blue-700 sm:text-base"><Mail className="h-5 w-5 text-slate-500" />{selectedOrder.customer?.email || 'N/A'}</p>
+                    <p className="flex items-center gap-3 text-sm sm:text-base"><Phone className="h-5 w-5 text-slate-500" />{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
+                    <p className="flex items-start gap-3 text-sm sm:text-base"><MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{formatOrderAddress(selectedOrder)}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+                      <PackageCheck className="h-5 w-5" />
+                    </span>
+                    Order Details
+                  </p>
+                  <div className="space-y-2.5">
+                    {(selectedOrder.items || []).map((item: any) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-2.5">
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                            {item?.product?.imageUrl ? (
+                              <img
+                                src={String(item.product.imageUrl)}
+                                alt={String(item?.product?.name || 'Product')}
+                                className="h-full w-full object-contain"
+                              />
+                            ) : (
+                              <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
+                            )}
+                          </div>
+                          <div className="min-w-0 pt-0.5">
+                            <p className="text-sm text-slate-800 sm:text-[1.02rem]">
+                              {item.product?.name || 'Product'}
+                              {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
+                              {' '}x{item.quantity}
+                            </p>
+                            <CompactDiscountLine value={formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
+                          </div>
+                        </div>
+                        <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
+                      </div>
+                    ))}
+                    <div className="h-px bg-slate-200" />
+                    <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">Total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span></p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                      <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
+                        <Clock className="h-5 w-5" />
+                      </span>
+                      Progress
+                    </p>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
                       {selectedOrder.progress?.dropPoint?.status
                         ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
                         : 'No trip progress yet'}
+                      <CircleCheck className="h-3.5 w-3.5" />
                     </span>
                   </div>
-                  <div className="space-y-1 text-sm text-gray-700">
-                    <p>Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
-                    <p>Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
-                    <p>Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
+                  <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
+                    <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
+                    <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
+                    <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
                     <p>
-                      Drop Point Status: {selectedOrder.progress?.dropPoint?.status
+                      <span className="inline-flex items-center gap-3"><MapPin className="h-5 w-5 text-slate-500" />Drop Point Status: {selectedOrder.progress?.dropPoint?.status
                         ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'Pending'}
+                        : 'Pending'}</span>
                     </p>
                     <p>
-                      Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}
+                      <span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span>
                     </p>
                     <p>
-                      Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}
+                      <span className="inline-flex items-center gap-3"><LogOut className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span>
                     </p>
                   </div>
                 </div>
-                <div className="rounded-md border p-3">
-                  <p className="mb-2 font-medium">Proof Of Delivery</p>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
+                      <Camera className="h-5 w-5" />
+                    </span>
+                    Proof Of Delivery
+                  </p>
                   {(() => {
                     const podUrl = String(
                       selectedOrder.progress?.pod?.deliveryPhoto ||
@@ -845,19 +888,20 @@ export function OrdersView() {
                       selectedOrder.proofOfDeliveryUrl ||
                       ''
                     ).trim()
-                    if (!podUrl) return <p className="mt-3 text-sm text-gray-500">No POD uploaded yet.</p>
+                    if (!podUrl) return <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
                     return (
                       <img
                         src={podUrl}
                         alt="Proof of delivery"
-                        className="mt-3 h-56 w-full rounded-md border border-slate-200 object-cover"
+                        className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
                       />
                     )
                   })()}
                 </div>
-                <div className="sticky bottom-0 bg-white pb-1 pt-1">
+
+                <div className="bg-white py-1">
                   <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setSelectedOrder(null)} className="flex-1">
+                  <Button variant="outline" onClick={() => setSelectedOrder(null)} className="h-11 flex-1 rounded-xl text-lg font-semibold">
                     Close
                   </Button>
                   </div>

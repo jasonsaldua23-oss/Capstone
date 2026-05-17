@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Loader2, MapPin, Trash2, Truck } from 'lucide-react'
+import { Circle, Clock3, Eye, Loader2, MapPin, Trash2, Truck, User } from 'lucide-react'
 
 type TripDropPointItem = {
   id: string
@@ -68,10 +68,11 @@ export function WarehouseTripsSection({
   editingTripId,
 }: WarehouseTripsSectionProps) {
   const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
-  const [selectedOrderToAdd, setSelectedOrderToAdd] = useState('')
+  void availableOrders
+  void onEditTripDropPoints
+  void editingTripId
   const formatPeso = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(amount)
-
   const formatTripSchedule = (value: string | null | undefined) => {
     const raw = String(value || '').trim()
     if (!raw) return 'Not set'
@@ -231,167 +232,136 @@ export function WarehouseTripsSection({
       </Card>
 
       <Dialog open={!!selectedTrip} onOpenChange={(open) => !open && setSelectedTrip(null)}>
-        <DialogContent className="max-w-3xl w-full">
+        <DialogContent className="flex max-h-[88vh] w-[95vw] max-w-[760px] flex-col overflow-hidden rounded-[20px] border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
           {selectedTrip && (
             (() => {
               const statusKey = getEffectiveTripStatus(selectedTrip)
               const effectiveCompletedDropPoints = getEffectiveCompletedDropPoints(selectedTrip)
               const effectiveTotalDropPoints = getEffectiveTotalDropPoints(selectedTrip)
-              const deleteAllowed = canDeleteTrip(selectedTrip)
-              const editingAllowed = deleteAllowed
-              const existingOrderIds = new Set(
-                (selectedTrip.dropPoints || [])
-                  .map((point) => {
-                    const row: any = point
-                    return String(row?.orderId || row?.order?.id || '').trim()
-                  })
-                  .filter(Boolean)
-              )
-              const candidateOrders = availableOrders.filter((order) => !existingOrderIds.has(String(order.id || '').trim()))
-              const isEditingTrip = editingTripId === selectedTrip.id
+              const statusLabel = statusKey.replace(/_/g, ' ')
               return (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-lg font-bold text-gray-900">{selectedTrip.tripNumber}</span>
-                <Badge className={tripStatusColors[statusKey] || 'bg-gray-100'}>{statusKey.replace(/_/g, ' ')}</Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="ml-auto h-8 text-red-600 hover:text-red-700"
-                  disabled={!deleteAllowed}
-                  onClick={() => {
-                    if (!deleteAllowed) return
-                    onDeleteTrip(selectedTrip)
-                  }}
-                  title={deleteAllowed ? 'Delete trip' : 'Only planned trips can be deleted'}
-                >
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  Delete Trip
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-6 mb-2 text-sm">
-                <div>
-                  <span className="font-semibold">Vehicle:</span> {selectedTrip.vehicle?.licensePlate || 'Unassigned'}
-                </div>
-                <div>
-                  <span className="font-semibold">Driver:</span> {selectedTrip.driver?.name || selectedTrip.driver?.user?.name || 'Unassigned'}
+            <div className="flex-1 overflow-y-auto">
+              <div className="border-b border-slate-200 px-5 pb-4 pt-5">
+                <div className="flex items-center gap-3 pr-8">
+                  <h2 className="whitespace-nowrap text-[2.25rem] font-bold leading-none tracking-tight text-[#0f172f]">{selectedTrip.tripNumber}</h2>
+                  <div className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5">
+                    <Clock3 className="h-4 w-4 text-blue-600" />
+                    <span className="text-xs font-semibold leading-none text-blue-600">{statusLabel}</span>
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-6 mb-2 text-sm">
-                <div>
-                  <span className="font-semibold">Progress:</span> {effectiveCompletedDropPoints}/{effectiveTotalDropPoints}
+              <div className="space-y-4 px-5 py-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
+                  <div className="grid gap-2 grid-cols-4">
+                    <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
+                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-600">
+                        <Truck className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-[10px] leading-none text-slate-500">Vehicle</p>
+                        <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{selectedTrip.vehicle?.licensePlate || 'Unassigned'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
+                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-100 text-violet-700">
+                        <User className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-[10px] leading-none text-slate-500">Driver</p>
+                        <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{selectedTrip.driver?.name || selectedTrip.driver?.user?.name || 'Unassigned'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
+                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                        <Circle className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-[10px] leading-none text-slate-500">Progress</p>
+                        <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{effectiveCompletedDropPoints}/{effectiveTotalDropPoints}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-500">
+                        <MapPin className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-[10px] leading-none text-slate-500">Drop points</p>
+                        <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{selectedTrip.dropPoints?.length ?? 0}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <span className="font-semibold">Drop points:</span> {selectedTrip.dropPoints?.length ?? 0}
-                </div>
-                <div>
-                  <span className="font-semibold">Schedule:</span> {formatTripSchedule(selectedTrip.tripSchedule)}
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-gray-50 p-3">
-                <p className="text-sm font-semibold text-gray-900 mb-2">Drop Point Details</p>
-                {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
-                  <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
+                  <p className="mb-3 flex items-center gap-2 text-[14px] font-bold leading-none text-[#0f172f]">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    Drop Point Details
+                  </p>
+                  {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
+                    <div className="space-y-4">
                     {selectedTrip.dropPoints.map((point: any, index) => {
                       const normalizedPointStatus = normalizeDropPointStatus(point.status)
                       const statusLabel = normalizedPointStatus.replace(/_/g, ' ') || 'PENDING'
-                      const statusClass =
-                        ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(normalizedPointStatus)
-                          ? 'bg-green-100 text-green-700 border-green-200'
-                          : ['FAILED', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(normalizedPointStatus)
-                            ? 'bg-red-100 text-red-700 border-red-200'
-                            : normalizedPointStatus === 'IN_PROGRESS'
-                              ? 'bg-blue-100 text-blue-700 border-blue-200'
-                              : 'bg-gray-100 text-gray-700 border-gray-200'
+                      const statusClass = ['DELIVERED', 'COMPLETED', 'FULFILLED', 'ARRIVED'].includes(normalizedPointStatus)
+                        ? 'border-blue-200 bg-blue-100 text-blue-700'
+                        : ['FAILED', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(normalizedPointStatus)
+                          ? 'border-red-200 bg-red-100 text-red-700'
+                          : normalizedPointStatus === 'IN_PROGRESS'
+                            ? 'border-blue-200 bg-blue-100 text-blue-700'
+                            : 'border-slate-200 bg-slate-100 text-slate-700'
 
                       const hasCoordinates =
                         typeof point.latitude === 'number' && typeof point.longitude === 'number'
 
                       return (
-                        <div key={point.id} className="rounded-md border bg-white p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-semibold text-gray-900">
+                        <div key={point.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-3">
+                              <span className="mt-1 grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full bg-blue-100 text-blue-600">
+                                <MapPin className="h-5 w-5" />
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-[12px] font-semibold leading-none text-slate-900">
                               Drop Point {index + 1}: {point.locationName || 'Unnamed drop point'}
-                            </p>
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusClass}`}>
+                                </p>
+                                <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                                  {hasCoordinates
+                                    ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
+                                    : 'Coordinates: Not available'}
+                                </p>
+                                <div className="mt-4">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 rounded-lg border-slate-300 px-3 text-[11px] font-medium text-slate-900 hover:bg-slate-50"
+                                    onClick={() => setSelectedDropPointDetail(point)}
+                                  >
+                                    <Eye className="mr-2 h-4 w-4" />
+                                    View Details
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold leading-none ${statusClass}`}>
                               {statusLabel}
                             </span>
-                          </div>
-                          <p className="mt-1 text-xs text-gray-600">
-                            {hasCoordinates
-                              ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
-                              : 'Coordinates: Not available'}
-                          </p>
-                          <div className="mt-2">
-                            <div className="flex items-center gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => setSelectedDropPointDetail(point)}
-                              >
-                                View Details
-                              </Button>
-                              {editingAllowed ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                                  disabled={isEditingTrip}
-                                  onClick={() => onEditTripDropPoints(selectedTrip, { removeDropPointIds: [point.id] })}
-                                >
-                                  Remove
-                                </Button>
-                              ) : null}
-                            </div>
                           </div>
                         </div>
                       )
                     })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No drop-point records attached to this trip yet.</p>
-                )}
-              </div>
-              {editingAllowed ? (
-                <div className="rounded-lg border bg-white p-3">
-                  <p className="text-sm font-semibold text-gray-900 mb-2">Add Drop Point</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      className="h-8 min-w-[320px] rounded-md border border-input bg-background px-2 text-xs"
-                      value={selectedOrderToAdd}
-                      onChange={(event) => setSelectedOrderToAdd(event.target.value)}
-                      disabled={isEditingTrip}
-                    >
-                      <option value="">Select order to add</option>
-                      {candidateOrders.map((order) => (
-                        <option key={order.id} value={order.id}>
-                          {order.orderNumber} | {order.shippingName || 'Customer'} | {order.shippingCity || 'City'} | {String(order.status || 'N/A').replace(/_/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8"
-                      disabled={isEditingTrip || !selectedOrderToAdd}
-                      onClick={() => {
-                        if (!selectedOrderToAdd) return
-                        onEditTripDropPoints(selectedTrip, { addOrderIds: [selectedOrderToAdd] })
-                        setSelectedOrderToAdd('')
-                      }}
-                    >
-                      Add Drop Point
-                    </Button>
-                  </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No drop-point records attached to this trip yet.</p>
+                  )}
                 </div>
-              ) : null}
-
-              <div className="flex justify-end mt-4">
-                <Button variant="outline" onClick={() => setSelectedTrip(null)}>Close</Button>
+                <div className="flex justify-end pt-2">
+                  <Button
+                    variant="outline"
+                    className="h-10 min-w-[86px] rounded-lg border-slate-300 px-4 text-sm font-medium text-slate-900 hover:bg-slate-50"
+                    onClick={() => setSelectedTrip(null)}
+                  >
+                    Close
+                  </Button>
+                </div>
               </div>
             </div>
               )

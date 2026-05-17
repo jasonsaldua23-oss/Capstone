@@ -4,7 +4,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic'
-import { Poppins } from 'next/font/google'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -35,6 +34,7 @@ import type { DashboardStats } from '@/types';
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync';
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
+import { portalFont } from '../portal-font'
 import { SettingsView } from './sections/settings-view'
 import { InventoryView } from './sections/inventory-view'
 import { StocksView } from './sections/stocks-view'
@@ -60,11 +60,6 @@ const AddressMapPicker = dynamic(
   () => import('@/components/maps/AddressMapPicker').then((mod) => mod.AddressMapPicker),
   { ssr: false }
 )
-
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
 
 //   lowStockItems: number
 //   pendingReturns: number
@@ -709,7 +704,7 @@ export function AdminPortal() {
   }
 
   return (
-    <div className={`${poppins.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]`}>
+    <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-16 top-8 h-64 w-64 rounded-full bg-sky-300/20 blur-3xl" />
         <div className="absolute right-[-4rem] top-24 h-72 w-72 rounded-full bg-cyan-200/20 blur-3xl" />

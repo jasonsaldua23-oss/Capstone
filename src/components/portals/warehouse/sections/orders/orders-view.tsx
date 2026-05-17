@@ -33,7 +33,7 @@ export function WarehouseOrdersView({
     <Card>
       <CardHeader>
         <CardTitle>Purchase Orders</CardTitle>
-        <CardDescription>Order records relevant to warehouse operations.</CardDescription>
+        <CardDescription>Purchase order records relevant to warehouse operations.</CardDescription>
       </CardHeader>
       <CardContent className="p-0">
         {loadingOrders ? (

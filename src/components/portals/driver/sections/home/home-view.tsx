@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -73,6 +73,7 @@ export function HomeView({
   onMarkOrderLoaded: (orderId: string) => Promise<boolean>
 }) {
   const [loadChecklistByOrder, setLoadChecklistByOrder] = useState<Record<string, Record<string, boolean>>>({})
+  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back, Driver')
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
   const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
@@ -212,6 +213,27 @@ export function HomeView({
   ]
     .map((value) => String(value || '').trim())
     .find((value) => value.length > 0) || 'Driver'
+  useEffect(() => {
+    const fallbackBack = driverDisplayName ? `Welcome back, ${driverDisplayName}` : 'Welcome back!'
+    try {
+      const raw = window.sessionStorage.getItem('driver_welcome_state')
+      if (!raw) {
+        setWelcomeMessage(fallbackBack)
+        return
+      }
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const name = String(parsed?.name || '').trim() || driverDisplayName
+      if (mode === 'new') {
+        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
+      } else {
+        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
+      }
+      window.sessionStorage.removeItem('driver_welcome_state')
+    } catch {
+      setWelcomeMessage(fallbackBack)
+    }
+  }, [driverDisplayName])
   const terminalStopStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
   const pendingStops = activeTrip
     ? (activeTrip.dropPoints || []).filter((point) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
@@ -242,7 +264,7 @@ export function HomeView({
     <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
-        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, {driverDisplayName}</h2>
+        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">{welcomeMessage}</h2>
         <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
       </div>
 

@@ -44,6 +44,7 @@ import {
   fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -486,11 +487,9 @@ export function CustomersView() {
                         <div className="space-y-1">
                           {(() => {
                             const discountView = getDiscountDisplay(row)
-                            const isActive = String(discountView.statusLabel || '').toUpperCase() === 'ACTIVE'
                             return (
                               <>
-                                <p className={`text-xs font-semibold ${isActive ? 'text-green-600' : 'text-gray-600'}`}>{discountView.label}</p>
-                                <p className={`text-xs ${isActive ? 'text-green-700' : 'text-gray-500'}`}>{discountView.statusLabel}</p>
+                                <CompactDiscountLine value={discountView.label} className="text-xs" />
                               </>
                             )
                           })()}

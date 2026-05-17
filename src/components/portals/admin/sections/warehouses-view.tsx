@@ -347,6 +347,21 @@ export function WarehousesView() {
     return staff?.name || 'Assigned'
   }
 
+  const assignedWarehouseCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    warehouses.forEach((warehouse) => {
+      const managerId = String(warehouse?.managerId || '')
+      if (!managerId) return
+      counts[managerId] = (counts[managerId] || 0) + 1
+    })
+    return counts
+  }, [warehouses])
+
+  const getAssignedWarehouseLabel = (staffId: string) => {
+    const count = assignedWarehouseCounts[staffId] ?? 0
+    return `${count} ${count === 1 ? 'warehouse' : 'warehouses'}`
+  }
+
   const openInsights = async (warehouse: any) => {
     try {
       const [warehouseResponse, stockBatchesResponse] = await Promise.all([
@@ -683,7 +698,7 @@ export function WarehousesView() {
                 <option value="">Unassigned</option>
                 {warehouseStaffUsers.map((staff) => (
                   <option key={staff.id} value={staff.id}>
-                    {staff.name}
+                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))})
                   </option>
                 ))}
               </select>
@@ -770,7 +785,7 @@ export function WarehousesView() {
                 <option value="">Unassigned</option>
                 {warehouseStaffUsers.map((staff) => (
                   <option key={staff.id} value={staff.id}>
-                    {staff.name}
+                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))})
                   </option>
                 ))}
               </select>

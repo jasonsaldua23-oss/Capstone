@@ -293,7 +293,7 @@ def _validate_password_strength(password: str) -> str | None:
         return PASSWORD_POLICY_ERROR
     if not re.search(r"\d", password):
         return PASSWORD_POLICY_ERROR
-    if not re.search(r"[^A-Za-z0-9]", password):
+    if not re.search(r"[^A-Za-z0-9\s]", password):
         return PASSWORD_POLICY_ERROR
     return None
 
@@ -3330,6 +3330,78 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def auth_email_verification_request_existing(request: HttpRequest) -> JsonResponse:
+    """Send OTP to an email that already belongs to the authenticated staff user (old-email confirmation)."""
+    p = _require_auth(request)
+    if not p:
+        return _err("Unauthorized", 401)
+    if p.get("type") != "staff":
+        return _err("Forbidden", 403)
+
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    account_type = "staff"
+
+    if not email:
+        return _err("Email is required")
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed")
+
+    # Must match the authenticated user's current email
+    current_email = _normalize_email(p.get("email"))
+    if email != current_email:
+        return _err("Email does not match your current account email", 400)
+
+    if not _otp_mail_ready():
+        return _err("Verification email service is not configured", 500)
+
+    now = timezone.now()
+    code = _stateless_otp_for_bucket(email, account_type, "old_email_confirm", _otp_bucket(now))
+    try:
+        _send_email_verification_otp(email, code)
+    except Exception:
+        logger.exception("Failed to send old-email confirmation OTP to %s", email)
+        return _err("Unable to send verification email right now", 500)
+
+    return _ok({"success": True, "message": "Verification code sent to your current email."})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_email_verification_confirm_existing(request: HttpRequest) -> JsonResponse:
+    """Verify OTP sent to the old (current) email before allowing a new-email change."""
+    p = _require_auth(request)
+    if not p:
+        return _err("Unauthorized", 401)
+    if p.get("type") != "staff":
+        return _err("Forbidden", 403)
+
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    otp_code = str(body.get("otp", "")).strip()
+    account_type = "staff"
+
+    if not email:
+        return _err("Email is required")
+    if not _is_gmail_email(email):
+        return _err("Only Gmail addresses are allowed")
+    if not otp_code:
+        return _err("Verification code is required")
+
+    current_email = _normalize_email(p.get("email"))
+    if email != current_email:
+        return _err("Email does not match your current account email", 400)
+
+    now = timezone.now()
+    if not _is_valid_stateless_otp(otp_code, email, account_type, "old_email_confirm", now):
+        return _err("Invalid or expired verification code", 400)
+
+    verification_token = _issue_email_verification_token(email + ":old_confirmed", account_type)
+    return _ok({"success": True, "message": "Old email verified", "verificationToken": verification_token})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def auth_email_verification_confirm(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     email = _normalize_email(body.get("email"))
@@ -3747,9 +3819,18 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     password_change_requested = bool(body.get("password"))
     if email_change_requested or password_change_requested:
         email_verification_token = str(body.get("emailVerificationToken", "")).strip()
+        old_email_verification_token = str(body.get("oldEmailVerificationToken", "")).strip()
         verification_email = requested_email if email_change_requested else current_email
-        if not _is_email_verification_token_valid(email_verification_token, verification_email, "staff"):
-            return _err("Please verify OTP before changing email or password", 400)
+        if email_change_requested:
+            # Require old-email confirmation token first
+            if not _is_email_verification_token_valid(old_email_verification_token, current_email + ":old_confirmed", "staff"):
+                return _err("Please verify your current (old) email address first", 400)
+            # Then require new-email verification token
+            if not _is_email_verification_token_valid(email_verification_token, requested_email, "staff"):
+                return _err("Please verify your new email address before saving", 400)
+        else:
+            if not _is_email_verification_token_valid(email_verification_token, verification_email, "staff"):
+                return _err("Please verify OTP before changing email or password", 400)
 
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
@@ -4333,7 +4414,7 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
 
 @require_GET
 def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
-    _, err = _require_staff(request)
+    staff, err = _require_staff(request)
     if err:
         return err
     page, size, off = _pagination(request)
@@ -4342,6 +4423,16 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
         .filter(product__in=_real_products(Product.objects.all()))
         .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
     )
+    staff_role = str(staff.get("role") or "").strip().upper()
+    staff_user_id = str(staff.get("userId") or "").strip()
+    allowed_warehouse_ids: set[str] | None = None
+    if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+        allowed_warehouse_ids = set(
+            Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+        )
+        if not allowed_warehouse_ids:
+            return _ok({"success": True, "transactions": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
+        qs = qs.filter(warehouse_id__in=list(allowed_warehouse_ids))
 
     tx_type = str(request.GET.get("type") or "").strip().upper()
     if tx_type and tx_type != "ALL":
@@ -4388,6 +4479,16 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             .filter(quantity__gt=0)
             .order_by("-created_at")
         )
+        staff_role = str(staff.get("role") or "").strip().upper()
+        staff_user_id = str(staff.get("userId") or "").strip()
+        allowed_warehouse_ids: set[str] | None = None
+        if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+            allowed_warehouse_ids = set(
+                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+            )
+            if not allowed_warehouse_ids:
+                return _ok({"success": True, "stockBatches": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
+            qs = qs.filter(inventory__warehouse_id__in=list(allowed_warehouse_ids))
         total = qs.count()
         rows = list(qs[off : off + size])
         data = [_serialize_model(x, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for x in rows]
@@ -5067,6 +5168,24 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         where = Q()
         if p.get("type") == "customer":
             where &= Q(customer_id=p.get("userId"))
+        elif p.get("type") == "staff":
+            staff_role = str(p.get("role") or "").strip().upper()
+            staff_user_id = str(p.get("userId") or "").strip()
+            if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+                allowed_warehouse_ids = set(
+                    Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+                )
+                if not allowed_warehouse_ids:
+                    return _ok({
+                        "success": True,
+                        "orders": [],
+                        "replacements": [],
+                        "total": 0,
+                        "page": page,
+                        "pageSize": size,
+                        "totalPages": 0 if include_orders else 0,
+                    })
+                where &= Q(warehouse_id__in=list(allowed_warehouse_ids))
         if request.GET.get("status"):
             where &= Q(status=_normalize_order_status(request.GET.get("status")))
         if updated_after:
@@ -5643,6 +5762,21 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         ).order_by("-created_at")
         tracking_date_raw = str(request.GET.get("trackingDate") or "").strip()
         include_tracking = str(request.GET.get("includeTracking") or "").strip().lower() in {"1", "true", "yes"}
+        staff_role = str(staff.get("role") or "").strip().upper()
+        staff_user_id = str(staff.get("userId") or "").strip()
+        allowed_warehouse_ids: set[str] | None = None
+        if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+            allowed_warehouse_ids = set(
+                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+            )
+            if not allowed_warehouse_ids:
+                return _ok({"success": True, "trips": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
+            qs = qs.filter(warehouse_id__in=list(allowed_warehouse_ids))
+        requested_warehouse_id = str(request.GET.get("warehouseId") or "").strip()
+        if requested_warehouse_id:
+            if allowed_warehouse_ids is not None and requested_warehouse_id not in allowed_warehouse_ids:
+                return _err("Forbidden", 403)
+            qs = qs.filter(warehouse_id=requested_warehouse_id)
 
         tracking_date = None
         if tracking_date_raw:
@@ -6080,11 +6214,30 @@ def replacements_collection(request: HttpRequest) -> JsonResponse:
     if p.get("type") == "customer":
         qs = qs.filter(order__in=_real_orders(Order.objects.all()))
         qs = qs.filter(customer_id=p.get("userId"))
-    elif p.get("type") != "staff":
+    elif p.get("type") == "staff":
+        staff_role = str(p.get("role") or "").strip().upper()
+        staff_user_id = str(p.get("userId") or "").strip()
+        allowed_warehouse_ids: set[str] | None = None
+        if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+            allowed_warehouse_ids = set(
+                Warehouse.objects.filter(manager_id=staff_user_id).values_list("id", flat=True)
+            )
+            if not allowed_warehouse_ids:
+                return _ok({"success": True, "replacements": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
+            qs = qs.filter(order__warehouse_id__in=list(allowed_warehouse_ids))
+    else:
         return _err("Forbidden", 403)
 
     warehouse_id = str(request.GET.get("warehouseId") or "").strip()
     if warehouse_id:
+        if p.get("type") == "staff":
+            staff_role = str(p.get("role") or "").strip().upper()
+            if staff_role == "WAREHOUSE_STAFF":
+                allowed_warehouse_ids = set(
+                    Warehouse.objects.filter(manager_id=str(p.get("userId") or "").strip()).values_list("id", flat=True)
+                )
+                if warehouse_id not in allowed_warehouse_ids:
+                    return _err("Forbidden", 403)
         qs = qs.filter(order__warehouse_id=warehouse_id)
 
     order_id = str(request.GET.get("orderId") or "").strip()

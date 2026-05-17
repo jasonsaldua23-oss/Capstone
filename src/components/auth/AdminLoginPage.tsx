@@ -28,6 +28,26 @@ export function AdminLoginPage() {
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
+  const persistAdminWelcomeState = (userData: any) => {
+    if (typeof window === 'undefined') return
+    try {
+      const isNewUser = Boolean(
+        userData?.isNewUser ??
+        userData?.isNew ??
+        userData?.isFirstLogin ??
+        userData?.firstLogin
+      )
+      window.sessionStorage.setItem(
+        'admin_welcome_state',
+        JSON.stringify({
+          mode: isNewUser ? 'new' : 'existing',
+          name: String(userData?.name || '').trim(),
+          ts: Date.now(),
+        })
+      )
+    } catch {}
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -89,6 +109,10 @@ export function AdminLoginPage() {
         return
       }
 
+      persistAdminWelcomeState(data.user)
+      const isNewUser = Boolean(data?.user?.isNewUser ?? data?.user?.isNew ?? data?.user?.isFirstLogin ?? data?.user?.firstLogin)
+      const displayName = String(data?.user?.name || '').trim()
+      toast.success(isNewUser ? (displayName ? `Welcome, ${displayName}` : 'Welcome!') : (displayName ? `Welcome back, ${displayName}` : 'Welcome back!'))
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {

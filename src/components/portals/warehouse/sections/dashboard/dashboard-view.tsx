@@ -30,6 +30,7 @@ export function WarehouseDashboardView({
   filteredInventoryTransactions,
 }: WarehouseDashboardViewProps) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
+  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back!')
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -49,6 +50,22 @@ export function WarehouseDashboardView({
       }
     }
     fetchDashboardData()
+  }, [])
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem('warehouse_welcome_state')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const name = String(parsed?.name || '').trim()
+      if (mode === 'new') {
+        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
+      } else {
+        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
+      }
+      window.sessionStorage.removeItem('warehouse_welcome_state')
+    } catch {}
   }, [])
 
   const dashboardOrderStats = useMemo(() => {
@@ -138,7 +155,7 @@ export function WarehouseDashboardView({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Warehouse Dashboard</h1>
-        <p className="text-gray-500">Warehouse operations and stock health overview</p>
+        <p className="text-gray-500">{welcomeMessage} Warehouse operations and stock health overview.</p>
       </div>
 
       {/* Order Status Cards */}

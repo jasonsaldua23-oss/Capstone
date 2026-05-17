@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
+import { Poppins } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-poppins',
+})
 
 export const metadata: Metadata = {
   title: "Ann Ann's Beverages Trading",
@@ -33,7 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className="antialiased bg-background text-foreground"
+        className={`${poppins.className} antialiased bg-background text-foreground`}
       >
         {children}
         <Toaster />

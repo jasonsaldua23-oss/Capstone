@@ -2037,6 +2037,7 @@ export function CustomerPortal() {
       >
         {activeView === 'home' && (
           <CustomerHomeView
+            customerName={String(user?.name || profileName || '').trim()}
             productSearch={productSearch}
             setProductSearch={setProductSearch}
             isProductsLoading={isProductsLoading}

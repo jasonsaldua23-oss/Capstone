@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 type CustomerCheckoutViewProps = {
   setActiveView: (view: any) => void
@@ -120,33 +121,7 @@ export function CustomerCheckoutView({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
               </div>
-              <div className="flex items-center justify-between text-[13px] md:text-sm">
-                <span className="text-slate-600">Discount Type</span>
-                <span className="font-medium text-slate-800">{discountName || 'No Discount'}</span>
-              </div>
-              <div className="flex items-center justify-between text-[13px] md:text-sm">
-                <span className="text-slate-600">Discount / Unit</span>
-                <span className="font-medium text-slate-800">{formatPeso(discountPerCase)}</span>
-              </div>
-              {discountType === 'AMOUNT_PER_CASE' ? (
-                <div className="flex items-center justify-between text-[13px] md:text-sm">
-                  <span className="text-slate-600">Manual Amount / Case</span>
-                  <span className="font-medium text-slate-800">{formatPeso(discountAmountPerCase)}</span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between text-[13px] md:text-sm">
-                  <span className="text-slate-600">Discount Percent</span>
-                  <span className="font-medium text-slate-800">{discountPercent.toFixed(2)}%</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between text-[13px] md:text-sm">
-                <span className="text-slate-600">Units Affected</span>
-                <span className="font-medium text-slate-800">{discountCasesAffected}</span>
-              </div>
-              <div className="flex items-center justify-between text-[13px] md:text-sm">
-                <span className="text-slate-600">Total Discount</span>
-                <span className="font-medium text-rose-600">- {formatPeso(totalDiscount)}</span>
-              </div>
+              <CompactDiscountLine value={formatPeso(totalDiscount)} />
               <div className="h-px bg-slate-100" />
               <div className="flex items-center justify-between text-[15px] font-semibold text-slate-900 md:text-base">
                 <span>Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</span>

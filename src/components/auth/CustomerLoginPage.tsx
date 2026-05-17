@@ -71,6 +71,23 @@ export function CustomerLoginPage() {
     <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
   )
 
+  const persistCustomerWelcomeState = (mode: 'existing' | 'new', fallbackName?: string) => {
+    if (typeof window === 'undefined') return
+    try {
+      const normalizedName = String(fallbackName || '').trim()
+      window.sessionStorage.setItem(
+        'customer_welcome_state',
+        JSON.stringify({
+          mode,
+          name: normalizedName,
+          ts: Date.now(),
+        })
+      )
+    } catch {
+      // Ignore storage failures and continue authentication.
+    }
+  }
+
   const handleGoogleCredential = async (credential: string) => {
     if (!credential) {
       toast.error('Google sign-in failed. Please try again.')
@@ -101,6 +118,11 @@ export function CustomerLoginPage() {
         return
       }
 
+      persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
+      {
+        const displayName = String(data?.user?.name || '').trim()
+        toast.success(displayName ? `Welcome back, ${displayName}` : 'Welcome back!')
+      }
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -209,6 +231,11 @@ export function CustomerLoginPage() {
         return
       }
 
+      persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
+      {
+        const displayName = String(data?.user?.name || '').trim()
+        toast.success(displayName ? `Welcome back, ${displayName}` : 'Welcome back!')
+      }
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -265,8 +292,12 @@ export function CustomerLoginPage() {
         return
       }
 
+      persistCustomerWelcomeState('new', String(data?.user?.name || name || '').trim())
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Account created successfully')
+      {
+        const displayName = String(data?.user?.name || name || '').trim()
+        toast.success(displayName ? `Welcome, ${displayName}` : 'Welcome!')
+      }
       setConfirmPassword('')
       router.replace('/')
     } catch {
