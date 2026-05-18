@@ -59,6 +59,7 @@ const AddressMapPicker = dynamic(
 export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: () => void } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
+  const [warehouseDirectory, setWarehouseDirectory] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
   const [orderDetailsById, setOrderDetailsById] = useState<Record<string, any>>({})
@@ -166,6 +167,15 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
       const top = markerList[0]
       const marker = `${Number((markerResult.data as any)?.total || 0)}::${top?.id || ''}::${top?.updatedAt || ''}`
       return marker
+    }
+
+    const fetchWarehouses = async () => {
+      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+      if (!result.ok) return
+      const list = getCollection<any>(result.data, ['warehouses'])
+      if (isMounted) {
+        setWarehouseDirectory(list.filter((warehouse) => warehouse?.isActive !== false))
+      }
     }
 
     async function fetchOrdersFull(silent = false) {
@@ -276,6 +286,7 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
     }
 
     loadCachedOrders()
+    void fetchWarehouses()
     void fetchOrdersFull()
 
     const unsubscribe = subscribeDataSync((message) => {
@@ -444,6 +455,14 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
 
   const warehouseFilterOptions = useMemo(() => {
     const map = new Map<string, string>()
+    warehouseDirectory.forEach((warehouse) => {
+      const warehouseId = String(warehouse?.id || '').trim()
+      if (!warehouseId) return
+      const label = String(warehouse?.name || warehouse?.code || warehouseId).trim()
+      if (!map.has(warehouseId)) {
+        map.set(warehouseId, label)
+      }
+    })
     orders.forEach((order) => {
       if (isReplacementOrder(order)) return
       const summary = deriveOrderFulfillmentSummary(order)
@@ -471,7 +490,7 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
     return Array.from(map.entries())
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label))
-  }, [orders])
+  }, [orders, warehouseDirectory])
 
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()

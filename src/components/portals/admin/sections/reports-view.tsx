@@ -1275,13 +1275,59 @@ export function ReportsView() {
         <Button variant="outline" className="gap-2 rounded-lg border-slate-200" onClick={resetFilters}>
           Reset Filters
         </Button>
-        <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
-          <Download className="h-4 w-4" />
-          {title === 'Warehouse' ? 'Export Warehouse PDF' : `Export ${title} PDF`}
-        </Button>
+        {title === 'Warehouse' ? (
+          <>
+            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportWarehousePdf(new Date().toISOString().slice(0, 10))} disabled={isLoading}>
+              <Download className="h-4 w-4" />
+              Export Warehouse PDF
+            </Button>
+            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportInventoryPdf(new Date().toISOString().slice(0, 10))} disabled={isLoading}>
+              <Download className="h-4 w-4" />
+              Export Inventory PDF
+            </Button>
+          </>
+        ) : (
+          <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+            <Download className="h-4 w-4" />
+            {`Export ${title} PDF`}
+          </Button>
+        )}
       </div>
     </div>
   )
+
+  const exportWarehousePdf = async (stamp: string) => {
+    await downloadPdf(
+      `warehouse-report-${stamp}.pdf`,
+      'Warehouse Operations Report',
+      warehouseDispatchRows,
+      {
+        ...reportBranding,
+        summaryLines: [
+          `Total Warehouses: ${warehouses.length}`,
+          `Dispatch Orders: ${warehouseDispatchRows.length}`,
+          `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`,
+        ]
+      }
+    )
+  }
+
+  const exportInventoryPdf = async (stamp: string) => {
+    await downloadPdf(
+      `inventory-report-${stamp}.pdf`,
+      'Inventory Movement Report',
+      inventoryMovementRows,
+      {
+        ...reportBranding,
+        summaryLines: [
+          `Total Movements: ${inventoryMovementRows.length}`,
+          `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
+          `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
+          `Low Stock Items: ${lowStockKpi.total} (${lowStockKpi.critical} critical, ${lowStockKpi.outOfStock} out of stock)`,
+        ]
+      }
+    )
+  }
 
   const exportCurrentPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
@@ -1309,36 +1355,11 @@ export function ReportsView() {
       return
     }
     if (activeReportTab === 'warehouse') {
-      await downloadPdf(
-        `warehouse-report-${stamp}.pdf`,
-        'Warehouse Operations Report',
-        warehouseDispatchRows,
-        {
-          ...reportBranding,
-          summaryLines: [
-            `Total Warehouses: ${warehouses.length}`,
-            `Dispatch Orders: ${warehouseDispatchRows.length}`,
-            `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`,
-          ]
-        }
-      )
+      await exportWarehousePdf(stamp)
       return
     }
     if (activeReportTab === 'inventory') {
-      await downloadPdf(
-        `inventory-report-${stamp}.pdf`,
-        'Inventory Movement Report',
-        inventoryMovementRows,
-        {
-          ...reportBranding,
-          summaryLines: [
-            `Total Movements: ${inventoryMovementRows.length}`,
-            `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
-            `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
-            `Low Stock Items: ${lowStockKpi.total} (${lowStockKpi.critical} critical, ${lowStockKpi.outOfStock} out of stock)`,
-          ]
-        }
-      )
+      await exportInventoryPdf(stamp)
       return
     }
     if (activeReportTab === 'replacement') {
@@ -1478,8 +1499,7 @@ export function ReportsView() {
             <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-7">
               <TabsTrigger value="orders" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Orders</TabsTrigger>
               <TabsTrigger value="transport" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Transport</TabsTrigger>
-              <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse</TabsTrigger>
-              <TabsTrigger value="inventory" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Database className="h-4 w-4" />Inventory</TabsTrigger>
+              <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse/Inventory</TabsTrigger>
               <TabsTrigger value="stock-expiry" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><AlertTriangle className="h-4 w-4" />Stock Expiry</TabsTrigger>
               <TabsTrigger value="drivers" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Users className="h-4 w-4" />Drivers</TabsTrigger>
               <TabsTrigger value="replacement" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Replacement</TabsTrigger>

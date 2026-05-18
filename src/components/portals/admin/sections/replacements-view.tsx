@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -761,10 +761,6 @@ export function ReplacementsView() {
               : rawStatus
     return normalizedStatus === 'RESOLVED_ON_DELIVERY'
   }).length
-  const needsFollowUp = filteredReplacements.filter((item) => {
-    const rawStatus = String(item?.status || '').toUpperCase()
-    return rawStatus === 'NEEDS_FOLLOW_UP'
-  }).length
   const rejectedCount = filteredReplacements.filter((item) => {
     const rawStatus = String(item?.status || '').toUpperCase()
     return rawStatus === 'REJECTED'
@@ -803,7 +799,6 @@ export function ReplacementsView() {
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
               <option value="RESOLVED_ON_DELIVERY">Resolved on Delivery</option>
-              <option value="NEEDS_FOLLOW_UP">Needs Follow-up</option>
               <option value="COMPLETED">Completed</option>
               <option value="IN_PROGRESS">In Progress</option>
               <option value="REPORTED">Reported</option>
@@ -832,17 +827,6 @@ export function ReplacementsView() {
             <div className="min-w-0">
               <p className="text-sm text-gray-500">Resolved on Delivery</p>
               <p className="mt-1 text-2xl font-bold leading-none">{resolvedOnDelivery}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-amber-50 p-2.5 text-amber-600">
-              <AlertTriangle className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Needs Follow-up</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{needsFollowUp}</p>
             </div>
           </CardContent>
         </Card>

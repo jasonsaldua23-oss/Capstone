@@ -131,8 +131,9 @@ export function InventoryView() {
         return
       }
       const list = getCollection<any>(result.data, ['warehouses'])
-      setWarehouses(list)
-      if (selectedWarehouseId !== 'all' && !list.some((warehouse) => warehouse?.id === selectedWarehouseId)) {
+      const activeWarehouses = list.filter((warehouse) => warehouse?.isActive !== false)
+      setWarehouses(activeWarehouses)
+      if (selectedWarehouseId !== 'all' && !activeWarehouses.some((warehouse) => warehouse?.id === selectedWarehouseId)) {
         setSelectedWarehouseId('all')
       }
     } catch (error) {

@@ -264,6 +264,48 @@ def _get_allowed_warehouse_ids_for_staff(user_id: str) -> set[str]:
     return {str(warehouse_id).strip() for warehouse_id in (direct_manager_ids | assigned_ids) if str(warehouse_id).strip()}
 
 
+def _collect_requested_warehouse_staff_ids(body: dict[str, Any], manager_id_fallback: str = "") -> list[str]:
+    requested_staff_ids = [
+        str(value or "").strip()
+        for value in (body.get("staffIds") or [])
+        if str(value or "").strip()
+    ]
+    manager_id = str(body.get("managerId") or manager_id_fallback or "").strip()
+    if manager_id and manager_id not in requested_staff_ids:
+        requested_staff_ids.append(manager_id)
+    return sorted(set(requested_staff_ids))
+
+
+def _find_staff_already_assigned_elsewhere(staff_ids: list[str], current_warehouse_id: str | None = None) -> dict[str, str]:
+    normalized_ids = [str(staff_id or "").strip() for staff_id in staff_ids if str(staff_id or "").strip()]
+    if not normalized_ids:
+        return {}
+
+    conflicts: dict[str, str] = {}
+    manager_qs = Warehouse.objects.filter(manager_id__in=normalized_ids)
+    if current_warehouse_id:
+        manager_qs = manager_qs.exclude(id=current_warehouse_id)
+    for warehouse in manager_qs.only("id", "name", "code", "manager_id"):
+        staff_id = str(warehouse.manager_id or "").strip()
+        if not staff_id:
+            continue
+        conflicts.setdefault(staff_id, f"{warehouse.name} ({warehouse.code})")
+
+    assignment_qs = WarehouseStaffAssignment.objects.filter(user_id__in=normalized_ids)
+    if current_warehouse_id:
+        assignment_qs = assignment_qs.exclude(warehouse_id=current_warehouse_id)
+    for assignment in assignment_qs.select_related("warehouse"):
+        staff_id = str(assignment.user_id or "").strip()
+        if not staff_id:
+            continue
+        warehouse = getattr(assignment, "warehouse", None)
+        if warehouse is None:
+            continue
+        conflicts.setdefault(staff_id, f"{warehouse.name} ({warehouse.code})")
+
+    return conflicts
+
+
 def _int(v: Any, default: int) -> int:
     try:
         return int(v)
@@ -4542,10 +4584,13 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         manager_id=body.get("managerId"),
         is_active=bool(body.get("isActive", True)),
     )
-    requested_staff_ids = [str(value or "").strip() for value in (body.get("staffIds") or []) if str(value or "").strip()]
-    manager_id = str(body.get("managerId") or "").strip()
-    if manager_id and manager_id not in requested_staff_ids:
-        requested_staff_ids.append(manager_id)
+    requested_staff_ids = _collect_requested_warehouse_staff_ids(body)
+    staff_conflicts = _find_staff_already_assigned_elsewhere(requested_staff_ids)
+    if staff_conflicts:
+        first_staff_id, warehouse_label = next(iter(staff_conflicts.items()))
+        staff_user = User.objects.filter(id=first_staff_id).only("name", "email").first()
+        staff_name = str(getattr(staff_user, "name", "") or getattr(staff_user, "email", "") or first_staff_id)
+        return _err(f"{staff_name} is already assigned to {warehouse_label}. One warehouse staff can only belong to one warehouse.", 400)
     for staff_id in sorted(set(requested_staff_ids)):
         WarehouseStaffAssignment.objects.get_or_create(warehouse_id=w.id, user_id=staff_id)
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
@@ -4624,10 +4669,13 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         w.is_active = bool(body.get("isActive"))
     w.save()
     if "staffIds" in body or "managerId" in body:
-        requested_staff_ids = [str(value or "").strip() for value in (body.get("staffIds") or []) if str(value or "").strip()]
-        manager_id = str(getattr(w, "manager_id", "") or "").strip()
-        if manager_id and manager_id not in requested_staff_ids:
-            requested_staff_ids.append(manager_id)
+        requested_staff_ids = _collect_requested_warehouse_staff_ids(body, manager_id_fallback=str(getattr(w, "manager_id", "") or ""))
+        staff_conflicts = _find_staff_already_assigned_elsewhere(requested_staff_ids, current_warehouse_id=str(w.id))
+        if staff_conflicts:
+            first_staff_id, warehouse_label = next(iter(staff_conflicts.items()))
+            staff_user = User.objects.filter(id=first_staff_id).only("name", "email").first()
+            staff_name = str(getattr(staff_user, "name", "") or getattr(staff_user, "email", "") or first_staff_id)
+            return _err(f"{staff_name} is already assigned to {warehouse_label}. One warehouse staff can only belong to one warehouse.", 400)
         requested_staff_set = set(requested_staff_ids)
         existing_assignments = list(WarehouseStaffAssignment.objects.filter(warehouse_id=w.id))
         existing_user_ids = {str(entry.user_id or "").strip() for entry in existing_assignments if str(entry.user_id or "").strip()}

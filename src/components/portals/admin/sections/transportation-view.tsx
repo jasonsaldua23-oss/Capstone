@@ -163,26 +163,6 @@ export function TransportationView() {
   const driversOnDutyCount = drivers.filter((driver) => driver?.isActive !== false).length
   const maintenanceCount = vehicles.filter((vehicle) => String(vehicle?.status).toUpperCase().includes('MAINTENANCE')).length
 
-  const tripFulfillmentAlerts = useMemo(() => {
-    let legsWithoutTrip = 0
-    let ordersWithSplit = 0
-    let capacityRiskTrips = 0
-    trips.forEach((trip) => {
-      const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
-      let tripQty = 0
-      points.forEach((point: any) => {
-        if (!point?.order) return
-        const summary = deriveOrderFulfillmentSummary(point.order)
-        if (summary.needsSplit) ordersWithSplit += 1
-        legsWithoutTrip += summary.legs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
-        tripQty += summary.legs.reduce((sum: number, leg: any) => sum + Number(leg.allocatedQty || 0), 0)
-      })
-      const capacity = Number(trip?.vehicle?.capacity || 0)
-      if (capacity > 0 && tripQty > capacity) capacityRiskTrips += 1
-    })
-    return { legsWithoutTrip, ordersWithSplit, capacityRiskTrips }
-  }, [trips])
-
   const isDriverAssignable = (driver: any) => {
     const status = String(driver?.status || '').toUpperCase()
     return driver?.isActive !== false && status !== 'INACTIVE'
@@ -458,11 +438,11 @@ export function TransportationView() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="w-full">
-        <div className="w-full overflow-x-auto pb-1">
-          <TabsList className="h-auto w-fit min-w-max gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-            <TabsTrigger value="vehicles" className="shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
-            <TabsTrigger value="trips" className="shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
-            <TabsTrigger value="drivers" className="shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
+        <div className="w-full pb-1">
+          <TabsList className="h-auto w-full gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+            <TabsTrigger value="vehicles" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
+            <TabsTrigger value="trips" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
+            <TabsTrigger value="drivers" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
           </TabsList>
         </div>
 
@@ -527,29 +507,37 @@ export function TransportationView() {
             </DialogContent>
           </Dialog>
 
-          <div className="grid gap-4">
-            {vehicles.map((vehicle: any) => (
-              <Card key={vehicle.id}>
-                <CardContent className="pt-6">
-                  <div className="flex flex-row items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
-                      <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
-                      <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
-                      <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.user?.name || vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
-                      <Badge className={String(vehicle.status).toUpperCase().includes('MAINTENANCE') ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}>
-                        {vehicle.status || 'Active'}
-                      </Badge>
+          {vehicles.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-gray-500">
+                No vehicles found. Click <span className="font-medium text-gray-700">Add Vehicle</span> to create your first fleet record.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {vehicles.map((vehicle: any) => (
+                <Card key={vehicle.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-row items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
+                        <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
+                        <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
+                        <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.user?.name || vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
+                        <Badge className={String(vehicle.status).toUpperCase().includes('MAINTENANCE') ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}>
+                          {vehicle.status || 'Active'}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
+                        <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>Delete</Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>Delete</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
 
           <AlertDialog open={deleteVehicleOpen} onOpenChange={setDeleteVehicleOpen}>
             <AlertDialogContent>
@@ -579,11 +567,6 @@ export function TransportationView() {
         </TabsContent>
 
         <TabsContent value="trips" className="space-y-4 mt-4">
-          <Card>
-            <CardContent className="pt-4 text-sm text-slate-700">
-              Split orders: {tripFulfillmentAlerts.ordersWithSplit} | Legs without trip: {tripFulfillmentAlerts.legsWithoutTrip} | Capacity risk trips: {tripFulfillmentAlerts.capacityRiskTrips}
-            </CardContent>
-          </Card>
           {trips.length === 0 ? (
             <Card>
               <CardContent className="pt-6 text-sm text-gray-500">No active trips found.</CardContent>
@@ -703,29 +686,37 @@ export function TransportationView() {
             </DialogContent>
           </Dialog>
 
-          <div className="grid gap-4">
-            {drivers.map((driver: any) => (
-              <Card key={driver.id}>
-                <CardContent className="pt-6">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold">{driver.user?.name || driver.name || 'N/A'}</h3>
-                      <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
-                      <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
-                      <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
-                      <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
-                        {driver.isActive ? 'Active' : 'Inactive'}
-                      </p>
+          {drivers.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-gray-500">
+                No drivers found. Add users with the Driver role to populate this section.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {drivers.map((driver: any) => (
+                <Card key={driver.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-semibold">{driver.user?.name || driver.name || 'N/A'}</h3>
+                        <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
+                        <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
+                        <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
+                        <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
+                          {driver.isActive ? 'Active' : 'Inactive'}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || '', licenseExpiry: driver.licenseExpiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
+                        <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || '', licenseExpiry: driver.licenseExpiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

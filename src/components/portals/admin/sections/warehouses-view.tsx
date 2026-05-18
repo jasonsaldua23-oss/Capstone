@@ -53,6 +53,16 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+function parseWarehouseCodeSequence(code: string): number {
+  const match = /^WH-(\d+)$/i.exec(String(code || '').trim())
+  if (!match) return 0
+  return Number(match[1] || 0)
+}
+
+function formatWarehouseCodeSequence(sequence: number): string {
+  return `WH-${String(Math.max(1, sequence)).padStart(4, '0')}`
+}
+
 export function WarehousesView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [warehouseStaffUsers, setWarehouseStaffUsers] = useState<any[]>([])
@@ -68,9 +78,16 @@ export function WarehousesView() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<any | null>(null)
   const [warehouseInventoryItems, setWarehouseInventoryItems] = useState<any[]>([])
   const [insightStockBatches, setInsightStockBatches] = useState<any[]>([])
+  const getNextWarehouseCode = () => {
+    const maxSequence = warehouses.reduce((max, warehouse) => {
+      const sequence = parseWarehouseCodeSequence(String(warehouse?.code || ''))
+      return sequence > max ? sequence : max
+    }, 0)
+    return formatWarehouseCodeSequence(maxSequence + 1)
+  }
   const [form, setForm] = useState({
     name: '',
-    code: '',
+    code: 'WH-0001',
     address: '',
     city: '',
     province: '',
@@ -130,9 +147,10 @@ export function WarehousesView() {
   }
 
   const resetForm = () => {
+    const nextCode = getNextWarehouseCode()
     setForm({
       name: '',
-      code: '',
+      code: nextCode,
       address: '',
       city: '',
       province: '',
@@ -259,8 +277,8 @@ export function WarehousesView() {
   }
 
   const saveWarehouse = async (mode: 'create' | 'edit') => {
-    if (!form.name.trim() || !form.code.trim() || !form.address.trim() || !form.city.trim() || !form.province.trim() || !form.zipCode.trim()) {
-      toast.error('Name, code, address, city, province and zip code are required')
+    if (!form.name.trim() || !form.address.trim() || !form.city.trim() || !form.province.trim() || !form.zipCode.trim()) {
+      toast.error('Name, address, city, province and zip code are required')
       return
     }
     if (!form.capacity.trim()) {
@@ -288,12 +306,16 @@ export function WarehousesView() {
     try {
       const endpoint = mode === 'create' ? '/api/warehouses' : `/api/warehouses/${selectedWarehouse.id}`
       const method = mode === 'create' ? 'POST' : 'PUT'
+      const finalCode =
+        mode === 'create'
+          ? getNextWarehouseCode()
+          : (form.code || selectedWarehouse?.code || '').trim().toUpperCase()
       const response = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: form.name.trim(),
-          code: form.code.trim().toUpperCase(),
+          code: finalCode,
           address: form.address.trim(),
           city: form.city.trim(),
           province: form.province.trim(),
@@ -358,8 +380,18 @@ export function WarehousesView() {
   }, [warehouses])
 
   const getAssignedWarehouseLabel = (staffId: string) => {
-    const count = assignedWarehouseCounts[staffId] ?? 0
-    return `${count} ${count === 1 ? 'warehouse' : 'warehouses'}`
+    const assigned = warehouses.filter((warehouse: any) => String(warehouse?.managerId || '') === staffId)
+    if (assigned.length === 0) return 'Unassigned'
+    return assigned
+      .map((warehouse: any) => String(warehouse?.name || warehouse?.code || warehouse?.id || '').trim())
+      .filter(Boolean)
+      .join(', ')
+  }
+
+  const isStaffSelectableForCurrentWarehouse = (staffId: string) => {
+    const currentManagerId = String(selectedWarehouse?.managerId || '')
+    if (currentManagerId && currentManagerId === staffId) return true
+    return (assignedWarehouseCounts[staffId] ?? 0) === 0
   }
 
   const openInsights = async (warehouse: any) => {
@@ -546,7 +578,7 @@ export function WarehousesView() {
           <h1 className="text-2xl font-bold text-gray-900">Warehouses</h1>
           <p className="text-gray-500">Manage storage facilities and locations</p>
         </div>
-        <Button className="gap-2" onClick={() => setAddOpen(true)}>
+        <Button className="gap-2" onClick={() => { resetForm(); setAddOpen(true) }}>
           {/* Warehouse icon removed */}
           Add Warehouse
         </Button>
@@ -597,7 +629,7 @@ export function WarehousesView() {
           <div className="col-span-full text-center py-12">
             {/* Warehouse icon removed */}
             <p className="text-gray-500">No warehouses found</p>
-            <Button className="mt-4" onClick={() => setAddOpen(true)}>Add First Warehouse</Button>
+            <Button className="mt-4" onClick={() => { resetForm(); setAddOpen(true) }}>Add First Warehouse</Button>
           </div>
         ) : (
           warehouses.map((warehouse: any) => (
@@ -640,7 +672,7 @@ export function WarehousesView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Code</label>
-              <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
+              <Input value={form.code} readOnly disabled />
             </div>
                 <div className="space-y-1 sm:col-span-2">
               <div className="flex items-center justify-between gap-2">
@@ -676,7 +708,7 @@ export function WarehousesView() {
               <Input value={form.zipCode} onChange={(e) => setForm((f) => ({ ...f, zipCode: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Capacity</label>
+              <label className="text-sm font-medium text-gray-700">Capacity (Unit)</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
             </div>
             <div className="space-y-1">
@@ -697,8 +729,8 @@ export function WarehousesView() {
               >
                 <option value="">Unassigned</option>
                 {warehouseStaffUsers.map((staff) => (
-                  <option key={staff.id} value={staff.id}>
-                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))})
+                  <option key={staff.id} value={staff.id} disabled={!isStaffSelectableForCurrentWarehouse(String(staff.id))}>
+                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))}){!isStaffSelectableForCurrentWarehouse(String(staff.id)) ? ' - Unavailable' : ''}
                   </option>
                 ))}
               </select>
@@ -727,7 +759,7 @@ export function WarehousesView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Code</label>
-              <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
+              <Input value={form.code} readOnly disabled />
             </div>
                     <div className="space-y-1 sm:col-span-2">
               <div className="flex items-center justify-between gap-2">
@@ -763,7 +795,7 @@ export function WarehousesView() {
               <Input value={form.zipCode} onChange={(e) => setForm((f) => ({ ...f, zipCode: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Capacity</label>
+              <label className="text-sm font-medium text-gray-700">Capacity (Unit)</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
             </div>
             <div className="space-y-1">
@@ -784,8 +816,8 @@ export function WarehousesView() {
               >
                 <option value="">Unassigned</option>
                 {warehouseStaffUsers.map((staff) => (
-                  <option key={staff.id} value={staff.id}>
-                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))})
+                  <option key={staff.id} value={staff.id} disabled={!isStaffSelectableForCurrentWarehouse(String(staff.id))}>
+                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))}){!isStaffSelectableForCurrentWarehouse(String(staff.id)) ? ' - Unavailable' : ''}
                   </option>
                 ))}
               </select>
