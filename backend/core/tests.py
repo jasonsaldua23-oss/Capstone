@@ -3435,6 +3435,7 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         self.client = Client()
         self.warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
         self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
 
         self.warehouse_user = User.objects.create(
             email="warehouse.scope@example.com",
@@ -3455,6 +3456,13 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             password="hashed",
             name="Warehouse Scope Admin",
             role=self.admin_role,
+            is_active=True,
+        )
+        self.driver_user = User.objects.create(
+            email="warehouse.scope.driver@example.com",
+            password="hashed",
+            name="Warehouse Scope Driver",
+            role=self.driver_role,
             is_active=True,
         )
 
@@ -3479,16 +3487,29 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             is_active=True,
         )
 
+        self.customer = Customer.objects.create(
+            email="warehouse.scope.customer@example.com",
+            password="hashed",
+            name="Warehouse Scope Customer",
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="SCOPE-PLATE-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+
         self.product_a = Product.objects.create(sku="SKU-SCOPE-A", name="Scope Product A", price=10)
         self.product_b = Product.objects.create(sku="SKU-SCOPE-B", name="Scope Product B", price=20)
-        Inventory.objects.create(
+        self.primary_inventory = Inventory.objects.create(
             warehouse=self.primary_warehouse,
             product=self.product_a,
             quantity=10,
             reserved_quantity=1,
             threshold=1,
         )
-        Inventory.objects.create(
+        self.other_inventory = Inventory.objects.create(
             warehouse=self.other_warehouse,
             product=self.product_b,
             quantity=20,
@@ -3559,6 +3580,163 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["total"], 2)
+
+    def test_stock_batches_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_batches(self) -> None:
+        StockBatch.objects.create(
+            batch_number="BATCH-SCOPE-001",
+            inventory=self.primary_inventory,
+            quantity=5,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-SCOPE-002",
+            inventory=self.other_inventory,
+            quantity=5,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        response = self.client.get(
+            "/api/stock-batches",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["stockBatches"][0]["inventory"]["warehouse"]["id"], self.primary_warehouse.id)
+
+    def test_inventory_transactions_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_transactions(self) -> None:
+        InventoryTransaction.objects.create(
+            warehouse=self.primary_warehouse,
+            product=self.product_a,
+            type="IN",
+            quantity=5,
+        )
+        InventoryTransaction.objects.create(
+            warehouse=self.other_warehouse,
+            product=self.product_b,
+            type="IN",
+            quantity=5,
+        )
+        response = self.client.get(
+            "/api/inventory-transactions",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["transactions"][0]["warehouse"]["id"], self.primary_warehouse.id)
+
+    def test_orders_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_orders(self) -> None:
+        Order.objects.create(
+            order_number="ORD-SCOPE-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+            warehouse_id=self.primary_warehouse.id,
+        )
+        Order.objects.create(
+            order_number="ORD-SCOPE-002",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+            warehouse_id=self.other_warehouse.id,
+        )
+        response = self.client.get(
+            "/api/orders",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["orders"][0]["warehouseId"], self.primary_warehouse.id)
+
+    def test_trips_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_trips(self) -> None:
+        Trip.objects.create(
+            trip_number="TRP-SCOPE-001",
+            driver=self.driver_user,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+            warehouse_id=self.primary_warehouse.id,
+        )
+        Trip.objects.create(
+            trip_number="TRP-SCOPE-002",
+            driver=self.driver_user,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+            warehouse_id=self.other_warehouse.id,
+        )
+        response = self.client.get(
+            "/api/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["trips"][0]["warehouseId"], self.primary_warehouse.id)
+
+    def test_replacements_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_replacements(self) -> None:
+        primary_order = Order.objects.create(
+            order_number="ORD-REPL-SCOPE-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+            warehouse_id=self.primary_warehouse.id,
+        )
+        other_order = Order.objects.create(
+            order_number="ORD-REPL-SCOPE-002",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+            warehouse_id=self.other_warehouse.id,
+        )
+        Replacement.objects.create(
+            replacement_number="RET-SCOPE-001",
+            order=primary_order,
+            customer_id=self.customer.id,
+            reason="Damaged item",
+            pickup_address="123 Return Street",
+            pickup_city="Return City",
+            pickup_province="Return Province",
+            pickup_zip_code="5000",
+        )
+        Replacement.objects.create(
+            replacement_number="RET-SCOPE-002",
+            order=other_order,
+            customer_id=self.customer.id,
+            reason="Damaged item",
+            pickup_address="123 Return Street",
+            pickup_city="Return City",
+            pickup_province="Return Province",
+            pickup_zip_code="5000",
+        )
+        response = self.client.get(
+            "/api/replacements",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["replacements"][0]["warehouseId"], self.primary_warehouse.id)
+
+    def test_replacements_endpoint_for_warehouse_staff_rejects_other_warehouse_filter(self) -> None:
+        response = self.client.get(
+            f"/api/replacements?warehouseId={self.other_warehouse.id}",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "Forbidden")
 
 
 class PasswordPolicyContractTests(TestCase):

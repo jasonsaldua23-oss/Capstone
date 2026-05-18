@@ -204,7 +204,7 @@ export function VehiclesView() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           <div className="col-span-full flex items-center justify-center h-64">
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -257,7 +257,7 @@ export function VehiclesView() {
             <DialogTitle>Add Vehicle</DialogTitle>
             <DialogDescription>Create a new delivery vehicle.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1 sm:col-span-2">
               <label className="text-sm font-medium text-gray-700">License Plate</label>
               <Input value={form.licensePlate} onChange={(e) => setForm((f) => ({ ...f, licensePlate: e.target.value }))} />
@@ -304,7 +304,7 @@ export function VehiclesView() {
             <DialogTitle>Edit Vehicle</DialogTitle>
             <DialogDescription>Update vehicle details and status.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1 sm:col-span-2">
               <label className="text-sm font-medium text-gray-700">License Plate</label>
               <Input value={form.licensePlate} onChange={(e) => setForm((f) => ({ ...f, licensePlate: e.target.value }))} />

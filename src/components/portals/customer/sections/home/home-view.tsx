@@ -1,12 +1,13 @@
-﻿'use client'
+'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Heart, Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
+  customerName: string
   productSearch: string
   setProductSearch: (value: string) => void
   isProductsLoading: boolean
@@ -20,6 +21,7 @@ type CustomerHomeViewProps = {
 }
 
 export function CustomerHomeView({
+  customerName,
   productSearch,
   setProductSearch,
   isProductsLoading,
@@ -31,6 +33,7 @@ export function CustomerHomeView({
   cart,
   onOpenCart,
 }: CustomerHomeViewProps) {
+  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back!')
   const [cardQtyByProductId, setCardQtyByProductId] = useState<Record<string, number>>({})
   const [favoriteProductIds, setFavoriteProductIds] = useState<Record<string, true>>({})
   const totalUnits = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
@@ -73,6 +76,35 @@ export function CustomerHomeView({
     })
   }
 
+  useEffect(() => {
+    const normalizedName = String(customerName || '').trim()
+    const fallbackBack = normalizedName ? `Welcome back, ${normalizedName}` : 'Welcome back!'
+    if (typeof window === 'undefined') {
+      setWelcomeMessage(fallbackBack)
+      return
+    }
+
+    try {
+      const raw = window.sessionStorage.getItem('customer_welcome_state')
+      if (!raw) {
+        setWelcomeMessage(fallbackBack)
+        return
+      }
+
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string; ts?: number }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const storedName = String(parsed?.name || '').trim() || normalizedName
+      if (mode === 'new') {
+        setWelcomeMessage(storedName ? `Welcome, ${storedName}` : 'Welcome!')
+      } else {
+        setWelcomeMessage(storedName ? `Welcome back, ${storedName}` : 'Welcome back!')
+      }
+      window.sessionStorage.removeItem('customer_welcome_state')
+    } catch {
+      setWelcomeMessage(fallbackBack)
+    }
+  }, [customerName])
+
   return (
     <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f5f8f6] pb-5 md:mx-0 md:min-h-[calc(100dvh-9rem)] md:pb-4">
       <div className="grid gap-4 px-3 pt-3 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -92,7 +124,7 @@ export function CustomerHomeView({
 
             <div className="mt-3">
               <p className="text-[1.55rem] font-extrabold leading-tight tracking-[-0.02em] text-slate-900 md:text-xl">
-                Welcome back!
+                {welcomeMessage}
               </p>
               <p className="mt-1 text-sm text-slate-500">
                 Place your order and we&apos;ll deliver it to your store.
@@ -110,7 +142,9 @@ export function CustomerHomeView({
               {sortedProducts.map((p, index) => {
                 const availableQty = p ? getAvailableQty(p) : 0
                 const sizeLabel = p
-                  ? (Array.isArray(p.sizes) && p.sizes.length > 0 ? String(p.sizes[0]) : 'N/A')
+                  ? (Array.isArray(p.sizes) && p.sizes.length > 0
+                      ? p.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
+                      : 'N/A')
                   : 'N/A'
                 const quantityPerUnit = p
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
@@ -153,18 +187,18 @@ export function CustomerHomeView({
                           )}
                         </div>
 
-                        <div className="min-w-0 flex-1 space-y-0 leading-tight">
-                          <p className="line-clamp-1 text-[0.8rem] font-semibold leading-tight text-slate-900 md:text-[1.2rem] md:font-semibold">
+                        <div className="min-w-0 flex-1 space-y-0.5 leading-tight">
+                          <p className="line-clamp-1 text-[1.05rem] font-semibold leading-tight text-slate-900 md:text-[1.45rem] md:font-semibold">
                             {p?.name || 'Product Name'}
                           </p>
-                          <p className="text-[0.8rem] font-semibold leading-tight text-slate-900 md:text-[1.15rem] md:font-semibold md:text-slate-900">
+                          <p className="text-[1rem] font-bold leading-tight text-slate-900 md:text-[1.35rem] md:font-bold md:text-slate-900">
                             {p ? formatPeso(p.price || 0) : '$ Price'}
                           </p>
-                          <p className="text-[9px] text-slate-500">Size: {sizeLabel}</p>
-                          <p className="text-[9px] text-slate-500">
+                          <p className="text-[12px] text-slate-500 md:text-[14px]">Size: {sizeLabel}</p>
+                          <p className="text-[12px] text-slate-500 md:text-[14px]">
                             Qty/Unit: {quantityPerUnit > 0 ? quantityPerUnit : 'N/A'}
                           </p>
-                          <p className="text-[9px] text-emerald-700">
+                          <p className="text-[12px] font-medium text-emerald-700 md:text-[14px]">
                             {availableQty > 0 ? `${availableQty} available` : 'Out of stock'}
                           </p>
                         </div>

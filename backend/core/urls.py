@@ -12,6 +12,8 @@ urlpatterns = [
     path("auth/register", v.auth_register),
     path("auth/email-verification/request", v.auth_email_verification_request),
     path("auth/email-verification/confirm", v.auth_email_verification_confirm),
+    path("auth/email-verification/request-existing", v.auth_email_verification_request_existing),
+    path("auth/email-verification/confirm-existing", v.auth_email_verification_confirm_existing),
     path("auth/me", v.auth_me),
     path("auth/logout", v.auth_logout),
     path("auth/password-reset/request-otp", v.auth_password_reset_request_otp),
@@ -63,4 +65,6 @@ urlpatterns = [
     path("trips/<str:trip_id>/start", v.trip_start),
     path("trips/<str:trip_id>/drop-points/<str:drop_point_id>", v.trip_drop_point_update),
     path("trips/<str:trip_id>/stops/<str:stop_id>", v.trip_stop_update),
+    path("trips/<str:trip_id>/unassign", v.trip_unassign_items),
+    path("trips/check/<str:trip_number>", v.trip_check),
 ]

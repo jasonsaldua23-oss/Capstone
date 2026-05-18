@@ -24,6 +24,7 @@ class OrderStatus(models.TextChoices):
     RESCHEDULED = "RESCHEDULED", "Rescheduled"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY", "Out For Delivery"
     DELIVERED = "DELIVERED", "Delivered"
+    REJECTED = "REJECTED", "Rejected"
     CANCELLED = "CANCELLED", "Cancelled"
 
 
@@ -120,6 +121,13 @@ class Customer(models.Model):
     country = models.CharField(max_length=100, default="Philippines")
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)
+    discount_option = models.CharField(max_length=50, default="NO_DISCOUNT")
+    discount_percent = models.FloatField(default=0)
+    discount_amount_per_case = models.FloatField(default=0)
+    discount_status = models.CharField(max_length=30, default="REMOVED")
+    discount_applied_by_user_id = models.CharField(max_length=25, blank=True, null=True)
+    discount_applied_by_name = models.CharField(max_length=255, blank=True, null=True)
+    discount_updated_at = models.DateTimeField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -162,6 +170,18 @@ class Warehouse(models.Model):
 
     class Meta:
         db_table = "Warehouse"
+
+
+class WarehouseStaffAssignment(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="staff_assignments")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="warehouse_assignments")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "WarehouseStaffAssignment"
+        constraints = [models.UniqueConstraint(fields=["warehouse", "user"], name="unique_warehouse_staff_assignment")]
 
 
 class Product(models.Model):
@@ -243,6 +263,14 @@ class Order(models.Model):
     tax = models.FloatField(default=0)
     shipping_cost = models.FloatField(default=0)
     discount = models.FloatField(default=0)
+    discount_type = models.CharField(max_length=30, default="NO_DISCOUNT")
+    discount_name = models.CharField(max_length=120, blank=True, null=True)
+    discount_percent_applied = models.FloatField(default=0)
+    discount_amount_per_case_applied = models.FloatField(default=0)
+    discount_per_case_applied = models.FloatField(default=0)
+    discount_cases_affected = models.IntegerField(default=0)
+    discount_applied_by_name = models.CharField(max_length=255, blank=True, null=True)
+    discount_status = models.CharField(max_length=30, default="REMOVED")
     total_amount = models.FloatField()
     payment_status = models.CharField(max_length=50, default="pending")
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
@@ -393,6 +421,7 @@ class Trip(models.Model):
     driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trips")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="trips")
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
+    created_by_user_id = models.CharField(max_length=25, blank=True, null=True)
     status = models.CharField(max_length=50, choices=TripStatus.choices, default=TripStatus.PLANNED)
     start_latitude = models.FloatField(blank=True, null=True)
     start_longitude = models.FloatField(blank=True, null=True)

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Poppins } from 'next/font/google'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
@@ -13,6 +14,11 @@ import { Toaster } from '@/components/ui/sonner'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+})
+
 export function WarehouseLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -21,6 +27,26 @@ export function WarehouseLoginPage() {
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+
+  const persistWarehouseWelcomeState = (userData: any) => {
+    if (typeof window === 'undefined') return
+    try {
+      const isNewUser = Boolean(
+        userData?.isNewUser ??
+        userData?.isNew ??
+        userData?.isFirstLogin ??
+        userData?.firstLogin
+      )
+      window.sessionStorage.setItem(
+        'warehouse_welcome_state',
+        JSON.stringify({
+          mode: isNewUser ? 'new' : 'existing',
+          name: String(userData?.name || '').trim(),
+          ts: Date.now(),
+        })
+      )
+    } catch {}
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -88,8 +114,11 @@ export function WarehouseLoginPage() {
         return
       }
 
+      persistWarehouseWelcomeState(data.user)
+      const isNewUser = Boolean(data?.user?.isNewUser ?? data?.user?.isNew ?? data?.user?.isFirstLogin ?? data?.user?.firstLogin)
+      const displayName = String(data?.user?.name || '').trim()
+      toast.success(isNewUser ? (displayName ? `Welcome, ${displayName}` : 'Welcome!') : (displayName ? `Welcome back, ${displayName}` : 'Welcome back!'))
       if (data.token) setTabAuthToken(data.token)
-      toast.success('Welcome to Warehouse Portal')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
@@ -100,14 +129,14 @@ export function WarehouseLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className={`${poppins.className} min-h-screen bg-gray-50 flex items-center justify-center px-4`}>
         <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
+    <div className={`${poppins.className} min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10`}>
       <Toaster position="top-right" />
       <Card className="w-full max-w-md border-slate-200 bg-white shadow-xl">
         <CardHeader className="space-y-3">

@@ -25,11 +25,11 @@ export function CustomerBottomNav(props: any) {
         </div>
       </aside>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-[#edf0f4]/95 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden">
-        <div className="grid grid-cols-3 gap-2">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-[#edf0f4]/95 px-3 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur md:hidden">
+        <div className="grid grid-cols-3 gap-1.5">
           <Button
             variant="ghost"
-            className={`h-14 flex-col gap-1 rounded-xl ${activeView === 'home' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'home' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
             onClick={() => setActiveView('home')}
           >
             <Home className="h-4 w-4" />
@@ -37,7 +37,7 @@ export function CustomerBottomNav(props: any) {
           </Button>
           <Button
             variant="ghost"
-            className={`h-14 flex-col gap-1 rounded-xl ${activeView === 'orders' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'orders' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
             onClick={() => setActiveView('orders')}
           >
             <Package className="h-4 w-4" />
@@ -45,7 +45,7 @@ export function CustomerBottomNav(props: any) {
           </Button>
           <Button
             variant="ghost"
-            className={`h-14 flex-col gap-1 rounded-xl ${activeView === 'profile' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'profile' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
             onClick={() => setActiveView('profile')}
           >
             <User className="h-4 w-4" />

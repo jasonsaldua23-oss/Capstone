@@ -46,7 +46,9 @@ export const stripPhilippinesFromAddress = (address: string | null | undefined) 
 
 // Detects whether app is running in Capacitor native runtime.
 export const isNativeCapacitorApp = () => {
-  const cap = (globalThis as any)?.Capacitor
+  const cap = (globalThis as any)?.Capacitor || (globalThis as any)?.window?.Capacitor
+  const ua = typeof navigator !== 'undefined' ? String(navigator.userAgent || '') : ''
+  if (/\bCapacitor\b/i.test(ua)) return true
   if (!cap) return false
   if (typeof cap.isNativePlatform === 'function') {
     return Boolean(cap.isNativePlatform())

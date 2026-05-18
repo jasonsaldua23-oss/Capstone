@@ -95,6 +95,7 @@ export function TripDetailView({
   const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
   const [isSpareReplacing, setIsSpareReplacing] = useState(false)
   const [liveSpareByProductId, setLiveSpareByProductId] = useState<Record<string, number>>({})
+  const [spareInlineError, setSpareInlineError] = useState<{ message: string; orderItemId: string | null } | null>(null)
 
   // Failed-delivery decision flow state.
   const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
@@ -285,8 +286,16 @@ export function TripDetailView({
     const replacements = dropPoint?.order?.replacements || []
     const openCandidates = replacements.filter((entry) => {
       const isClosed = Boolean(entry?.isClosed)
+      const status = String(entry?.status || '').trim().toUpperCase()
       const remainingQty = Number((entry as any)?.remainingQuantity ?? 0)
-      return !isClosed && remainingQty > 0
+      const hasOpenWorkflowStatus =
+        status === 'NEEDS_FOLLOW_UP' ||
+        status === 'IN_PROGRESS' ||
+        status === 'APPROVED' ||
+        status === 'UNDER_REVIEW' ||
+        status === 'PENDING' ||
+        status === 'REPORTED'
+      return !isClosed && (remainingQty > 0 || hasOpenWorkflowStatus)
     })
     if (openCandidates.length === 0) return null
     return openCandidates
@@ -298,11 +307,23 @@ export function TripDetailView({
       })[0] || null
   }
 
+  const isScheduledFollowUpReplacement = (entry: any) => {
+    const mode = String(entry?.replacementMode || entry?.replacement_mode || '').trim().toUpperCase()
+    const status = String(entry?.status || '').trim().toUpperCase()
+    return mode === 'SPARE_PRODUCTS_PARTIAL' && (status === 'NEEDS_FOLLOW_UP' || status === 'IN_PROGRESS')
+  }
+
+  const getDropPointBlockingOpenReplacement = (dropPoint: DropPoint | null) => {
+    const open = getDropPointOpenReplacement(dropPoint)
+    if (!open) return null
+    return isScheduledFollowUpReplacement(open) ? null : open
+  }
+
   const hasResolvedReplacementForDropPoint = (dropPoint: DropPoint | null) => {
     const replacements = dropPoint?.order?.replacements || []
     return replacements.some((entry: any) => {
       const status = String(entry?.status || '').toUpperCase()
-      return Boolean(entry?.isClosed) || status === 'RESOLVED' || status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED'
+      return Boolean(entry?.isClosed) || status === 'RESOLVED' || status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED' || isScheduledFollowUpReplacement(entry)
     })
   }
 
@@ -386,6 +407,45 @@ export function TripDetailView({
       hour: '2-digit',
       minute: '2-digit',
     })
+  }
+
+  const getItemDisplayNameWithSize = (item: any): string => {
+    const product = item?.product || {}
+    const baseName = String(product?.name || item?.productName || 'Item').trim()
+    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
+      ? product.sizes.map((value: any) => String(value).trim()).filter(Boolean).join(', ')
+      : ''
+    const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
+    const sizeLabel = sizeFromArray || sizeFromField
+    return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
+  }
+
+  const getOrderQtyWithUnitLabel = (item: any, order?: any): string => {
+    const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
+    const scheduledReplacement = order?.scheduledReplacement || null
+    const replacementQtyToReplace = Math.max(0, Number(scheduledReplacement?.quantityToReplace || 0))
+    if (orderNumber.startsWith('RPL-') && replacementQtyToReplace > 0) {
+      const replacementUnitMode = String(scheduledReplacement?.unitMode || '').trim().toUpperCase()
+      if (replacementUnitMode === 'BOTTLE') {
+        return `x${replacementQtyToReplace} bottle(s)`
+      }
+      const qtyPerUnit = Math.max(1, Number(scheduledReplacement?.qtyPerUnit || 1))
+      const unitQty = replacementQtyToReplace / qtyPerUnit
+      const unitLabel = Number.isInteger(unitQty)
+        ? String(unitQty)
+        : unitQty.toFixed(2).replace(/\.00$/, '')
+      return `x${unitLabel} unit(s) (${replacementQtyToReplace} bottle(s))`
+    }
+    const qty = Math.max(0, Number(item?.quantity || 0))
+    const rawUnit = String(item?.productUnit || item?.product?.unit || '').trim().toLowerCase()
+    const isBottle = rawUnit.includes('bottle')
+    const isCase = rawUnit.includes('case')
+    const isPack = rawUnit.includes('pack')
+    const isBundle = rawUnit.includes('bundle')
+    const singular = isBottle ? 'bottle' : isCase ? 'case' : isPack ? 'pack' : isBundle ? 'bundle' : 'unit'
+    const plural = `${singular}s`
+    const label = qty === 1 ? singular : plural
+    return `x${qty} ${label}`
   }
   const formatTripSchedule = (value: string | null | undefined) => {
     const raw = String(value || '').trim()
@@ -494,7 +554,16 @@ export function TripDetailView({
     setIsArriveWarningOpen(true)
   }
 
+  const isReplacementDropPointOrder = (dropPoint: DropPoint | null) => {
+    const orderNumberKey = String(dropPoint?.order?.orderNumber || '').trim().toUpperCase()
+    return Boolean((dropPoint?.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+  }
+
   const openReplacementWarning = (dropPoint: DropPoint) => {
+    if (isReplacementDropPointOrder(dropPoint)) {
+      toast.error('You cannot request replacement for a replacement order.')
+      return
+    }
     if (!getDropPointOpenReplacement(dropPoint) && hasResolvedReplacementForDropPoint(dropPoint)) {
       toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
       return
@@ -539,7 +608,7 @@ export function TripDetailView({
   }
 
   const submitDeliveredForDropPoint = async (dropPoint: DropPoint) => {
-    if (getDropPointOpenReplacement(dropPoint)) {
+    if (getDropPointBlockingOpenReplacement(dropPoint)) {
       toast.error('Resolve the remaining replacement before marking this drop point as delivered')
       return
     }
@@ -740,9 +809,6 @@ export function TripDetailView({
   }
 
   const ensureWebCameraPermission = async (): Promise<{ granted: boolean; reason?: string }> => {
-    if (!window.isSecureContext) {
-      return { granted: false, reason: 'Camera requires a secure connection (HTTPS). Open this app over HTTPS to allow camera on mobile.' }
-    }
     if (!navigator.mediaDevices?.getUserMedia) {
       return { granted: false, reason: 'This browser/device does not expose camera APIs for this page.' }
     }
@@ -776,7 +842,7 @@ export function TripDetailView({
         return { granted: false, reason: 'Camera is busy in another app. Close other camera apps and retry.' }
       }
       if (errName === 'TypeError') {
-        return { granted: false, reason: 'Camera is unavailable for this page. On mobile this usually means non-HTTPS access.' }
+        return { granted: false, reason: 'Camera is unavailable for this page. On mobile this is usually due to non-HTTPS access.' }
       }
       return { granted: false, reason: 'Unable to access camera on this device/browser.' }
     }
@@ -846,6 +912,12 @@ export function TripDetailView({
     void (async () => {
       const permission = await ensureWebCameraPermission()
       if (!permission.granted) {
+        if (target === 'spare') {
+          // In browsers where live camera is blocked, fall back to image picker/camera capture via file input.
+          toast.message('Live camera is unavailable. Switching to Upload Photo as fallback.')
+          sparePhotoFileInputRef.current?.click()
+          return
+        }
         handleCameraPermissionDenied(permission.reason)
         return
       }
@@ -860,6 +932,10 @@ export function TripDetailView({
 
   // Opens spare replacement dialog preloaded with the selected drop point.
   const openSpareReplacement = (dropPoint: DropPoint) => {
+    if (isReplacementDropPointOrder(dropPoint)) {
+      toast.error('You cannot request replacement for a replacement order.')
+      return
+    }
     const items = getDropPointReplacementItems(dropPoint)
     const openReplacement = getDropPointOpenReplacement(dropPoint)
     if (!openReplacement && hasResolvedReplacementForDropPoint(dropPoint)) {
@@ -874,7 +950,7 @@ export function TripDetailView({
     const remainingQuantity = openReplacement
       ? openReplacementQuantities?.remainingQty ?? 0
       : items.length
-        ? 1
+        ? 0
         : 0
     setSpareTargetDropPointId(dropPoint.id)
     setSpareOrderItemId(selectedItemId)
@@ -882,7 +958,7 @@ export function TripDetailView({
     setSpareReplacementLines(openReplacement
       ? []
       : selectedItemId
-        ? [{ orderItemId: selectedItemId, quantityToReplace: '1', quantityReplaced: '1' }]
+        ? [{ orderItemId: selectedItemId, quantityToReplace: '0', quantityReplaced: '0' }]
         : []
     )
     setSpareOutcome('RESOLVED')
@@ -923,12 +999,28 @@ export function TripDetailView({
     if (productId && Object.prototype.hasOwnProperty.call(liveSpareByProductId, productId)) {
       return Math.max(0, Number(liveSpareByProductId[productId] || 0))
     }
-    const fallback = Number(item?.spareProducts?.recommendedQuantity || 0)
-    return Number.isFinite(fallback) ? Math.max(0, fallback) : 0
+    return 0
+  }
+
+  const getOrderedCasesForItem = (item: any): number => Math.max(Number(item?.quantity || 0), 0)
+
+  const getPolicySpareCasesForItem = (item: any): number => {
+    const recommended = Number(item?.spareProducts?.recommendedQuantity ?? 0)
+    if (Number.isFinite(recommended) && recommended > 0) return Math.max(0, Math.floor(recommended))
+    const orderedCases = getOrderedCasesForItem(item)
+    if (orderedCases <= 0) return 0
+    return Math.max(1, Math.round(orderedCases * 0.1))
+  }
+
+  const getUsableSpareQtyForItem = (item: any): number => {
+    const availableSpareCases = getAvailableSpareQtyForItem(item)
+    const orderedCases = getOrderedCasesForItem(item)
+    const policySpareCases = getPolicySpareCasesForItem(item)
+    return Math.min(availableSpareCases, orderedCases, policySpareCases)
   }
 
   const getAvailableSpareBottlesForItem = (item: any, line?: any): number => {
-    const spareCases = getAvailableSpareQtyForItem(item)
+    const spareCases = getUsableSpareQtyForItem(item)
     const quantityPerCase = resolveQuantityPerCase(item, line)
     return Math.max(0, spareCases * quantityPerCase)
   }
@@ -1037,11 +1129,56 @@ export function TripDetailView({
       return []
     })
     setIsSpareReplacing(false)
+    setSpareInlineError(null)
   }
+
+  useEffect(() => {
+    if (!spareInlineError) return
+    // Clear stale inline validation as soon as the user edits replacement inputs.
+    setSpareInlineError(null)
+  }, [spareReplacementLines, spareOutcome, sparePartiallyReplacedQuantity, spareDamageReason, spareOtherDamageReason, spareDamagePhotoFiles.length])
 
   // Convenience wrapper to reuse camera flow for spare damage evidence capture.
   const openSpareCameraCapture = () => {
     openCameraCapture('spare')
+  }
+
+  const parseSpareReplacementError = (rawError: unknown): { message: string; orderItemId: string | null } => {
+    const text = String(rawError || '').trim()
+    if (!text) return { message: 'Failed to process replacement. Please try again.', orderItemId: null }
+
+    const spareLimitMatch = text.match(/replacement item\s*(\d+).*(?:replacement|spare) stock \((\d+)\).*(PARTIALLY_REPLACED|RESOLVED)/i)
+    if (spareLimitMatch) {
+      const itemIndex = Number(spareLimitMatch[1] || 0)
+      const spareBottles = Number(spareLimitMatch[2] || 0)
+      const line = Number.isFinite(itemIndex) && itemIndex > 0 ? spareReplacementLines[itemIndex - 1] : null
+      const orderItemId = line?.orderItemId ? String(line.orderItemId) : null
+      const itemName = line
+        ? ((trip.dropPoints || [])
+            .find((point) => point.id === spareTargetDropPointId)
+            ?.order?.items || [])
+            .find((candidate) => candidate.id === line.orderItemId)
+            ?.product?.name || `Item ${itemIndex}`
+        : `Item ${itemIndex || ''}`.trim()
+      return {
+        message: `${itemName}: quantity replaced is higher than available replacement stock (${spareBottles} bottles). Lower "replaced" quantity or switch to By Bottle.`,
+        orderItemId,
+      }
+    }
+
+    if (/replacement quantity exceeds ordered quantity/i.test(text)) {
+      return { message: 'Replaced quantity cannot be more than the ordered quantity.', orderItemId: null }
+    }
+    if (/At least one damage photo is required/i.test(text)) {
+      return { message: 'Please add at least one damage photo before submitting.', orderItemId: null }
+    }
+    if (/Invalid replacementDeliveryDate/i.test(text)) {
+      return { message: 'Invalid delivery date format. Please select a valid date and try again.', orderItemId: null }
+    }
+    if (/Failed to fetch|NetworkError|network|timeout/i.test(text)) {
+      return { message: 'Network issue while submitting replacement. Check connection and try again.', orderItemId: null }
+    }
+    return { message: text, orderItemId: null }
   }
 
   // Submits replacement data and updates the trip optimistically.
@@ -1116,7 +1253,7 @@ export function TripDetailView({
         const availableSpareBottles = getAvailableSpareBottlesForItem(line.item, line)
         if (Number.isFinite(availableSpareBottles) && line.quantityToReplace > availableSpareBottles) {
           toast.error(
-            `${line.item.product?.name || 'Product'} quantity to replace (${line.quantityToReplace}) cannot exceed spare stock (${availableSpareBottles} bottles) in Resolved mode`
+            `${line.item.product?.name || 'Product'} quantity to replace (${line.quantityToReplace}) cannot exceed replacement stock (${availableSpareBottles} bottles) in Resolved mode`
           )
           return
         }
@@ -1124,18 +1261,24 @@ export function TripDetailView({
     }
     if (spareOutcome === 'PARTIALLY_REPLACED' && replacementLines.length > 0) {
       let hasAtLeastOnePartialLine = false
+      let hasAtLeastOneReplacedLine = false
       for (const line of replacementLines) {
         if (line.quantityReplaced < line.quantityToReplace) hasAtLeastOnePartialLine = true
+        if (line.quantityReplaced > 0) hasAtLeastOneReplacedLine = true
         const availableSpareBottles = getAvailableSpareBottlesForItem(line.item, line)
         if (Number.isFinite(availableSpareBottles) && line.quantityReplaced > availableSpareBottles) {
           toast.error(
-            `${line.item?.product?.name || 'Product'} quantity replaced (${line.quantityReplaced}) cannot exceed spare stock (${availableSpareBottles} bottles) in Partially Replaced mode`
+            `${line.item?.product?.name || 'Product'} quantity replaced (${line.quantityReplaced}) cannot exceed replacement stock (${availableSpareBottles} bottles) in Partially Replaced mode`
           )
           return
         }
       }
       if (!hasAtLeastOnePartialLine) {
         toast.error('Partially Replaced requires at least one selected line with quantity replaced less than quantity to replace')
+        return
+      }
+      if (!hasAtLeastOneReplacedLine) {
+        toast.error('Partially Replaced requires at least one selected line with quantity replaced greater than zero')
         return
       }
     }
@@ -1248,15 +1391,27 @@ export function TripDetailView({
           damagePhotos,
         }),
       })
-      const payload = await response.json().catch(() => ({}))
+      const rawBody = await response.text()
+      let payload: any = {}
+      try {
+        payload = rawBody ? JSON.parse(rawBody) : {}
+      } catch {
+        payload = {}
+      }
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to process on-delivery replacement')
+        const backendError =
+          payload?.error ||
+          payload?.message ||
+          (rawBody && rawBody.length < 300 ? rawBody : '') ||
+          `Failed to process on-delivery replacement (HTTP ${response.status})`
+        const parsedError = parseSpareReplacementError(backendError)
+        throw new Error(JSON.stringify(parsedError))
       }
       const remainingSpareProducts = Number(payload?.remainingSpareProducts ?? 0)
       toast.success(
         spareOutcome === 'RESOLVED'
-          ? `Damage reported and resolved on delivery. Remaining spare products: ${remainingSpareProducts}`
-          : `Damage reported as partially replaced. Follow-up required. Remaining spare products: ${remainingSpareProducts}`
+          ? `Damage reported and resolved on delivery. Remaining replacement stock: ${remainingSpareProducts}`
+          : `Partially replaced reported. Remaining quantity is waiting for warehouse schedule. Spare left: ${remainingSpareProducts}`
       )
       const returnedReplacements = Array.isArray(payload?.replacements)
         ? payload.replacements
@@ -1290,7 +1445,20 @@ export function TripDetailView({
       emitDataSync(['orders', 'trips', 'replacements'])
       refreshTripsInBackground()
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to process on-delivery replacement')
+      let parsed = parseSpareReplacementError(error?.message || error)
+      try {
+        const decoded = JSON.parse(String(error?.message || ''))
+        if (decoded && typeof decoded === 'object' && typeof decoded.message === 'string') {
+          parsed = {
+            message: String(decoded.message),
+            orderItemId: decoded.orderItemId ? String(decoded.orderItemId) : null,
+          }
+        }
+      } catch {
+        // ignore json parse errors from non-structured errors
+      }
+      setSpareInlineError(parsed)
+      toast.error(parsed.message)
     } finally {
       setIsSpareReplacing(false)
     }
@@ -2282,12 +2450,21 @@ export function TripDetailView({
           <Dialog open={isReplacementWarningOpen} onOpenChange={setIsReplacementWarningOpen}>
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
-                <DialogTitle className="text-amber-700">Confirm Report Replacement</DialogTitle>
+                <DialogTitle className="text-amber-700">Confirm Replacement Report</DialogTitle>
                 <DialogDescription className="text-slate-600">
-                  Please confirm you want to report a replacement for this stop.
+                  You are about to open the replacement form for this delivery stop.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-xs font-medium text-slate-500">Target Stop</p>
+                  <p className="mt-1 font-semibold text-slate-900">
+                    {replacementTargetDropPointName || 'Selected delivery stop'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Reporting a replacement will require damage details and photo evidence before submission.
+                </div>
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <Button
                     type="button"
@@ -2311,7 +2488,7 @@ export function TripDetailView({
                     disabled={isUpdating || isSpareReplacing || !replacementTargetDropPointId}
                   >
                     <AlertCircle className="mr-2 h-4 w-4" />
-                    Continue
+                    Report Replacement
                   </Button>
                 </div>
               </div>
@@ -2321,14 +2498,14 @@ export function TripDetailView({
           <Dialog open={isDeliveredWarningOpen} onOpenChange={setIsDeliveredWarningOpen}>
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
-                <DialogTitle className="text-amber-700">Warning Before Marking Delivered</DialogTitle>
+                <DialogTitle className="text-[#0f3d72]">Confirm Mark as Delivered</DialogTitle>
                 <DialogDescription className="text-slate-600">
-                  This will finalize delivery for this stop and update the order status.
+                  You are about to complete this stop and set the order status to delivered.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p>Confirm POD photo and delivery details are correct before continuing.</p>
+                <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+                  <p>Please confirm POD photo and delivery details are correct.</p>
                 </div>
                 <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
                   <p className="font-medium text-slate-900">{deliveredTargetDropPointName || 'Drop Point'}</p>
@@ -2356,7 +2533,7 @@ export function TripDetailView({
                     disabled={isUpdating || !deliveredTargetDropPointId}
                   >
                     {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                    Delivered
+                    Confirm Delivered
                   </Button>
                 </div>
               </div>
@@ -2562,17 +2739,20 @@ export function TripDetailView({
                                       </Button>
                                       {dropPoint.order ? (
                                         (() => {
-                                          const openReplacement = getDropPointOpenReplacement(dropPoint)
+                                          const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                          const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                          if (isReplacementOrder) return null
+                                          const blockingOpenReplacement = getDropPointBlockingOpenReplacement(dropPoint)
                                           const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
-                                          const replacementLocked = !openReplacement && hasResolvedReplacement
+                                          const replacementLocked = !blockingOpenReplacement && hasResolvedReplacement
                                           return (
                                             <Button
                                               type="button"
                                               variant="outline"
-                                              className={`w-full ${openReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                              className={`w-full ${blockingOpenReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
                                               onClick={(e) => {
                                                 e.stopPropagation()
-                                                if (openReplacement) {
+                                                if (blockingOpenReplacement) {
                                                   openSpareReplacement(dropPoint)
                                                 } else {
                                                   openReplacementWarning(dropPoint)
@@ -2580,13 +2760,13 @@ export function TripDetailView({
                                               }}
                                               disabled={isUpdating || isSpareReplacing || replacementLocked}
                                             >
-                                              {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Resolved' : 'Report Replacement'}
+                                              {blockingOpenReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Reported' : 'Report Replacement'}
                                             </Button>
                                           )
                                         })()
                                       ) : null}
                                       <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
-                                      {getDropPointOpenReplacement(dropPoint) ? (
+                                      {getDropPointBlockingOpenReplacement(dropPoint) ? (
                                         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                                           Delivery is blocked until the open replacement is resolved with photo evidence.
                                         </div>
@@ -2606,7 +2786,7 @@ export function TripDetailView({
                                           e.stopPropagation()
                                           openDeliveredWarning(dropPoint)
                                         }}
-                                        disabled={isUpdating || Boolean(getDropPointOpenReplacement(dropPoint))}
+                                        disabled={isUpdating || Boolean(getDropPointBlockingOpenReplacement(dropPoint))}
                                       >
                                         <CheckCircle className="mr-2 h-4 w-4" />
                                         Delivered
@@ -2713,17 +2893,26 @@ export function TripDetailView({
                                 })()}
                                 {(dropPoint.order.items || []).length > 0 ? (
                                   <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5 md:mt-2 md:px-3 md:py-2.5">
-                                    <p className="text-[11px] font-semibold text-slate-600 md:text-sm">Order Details</p>
+                                    {(() => {
+                                      const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                      const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                      return (
+                                        <div className="mb-1 flex items-center gap-2 md:mb-2">
+                                          <p className="text-[11px] font-semibold text-slate-600 md:text-sm">
+                                            {isReplacementOrder ? 'Replacement Details' : 'Order Details'}
+                                          </p>
+                                          {isReplacementOrder ? (
+                                            <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                                              Replacement
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      )
+                                    })()}
                                     <div className="mt-1 space-y-0.5 md:mt-2 md:space-y-1">
                                       {(dropPoint.order.items || []).map((item, index) => (
                                         <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600 md:text-sm">
-                                          <p>{item.product?.name || 'Item'} x{Number(item.quantity || 0)}</p>
-                                          {getAvailableSpareQtyForItem(item) > 0 ? (
-                                            <div className="mt-1 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700 md:px-2.5 md:py-1.5 md:text-xs">
-                                              <p>Spare products: {getAvailableSpareQtyForItem(item)}</p>
-                                              <p>Total load {Number(item.spareProducts?.totalLoadQuantity || item.quantity || 0)}</p>
-                                            </div>
-                                          ) : null}
+                                          <p>{getItemDisplayNameWithSize(item)} {getOrderQtyWithUnitLabel(item, dropPoint.order)}</p>
                                         </div>
                                       ))}
                                     </div>
@@ -2746,18 +2935,6 @@ export function TripDetailView({
                             {dropPoint.status}
                           </Badge>
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="mt-2 h-8 border-sky-200 text-xs text-sky-700 hover:bg-sky-50"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedDropPointForDetails(dropPoint)
-                          }}
-                        >
-                          View Details
-                        </Button>
                         {dropPoint.contactPhone && (
                           <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
                             <Phone className="h-4 w-4" />
@@ -2803,17 +2980,20 @@ export function TripDetailView({
                               </Button>
                               {dropPoint.order ? (
                                 (() => {
-                                  const openReplacement = getDropPointOpenReplacement(dropPoint)
+                                  const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                  const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                  if (isReplacementOrder) return null
+                                  const blockingOpenReplacement = getDropPointBlockingOpenReplacement(dropPoint)
                                   const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
-                                  const replacementLocked = !openReplacement && hasResolvedReplacement
+                                  const replacementLocked = !blockingOpenReplacement && hasResolvedReplacement
                                   return (
                                     <Button
                                       type="button"
                                       variant="outline"
-                                      className={`h-9 w-full text-sm md:h-10 md:text-base ${openReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
+                                      className={`h-9 w-full text-sm md:h-10 md:text-base ${blockingOpenReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        if (openReplacement) {
+                                        if (blockingOpenReplacement) {
                                           openSpareReplacement(dropPoint)
                                         } else {
                                           openReplacementWarning(dropPoint)
@@ -2821,13 +3001,13 @@ export function TripDetailView({
                                       }}
                                       disabled={isUpdating || isSpareReplacing || replacementLocked}
                                     >
-                                      {openReplacement ? 'Resolve Replacement' : replacementLocked ? 'Resolved' : 'Report Replacement'}
+                                      {blockingOpenReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Reported' : 'Report Replacement'}
                                     </Button>
                                   )
                                 })()
                               ) : null}
                               <p className="text-[11px] text-slate-500 md:text-xs">Camera access is required before marking as delivered.</p>
-                              {getDropPointOpenReplacement(dropPoint) ? (
+                              {getDropPointBlockingOpenReplacement(dropPoint) ? (
                                 <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800 md:px-3 md:py-2 md:text-xs">
                                   Delivery is blocked until the open replacement is resolved with photo evidence.
                                 </div>
@@ -2847,7 +3027,7 @@ export function TripDetailView({
                                   e.stopPropagation();
                                   openDeliveredWarning(dropPoint)
                                 }}
-                                disabled={isUpdating || Boolean(getDropPointOpenReplacement(dropPoint))}
+                                disabled={isUpdating || Boolean(getDropPointBlockingOpenReplacement(dropPoint))}
                               >
                                 <CheckCircle className="h-4 w-4 mr-2" />
                                 Delivered
@@ -3023,6 +3203,11 @@ export function TripDetailView({
 
             return (
               <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+                {spareInlineError && !spareInlineError.orderItemId ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {spareInlineError.message}
+                  </div>
+                ) : null}
                 {targetOpenReplacement ? (
                   <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                     Follow-up replacement in progress: {targetReplacementProgress.replacedQuantity} replaced, {targetReplacementProgress.remainingQuantity} still need to be replaced.
@@ -3039,7 +3224,7 @@ export function TripDetailView({
                         <SelectContent className="border-sky-200 bg-white text-slate-900">
                           {targetItems.map((item) => (
                             <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
-                              {(item.product?.name || 'Item')} ({item.product?.sku || 'N/A'}) - Qty {followUpMode && targetFollowUpQuantities ? targetFollowUpQuantities.targetQty : Number(item.quantity || 0)}
+                              {getItemDisplayNameWithSize(item)} ({item.product?.sku || 'N/A'}) - Qty {followUpMode && targetFollowUpQuantities ? targetFollowUpQuantities.targetQty : Number(item.quantity || 0)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -3059,14 +3244,27 @@ export function TripDetailView({
                       ) : targetItems.map((item) => {
                         const line = spareReplacementLines.find((entry) => entry.orderItemId === item.id) || null
                         const checked = Boolean(line)
-                        const maxQty = Math.max(Number(item.quantity || 0), 0)
+                        const replacementInputMode = String((line as any)?.replacementInputMode || 'case')
+                        const isUnitMode = replacementInputMode === 'case'
+                        const maxQty = getOrderedCasesForItem(item)
                         const quantityPerCase = resolveQuantityPerCase(item, line)
                         const maxBottleQty = maxQty * quantityPerCase
-                        const availableSpareCases = getAvailableSpareQtyForItem(item)
+                        const availableSpareCases = getUsableSpareQtyForItem(item)
                         const availableSpareBottleQty = availableSpareCases * quantityPerCase
+                        const usableSpareCases = availableSpareCases
+                        const usableSpareBottleQty = Math.min(availableSpareBottleQty, maxBottleQty)
                         const effectiveMaxQtyToReplace = spareOutcome === 'RESOLVED'
                           ? Math.min(maxBottleQty, availableSpareBottleQty)
                           : maxBottleQty
+                        const rawProductUnit = String(item?.product?.unit || (item as any)?.productUnit || '').trim().toLowerCase()
+                        const unitSingularLabel = rawProductUnit.includes('pack')
+                          ? 'Pack'
+                          : rawProductUnit.includes('bundle')
+                            ? 'Bundle'
+                            : rawProductUnit.includes('case')
+                              ? 'Case'
+                              : 'Unit'
+                        const unitPluralLabel = `${unitSingularLabel}s`
                         const setLine = (patch: Partial<SpareReplacementLine>) => {
                           setSpareReplacementLines((previous) =>
                             previous.map((entry) => entry.orderItemId === item.id ? { ...entry, ...patch } : entry)
@@ -3102,9 +3300,12 @@ export function TripDetailView({
                                 }}
                               />
                               <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-semibold text-slate-900">{item.product?.name || 'Item'}</span>
+                                <span className="block text-sm font-semibold text-slate-900">{getItemDisplayNameWithSize(item)}</span>
                                 <span className="block text-xs text-slate-500">
-                                  Spare Cases {availableSpareCases} | Spare Bottles {availableSpareBottleQty} | Ordered Cases {maxQty} | Qty/Case {quantityPerCase}
+                                  {isUnitMode
+                                    ? `Usable Spare ${unitPluralLabel} ${usableSpareCases} | Ordered ${unitPluralLabel} ${maxQty}`
+                                    : `Usable Spare Bottles ${usableSpareBottleQty} | Ordered ${unitPluralLabel} ${maxQty}`}
+                                  {` | Qty/Unit ${quantityPerCase}`}
                                 </span>
                               </span>
                             </label>
@@ -3114,11 +3315,11 @@ export function TripDetailView({
                                   <div className="mb-1 inline-flex overflow-hidden rounded-xl border border-sky-200 bg-white shadow-sm">
                                     <button
                                       type="button"
-                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${String((line as any)?.replacementInputMode || 'case') === 'case' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
+                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${replacementInputMode === 'case' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
                                       onClick={() => {
                                         const currentCases = Math.max(Number((line as any)?.replacementCases ?? 0), 0)
                                         const maxCases = Math.floor(effectiveMaxQtyToReplace / quantityPerCase)
-                                        const nextCases = Math.min(currentCases, maxCases)
+                                        const nextCases = Math.min(currentCases > 0 ? currentCases : (maxCases > 0 ? 1 : 0), maxCases)
                                         const nextValue = String(nextCases * quantityPerCase)
                                         setLine({
                                           replacementInputMode: 'case',
@@ -3129,14 +3330,17 @@ export function TripDetailView({
                                         })
                                       }}
                                     >
-                                      By Case
+                                      By Unit
                                     </button>
                                     <button
                                       type="button"
-                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${String((line as any)?.replacementInputMode || 'case') === 'bottle' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
+                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${replacementInputMode === 'bottle' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
                                       onClick={() => {
                                         const currentBottles = Math.max(Number((line as any)?.replacementBottles ?? 0), 0)
-                                        const nextBottles = Math.min(currentBottles, effectiveMaxQtyToReplace)
+                                        const nextBottles = Math.min(
+                                          currentBottles > 0 ? currentBottles : (effectiveMaxQtyToReplace > 0 ? 1 : 0),
+                                          effectiveMaxQtyToReplace
+                                        )
                                         const nextValue = String(nextBottles)
                                         setLine({
                                           replacementInputMode: 'bottle',
@@ -3150,9 +3354,9 @@ export function TripDetailView({
                                       By Bottle
                                     </button>
                                   </div>
-                                  {String((line as any)?.replacementInputMode || 'case') === 'case' ? (
+                                  {replacementInputMode === 'case' ? (
                                     <>
-                                      <Label className="text-xs">Cases to Replace</Label>
+                                      <Label className="text-xs">{unitPluralLabel} to Replace</Label>
                                       <Input
                                         type="text"
                                         inputMode="numeric"
@@ -3208,14 +3412,14 @@ export function TripDetailView({
                                 {spareOutcome === 'PARTIALLY_REPLACED' ? (
                                   <div className="space-y-1">
                                     <Label className="text-xs">
-                                      {String((line as any)?.replacementInputMode || 'case') === 'case' ? 'Cases Replaced' : 'Bottles Replaced'}
+                                      {replacementInputMode === 'case' ? `${unitPluralLabel} Replaced` : 'Bottles Replaced'}
                                     </Label>
                                     <Input
                                       type="text"
                                       inputMode="numeric"
                                       pattern="[0-9]*"
                                       value={
-                                        String((line as any)?.replacementInputMode || 'case') === 'case'
+                                        replacementInputMode === 'case'
                                           ? String(Math.floor(Math.max(Number(line?.quantityReplaced || 0), 0) / quantityPerCase))
                                           : String(Math.max(Number(line?.quantityReplaced || 0), 0))
                                       }
@@ -3254,6 +3458,9 @@ export function TripDetailView({
                                       }}
                                     />
                                   </div>
+                                ) : null}
+                                {spareInlineError?.orderItemId && spareInlineError.orderItemId === item.id ? (
+                                  <p className="text-xs font-medium text-red-700">{spareInlineError.message}</p>
                                 ) : null}
                               </div>
                             ) : null}

@@ -6,11 +6,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import type { WarehouseStocksViewProps } from '../shared/types'
 
 export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft }: WarehouseStocksViewProps) {
+  const getBatchSizeLabel = (batch: any) => {
+    const productSizes = Array.isArray(batch?.inventory?.product?.sizes)
+      ? batch.inventory.product.sizes
+      : []
+    const sizes = productSizes
+      .map((value: any) => String(value || '').trim())
+      .filter(Boolean)
+    if (sizes.length > 0) return sizes.join(', ')
+    const fallback = String(
+      batch?.inventory?.product?.size ||
+      batch?.inventory?.product?.sizeLabel ||
+      batch?.inventory?.product?.unit ||
+      ''
+    ).trim()
+    return fallback || 'N/A'
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Stocks</CardTitle>
-        <CardDescription>Batch-based stock-in records with receipt date, expiry date, and days left.</CardDescription>
+        <CardDescription>Batch-based stock-in records with manufactured date, expiry date, and days left.</CardDescription>
       </CardHeader>
       <CardContent className="p-0">
         {loadingBatches ? (
@@ -27,8 +44,9 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft 
                   <th className="text-left p-4 font-medium text-gray-600">Batch #</th>
                   <th className="text-left p-4 font-medium text-gray-600">SKU</th>
                   <th className="text-left p-4 font-medium text-gray-600">Product</th>
+                  <th className="text-left p-4 font-medium text-gray-600">Size</th>
                   <th className="text-left p-4 font-medium text-gray-600">Qty</th>
-                  <th className="text-left p-4 font-medium text-gray-600">Receipt Date</th>
+                  <th className="text-left p-4 font-medium text-gray-600">Manufactured Date</th>
                   <th className="text-left p-4 font-medium text-gray-600">Expiry Date</th>
                   <th className="text-left p-4 font-medium text-gray-600">Days Left</th>
                   <th className="text-left p-4 font-medium text-gray-600">Status</th>
@@ -45,6 +63,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft 
                       <td className="p-4 font-medium text-gray-900">{batch.batchNumber}</td>
                       <td className="p-4">{batch.inventory?.product?.sku || 'N/A'}</td>
                       <td className="p-4">{batch.inventory?.product?.name || 'N/A'}</td>
+                      <td className="p-4">{getBatchSizeLabel(batch)}</td>
                       <td className="p-4 font-semibold">{batch.quantity}</td>
                       <td className="p-4">{new Date(batch.receiptDate).toLocaleDateString()}</td>
                       <td className="p-4">{batch.expiryDate ? new Date(batch.expiryDate).toLocaleDateString() : 'N/A'}</td>

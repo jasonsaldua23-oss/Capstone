@@ -1,7 +1,8 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,6 +34,7 @@ import { WarehouseOrdersView } from './sections/orders/orders-view'
 import { WarehouseReplacementsView } from './sections/replacements/replacements-view'
 import { WarehouseStocksView } from './sections/stocks/stocks-view'
 import { WarehouseWarehousesView } from './sections/warehouses/warehouses-view'
+import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
@@ -53,9 +55,20 @@ import {
   Eye,
   CircleCheck,
   EyeOff,
-  Trash2
+  Trash2,
+  ClipboardList,
+  User,
+  Mail,
+  Phone,
+  Building2,
+  Clock,
+  Route,
+  Car,
+  CalendarClock,
+  Camera
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -111,6 +124,12 @@ interface ProductOption {
   price?: number
   unit?: string
   sizes?: string[]
+  isOverstocked?: boolean
+  overstockInfo?: {
+    available: number
+    threshold: number
+    daysSinceRestock: number
+  } | null
 }
 
 interface StockBatchItem {
@@ -246,6 +265,11 @@ interface WarehouseTripItem {
   id: string
   tripNumber: string
   warehouseId?: string
+  warehouse?: {
+    id?: string
+    name?: string
+    code?: string
+  }
   status: string
   totalDropPoints?: number
   completedDropPoints?: number
@@ -357,10 +381,12 @@ interface StockRow {
   id: string
   productId: string
   quantity: string
+  manufacturedDate: string
   expiryDate: string
   validationErrors: {
     productId?: string
     quantity?: string
+    manufacturedDate?: string
     expiryDate?: string
   }
 }
@@ -385,6 +411,41 @@ function getDefaultRouteDate() {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function getLocalTodayDate() {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
+function getLocalTodayDayKey() {
+  return formatDayKey(getLocalTodayDate())
+}
+
+function parseDayKey(value: string) {
+  const [yearText, monthText, dayText] = String(value || '').split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) return null
+  return new Date(year, month - 1, day)
+}
+
+function normalizeToDayKey(value: string | null | undefined) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const base = raw.includes('T') ? raw.slice(0, 10) : raw
+  const parsed = parseDayKey(base)
+  return parsed ? formatDayKey(parsed) : ''
+}
+
+function isBeforeTodayDayKey(value: string | null | undefined) {
+  const dayKey = normalizeToDayKey(value)
+  if (!dayKey) return false
+  const parsed = parseDayKey(dayKey)
+  if (!parsed) return false
+  return parsed < getLocalTodayDate()
 }
 
 function formatDayKey(date: Date) {
@@ -484,6 +545,7 @@ export function WarehousePortal() {
   const [loadingReplacements, setLoadingReplacements] = useState(true)
   const [loadingRoutePlans, setLoadingRoutePlans] = useState(false)
   const [creatingTripFromRoute, setCreatingTripFromRoute] = useState(false)
+  const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [routePlanMessage, setRoutePlanMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
@@ -491,6 +553,7 @@ export function WarehousePortal() {
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
+  const [tripToDelete, setTripToDelete] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
@@ -505,7 +568,7 @@ export function WarehousePortal() {
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false)
   const [stockInWarehouseId, setStockInWarehouseId] = useState('')
   const [stockRows, setStockRows] = useState<StockRow[]>([
-    { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
+    { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
   ])
   const [profileName, setProfileName] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
@@ -540,6 +603,21 @@ export function WarehousePortal() {
       0,
       Number((item as any)?.minStock ?? (item as any)?.threshold ?? (item as any)?.min_stock ?? 0) || 0
     )
+  const isOverstockedInventoryItem = (item: InventoryItem | null | undefined) => {
+    if (!item) return false
+    const threshold = getItemThreshold(item)
+    if (threshold <= 0) return false
+    const qty = Number((item as any)?.quantity ?? 0) || 0
+    const reserved = Number((item as any)?.reservedQuantity ?? (item as any)?.reserved_quantity ?? 0) || 0
+    const available = Math.max(0, qty - reserved)
+    if (available < threshold * 3) return false
+    const lastRestockedRaw = (item as any)?.lastRestockedAt ?? (item as any)?.last_restocked_at ?? (item as any)?.updatedAt ?? (item as any)?.updated_at
+    if (!lastRestockedRaw) return false
+    const lastRestockedAt = new Date(lastRestockedRaw)
+    if (Number.isNaN(lastRestockedAt.getTime())) return false
+    const daysInOverstockMs = Date.now() - lastRestockedAt.getTime()
+    return daysInOverstockMs >= (7 * 24 * 60 * 60 * 1000)
+  }
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
@@ -804,9 +882,12 @@ export function WarehousePortal() {
       toast.error('Only planned trips can be deleted')
       return
     }
+    setTripToDelete(trip)
+  }
 
-    const confirmed = window.confirm(`Delete trip ${trip.tripNumber}? Orders from this trip can be routed again after deletion.`)
-    if (!confirmed) return
+  const confirmDeleteTrip = async () => {
+    if (!tripToDelete) return
+    const trip = tripToDelete
 
     try {
       const response = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' })
@@ -827,6 +908,30 @@ export function WarehousePortal() {
       toast.success('Trip deleted')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete trip')
+    } finally {
+      setTripToDelete(null)
+    }
+  }
+
+  const unassignOrderItemsFromTrip = async (tripId: string, orderId: string, warehouseId: string, itemIds: string[]) => {
+    try {
+      const response = await fetch(`/api/trips/${tripId}/unassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, warehouseId, itemIds }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to unassign items')
+      }
+      await fetchTripsData()
+      await fetchOrdersData()
+      emitDataSync(['trips', 'orders'])
+      toast.success(`Unassigned ${data?.deletedCount || 0} items from trip`)
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to unassign items')
+      return false
     }
   }
 
@@ -872,10 +977,49 @@ export function WarehousePortal() {
 
   const scopedOrders = useMemo(() => {
     if (!assignedWarehouse) return orders
-    const hasOrderWarehouseRefs = orders.some((item) => item?.warehouseId)
-    if (!hasOrderWarehouseRefs) return orders
-    const filtered = orders.filter((item) => !item?.warehouseId || item?.warehouseId === assignedWarehouse.id)
-    return filtered.length > 0 ? filtered : orders
+    const belongsToAssignedWarehouse = (item: any) => {
+      const assignedId = String(assignedWarehouse.id || '').trim()
+      if (!assignedId) return true
+
+      const directId = String(item?.warehouseId || item?.warehouse_id || '').trim()
+      if (directId && directId === assignedId) return true
+
+      const idsFromArray = Array.isArray(item?.warehouseIds)
+        ? item.warehouseIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+        : []
+      if (idsFromArray.includes(assignedId)) return true
+
+      const allocationIds = Array.isArray(item?.warehouseAllocations)
+        ? item.warehouseAllocations
+            .map((allocation: any) => String(allocation?.warehouseId || allocation?.warehouse_id || allocation?.warehouse?.id || '').trim())
+            .filter(Boolean)
+        : []
+      if (allocationIds.includes(assignedId)) return true
+
+      const fulfillmentIds = Array.isArray(item?.fulfillments)
+        ? item.fulfillments
+            .map((leg: any) => String(leg?.warehouseId || leg?.warehouse_id || leg?.warehouse?.id || '').trim())
+            .filter(Boolean)
+        : []
+      if (fulfillmentIds.includes(assignedId)) return true
+
+      // Keep legacy behavior for orders that still have no warehouse references yet.
+      return !directId && idsFromArray.length === 0 && allocationIds.length === 0 && fulfillmentIds.length === 0
+    }
+
+    const hasOrderWarehouseRefs = orders.some((item) => {
+      const directId = String(item?.warehouseId || item?.warehouse_id || '').trim()
+      const hasIds = Array.isArray(item?.warehouseIds) && item.warehouseIds.some((value: any) => String(value || '').trim())
+      const hasAllocations = Array.isArray(item?.warehouseAllocations) && item.warehouseAllocations.some((allocation: any) => String(allocation?.warehouseId || allocation?.warehouse_id || allocation?.warehouse?.id || '').trim())
+      const hasFulfillments = Array.isArray(item?.fulfillments) && item.fulfillments.some((leg: any) => String(leg?.warehouseId || leg?.warehouse_id || leg?.warehouse?.id || '').trim())
+      return Boolean(directId || hasIds || hasAllocations || hasFulfillments)
+    })
+
+    const warehouseScoped = hasOrderWarehouseRefs ? orders.filter(belongsToAssignedWarehouse) : orders
+    return warehouseScoped.filter((item) => {
+      const number = String(item?.orderNumber || item?.order_number || '').trim().toUpperCase()
+      return !Boolean(item?.isScheduledReplacement) && !number.startsWith('RPL-')
+    })
   }, [assignedWarehouse, orders])
 
   const isDropPointCompleted = (status: unknown) => {
@@ -1283,13 +1427,31 @@ export function WarehousePortal() {
       const productId = String(item?.product?.id || '').trim()
       if (!productId || seen.has(productId)) continue
       seen.add(productId)
+      const threshold = getItemThreshold(item)
+      const qty = Number((item as any)?.quantity ?? 0) || 0
+      const reserved = Number((item as any)?.reservedQuantity ?? (item as any)?.reserved_quantity ?? 0) || 0
+      const available = Math.max(0, qty - reserved)
+      const lastRestockedRaw = (item as any)?.lastRestockedAt ?? (item as any)?.last_restocked_at ?? (item as any)?.updatedAt ?? (item as any)?.updated_at
+      const lastRestockedAt = lastRestockedRaw ? new Date(lastRestockedRaw) : null
+      const daysSinceRestock = lastRestockedAt && !Number.isNaN(lastRestockedAt.getTime())
+        ? Math.max(0, Math.floor((Date.now() - lastRestockedAt.getTime()) / (24 * 60 * 60 * 1000)))
+        : 0
+      const isOverstocked = isOverstockedInventoryItem(item)
       fromInventory.push({
         id: productId,
         sku: String(item?.product?.sku || '').trim(),
         name: String(item?.product?.name || '').trim(),
         price: Number(item?.product?.price || 0),
         unit: String(item?.product?.unit || 'case').trim(),
-        sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : []
+        sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : [],
+        isOverstocked,
+        overstockInfo: isOverstocked
+          ? {
+              available,
+              threshold,
+              daysSinceRestock,
+            }
+          : null,
       })
     }
 
@@ -1322,7 +1484,14 @@ export function WarehousePortal() {
 
   const filteredInventoryTransactions = useMemo(() => {
     return scopedInventoryTransactions.filter((entry) => {
+      // Only show inventory transactions: IN, OUT, RESERVE, UNRESERVE
+      // Exclude ASSIGN (trip assignments) and other non-inventory types
       const rawType = String(entry?.type || '').trim().toUpperCase()
+      const validInventoryTypes = ['IN', 'OUT', 'RESERVE', 'UNRESERVE']
+      if (!validInventoryTypes.includes(rawType)) {
+        return false
+      }
+
       if (transactionTypeFilter !== 'all' && rawType !== transactionTypeFilter.toUpperCase()) {
         return false
       }
@@ -1389,8 +1558,100 @@ export function WarehousePortal() {
     }
 
     let replacedQty = 0
+    let replacedBottleQty = 0
+    let replacedCaseQty = 0
     let resolvedOnDelivery = 0
     let needsFollowUp = 0
+    let rejected = 0
+
+    const getReplacementLinesForKpi = (entry: any, meta: any) =>
+      (Array.isArray((entry as any)?.replacementLines) && (entry as any).replacementLines.length ? (entry as any).replacementLines : null) ||
+      (Array.isArray((meta as any)?.replacementLines) && (meta as any).replacementLines.length ? (meta as any).replacementLines : null) ||
+      (Array.isArray((entry as any)?.replacementItems) && (entry as any).replacementItems.length ? (entry as any).replacementItems : null) ||
+      (Array.isArray((meta as any)?.replacementItems) && (meta as any).replacementItems.length ? (meta as any).replacementItems : null) ||
+      []
+
+    const getBottleReplacedQtyForKpi = (entry: any, meta: any): number => {
+      const replacementLines = getReplacementLinesForKpi(entry, meta)
+      const firstLine = replacementLines[0] || {}
+      const lineBottleQty = Number(
+        firstLine?.replacedBottles ??
+        firstLine?.quantityReplacedBottles ??
+        firstLine?.replacementBottles
+      )
+      if (Number.isFinite(lineBottleQty) && lineBottleQty > 0) return lineBottleQty
+
+      const topBottleQty = Number(
+        (entry as any)?.replacementBottles ??
+        (meta as any)?.replacementBottles ??
+        (entry as any)?.replacedBottles ??
+        (meta as any)?.replacedBottles ??
+        0
+      )
+      if (Number.isFinite(topBottleQty) && topBottleQty > 0) return topBottleQty
+
+      // Fallback: text-based bottle classification when structural bottle qty is absent.
+      const contextText = `${String((entry as any)?.reason || '')} ${String((entry as any)?.description || '')} ${String((entry as any)?.notes || '')}`.toLowerCase()
+      const hasBottleText = /\bbottle(?:s)?\b/.test(contextText)
+      const hasUnitEvidence = Number(
+        firstLine?.replacedCases ??
+        firstLine?.quantityReplacedCases ??
+        firstLine?.replacementCases ??
+        (entry as any)?.replacementCases ??
+        (meta as any)?.replacementCases ??
+        (entry as any)?.quantityReplacedCases ??
+        (meta as any)?.quantityReplacedCases ??
+        0
+      ) > 0
+      if (!hasBottleText || hasUnitEvidence) return 0
+
+      return getCanonicalReplacedQtyForKpi(entry, meta)
+    }
+
+    const getCanonicalReplacedQtyForKpi = (entry: any, meta: any): number => {
+      const qty = Number(
+        (entry as any)?.replacementQuantity ??
+        (meta as any)?.replacementQuantity ??
+        (entry as any)?.quantityReplaced ??
+        (meta as any)?.quantityReplaced ??
+        0
+      )
+      return Number.isFinite(qty) && qty > 0 ? qty : 0
+    }
+
+    const getUnitReplacedQtyForKpi = (entry: any, meta: any): number => {
+      const replacementLines = getReplacementLinesForKpi(entry, meta)
+      const firstLine = replacementLines[0] || {}
+      const directUnitQty = Number(
+        firstLine?.replacedCases ??
+        firstLine?.quantityReplacedCases ??
+        firstLine?.replacementCases ??
+        (entry as any)?.replacementCases ??
+        (meta as any)?.replacementCases ??
+        (entry as any)?.quantityReplacedCases ??
+        (meta as any)?.quantityReplacedCases ??
+        0
+      )
+      if (Number.isFinite(directUnitQty) && directUnitQty > 0) return directUnitQty
+
+      const qtyPerCase = Number(
+        firstLine?.quantityPerCase ??
+        firstLine?.qtyPerUnit ??
+        firstLine?.quantityPerUnit ??
+        (entry as any)?.quantityPerCase ??
+        (meta as any)?.quantityPerCase ??
+        (entry as any)?.qtyPerUnit ??
+        (meta as any)?.qtyPerUnit ??
+        0
+      )
+      const canonicalQty = getCanonicalReplacedQtyForKpi(entry, meta)
+      if (Number.isFinite(qtyPerCase) && qtyPerCase > 0 && canonicalQty > 0) {
+        const units = canonicalQty / qtyPerCase
+        return Number.isFinite(units) && units > 0 ? units : 0
+      }
+      // Keep unit KPI strict: no raw-quantity fallback, to avoid bottle leakage.
+      return 0
+    }
 
     for (const entry of scopedReplacements) {
       const meta = parseMeta(entry?.notes)
@@ -1402,26 +1663,66 @@ export function WarehousePortal() {
           : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
             ? 'IN_PROGRESS'
             : rawStatus === 'REJECTED'
-              ? 'NEEDS_FOLLOW_UP'
+              ? 'REJECTED'
               : rawStatus === 'PROCESSED'
                 ? 'COMPLETED'
                 : rawStatus
-      const qty = Number(entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
-      if (qty > 0) {
-        replacedQty += qty
+      if (status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED') {
+        const replacementLines = getReplacementLinesForKpi(entry, meta)
+        const firstLine = replacementLines[0] || {}
+        const bottleQty = getBottleReplacedQtyForKpi(entry, meta)
+        const lineReplacedUnits = Number(
+          firstLine?.replacedCases ??
+          firstLine?.quantityReplacedCases ??
+          firstLine?.replacementCases
+        )
+        const fallbackQty = Number(
+          (entry as any)?.quantityReplaced ??
+          (meta as any)?.quantityReplaced ??
+          (entry as any)?.replacementQuantity ??
+          (meta as any)?.replacementQuantity ??
+          0
+        )
+        const canonicalQty = getCanonicalReplacedQtyForKpi(entry, meta)
+        const unitQty = getUnitReplacedQtyForKpi(entry, meta)
+        const qty = unitQty > 0
+          ? unitQty
+          : Number.isFinite(fallbackQty) && fallbackQty > 0
+            ? fallbackQty
+            : Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+              ? lineReplacedUnits
+              : 0
+        if (bottleQty <= 0 && qty > 0) {
+          replacedQty += qty
+        }
+
+        if (bottleQty > 0) {
+          replacedBottleQty += bottleQty
+        } else {
+          const caseQty = Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+            ? lineReplacedUnits
+            : (unitQty > 0 ? unitQty : (canonicalQty > 0 ? canonicalQty : (Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0)))
+          if (caseQty > 0) replacedCaseQty += caseQty
+        }
       }
       if (status === 'RESOLVED_ON_DELIVERY') {
         resolvedOnDelivery += 1
       }
-      if (status === 'NEEDS_FOLLOW_UP') {
+      if (status === 'NEEDS_FOLLOW_UP' && mode !== 'CUSTOMER_SUBMITTED') {
         needsFollowUp += 1
+      }
+      if (status === 'REJECTED') {
+        rejected += 1
       }
     }
 
     return {
       replacedQty,
+      replacedBottleQty,
+      replacedCaseQty,
       resolvedOnDelivery,
       needsFollowUp,
+      rejected,
       totalCases: scopedReplacements.length,
     }
   }, [scopedReplacements])
@@ -1494,8 +1795,8 @@ export function WarehousePortal() {
     const inTransitTrips = scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length
     const openReplacements = scopedReplacements.filter((entry) => {
       const raw = String(entry.status || '').toUpperCase()
-      const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw === 'REJECTED' ? 'NEEDS_FOLLOW_UP' : raw
-      return !['RESOLVED_ON_DELIVERY', 'COMPLETED'].includes(normalized)
+      const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw
+      return !['RESOLVED_ON_DELIVERY', 'COMPLETED', 'REJECTED'].includes(normalized)
     }).length
     const utilizationStatus = usagePercent >= 90 ? 'Critical' : usagePercent >= 75 ? 'High' : usagePercent >= 55 ? 'Moderate' : 'Healthy'
     const skuVelocityData = scopedInventory
@@ -1527,7 +1828,7 @@ export function WarehousePortal() {
           acc.critical += 1
         } else if (minStock > 0 && available <= minStock) {
           acc.low += 1
-        } else if (minStock > 0 && available >= minStock * 2) {
+        } else if (isOverstockedInventoryItem(item)) {
           acc.overstocked += 1
         } else {
           acc.healthy += 1
@@ -1605,7 +1906,7 @@ export function WarehousePortal() {
         id: 'latest-batch',
         label: 'Latest stock-in',
         detail: latestBatch
-          ? `${latestBatch.batchNumber} received (${new Date(latestBatch.receiptDate).toLocaleDateString()})`
+          ? `${latestBatch.batchNumber} manufactured (${new Date(latestBatch.receiptDate).toLocaleDateString()})`
           : 'No recent stock-in record found',
       },
     ]
@@ -1797,7 +2098,7 @@ export function WarehousePortal() {
   }
 
   const fetchOrderMarker = async () => {
-    const result = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&sort=updated_at', { cache: 'no-store', credentials: 'include' })
+    const result = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&includeFulfillments=true&includeWarehouseAllocations=true&sort=updated_at', { cache: 'no-store', credentials: 'include' })
     if (!result.ok) {
       throw new Error(result.error || 'Failed orders fetch')
     }
@@ -1840,7 +2141,7 @@ export function WarehousePortal() {
     const maxPages = 100
     const fetchPage = (page: number) =>
       safeFetchJson(
-        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none`,
+        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none&includeFulfillments=true&includeWarehouseAllocations=true`,
         { cache: 'no-store', credentials: 'include' }
       )
 
@@ -1887,6 +2188,8 @@ export function WarehousePortal() {
         if (latestOrderUpdatedAtRef.current) {
           const deltaParams = new URLSearchParams({
             includeItems: 'none',
+            includeFulfillments: 'true',
+            includeWarehouseAllocations: 'true',
             sort: 'updated_at',
             page: '1',
             pageSize: '200',
@@ -2049,6 +2352,12 @@ export function WarehousePortal() {
       setRoutePlanMessage({ type: 'error', text: 'Select route date and warehouse first.' })
       return false
     }
+    if (isBeforeTodayDayKey(effectiveDate)) {
+      const message = 'Delivery date cannot be before today'
+      if (!silent) toast.error(message)
+      setRoutePlanMessage({ type: 'error', text: message })
+      return false
+    }
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
     setRoutePlans([])
@@ -2069,7 +2378,15 @@ export function WarehousePortal() {
         throw new Error(data?.error || 'Failed to generate route plan')
       }
 
-      const plans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
+      const rawPlans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
+      const plans = rawPlans
+        .map((group: any) => ({
+          ...group,
+          orders: (Array.isArray(group?.orders) ? group.orders : []).filter(
+            (order: any) => Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0
+          ),
+        }))
+        .filter((group: any) => (Array.isArray(group?.orders) ? group.orders.length : 0) > 0)
       setRoutePlans(plans)
       setSelectedRouteCity(plans[0]?.city || '')
       setSelectedRouteOrderIds([])
@@ -2127,6 +2444,46 @@ export function WarehousePortal() {
     return fallbackCity || 'N/A'
   }
 
+  const editTripDropPoints = async (
+    trip: WarehouseTripItem,
+    changes: { addOrderIds?: string[]; removeDropPointIds?: string[]; assignWarehouseLegs?: boolean; assignWarehouseId?: string }
+  ) => {
+    const addOrderIds = (changes.addOrderIds || []).filter(Boolean)
+    const removeDropPointIds = (changes.removeDropPointIds || []).filter(Boolean)
+    const assignWarehouseLegs = Boolean(changes.assignWarehouseLegs)
+    const assignWarehouseId = String(changes.assignWarehouseId || '').trim()
+    if (addOrderIds.length === 0 && removeDropPointIds.length === 0 && !assignWarehouseLegs) return
+    if (String(trip.status || '').toUpperCase() !== 'PLANNED') {
+      toast.error('Only planned trips can be edited')
+      return
+    }
+
+    setEditingTripId(trip.id)
+    try {
+      const response = await fetch(`/api/trips/${trip.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addOrderIds, removeDropPointIds, assignWarehouseLegs, assignWarehouseId }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to update trip')
+      }
+      const updatedTrip = data?.trip
+      if (updatedTrip?.id) {
+        setTrips((prev) => prev.map((entry) => (entry.id === updatedTrip.id ? updatedTrip : entry)))
+        setSelectedTrip((current) => (current?.id === updatedTrip.id ? updatedTrip : current))
+      }
+      await fetchOrdersData({ showLoading: false, silent: true })
+      emitDataSync(['trips', 'orders'])
+      toast.success('Trip updated')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update trip')
+    } finally {
+      setEditingTripId(null)
+    }
+  }
+
   const parseApiErrorMessage = (response: Response, payload: any, fallback: string) => {
     const fromPayload =
       String(payload?.error || '').trim() ||
@@ -2147,6 +2504,10 @@ export function WarehousePortal() {
     }
     if (!selectedDriverAssignedVehicle?.id) {
       toast.error('Selected driver has no assigned vehicle')
+      return
+    }
+    if (isBeforeTodayDayKey(selectedSavedRoute.date)) {
+      toast.error('Delivery date cannot be before today')
       return
     }
     setCreatingTripFromRoute(true)
@@ -2232,6 +2593,10 @@ export function WarehousePortal() {
     }
     if (!selectedDriverAssignedVehicle?.id) {
       toast.error('Selected driver has no assigned vehicle')
+      return
+    }
+    if (isBeforeTodayDayKey(routeDate)) {
+      toast.error('Delivery date cannot be before today')
       return
     }
 
@@ -2552,7 +2917,7 @@ export function WarehousePortal() {
 
   const resetStockInForm = () => {
     setStockRows([
-      { id: `row-${Date.now()}-0`, productId: '', quantity: '', expiryDate: '', validationErrors: {} }
+      { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
     ])
     if (!isWarehouseScopedUser || !assignedWarehouse?.id) {
       setStockInWarehouseId('')
@@ -2565,6 +2930,7 @@ export function WarehousePortal() {
       id: `row-${Date.now()}-${Math.random()}`,
       productId: '',
       quantity: '',
+      manufacturedDate: '',
       expiryDate: '',
       validationErrors: {}
     }
@@ -2590,6 +2956,15 @@ export function WarehousePortal() {
   const validateStockRow = (row: StockRow) => {
     const errors: StockRow['validationErrors'] = {}
     if (!row.productId.trim()) errors.productId = 'Product is required'
+    const selectedProduct = availableExistingProducts.find((p) => p.id === row.productId.trim())
+    if (selectedProduct?.isOverstocked) {
+      const info = selectedProduct.overstockInfo
+      if (info) {
+        errors.productId = `Overstocked: available ${info.available}, threshold ${info.threshold}, ${info.daysSinceRestock} days since restock`
+      } else {
+        errors.productId = 'Product is overstocked and cannot be restocked right now'
+      }
+    }
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
     return errors
@@ -2628,7 +3003,8 @@ export function WarehousePortal() {
 
       const productIdentifier = parts[0]
       const quantity = parts[1]
-      const expiryDate = parts[2] || ''
+      const manufacturedDate = parts[2] || ''
+      const expiryDate = parts[3] || ''
 
       // Find product by SKU or name
       const matchedProduct = availableExistingProducts.find(
@@ -2640,6 +3016,7 @@ export function WarehousePortal() {
           id: `row-${Date.now()}-${Math.random()}`,
           productId: matchedProduct.id,
           quantity: quantity,
+          manufacturedDate: manufacturedDate,
           expiryDate: expiryDate,
           validationErrors: {}
         })
@@ -2697,6 +3074,7 @@ export function WarehousePortal() {
     const batches = stockRows.map(row => ({
       productId: row.productId,
       quantity: Number(row.quantity),
+      manufacturedDate: row.manufacturedDate || null,
       expiryDate: row.expiryDate || null
     }))
 
@@ -2746,16 +3124,201 @@ export function WarehousePortal() {
     return Math.ceil((end - start) / (1000 * 60 * 60 * 24))
   }
 
-  const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null) => {
+  const normalizeFulfillmentStatus = (status: unknown) => {
+    const value = String(status || '').trim().toUpperCase()
+    if (!value) return 'PENDING'
+    if (value === 'IN_TRANSIT' || value === 'OUT_FOR_DELIVERY' || value === 'DISPATCHED') return 'IN_TRANSIT'
+    if (value === 'DELIVERED' || value === 'COMPLETED' || value === 'FULFILLED' || value === 'ARRIVED') return 'DELIVERED'
+    if (value === 'FAILED' || value === 'FAILED_DELIVERY') return 'FAILED'
+    return value
+  }
+
+  const extractFulfillmentLegs = (order: any) => {
+    const toList = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : [])
+    const getWarehouseKey = (entry: { warehouseId?: string | null; warehouseName?: string | null }) => {
+      const id = String(entry?.warehouseId || '').trim()
+      if (id) return `id:${id}`
+      const name = String(entry?.warehouseName || '').trim().toLowerCase()
+      return name ? `name:${name}` : ''
+    }
+
+    const directLegs = Array.isArray(order?.fulfillments)
+      ? order.fulfillments
+      : Array.isArray(order?.shipments)
+        ? order.shipments
+        : Array.isArray(order?.fulfillmentLegs)
+          ? order.fulfillmentLegs
+          : []
+
+    const normalizedDirectLegs = directLegs.map((leg: any, index: number) => {
+        const legItems = Array.isArray(leg?.items) ? leg.items : []
+        const allocatedQty = Number(
+          leg?.allocatedQty ??
+          leg?.allocatedQuantity ??
+          legItems.reduce((sum: number, item: any) => sum + Number(item?.allocatedQty ?? item?.quantity ?? 0), 0)
+        ) || 0
+        return {
+          id: String(leg?.id || `${order?.id || 'order'}-leg-${index}`),
+          warehouseId: String(leg?.warehouseId ?? leg?.warehouse_id ?? leg?.warehouse?.id ?? '').trim(),
+          warehouseName: String(leg?.warehouseName ?? leg?.warehouse?.name ?? order?.warehouseName ?? order?.warehouseCode ?? '').trim() || 'Unassigned',
+          status: normalizeFulfillmentStatus(leg?.status ?? order?.status),
+          tripId: leg?.tripId ? String(leg.tripId) : null,
+          tripNumber: String(leg?.trip?.tripNumber || leg?.tripNumber || '').trim() || null,
+          allocatedQty,
+        }
+      })
+    
+    // Deduplicate direct legs by warehouseName + tripNumber combination
+    const seenLegKeys = new Set<string>()
+    const deduplicatedDirectLegs = normalizedDirectLegs.filter((leg: any) => {
+      const key = `${leg.warehouseName}::${leg.tripNumber || 'no-trip'}`
+      if (seenLegKeys.has(key)) {
+        return false // Skip duplicate
+      }
+      seenLegKeys.add(key)
+      return true
+    })
+
+    const topLevelAllocations = [
+      ...toList<any>(order?.warehouseAllocations),
+      ...toList<any>(order?.allocations),
+    ]
+    const itemLevelAllocations = toList<any>(order?.items).flatMap((item: any) => [
+      ...toList<any>(item?.warehouseAllocations),
+      ...toList<any>(item?.allocations),
+    ])
+    // Avoid double counting the same allocations when payload includes both top-level and item-level mirrors.
+    const allocationLegs = topLevelAllocations.length > 0 ? topLevelAllocations : itemLevelAllocations
+    const normalizedAllocationLegsRaw = allocationLegs.map((allocation: any, index: number) => {
+        const warehouseId = String(
+          allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id ?? ''
+        ).trim()
+        const warehouseName = String(
+          allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouseCode ?? allocation?.warehouse?.code ?? ''
+        ).trim()
+        const allocatedQty = Number(
+          allocation?.allocatedQty ?? allocation?.allocatedQuantity ?? allocation?.quantity ?? 0
+        ) || 0
+        return {
+          id: String(allocation?.id || `${order?.id || 'order'}-alloc-leg-${index}`),
+          warehouseId,
+          warehouseName: warehouseName || (warehouseId ? `Warehouse ${warehouseId}` : 'Unassigned'),
+          status: normalizeFulfillmentStatus(order?.status),
+          tripId: null,
+          tripNumber: null,
+          allocatedQty,
+        }
+      })
+    const allocationByWarehouse = new Map<string, any>()
+    normalizedAllocationLegsRaw.forEach((leg: any, index: number) => {
+      const key = getWarehouseKey(leg) || `unknown:${index}`
+      const existing = allocationByWarehouse.get(key)
+      if (!existing) {
+        allocationByWarehouse.set(key, { ...leg })
+        return
+      }
+      allocationByWarehouse.set(key, {
+        ...existing,
+        allocatedQty: Number(existing.allocatedQty || 0) + Number(leg.allocatedQty || 0),
+        warehouseId: existing.warehouseId || leg.warehouseId,
+        warehouseName: existing.warehouseName !== 'Unassigned' ? existing.warehouseName : leg.warehouseName,
+      })
+    })
+    const normalizedAllocationLegs = Array.from(allocationByWarehouse.values())
+
+    if (deduplicatedDirectLegs.length > 0) {
+      const allocationQtyByWarehouseKey = new Map<string, number>()
+      normalizedAllocationLegs.forEach((leg: any) => {
+        const key = getWarehouseKey(leg)
+        if (!key) return
+        allocationQtyByWarehouseKey.set(key, Number(leg?.allocatedQty || 0))
+      })
+      const hydratedDirectLegs = deduplicatedDirectLegs.map((leg: any) => {
+        const key = getWarehouseKey(leg)
+        const fallbackQty = key ? Number(allocationQtyByWarehouseKey.get(key) || 0) : 0
+        const currentQty = Number(leg?.allocatedQty || 0)
+        if (currentQty > 0 || fallbackQty <= 0) return leg
+        return { ...leg, allocatedQty: fallbackQty }
+      })
+
+      const directWarehouseKeys = new Set(
+        hydratedDirectLegs.map((leg: any) => getWarehouseKey(leg)).filter(Boolean)
+      )
+      const extras = normalizedAllocationLegs
+        .filter((leg: any) => {
+          const key = getWarehouseKey(leg)
+          return key && !directWarehouseKeys.has(key)
+        })
+        .map((leg: any) => ({
+          ...leg,
+          status: 'PENDING',
+        }))
+      return [...hydratedDirectLegs, ...extras]
+    }
+
+    if (normalizedAllocationLegs.length > 0) {
+      return normalizedAllocationLegs
+    }
+
+    const fallbackItems = Array.isArray(order?.items) ? order.items : []
+    return [{
+      id: `${String(order?.id || 'order')}-leg-0`,
+      warehouseName: String(order?.warehouseName || order?.warehouseCode || '').trim() || 'Unassigned',
+      status: normalizeFulfillmentStatus(order?.status),
+      tripId: order?.tripId ? String(order.tripId) : null,
+      tripNumber: String(order?.tripNumber || order?.progress?.trip?.tripNumber || '').trim() || null,
+      allocatedQty: fallbackItems.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0),
+    }]
+  }
+
+  const deriveOrderFulfillmentSummary = (order: any) => {
+    const legs = extractFulfillmentLegs(order)
+    // Filter out legs for trips that don't exist (were deleted)
+    const validLegs = legs.filter((leg: any) => {
+      const legTripId = String(leg?.tripId || '').trim()
+      const legTripNumber = String(leg?.tripNumber || '').trim()
+      if (!legTripId && !legTripNumber) return true // Keep unassigned legs
+      // Check if trip exists in our trips list
+      return trips.some((t: any) => 
+        String(t?.id || '').trim() === legTripId || 
+        String(t?.tripNumber || '').trim() === legTripNumber
+      )
+    })
+    const deliveredCount = validLegs.filter((leg: any) => leg.status === 'DELIVERED').length
+    const failedCount = validLegs.filter((leg: any) => leg.status === 'FAILED' || leg.status === 'CANCELLED').length
+    const unassignedTripCount = validLegs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
+    const total = validLegs.length
+    const fulfillmentStatus = total === 0
+      ? 'PENDING'
+      : deliveredCount === total
+        ? 'FULFILLED'
+        : deliveredCount > 0
+          ? 'PARTIALLY_FULFILLED'
+          : failedCount === total
+            ? 'FAILED'
+            : 'IN_PROGRESS'
+    return {
+      legs: validLegs,
+      totalLegs: total,
+      deliveredLegs: deliveredCount,
+      unassignedTripCount,
+      needsSplit: total > 1,
+      fulfillmentStatus,
+    }
+  }
+
+  const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null, notes?: string | null) => {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING APPROVAL'
     }
 
     const rawStatus = String(status || '').toUpperCase()
     const rawStage = String(warehouseStage || '').toUpperCase()
+    void notes
 
     if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(rawStatus)) return 'DELIVERED'
-    if (['FAILED', 'FAILED_DELIVERY', 'CANCELLED', 'REJECTED'].includes(rawStatus)) return 'CANCELLED'
+    if (rawStatus === 'REJECTED') return 'REJECTED'
+    if (['FAILED', 'FAILED_DELIVERY', 'CANCELLED'].includes(rawStatus)) return 'CANCELLED'
 
     if (['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(rawStatus) || rawStage === 'DISPATCHED') {
       return 'OUT FOR DELIVERY'
@@ -2770,10 +3333,21 @@ export function WarehousePortal() {
     return rawStatus.replace(/_/g, ' ')
   }
 
+  const getWarehouseDisplayOrderStatus = (order: any) => {
+    const summary = deriveOrderFulfillmentSummary(order)
+    if (summary.totalLegs > 1) {
+      if (summary.fulfillmentStatus === 'PARTIALLY_FULFILLED') return 'PARTIALLY FULFILLED'
+      if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
+      if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
+    }
+    return formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
+  }
+
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
+    statuses.add('PARTIALLY FULFILLED')
     scopedOrders.forEach((order) => {
-      statuses.add(formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage))
+      statuses.add(getWarehouseDisplayOrderStatus(order))
     })
     return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
   }, [scopedOrders])
@@ -2794,7 +3368,7 @@ export function WarehousePortal() {
     }
 
     return scopedOrders.filter((order) => {
-      const normalizedStatus = formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage)
+      const normalizedStatus = getWarehouseDisplayOrderStatus(order)
       if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
 
       const rawDate = String(order.deliveryDate || order.createdAt || '')
@@ -2810,6 +3384,8 @@ export function WarehousePortal() {
       const amount = Number(order.totalAmount || 0)
       if (hasMinPrice && amount < minPrice) return false
       if (hasMaxPrice && amount > maxPrice) return false
+      ;(order as any)._displayStatus = normalizedStatus
+      ;(order as any)._fulfillmentSummary = deriveOrderFulfillmentSummary(order)
       return true
     })
   }, [scopedOrders, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter])
@@ -2850,9 +3426,19 @@ export function WarehousePortal() {
     return combined || 'N/A'
   }
 
+  const getOrderItemSizeLabel = (item: any): string => {
+    const productSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes : []
+    const combinedSizes = productSizes
+      .map((value: any) => String(value || '').trim())
+      .filter(Boolean)
+      .join(' ')
+    if (combinedSizes) return combinedSizes
+    return String(item?.product?.size || item?.product?.sizeLabel || item?.product?.unit || item?.productUnit || '').trim()
+  }
+
   const updateWarehouseOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -2911,11 +3497,96 @@ export function WarehousePortal() {
       const parsed = JSON.parse(jsonText)
       return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
-      return {}
+      try {
+        const decoder = (JSON as any)
+        if (typeof decoder?.parse !== 'function') return {}
+        const firstBrace = jsonText.indexOf('{')
+        if (firstBrace < 0) return {}
+        let depth = 0
+        let endIndex = -1
+        for (let i = firstBrace; i < jsonText.length; i += 1) {
+          const ch = jsonText[i]
+          if (ch === '{') depth += 1
+          if (ch === '}') {
+            depth -= 1
+            if (depth === 0) {
+              endIndex = i
+              break
+            }
+          }
+        }
+        if (endIndex < 0) return {}
+        const objectText = jsonText.slice(firstBrace, endIndex + 1)
+        const parsed = JSON.parse(objectText)
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
     }
   }
 
   const buildReplacementLines = (replacement: any, meta: any) => {
+    const rawStatus = String(replacement?.status || '').trim().toUpperCase()
+    const isReplacementCompleted = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
+      const unitHint = String(
+        line?.productUnit ||
+        line?.replacementProductUnit ||
+        line?.originalProductUnit ||
+        line?.unit ||
+        ''
+      ).trim().toLowerCase()
+      const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
+      const byPackText = /\bby\s*pack\b/.test(contextText)
+      const byBundleText = /\bby\s*bundle\b/.test(contextText)
+      const byUnitText = /\bby\s*unit\b/.test(contextText)
+      const byCaseText = /\bby\s*case\b/.test(contextText)
+      const byBottleText = /\bby\s*bottle\b/.test(contextText)
+      const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*unit\s*[:\-]?\s*(\d+)/i)
+      const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
+      const qtyPerPackMatch = contextText.match(/qty\s*\/\s*pack\s*[:\-]?\s*(\d+)/i)
+      const qtyPerBundleMatch = contextText.match(/qty\s*\/\s*bundle\s*[:\-]?\s*(\d+)/i)
+      const qtyPerUnit = qtyPerUnitMatch ? Number(qtyPerUnitMatch[1]) : NaN
+      const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
+      const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
+      const qtyPerBundle = qtyPerBundleMatch ? Number(qtyPerBundleMatch[1]) : NaN
+      const unitLabel =
+        unitHint.includes('pack') || byPackText ? 'pack(s)'
+          : unitHint.includes('bundle') || byBundleText ? 'bundle(s)'
+            : unitHint.includes('case') || byCaseText ? 'case(s)'
+              : 'unit(s)'
+
+      const caseLikeQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases)
+          : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases)
+      )
+      const bottleQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles)
+          : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles)
+      )
+
+      if (Number.isFinite(caseLikeQty) && caseLikeQty > 0) return `${caseLikeQty} ${unitLabel}`
+      if (Number.isFinite(bottleQty) && bottleQty > 0) {
+        return `${bottleQty} bottle(s)`
+      }
+
+      const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+      if (byUnitText && Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && fallback > 0) return `${fallback / qtyPerUnit} ${unitLabel}`
+      if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) {
+        return `${fallback / qtyPerCase} ${unitLabel}`
+      }
+      if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) {
+        return `${fallback / qtyPerPack} ${unitLabel}`
+      }
+      if (byBundleText && Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 && fallback > 0) return `${fallback / qtyPerBundle} ${unitLabel}`
+      if (byBottleText) {
+        return `${fallback} bottle(s)`
+      }
+      return String(fallback)
+    }
+
     const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
       ? replacement.replacementLines
       : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
@@ -2925,34 +3596,106 @@ export function WarehousePortal() {
           : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
             ? meta.replacementItems
         : []
+    const orderNumberKey = String(replacement?.orderNumber || replacement?.order?.orderNumber || '').trim().toUpperCase()
+    const sourceOrder =
+      orders.find((order: any) => String(order?.orderNumber || '').trim().toUpperCase() === orderNumberKey) ||
+      orders.find((order: any) => String(order?.id || '') === String(replacement?.orderId || replacement?.order?.id || '')) ||
+      null
+    const sourceOrderItems = Array.isArray(sourceOrder?.items) ? sourceOrder.items : []
+    const fallbackProductName =
+      String(
+        sourceOrderItems[0]?.product?.name ||
+        sourceOrderItems[0]?.productName ||
+        sourceOrderItems[0]?.name ||
+        ''
+      ).trim() || 'N/A'
     const fallbackLine = {
-      originalProductName: replacement?.originalProductName || meta?.originalProductName || 'N/A',
-      replacementProductName: replacement?.replacementProductName || meta?.replacementProductName || replacement?.originalProductName || meta?.originalProductName || 'N/A',
+      originalProductName:
+        replacement?.originalProductName ||
+        meta?.originalProductName ||
+        replacement?.order?.items?.[0]?.product?.name ||
+        replacement?.order?.items?.[0]?.productName ||
+        fallbackProductName ||
+        'N/A',
+      replacementProductName:
+        replacement?.replacementProductName ||
+        meta?.replacementProductName ||
+        replacement?.originalProductName ||
+        meta?.originalProductName ||
+        replacement?.order?.items?.[0]?.product?.name ||
+        replacement?.order?.items?.[0]?.productName ||
+        fallbackProductName ||
+        'N/A',
       quantityToReplace: replacement?.quantityToReplace ?? meta?.quantityToReplace ?? meta?.damagedQuantity ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
       quantityReplaced: replacement?.quantityReplaced ?? meta?.quantityReplaced ?? replacement?.replacementQuantity ?? meta?.replacementQuantity ?? 0,
     }
     const lines = sourceLines.length ? sourceLines : [fallbackLine]
-    return lines.map((line: any) => ({
-      originalProductName: String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A'),
-      replacementProductName: String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A'),
-      quantityToReplace: Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0),
-      quantityReplaced: Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0),
-    }))
+    return lines.map((line: any) => {
+      const originalSize = String(line?.originalProductSize || replacement?.originalProductSize || meta?.originalProductSize || '').trim()
+      const replacementSize = String(line?.replacementProductSize || replacement?.replacementProductSize || meta?.replacementProductSize || originalSize || '').trim()
+      const originalBaseName = String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A')
+      const replacementBaseName = String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A')
+      const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
+      const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
+      const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
+      return {
+        originalProductName: originalSize ? `${originalBaseName} (${originalSize})` : originalBaseName,
+        replacementProductName: replacementSize ? `${replacementBaseName} (${replacementSize})` : replacementBaseName,
+        quantityToReplace,
+        quantityReplaced,
+        quantityToReplaceDisplay: toDisplayQty(line, quantityToReplace, 'toReplace'),
+        quantityReplacedDisplay: isReplacementCompleted ? toDisplayQty(line, quantityReplaced, 'replaced') : '0',
+      }
+    })
   }
 
   const formatIssueStatus = (entry: WarehouseReplacementItem) => {
+    const meta = parseIssueMeta(entry?.notes)
+    const hasOutstandingReplacementQty = (() => {
+      const lines = buildReplacementLines(entry, meta)
+      const totalQtyToReplace = lines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
+      const totalQtyReplaced = lines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+      if (totalQtyToReplace > 0) return totalQtyReplaced < totalQtyToReplace
+      const qtyToReplace = Number(
+        entry?.quantityToReplace ??
+        meta?.quantityToReplace ??
+        entry?.damagedQuantity ??
+        meta?.damagedQuantity ??
+        0
+      )
+      const qtyReplaced = Number(
+        entry?.quantityReplaced ??
+        meta?.quantityReplaced ??
+        0
+      )
+      return Number.isFinite(qtyToReplace) && Number.isFinite(qtyReplaced) && qtyToReplace > qtyReplaced
+    })()
     const rawStatus = String(entry?.status || '').toUpperCase()
+    const rawMode = String((entry as any)?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
+    const scheduledDeliveryDate = String((entry as any)?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
+    const replacementOrderId = String((entry as any)?.replacementOrderId || meta?.replacementOrderId || '').trim()
+    const hasScheduledFollowUp = Boolean(scheduledDeliveryDate || replacementOrderId)
+    if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
+      return 'Approved'
+    }
+    if (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && hasOutstandingReplacementQty) {
+      return scheduledDeliveryDate || replacementOrderId ? 'Scheduled for Delivery' : 'Needs Follow-up'
+    }
     const normalizedStatus =
       rawStatus === 'REQUESTED'
         ? 'REPORTED'
-        : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
+        : ['PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
           ? 'IN_PROGRESS'
           : rawStatus === 'REJECTED'
-            ? 'NEEDS_FOLLOW_UP'
+            ? 'REJECTED'
             : rawStatus === 'PROCESSED'
               ? 'COMPLETED'
               : rawStatus
-    if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
+    if (normalizedStatus === 'PENDING') return 'Pending'
+    if (normalizedStatus === 'UNDER_REVIEW') return 'Under Review'
+    if (normalizedStatus === 'APPROVED') return 'Approved'
+    if (normalizedStatus === 'REJECTED') return 'Rejected'
+    if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Completed'
     if (normalizedStatus === 'NEEDS_FOLLOW_UP') return 'Needs Follow-up'
     if (normalizedStatus === 'COMPLETED') return 'Completed'
     if (normalizedStatus === 'IN_PROGRESS') return 'In Progress'
@@ -2961,8 +3704,8 @@ export function WarehousePortal() {
 
   const updateIssueStatus = async (
     replacementId: string,
-    status: 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    notes?: string
+    status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
+    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
     try {
@@ -2973,18 +3716,37 @@ export function WarehousePortal() {
           scope: 'replacement',
           replacementId: replacementId,
           status,
-          notes,
+          notes: options?.notes,
+          createReplacementOrder: options?.createReplacementOrder,
+          replacementDeliveryDate: options?.replacementDeliveryDate,
+          manualScheduleConfirmed: options?.manualScheduleConfirmed,
         }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
-
-      toast.success(status === 'COMPLETED' ? 'Replacement marked as completed' : 'Replacement marked for follow-up')
+      const nextReplacement = payload?.replacement || {}
+      const nextStatus = String(nextReplacement?.status || status || '').toUpperCase()
+      const schedulingFlow = Boolean(options?.createReplacementOrder && options?.replacementDeliveryDate)
+      if (schedulingFlow) {
+        toast.success('Replacement delivery scheduled')
+      } else {
+        toast.success(`Replacement updated to ${nextStatus.replace(/_/g, ' ')}`)
+      }
       emitDataSync(['replacements', 'orders'])
-      setReplacements((prev) => prev.map((entry) => (entry.id === replacementId ? { ...entry, status, notes: notes || entry.notes } : entry)))
-      setSelectedReplacement((current) => (current?.id === replacementId ? { ...current, status, notes: notes || current.notes } : current))
+      setReplacements((prev) =>
+        prev.map((entry) =>
+          entry.id === replacementId
+            ? { ...entry, ...nextReplacement, status: nextStatus || entry.status, notes: nextReplacement?.notes || options?.notes || entry.notes }
+            : entry
+        )
+      )
+      setSelectedReplacement((current) =>
+        current?.id === replacementId
+          ? { ...current, ...nextReplacement, status: nextStatus || current.status, notes: nextReplacement?.notes || options?.notes || current.notes }
+          : current
+      )
       void Promise.all([
         fetchReplacementsData(),
         fetchOrdersData({ showLoading: false, silent: true }),
@@ -2997,7 +3759,7 @@ export function WarehousePortal() {
   }
 
   return (
-    <div className="relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]">
+    <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-14 top-10 h-64 w-64 rounded-full bg-cyan-200/20 blur-3xl" />
         <div className="absolute right-[-4rem] top-28 h-72 w-72 rounded-full bg-sky-300/15 blur-3xl" />
@@ -3039,7 +3801,16 @@ export function WarehousePortal() {
           onLogout={handleLogout}
         />
 
-        <main className="flex-1 p-4 md:p-6 overflow-auto">
+        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={activeView}
+              initial={{ opacity: 0, y: 10, filter: 'blur(3px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+              className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100"
+            >
           {!hasAssignedWarehouse && (
             <Card>
               <CardHeader>
@@ -3068,6 +3839,7 @@ export function WarehousePortal() {
               scopedInventory={scopedInventory}
               lowStockCount={lowStockCount}
               pendingReplacementCases={replacementSummary.needsFollowUp}
+              totalReplacementCases={replacementSummary.totalCases}
               warehouseOrdersChartConfig={warehouseOrdersChartConfig}
               weeklyTrendData={weeklyTrendData}
               transactionDateFrom={transactionDateFrom}
@@ -3103,6 +3875,10 @@ export function WarehousePortal() {
               openOrderDetail={openOrderDetail}
               updateWarehouseOrderStatus={updateWarehouseOrderStatus}
               updatingOrderId={updatingOrderId}
+              openRejectDialog={(order) => {
+                setRejectReason('')
+                setRejectOrder(order)
+              }}
             />
           )}
 
@@ -3110,6 +3886,7 @@ export function WarehousePortal() {
             <WarehouseTripsSection
               loadingTrips={loadingTrips}
               scopedTrips={scopedTrips}
+              assignedWarehouseId={assignedWarehouse?.id}
               assignedWarehouseName={assignedWarehouse?.name}
               tripStatusColors={tripStatusColors}
               selectedTrip={selectedTrip}
@@ -3118,6 +3895,24 @@ export function WarehousePortal() {
               onDeleteTrip={(trip) => {
                 void deleteTrip(trip)
               }}
+              onUnassignOrderItems={(tripId, orderId, warehouseId, itemIds) => {
+                void unassignOrderItemsFromTrip(tripId, orderId, warehouseId, itemIds)
+              }}
+              availableOrders={scopedOrders
+                .filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase()))
+                .map((order) => ({
+                  id: order.id,
+                  orderNumber: order.orderNumber,
+                  shippingName: order.shippingName || order.customer?.name || '',
+                  shippingCity: order.shippingCity || '',
+                  status: order.status,
+                  allocatedQtyForSelectedWarehouse: Number((order as any)?.allocatedQtyForSelectedWarehouse || 0),
+                  totalOrderQty: Number((order as any)?.totalOrderQty || 0),
+                }))}
+              onEditTripDropPoints={(trip, changes) => {
+                void editTripDropPoints(trip as WarehouseTripItem, changes)
+              }}
+              editingTripId={editingTripId}
             />
           )}
 
@@ -3155,7 +3950,7 @@ export function WarehousePortal() {
 
           {activeView === 'inventory' && (
             <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
-              <TabsList className="h-auto gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+              <TabsList className="h-auto w-full flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
                 <TabsTrigger
                   value="inventory"
                   className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
@@ -3334,6 +4129,8 @@ export function WarehousePortal() {
 
             </>
           )}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 
@@ -3362,7 +4159,7 @@ export function WarehousePortal() {
                   id="popup-route-date"
                   type="date"
                   value={routeDate}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={getLocalTodayDayKey()}
                   onChange={(e) => {
                     const nextDate = e.target.value
                     setRouteDate(nextDate)
@@ -3372,29 +4169,6 @@ export function WarehousePortal() {
                   }}
                   className="mt-1 h-9 text-sm"
                 />
-              </div>
-              <div className="mb-2">
-                <label htmlFor="warehouse-select" className="text-sm font-medium text-gray-700">Select Warehouse</label>
-                <select
-                  id="warehouse-select"
-                  value={routeWarehouseId}
-                  onChange={(e) => {
-                    const nextWarehouseId = e.target.value
-                    setRouteWarehouseId(nextWarehouseId)
-                    if (createRouteOpen && routeDate && nextWarehouseId) {
-                      void createRoutePlan(true, routeDate, nextWarehouseId)
-                    }
-                  }}
-                  title="Select warehouse"
-                  className="mt-1 h-9 w-full rounded-md border bg-white px-2.5 text-sm"
-                >
-                  <option value="">-- Choose Warehouse --</option>
-                  {warehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name} ({warehouse.city})
-                    </option>
-                  ))}
-                </select>
               </div>
               <Button className="mt-1 mb-2 h-9 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
@@ -3451,8 +4225,28 @@ export function WarehousePortal() {
                                     {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
                                   </span>
                                   <span className="truncate">{order.orderNumber || order.id}</span>
+                                  {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                  ) : null}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
+                                {Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0 ? (
+                                  <div className="mt-0.5 space-y-0.5">
+                                    {(order as any).productAllocations.map((line: any, index: number) => (
+                                      <div
+                                        key={`${String(line?.itemId || index)}`}
+                                        className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                      >
+                                        {String(line?.productName || 'Product')}
+                                        {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className={`text-[10px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    Allocated: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
+                                  </div>
+                                )}
                               </button>
                             ))}
                           </div>
@@ -3544,11 +4338,43 @@ export function WarehousePortal() {
                           <div key={order.id} className="flex items-start gap-2 rounded-lg border bg-white p-3">
                             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-sm font-bold text-white">{idx + 1}</div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-semibold text-gray-900">{order.customerName || order.orderNumber}</div>
+                              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                <span>{order.customerName || order.orderNumber}</span>
+                                {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                ) : null}
+                              </div>
                               <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
                               {order.products && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
                               )}
+                              {(() => {
+                                // Check if this is a multi-warehouse order
+                                const summary = deriveOrderFulfillmentSummary(order)
+                                const isMultiWarehouse = summary.totalLegs > 1
+                                if (!isMultiWarehouse) return null
+                                
+                                if (Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0) {
+                                  return (
+                                    <div className="mt-0.5 space-y-0.5">
+                                      {(order as any).productAllocations.map((line: any, index: number) => (
+                                        <div
+                                          key={`${String(line?.itemId || index)}-map`}
+                                          className={`text-[11px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                        >
+                                          {String(line?.productName || 'Product')}
+                                          {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                }
+                                return (
+                                  <div className={`mt-0.5 text-[11px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    Allocated for this warehouse: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
+                                  </div>
+                                )
+                              })()}
                               {order.latitude && order.longitude && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">Coordinates: {order.latitude}, {order.longitude}</div>
                               )}
@@ -3640,60 +4466,169 @@ export function WarehousePortal() {
       </Dialog>
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-        <DialogContent className="max-h-[85vh] w-full max-w-4xl overflow-y-auto">
+        <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-[980px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
           {selectedOrder && (
             <>
-              <DialogHeader>
-                <DialogTitle>Order Details - {selectedOrder.orderNumber}</DialogTitle>
+              {(() => {
+                const isReplacementOrderInDetails =
+                  Boolean((selectedOrder as any)?.isScheduledReplacement) ||
+                  String((selectedOrder as any)?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
+                return (
+                  <>
+              <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 sm:px-7">
+                <DialogTitle className="flex items-center gap-3 text-[0.98rem] font-bold tracking-tight text-slate-900 sm:text-[1.3rem]">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:h-11 sm:w-11">
+                    <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
+                  </span>
+                  <span>Order Details - {selectedOrder.orderNumber}</span>
+                </DialogTitle>
                 <DialogDescription>{loadingOrderDetail ? 'Loading latest order details...' : undefined}</DialogDescription>
               </DialogHeader>
-              <div className="space-y-3">
-                <div className="rounded-md border p-3">
-                  <p className="text-xs text-gray-500">Order Status</p>
-                  <p className="font-semibold">{formatWarehouseOrderStatus(selectedOrder.status, selectedOrder.paymentStatus, selectedOrder.warehouseStage)}</p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="text-xs text-gray-500">Warehouse Stage</p>
-                  <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
-                  {selectedOrder.isDriverAssigned ? (
-                    <p className="text-xs text-gray-600">
-                      Driver: {selectedOrder.assignedDriverName || 'Assigned'}
-                    </p>
-                  ) : (
-                    <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 shadow-[0_6px_14px_rgba(239,68,68,0.14)]">
-                      Driver not assigned
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-md border p-3 space-y-1">
-                  <p className="font-medium">Client Information</p>
-                  <p className="text-sm text-gray-700">{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">
-                    {formatWarehouseOrderAddress(selectedOrder)}
-                  </p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="font-medium mb-2">Order Details</p>
-                  <div className="space-y-1">
-                    {(selectedOrder.items || []).map((item) => (
-                      <div key={item.id} className="flex justify-between gap-3 text-sm">
-                        <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {(item as any).spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number((item as any).spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)} | Policy {Number((item as any).spareProducts.minPercent || 0)}-{Number((item as any).spareProducts.maxPercent || 0)}%</p>
-                            </div>
-                          ) : null}
-                        </div>
-                        <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
+              <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4 sm:space-y-4 sm:px-7 sm:py-5">
+                <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4.5">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Order Status</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
+                        <Truck className="h-5 w-5" />
                       </div>
-                    ))}
-                    <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
+                    </div>
+                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{getWarehouseDisplayOrderStatus(selectedOrder)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4.5">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Warehouse Stage</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-blue-700 sm:h-11 sm:w-11">
+                        <Building2 className="h-5 w-5" />
+                      </div>
+                    </div>
+                    <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
+                    {selectedOrder.isDriverAssigned ? (
+                      <p className="mt-1 text-sm text-slate-700">Driver: {selectedOrder.assignedDriverName || 'Assigned'}</p>
+                    ) : (
+                      <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                        Driver not assigned
+                      </div>
+                    )}
                   </div>
                 </div>
+                {(() => {
+                  const summary = deriveOrderFulfillmentSummary(selectedOrder)
+                  const isMultiWarehouse = summary.totalLegs > 1
+                  if (!isMultiWarehouse) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
+                      <div className="space-y-2">
+                        {summary.legs.map((leg: any) => (
+                          <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">
+                              Trip: {leg.tripNumber || leg.tripId || 'Not assigned'}{` | Allocated Qty: ${Number(leg.allocatedQty || 0)}`}
+                            </p>
+                            {!leg.tripId && !leg.tripNumber ? (
+                              <p className="mt-1 text-xs font-medium text-amber-700">Needs trip assignment.</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-indigo-50 text-indigo-600">
+                      <User className="h-5 w-5" />
+                    </span>
+                    Client Information
+                  </p>
+                  <div className="space-y-2 text-slate-700">
+                    <p className="flex items-center gap-3 text-sm sm:text-base"><User className="h-5 w-5 text-slate-500" />{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
+                    <p className="flex items-center gap-3 text-sm text-blue-700 sm:text-base"><Mail className="h-5 w-5 text-slate-500" />{selectedOrder.customer?.email || 'N/A'}</p>
+                    <p className="flex items-center gap-3 text-sm sm:text-base"><Phone className="h-5 w-5 text-slate-500" />{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
+                    <p className="flex items-start gap-3 text-sm sm:text-base"><MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{formatWarehouseOrderAddress(selectedOrder)}</p>
+                  </div>
+                </div>
+                {(() => {
+                  const summary = deriveOrderFulfillmentSummary(selectedOrder)
+                  const isMultiWarehouse = summary.totalLegs > 1
+                  const assignedWarehouseId = String(assignedWarehouse?.id || '').trim()
+                  const orderItems = Array.isArray(selectedOrder.items) ? selectedOrder.items : []
+                  const getItemAllocatedForWarehouse = (item: any) => {
+                    const allocs = Array.isArray(item?.warehouseAllocations) ? item.warehouseAllocations : []
+                    const fromItem = allocs
+                      .filter((entry: any) => String(entry?.warehouseId || entry?.warehouse_id || '').trim() === assignedWarehouseId)
+                      .reduce((sum: number, entry: any) => sum + Number(entry?.allocatedQty || entry?.quantity || 0), 0)
+                    if (fromItem > 0) return fromItem
+                    const orderHasAllocationData = Array.isArray(selectedOrder?.warehouseAllocations) && selectedOrder.warehouseAllocations.length > 0
+                    if (orderHasAllocationData) return 0
+                    return Number(item?.quantity || 0)
+                  }
+                  const warehouseScopedTotal = orderItems.reduce((sum: number, item: any) => {
+                    const allocatedQty = getItemAllocatedForWarehouse(item)
+                    const unitPrice = Number(item?.unitPrice ?? item?.unit_price ?? 0)
+                    const lineTotal = Number(item?.totalPrice ?? item?.total_price ?? 0)
+                    const safeLineTotal = lineTotal > 0 ? lineTotal : unitPrice * Number(item?.quantity || 0)
+                    const qty = Number(item?.quantity || 0)
+                    const ratio = qty > 0 ? allocatedQty / qty : 0
+                    return sum + (ratio > 0 ? safeLineTotal * ratio : 0)
+                  }, 0)
+                  
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+                          <PackageCheck className="h-5 w-5" />
+                        </span>
+                        Order Details
+                      </p>
+                      <div className="space-y-2">
+                        {orderItems.map((item: any) => (
+                          <div key={item.id} className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2.5">
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                                {item?.product?.imageUrl ? (
+                                  <img src={String(item.product.imageUrl)} alt={String(item?.product?.name || 'Product')} className="h-full w-full object-contain" />
+                                ) : (
+                                  <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
+                                )}
+                              </div>
+                              <div className="min-w-0 pt-0.5">
+                                <p className="text-sm text-slate-800 sm:text-[1.02rem]">
+                                  {item.product?.name || 'Product'}
+                                  {getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
+                                  {' '}x{item.quantity}
+                                </p>
+                                {isMultiWarehouse && (
+                                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                                    Allocated for this warehouse: {getItemAllocatedForWarehouse(item)}
+                                  </p>
+                                )}
+                                <CompactDiscountLine value={formatPeso(Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
+                              </div>
+                            </div>
+                            <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
+                          </div>
+                        ))}
+                        <div className="h-px bg-slate-200" />
+                        {isMultiWarehouse ? (
+                          <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
+                            Warehouse scoped total: <span className="text-emerald-700">{formatPeso(warehouseScopedTotal || 0)}</span>
+                          </p>
+                        ) : (
+                          <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
+                            Order total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
                 <div className="hidden">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="font-medium">Checklist</p>
@@ -3705,13 +4640,13 @@ export function WarehousePortal() {
                     {(selectedOrder.items || []).map((item) => (
                       <div key={item.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                         <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {(item as any).spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number((item as any).spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number((item as any).spareProducts.totalLoadQuantity || item.quantity || 0)}</p>
-                            </div>
-                          ) : null}
+                          <p>
+                            {item.product?.name || 'Product'}
+                            {getOrderItemSizeLabel(item)
+                              ? ` ${getOrderItemSizeLabel(item)}`
+                              : ''}
+                            {' '}x{item.quantity}
+                          </p>
                         </div>
                         <span className="font-medium text-gray-500">
                           Pending
@@ -3720,90 +4655,114 @@ export function WarehousePortal() {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="font-medium">Progress</p>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                      {selectedOrder.progress?.dropPoint?.status
-                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'No trip progress yet'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-sm text-gray-700">
-                    <p>Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
-                    <p>Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.progress?.trip?.driver?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
-                    <p>Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
-                    <p>
-                      Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}
-                    </p>
-                    <p>
-                      Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}
-                    </p>
-                  </div>
-                  {(() => {
-                    const trip = selectedOrder.progress?.trip
-                    const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
-                    const selectedSchedule = String(
-                      selectedOrder.deliveryDate || trip?.tripSchedule || ''
-                    )
-                      .trim()
-                      .slice(0, 10)
-                    const scheduledOrders = points
-                      .map((point: any) => point?.order)
-                      .filter((order: any) => order && String(order.id || '').trim())
-                      .filter((order: any) => {
-                        if (!selectedSchedule) return true
-                        return String(order.deliveryDate || '').trim().slice(0, 10) === selectedSchedule
-                      })
-                      .filter(
-                        (order: any, index: number, rows: any[]) =>
-                          rows.findIndex((candidate: any) => String(candidate.id) === String(order.id)) === index
-                      )
-
-                    return (
-                      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                        <p className="text-xs font-medium text-slate-500">Scheduled Orders On This Trip</p>
-                        {scheduledOrders.length === 0 ? (
-                          <p className="mt-1 text-sm text-slate-600">No scheduled orders found for this trip date.</p>
-                        ) : (
-                          <div className="mt-1 space-y-1">
-                            {scheduledOrders.map((order: any) => {
-                              const rawStatus = String(order.status || 'N/A').toUpperCase()
-                              const rawScheduleDate = String(order.deliveryDate || order.timeline?.deliveryDate || '').trim()
-                              const parsedScheduleDate = rawScheduleDate ? new Date(rawScheduleDate) : null
-                              const hasValidScheduleDate = Boolean(parsedScheduleDate && !Number.isNaN(parsedScheduleDate.getTime()))
-                              const scheduleLabel = hasValidScheduleDate
-                                ? parsedScheduleDate!.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                : null
-
-                              return (
-                                <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
-                                  <span>{String(order.orderNumber || order.id || 'Order')}</span>
-                                  <span className="text-xs uppercase text-slate-500">
-                                    {rawStatus.replace(/_/g, ' ')}
-                                    {rawStatus === 'RESCHEDULED' && scheduleLabel ? ` • ${scheduleLabel}` : ''}
-                                  </span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                          <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
+                            <Clock className="h-5 w-5" />
+                          </span>
+                          Progress
+                        </p>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+                          {selectedOrder.progress?.dropPoint?.status
+                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            : 'No trip progress yet'}
+                          <CircleCheck className="h-3.5 w-3.5" />
+                        </span>
                       </div>
-                    )
-                  })()}
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="mb-2 font-medium">Proof Of Delivery</p>
-                  {selectedOrder.progress?.pod?.deliveryPhoto ? (
-                    <img
-                      src={selectedOrder.progress.pod.deliveryPhoto}
-                      alt="Proof of delivery"
-                      className="mt-3 h-56 w-full rounded-md border border-slate-200 object-cover"
-                    />
-                  ) : (
-                    <p className="mt-3 text-sm text-gray-500">No POD uploaded yet.</p>
-                  )}
-                </div>
+                      <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
+                        <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.progress?.trip?.driver?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
+                        <p><span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span></p>
+                        <p><span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span></p>
+                      </div>
+                      {(() => {
+                        const trip = selectedOrder.progress?.trip
+                        const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+                        const selectedSchedule = String(
+                          selectedOrder.deliveryDate || trip?.tripSchedule || ''
+                        )
+                          .trim()
+                          .slice(0, 10)
+                        const scheduledOrders = points
+                          .map((point: any) => point?.order)
+                          .filter((order: any) => order && String(order.id || '').trim())
+                          .filter((order: any) => {
+                            if (!selectedSchedule) return true
+                            return String(order.deliveryDate || '').trim().slice(0, 10) === selectedSchedule
+                          })
+                          .filter(
+                            (order: any, index: number, rows: any[]) =>
+                              rows.findIndex((candidate: any) => String(candidate.id) === String(order.id)) === index
+                          )
+
+                        return (
+                          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                            <p className="text-xs font-medium text-slate-500">Scheduled Orders On This Trip</p>
+                            {scheduledOrders.length === 0 ? (
+                              <p className="mt-1 text-sm text-slate-600">No scheduled orders found for this trip date.</p>
+                            ) : (
+                              <div className="mt-1 space-y-1">
+                                {scheduledOrders.map((order: any) => {
+                                  const rawStatus = String(order.status || 'N/A').toUpperCase()
+                                  const rawScheduleDate = String(order.deliveryDate || order.timeline?.deliveryDate || '').trim()
+                                  const parsedScheduleDate = rawScheduleDate ? new Date(rawScheduleDate) : null
+                                  const hasValidScheduleDate = Boolean(parsedScheduleDate && !Number.isNaN(parsedScheduleDate.getTime()))
+                                  const scheduleLabel = hasValidScheduleDate
+                                    ? parsedScheduleDate!.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : null
+
+                                  return (
+                                    <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
+                                      <span className="inline-flex items-center gap-2">
+                                        <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                        {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                        ) : null}
+                                      </span>
+                                      <span className="text-xs uppercase text-slate-500">
+                                        {rawStatus.replace(/_/g, ' ')}
+                                        {rawStatus === 'RESCHEDULED' && scheduleLabel ? ` • ${scheduleLabel}` : ''}
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  )
+                })()}
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
+                          <Camera className="h-5 w-5" />
+                        </span>
+                        Proof Of Delivery
+                      </p>
+                      {selectedOrder.progress?.pod?.deliveryPhoto ? (
+                        <img
+                          src={selectedOrder.progress.pod.deliveryPhoto}
+                          alt="Proof of delivery"
+                          className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
+                        />
+                      ) : (
+                        <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
+                      )}
+                    </div>
+                  )
+                })()}
                 {(() => {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
                   const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()
@@ -3850,6 +4809,9 @@ export function WarehousePortal() {
                   )
                 })()}
               </div>
+                  </>
+                )
+              })()}
             </>
           )}
         </DialogContent>
@@ -3877,11 +4839,14 @@ export function WarehousePortal() {
                   <Button
                     className="flex-1 bg-red-600 hover:bg-red-700"
                     onClick={async () => {
-                      if (!['PREPARING'].includes(rejectOrder.status)) {
-                        toast.error('Order is not eligible for packing')
+                      const orderStatus = String(rejectOrder?.status || '').toUpperCase()
+                      const paymentStatus = String(rejectOrder?.paymentStatus || '').toLowerCase()
+                      const canReject = paymentStatus === 'pending_approval' || orderStatus === 'PENDING'
+                      if (!canReject) {
+                        toast.error('Only not-yet-approved orders can be rejected.')
                         return
                       }
-                      await updateWarehouseOrderStatus(rejectOrder.id, 'PREPARING', rejectReason.trim() || undefined)
+                      await updateWarehouseOrderStatus(rejectOrder.id, 'REJECTED', rejectReason.trim() || undefined)
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}
@@ -3910,9 +4875,9 @@ export function WarehousePortal() {
           resetStockInForm()
         }}
       >
-        <DialogContent className="flex h-[85vh] w-[95vw] max-w-4xl flex-col overflow-hidden p-5">
+        <DialogContent className="flex h-[86vh] w-[86vw] max-w-[800px] sm:max-w-[800px] flex-col overflow-hidden p-6">
           <DialogHeader className="mb-2">
-            <DialogTitle className="text-3xl font-bold">Bulk Add Stock</DialogTitle>
+            <DialogTitle className="text-3xl font-bold">Add Stock</DialogTitle>
             <DialogDescription className="text-lg mt-2">Add multiple stock entries by batch</DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col">
@@ -3936,24 +4901,26 @@ export function WarehousePortal() {
             ) : null}
 
             {/* Stock Rows Table */}
-            <div className="border rounded-md overflow-hidden">
-              {/* Sticky Header */}
-              <div className="sticky top-0 z-20 grid grid-cols-[2fr_0.9fr_1.2fr_36px] gap-2 bg-gray-100 border-b p-3 font-semibold text-sm text-gray-700">
-                <div className="px-2.5">Product</div>
-                <div className="px-2.5">Quantity</div>
-                <div className="px-2.5">Expiry Date</div>
-                <div></div>
-              </div>
+            <div className="overflow-x-auto rounded-md border">
+              <div className="min-w-[700px]">
+                {/* Sticky Header */}
+                <div className="sticky top-0 z-20 grid grid-cols-[minmax(160px,1.7fr)_minmax(72px,0.65fr)_minmax(120px,0.95fr)_minmax(120px,0.95fr)_24px] gap-1.5 border-b bg-gray-100 px-2.5 py-3 text-sm font-semibold text-gray-700">
+                  <div className="px-2.5">Product</div>
+                  <div className="px-2.5">Quantity</div>
+                  <div className="px-2.5">Manufactured Date</div>
+                  <div className="px-2.5">Expiry Date</div>
+                  <div></div>
+                </div>
 
-              {/* Rows */}
-              <div className="max-h-[45vh] overflow-y-auto">
+                {/* Rows */}
+                <div className="max-h-[50vh] overflow-y-auto">
                 {stockRows.map((row, idx) => (
-                  <div key={row.id} className="grid grid-cols-[2fr_0.9fr_1.2fr_36px] gap-2 border-b p-3 items-start bg-white hover:bg-gray-50 transition">
+                  <div key={row.id} className="grid grid-cols-[minmax(160px,1.7fr)_minmax(72px,0.65fr)_minmax(120px,0.95fr)_minmax(120px,0.95fr)_24px] items-start gap-1.5 border-b bg-white px-2.5 py-3 transition hover:bg-gray-50">
                     {/* Product Select */}
                     <div className="min-w-0 space-y-1">
                       <select
                         title="Select Product"
-                        className={`h-9 w-full rounded-md border px-2.5 py-1.5 text-xs font-medium ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
+                        className={`h-10 min-w-0 w-full rounded-md border px-2 py-1.5 text-sm font-medium ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
                         value={row.productId}
                         onChange={(e) => updateStockRow(row.id, 'productId', e.target.value)}
                       >
@@ -3966,14 +4933,19 @@ export function WarehousePortal() {
                             ? ` (${product.sizes.join(', ')})`
                             : ''
                           return (
-                            <option key={product.id} value={product.id} disabled={selectedInAnotherRow}>
-                              {product.name}{sizeString}
+                            <option key={product.id} value={product.id} disabled={selectedInAnotherRow || Boolean(product.isOverstocked)}>
+                              {product.name}{sizeString}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
                             </option>
                           )
                         })}
                       </select>
                       {row.validationErrors.productId && (
                         <p className="text-xs text-red-600">{row.validationErrors.productId}</p>
+                      )}
+                      {!row.validationErrors.productId && availableExistingProducts.some((p) => p.isOverstocked) && (
+                        <p className="text-xs text-amber-700">
+                          Some products are blocked: overstocked (available is at least 3x threshold for 7+ days).
+                        </p>
                       )}
                     </div>
 
@@ -3983,7 +4955,7 @@ export function WarehousePortal() {
                         id={`qty-${row.id}`}
                         type="number"
                         placeholder="0"
-                        className={`h-9 text-xs ${row.validationErrors.quantity ? 'border-red-500 bg-red-50' : ''}`}
+                        className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.quantity ? 'border-red-500 bg-red-50' : ''}`}
                         value={row.quantity}
                         onChange={(e) => updateStockRow(row.id, 'quantity', e.target.value)}
                       />
@@ -3992,12 +4964,26 @@ export function WarehousePortal() {
                       )}
                     </div>
 
+                    {/* Manufactured Date Input */}
+                    <div className="min-w-0 space-y-1">
+                      <Input
+                        id={`mfg-${row.id}`}
+                        type="date"
+                        className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.manufacturedDate ? 'border-red-500 bg-red-50' : ''}`}
+                        value={row.manufacturedDate}
+                        onChange={(e) => updateStockRow(row.id, 'manufacturedDate', e.target.value)}
+                      />
+                      {row.validationErrors.manufacturedDate && (
+                        <p className="text-xs text-red-600">{row.validationErrors.manufacturedDate}</p>
+                      )}
+                    </div>
+
                     {/* Expiry Date Input */}
                     <div className="min-w-0 space-y-1">
                       <Input
                         id={`expiry-${row.id}`}
                         type="date"
-                        className={`h-9 text-xs ${row.validationErrors.expiryDate ? 'border-red-500 bg-red-50' : ''}`}
+                        className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.expiryDate ? 'border-red-500 bg-red-50' : ''}`}
                         value={row.expiryDate}
                         onChange={(e) => updateStockRow(row.id, 'expiryDate', e.target.value)}
                       />
@@ -4010,7 +4996,7 @@ export function WarehousePortal() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className={`h-9 w-9 mt-0.5 ${stockRows.length === 1 ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-red-600 hover:text-red-700 hover:bg-red-50'}`}
+                      className={`mt-0.5 h-10 w-7 ${stockRows.length === 1 ? 'cursor-not-allowed text-gray-400 opacity-50' : 'text-red-600 hover:bg-red-50 hover:text-red-700'}`}
                       onClick={() => removeStockRow(row.id)}
                       disabled={stockRows.length === 1}
                       title={stockRows.length === 1 ? 'Cannot remove last row' : 'Remove row'}
@@ -4019,6 +5005,7 @@ export function WarehousePortal() {
                     </Button>
                   </div>
                 ))}
+                </div>
               </div>
             </div>
 
@@ -4114,6 +5101,29 @@ export function WarehousePortal() {
             >
               {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Delete Product
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!tripToDelete} onOpenChange={(open) => !open && setTripToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-amber-600">Delete Trip?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete trip{' '}
+              <span className="font-semibold text-foreground">{tripToDelete?.tripNumber}</span>?
+              <br /><br />
+              Orders from this trip can be routed again after deletion.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setTripToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteTrip}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete Trip
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

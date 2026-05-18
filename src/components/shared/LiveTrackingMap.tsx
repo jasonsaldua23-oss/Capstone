@@ -16,6 +16,11 @@ const PolygonUnsafe = Polygon as any;
 const NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL = '/geo/negros-occidental-maritime-with-bacolod.json?v=3';
 const NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL = '/geo/negros-island-region-boundary.json?v=2';
 const NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL = '/geo/negros-oriental-boundary.json?v=1';
+const NEGROS_OCCIDENTAL_MUNICIPAL_BOUNDARY_GEOJSON_URL = '/geo/negros-occidental-municipal-maritime.json?v=1';
+const SILAY_TALISAY_FALLBACK_BOUNDS: [[number, number], [number, number]] = [
+  [10.62, 122.86],
+  [10.94, 123.08],
+];
 
 type NegrosIslandGeometry = {
   type: 'Polygon' | 'MultiPolygon';
@@ -27,9 +32,15 @@ type NegrosBoundary = {
   geometries: NegrosIslandGeometry[];
   bbox: [number, number, number, number];
 };
+type ServiceBoundary = {
+  geometries: NegrosIslandGeometry[];
+  bbox: [number, number, number, number];
+};
 
 let negrosBoundaryCache: NegrosBoundary | null = null;
 let negrosBoundaryPromise: Promise<NegrosBoundary | null> | null = null;
+let serviceBoundaryCache: ServiceBoundary | null = null;
+let serviceBoundaryPromise: Promise<ServiceBoundary | null> | null = null;
 
 function getFeatureName(feature: any) {
   const props = feature?.properties || {};
@@ -161,14 +172,52 @@ function parseAllBoundaryFeatures(
 
   if (parsed.length === 0) return null;
 
-  const bbox = parsed.reduce<[number, number, number, number]>(
+  const bbox = parsed.reduce(
     (acc, entry) => [
       Math.min(acc[0], entry.bbox[0]),
       Math.min(acc[1], entry.bbox[1]),
       Math.max(acc[2], entry.bbox[2]),
       Math.max(acc[3], entry.bbox[3]),
     ],
-    [Infinity, Infinity, -Infinity, -Infinity]
+    [Infinity, Infinity, -Infinity, -Infinity] as [number, number, number, number]
+  );
+
+  return {
+    geometries: parsed.map((entry) => entry.geometry),
+    bbox,
+  };
+}
+
+function parseBoundaryFeaturesByNames(
+  payload: any,
+  targetNames: string[]
+): { geometries: NegrosIslandGeometry[]; bbox: [number, number, number, number] } | null {
+  const features = Array.isArray(payload?.features) ? payload.features : [];
+  const targets = targetNames.map((name) => String(name || '').toLowerCase().trim()).filter(Boolean);
+  const parsed = features
+    .map((feature: any) => {
+      const name = getFeatureName(feature);
+      if (!targets.some((target) => name.includes(target))) return null;
+      const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
+      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null;
+      const bbox =
+        Array.isArray(feature?.bbox) && feature.bbox.length === 4
+          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
+          : computeBBoxFromGeometry(geometry);
+      if (!bbox || !bbox.every((value) => Number.isFinite(value))) return null;
+      return { geometry, bbox };
+    })
+    .filter((entry: any): entry is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } => Boolean(entry));
+
+  if (parsed.length === 0) return null;
+  const bbox = parsed.reduce(
+    (acc, entry) => [
+      Math.min(acc[0], entry.bbox[0]),
+      Math.min(acc[1], entry.bbox[1]),
+      Math.max(acc[2], entry.bbox[2]),
+      Math.max(acc[3], entry.bbox[3]),
+    ],
+    [Infinity, Infinity, -Infinity, -Infinity] as [number, number, number, number]
   );
 
   return {
@@ -232,6 +281,27 @@ function loadNegrosBoundary() {
     });
 
   return negrosBoundaryPromise;
+}
+
+function loadSilayTalisayServiceBoundary() {
+  if (serviceBoundaryCache) return Promise.resolve(serviceBoundaryCache);
+  if (serviceBoundaryPromise) return serviceBoundaryPromise;
+
+  serviceBoundaryPromise = (async () => {
+    const response = await fetch(NEGROS_OCCIDENTAL_MUNICIPAL_BOUNDARY_GEOJSON_URL);
+    if (!response.ok) throw new Error('Failed to load municipal boundary geometry');
+    const payload = await response.json().catch(() => ({}));
+    const parsed = parseBoundaryFeaturesByNames(payload, ['silay', 'talisay']);
+    if (!parsed) throw new Error('Failed to parse Silay/Talisay service geometry');
+    serviceBoundaryCache = { geometries: parsed.geometries, bbox: parsed.bbox };
+    return serviceBoundaryCache;
+  })()
+    .catch(() => null)
+    .finally(() => {
+      serviceBoundaryPromise = null;
+    });
+
+  return serviceBoundaryPromise;
 }
 
 // Fix for default marker icons in Next.js + Leaflet
@@ -512,6 +582,12 @@ function clampPointToBounds(point: [number, number], bounds: L.LatLngBounds | nu
   ];
 }
 
+function expandBounds(bounds: L.LatLngBounds, latPad: number, lngPad: number) {
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  return L.latLngBounds([sw.lat - latPad, sw.lng - lngPad], [ne.lat + latPad, ne.lng + lngPad]);
+}
+
 function geometryToExteriorRings(geometry: NegrosIslandGeometry | null) {
   if (!geometry) return [] as [number, number][][];
 
@@ -530,7 +606,7 @@ function geometryToExteriorRings(geometry: NegrosIslandGeometry | null) {
   };
 
   if (geometry.type === 'Polygon') {
-    const outerRing = geometry.coordinates[0] || [];
+    const outerRing = (geometry.coordinates[0] || []) as number[][];
     const sanitized = sanitizeRing(outerRing);
     return sanitized.length > 0 ? [sanitized] : [];
   }
@@ -623,6 +699,10 @@ function MapBoundsGuard({ enabled, bounds }: { enabled: boolean; bounds: L.LatLn
     if (!enabled || !bounds) return;
     const guardedBounds = bounds;
     map.setMaxBounds(guardedBounds);
+    const minRestrictedZoom = 11;
+    if (map.getZoom() < minRestrictedZoom) {
+      map.setZoom(minRestrictedZoom);
+    }
 
     const center = map.getCenter();
     if (!Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
@@ -834,11 +914,13 @@ export default function LiveTrackingMap({
   const [snappedRoutePointsById, setSnappedRoutePointsById] = useState<Record<string, [number, number][]>>({});
   const [currentZoom, setCurrentZoom] = useState(zoom);
   const [negrosBoundary, setNegrosBoundary] = useState<NegrosBoundary | null>(null);
+  const [serviceBoundary, setServiceBoundary] = useState<ServiceBoundary | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!restrictToNegrosOccidental) {
       setNegrosBoundary(null);
+      setServiceBoundary(null);
       return;
     }
 
@@ -846,8 +928,10 @@ export default function LiveTrackingMap({
 
     const run = async () => {
       const boundary = await loadNegrosBoundary();
+      const service = await loadSilayTalisayServiceBoundary();
       if (!cancelled) {
         setNegrosBoundary(boundary);
+        setServiceBoundary(service);
       }
     };
 
@@ -858,39 +942,29 @@ export default function LiveTrackingMap({
     };
   }, [restrictToNegrosOccidental]);
 
-  const negrosBounds = useMemo(
-    () =>
-      negrosBoundary
-        ? L.latLngBounds(
-            [negrosBoundary.bbox[1], negrosBoundary.bbox[0]],
-            [negrosBoundary.bbox[3], negrosBoundary.bbox[2]]
-          )
-        : null,
-    [negrosBoundary]
-  );
   const safeLocations = useMemo(
     () =>
       restrictToNegrosOccidental
-        ? negrosBoundary
-          ? rawSafeLocations.filter((loc) => isPointInNegrosBoundary([loc.lat, loc.lng], negrosBoundary.geometries))
+        ? serviceBoundary
+          ? rawSafeLocations.filter((loc) => isPointInNegrosBoundary([loc.lat, loc.lng], serviceBoundary.geometries))
           : rawSafeLocations
         : rawSafeLocations,
-    [negrosBoundary, rawSafeLocations, restrictToNegrosOccidental]
+    [rawSafeLocations, restrictToNegrosOccidental, serviceBoundary]
   );
 
   const safeRouteLines = useMemo(
     () =>
       restrictToNegrosOccidental
-        ? negrosBoundary
+        ? serviceBoundary
           ? rawSafeRouteLines
               .map((line) => ({
                 ...line,
-                points: line.points.filter((point) => isPointInNegrosBoundary(point, negrosBoundary.geometries)),
+                points: line.points.filter((point) => isPointInNegrosBoundary(point, serviceBoundary.geometries)),
               }))
               .filter((line) => line.points.length > 1)
           : rawSafeRouteLines
         : rawSafeRouteLines,
-    [negrosBoundary, rawSafeRouteLines, restrictToNegrosOccidental]
+    [rawSafeRouteLines, restrictToNegrosOccidental, serviceBoundary]
   );
 
   const roadSnapSignature = useMemo(
@@ -1125,13 +1199,19 @@ export default function LiveTrackingMap({
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = navigationPerspective && singleTruck.length === 1 ? singleTruck[0] : null;
-  const activeBounds = restrictToNegrosOccidental ? (negrosBounds ?? NEGROS_ISLAND_FALLBACK_BOUNDS) : null;
-  const negrosMaskRings = useMemo(
-    () =>
-      (negrosBoundary?.maskGeometries || negrosBoundary?.geometries || []).flatMap((geometry) =>
-        geometryToExteriorRings(geometry)
-      ),
-    [negrosBoundary]
+  const strictBounds = restrictToNegrosOccidental
+    ? serviceBoundary
+      ? L.latLngBounds([serviceBoundary.bbox[1], serviceBoundary.bbox[0]], [serviceBoundary.bbox[3], serviceBoundary.bbox[2]])
+      : L.latLngBounds(SILAY_TALISAY_FALLBACK_BOUNDS[0], SILAY_TALISAY_FALLBACK_BOUNDS[1])
+    : null;
+  const activeBounds = useMemo(() => {
+    if (!strictBounds) return null;
+    // Add map-only panning space so mountain-side and edge territories are easy to explore.
+    return expandBounds(strictBounds, 0.05, 0.10);
+  }, [strictBounds]);
+  const serviceMaskRings = useMemo(
+    () => (serviceBoundary?.geometries || []).flatMap((geometry) => geometryToExteriorRings(geometry)),
+    [serviceBoundary]
   );
   const resolvedCenter =
     restrictToNegrosOccidental && Array.isArray(center) && center.length === 2
@@ -1151,10 +1231,11 @@ export default function LiveTrackingMap({
         zoomAnimation={false}
         markerZoomAnimation={false}
         preferCanvas
-        minZoom={restrictToNegrosOccidental ? 9 : undefined}
+        minZoom={restrictToNegrosOccidental ? 11 : undefined}
+        maxZoom={22}
         bounds={activeBounds ?? undefined}
         maxBounds={activeBounds ?? undefined}
-        maxBoundsViscosity={restrictToNegrosOccidental ? 1.0 : undefined}
+        maxBoundsViscosity={restrictToNegrosOccidental ? 0.2 : undefined}
       >
         <MapResizeSync />
         <NegrosMaskPane />
@@ -1173,22 +1254,40 @@ export default function LiveTrackingMap({
         <TileLayerUnsafe
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          maxNativeZoom={19}
+          maxZoom={22}
           noWrap={restrictToNegrosOccidental}
         />
-        {restrictToNegrosOccidental && negrosMaskRings.length > 0 ? (
+        {restrictToNegrosOccidental && serviceMaskRings.length > 0 ? (
           <PolygonUnsafe
-            positions={[WORLD_MASK_RING, ...negrosMaskRings]}
+            positions={[WORLD_MASK_RING, ...serviceMaskRings]}
             pane="negros-mask-pane"
             interactive={false}
             pathOptions={{
               stroke: false,
-              fillColor: '#aad3df',
-              fillOpacity: 1,
+              fillColor: '#7fb3c4',
+              fillOpacity: 0.72,
               fillRule: 'evenodd',
               opacity: 1,
             }}
           />
         ) : null}
+        {restrictToNegrosOccidental && serviceMaskRings.length > 0
+          ? serviceMaskRings.map((ring, index) => (
+              <PolygonUnsafe
+                key={`service-outline-${index}`}
+                positions={ring}
+                pane="negros-mask-pane"
+                interactive={false}
+                pathOptions={{
+                  color: '#1d4ed8',
+                  weight: 2,
+                  fillOpacity: 0,
+                  opacity: 0.95,
+                }}
+              />
+            ))
+          : null}
         {renderedRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
             <Fragment key={line.id}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { getTabAuthToken } from '@/lib/client-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,21 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
+function isValidPhilippinePhone(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '')
+  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
+}
+
+function formatPhilippinePhoneInput(value: string): string {
+  let cleaned = value.replace(/\D/g, '')
+  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
+  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
+    cleaned = '09' + cleaned.slice(0, 9)
+  }
+  return cleaned
+}
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -272,9 +287,14 @@ export function ProfileView({ user }: { user: any }) {
               <Input
                 id="driver-phone"
                 value={draft.phone}
-                onChange={(e) => onChange('phone', e.target.value)}
-                className="h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20"
+                onChange={(e) => onChange('phone', formatPhilippinePhoneInput(e.target.value))}
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                className={`h-11 rounded-xl border-sky-200 bg-white/90 text-[0.98rem] text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] focus-visible:border-[#0d61ad] focus-visible:ring-[#0d61ad]/20 ${draft.phone && !isValidPhilippinePhone(draft.phone) ? 'border-red-300' : ''}`}
               />
+              {draft.phone && draft.phone.length > 0 && !isValidPhilippinePhone(draft.phone) && (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
+              )}
             </div>
 
             <div className="space-y-2">

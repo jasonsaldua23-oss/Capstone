@@ -1,6 +1,21 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
+
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
+function isValidPhilippinePhone(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '')
+  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
+}
+
+function formatPhilippinePhoneInput(value: string): string {
+  let cleaned = value.replace(/\D/g, '')
+  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
+  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
+    cleaned = '09' + cleaned.slice(0, 9)
+  }
+  return cleaned
+}
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -42,6 +57,7 @@ import {
   getWarehouseIdFromRow,
   formatRoleLabel,
   safeFetchJson,
+  deriveOrderFulfillmentSummary,
 } from './shared'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
@@ -69,6 +85,9 @@ export function TransportationView() {
   const [deleteVehicleOpen, setDeleteVehicleOpen] = useState(false)
   const [vehicleToDelete, setVehicleToDelete] = useState<any | null>(null)
   const [isDeletingVehicle, setIsDeletingVehicle] = useState(false)
+  const [deleteDriverOpen, setDeleteDriverOpen] = useState(false)
+  const [driverToDelete, setDriverToDelete] = useState<any | null>(null)
+  const [isDeletingDriver, setIsDeletingDriver] = useState(false)
   const [vehicleForm, setVehicleForm] = useState({
     licensePlate: '',
     type: 'TRUCK',
@@ -110,6 +129,35 @@ export function TransportationView() {
   useEffect(() => {
     fetchData()
   }, [])
+
+  useEffect(() => {
+    let focusPayload: any = null
+    try {
+      const raw = window.sessionStorage.getItem('admin_transport_focus')
+      if (!raw) return
+      focusPayload = JSON.parse(raw)
+    } catch {
+      focusPayload = null
+    }
+    if (!focusPayload?.orderId || trips.length === 0) return
+
+    const targetOrderId = String(focusPayload.orderId)
+    const matchedTrip = trips.find((trip) =>
+      Array.isArray(trip?.dropPoints) &&
+      trip.dropPoints.some((point: any) => String(point?.orderId || point?.order?.id || '') === targetOrderId)
+    )
+
+    if (matchedTrip) {
+      setActiveTab('trips')
+      setSelectedTrip(matchedTrip)
+      toast.success(`Opened trip for order ${focusPayload.orderNumber || targetOrderId}`)
+      try {
+        window.sessionStorage.removeItem('admin_transport_focus')
+      } catch {
+        // ignore
+      }
+    }
+  }, [trips])
 
   const activeTripsCount = trips.filter((trip) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))).length
   const driversOnDutyCount = drivers.filter((driver) => driver?.isActive !== false).length
@@ -269,20 +317,30 @@ export function TransportationView() {
     }
   }
 
-  const deleteDriver = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this driver?')) return
+  const promptDeleteDriver = (driver: any) => {
+    setDriverToDelete(driver)
+    setDeleteDriverOpen(true)
+  }
+
+  const deleteDriver = async () => {
+    if (!driverToDelete?.id) return
+    setIsDeletingDriver(true)
     try {
       const response = await fetch('/api/drivers', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, isActive: false }),
+        body: JSON.stringify({ id: driverToDelete.id, isActive: false }),
       })
       if (response.ok) {
         await fetchData()
+        setDeleteDriverOpen(false)
+        setDriverToDelete(null)
         toast.success('Driver deactivated successfully')
       }
     } catch (error) {
       toast.error('Failed to delete driver')
+    } finally {
+      setIsDeletingDriver(false)
     }
   }
 
@@ -316,13 +374,13 @@ export function TransportationView() {
     setSelectedTrip(trip)
   }
 
-  if (isLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin" /></div>
+  if (isLoading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Transportation Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Transportation Management</h1>
           <p className="text-gray-600">Fleet, trips, and driver management system</p>
         </div>
         <div className="flex gap-2">
@@ -332,7 +390,7 @@ export function TransportationView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-3">
@@ -380,11 +438,13 @@ export function TransportationView() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="w-full">
-        <TabsList className="w-full justify-start gap-2 overflow-x-auto">
-          <TabsTrigger value="vehicles">Fleet Management</TabsTrigger>
-          <TabsTrigger value="trips">Active Trips</TabsTrigger>
-          <TabsTrigger value="drivers">Drivers</TabsTrigger>
-        </TabsList>
+        <div className="w-full pb-1">
+          <TabsList className="h-auto w-full gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+            <TabsTrigger value="vehicles" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
+            <TabsTrigger value="trips" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
+            <TabsTrigger value="drivers" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="vehicles" className="space-y-4 mt-4">
           <Dialog open={addVehicleOpen} onOpenChange={setAddVehicleOpen}>
@@ -447,29 +507,37 @@ export function TransportationView() {
             </DialogContent>
           </Dialog>
 
-          <div className="grid gap-4">
-            {vehicles.map((vehicle: any) => (
-              <Card key={vehicle.id}>
-                <CardContent className="pt-6">
-                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
-                      <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
-                      <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
-                      <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.user?.name || vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
-                      <Badge className={String(vehicle.status).toUpperCase().includes('MAINTENANCE') ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}>
-                        {vehicle.status || 'Active'}
-                      </Badge>
+          {vehicles.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-gray-500">
+                No vehicles found. Click <span className="font-medium text-gray-700">Add Vehicle</span> to create your first fleet record.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {vehicles.map((vehicle: any) => (
+                <Card key={vehicle.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-row items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
+                        <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
+                        <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
+                        <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.user?.name || vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
+                        <Badge className={String(vehicle.status).toUpperCase().includes('MAINTENANCE') ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}>
+                          {vehicle.status || 'Active'}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
+                        <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>Delete</Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>Delete</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
 
           <AlertDialog open={deleteVehicleOpen} onOpenChange={setDeleteVehicleOpen}>
             <AlertDialogContent>
@@ -511,6 +579,11 @@ export function TransportationView() {
                 const vehicleName = trip?.vehicle?.licensePlate || 'Unassigned'
                 const origin = trip?.origin || trip?.warehouse?.city || 'Warehouse'
                 const destination = trip?.destination || trip?.destinationCity || 'Destination'
+                const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+                const legCount = points.reduce((sum: number, point: any) => {
+                  if (!point?.order) return sum
+                  return sum + deriveOrderFulfillmentSummary(point.order).legs.length
+                }, 0)
                 return (
                   <Card key={trip.id}>
                     <CardContent className="p-4">
@@ -522,6 +595,7 @@ export function TransportationView() {
                           </div>
                           <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} | Driver: {driverName}</p>
                           <p className="text-[13px] text-gray-600">Route: {origin} {'->'} {destination}</p>
+                          <p className="text-[12px] text-slate-500">Fulfillment legs on trip: {legCount}</p>
                         </div>
                         <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => openTripDetails(trip)}>View Details</Button>
                       </div>
@@ -556,7 +630,15 @@ export function TransportationView() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Phone Number</label>
-                      <Input placeholder="Phone Number" value={driverForm.phoneNumber} onChange={(e) => setDriverForm({...driverForm, phoneNumber: e.target.value})} />
+                      <Input
+                        placeholder="09XX XXX XXXX"
+                        maxLength={13}
+                        value={driverForm.phoneNumber}
+                        onChange={(e) => setDriverForm({...driverForm, phoneNumber: formatPhilippinePhoneInput(e.target.value)})}
+                      />
+                      {driverForm.phoneNumber && driverForm.phoneNumber.length > 0 && !isValidPhilippinePhone(driverForm.phoneNumber) && (
+                        <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">License Number</label>
@@ -604,160 +686,304 @@ export function TransportationView() {
             </DialogContent>
           </Dialog>
 
-          <div className="grid gap-4">
-            {drivers.map((driver: any) => (
-              <Card key={driver.id}>
-                <CardContent className="pt-6">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold">{driver.user?.name || driver.name || 'N/A'}</h3>
-                      <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
-                      <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
-                      <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
-                      <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
-                        {driver.isActive ? 'Active' : 'Inactive'}
-                      </p>
+          {drivers.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-gray-500">
+                No drivers found. Add users with the Driver role to populate this section.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {drivers.map((driver: any) => (
+                <Card key={driver.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-semibold">{driver.user?.name || driver.name || 'N/A'}</h3>
+                        <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
+                        <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
+                        <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
+                        <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
+                          {driver.isActive ? 'Active' : 'Inactive'}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || '', licenseExpiry: driver.licenseExpiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
+                        <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || '', licenseExpiry: driver.licenseExpiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => deleteDriver(driver.id)}>Delete</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
       <Dialog open={!!selectedTrip} onOpenChange={(open) => !open && setSelectedTrip(null)}>
-        <DialogContent className="max-w-3xl w-full">
+        <DialogContent className="flex max-h-[88vh] w-[95vw] max-w-[760px] flex-col overflow-hidden rounded-[20px] border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
           {selectedTrip && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-lg font-bold text-gray-900">{selectedTrip.tripNumber || selectedTrip.id}</span>
-                <Badge className={['IN_PROGRESS'].includes(normalizeTripStatus(selectedTrip?.status || '')) ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}>
-                  {normalizeTripStatus(selectedTrip.status || 'PLANNED').replace(/_/g, ' ')}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap gap-6 mb-2 text-sm">
-                <div>
-                  <span className="font-semibold">Vehicle:</span> {selectedTrip?.vehicle?.licensePlate || 'Unassigned'}
-                </div>
-                <div>
-                  <span className="font-semibold">Driver:</span> {selectedTrip?.driver?.name || selectedTrip?.driver?.user?.name || 'Unassigned'}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-6 mb-2 text-sm">
-                <div>
-                  <span className="font-semibold">Progress:</span> {selectedTrip?.completedDropPoints ?? 0}/{selectedTrip?.totalDropPoints ?? 0}
-                </div>
-                <div>
-                  <span className="font-semibold">Drop points:</span> {selectedTrip?.dropPoints?.length ?? 0}
-                </div>
-              </div>
-              <div className="rounded-lg border bg-gray-50 p-3">
-                <p className="text-sm font-semibold text-gray-900 mb-2">Drop Point Details</p>
-                {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
-                  <div className="space-y-2 max-h-72 overflow-auto pr-1">
-                    {selectedTrip.dropPoints.map((point: any, index: number) => {
-                      const statusLabel = String(point.status || 'PENDING').replace(/_/g, ' ')
-                      const statusClass =
-                        ['COMPLETED', 'DELIVERED'].includes(String(point.status || ''))
-                          ? 'bg-green-100 text-green-700 border-green-200'
-                          : ['FAILED', 'FAILED_DELIVERY', 'CANCELLED', 'SKIPPED'].includes(String(point.status || ''))
-                            ? 'bg-red-100 text-red-700 border-red-200'
-                            : ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'ARRIVED'].includes(String(point.status || ''))
-                              ? 'bg-blue-100 text-blue-700 border-blue-200'
-                              : 'bg-gray-100 text-gray-700 border-gray-200'
-
-                      const hasCoordinates =
-                        typeof point.latitude === 'number' && typeof point.longitude === 'number'
-
-      return (
-                        <div key={point.id || `${selectedTrip.id}-dp-${index}`} className="rounded-md border bg-white p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-semibold text-gray-900">
-                              Drop Point {index + 1}: {point.locationName || 'Unnamed drop point'}
-                            </p>
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                              {statusLabel}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-xs text-gray-600">
-                            {hasCoordinates
-                              ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
-                              : 'Coordinates: Not available'}
-                          </p>
-                          <div className="mt-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => setSelectedDropPointDetail(point)}
-                            >
-                              View Details
-                            </Button>
+            (() => {
+              const statusLabel = normalizeTripStatus(selectedTrip.status || 'PLANNED').replace(/_/g, ' ')
+              const completed = Number(selectedTrip?.completedDropPoints ?? 0)
+              const total = Number(selectedTrip?.totalDropPoints ?? selectedTrip?.dropPoints?.length ?? 0)
+              return (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="border-b border-slate-200 px-5 pb-4 pt-5">
+                    <div className="flex flex-wrap items-center gap-2 pr-8">
+                      <h2 className="text-[1.45rem] font-bold leading-tight tracking-tight text-[#0f172f] sm:text-[1.65rem]">{selectedTrip.tripNumber || selectedTrip.id}</h2>
+                      <div className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1">
+                        <Clock className="h-3.5 w-3.5 text-blue-600" />
+                        <span className="text-[10px] font-semibold leading-none text-blue-600">{statusLabel}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-4 px-5 py-5">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
+                      <div className="grid gap-2 grid-cols-4">
+                        <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
+                          <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-600">
+                            <Truck className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-[10px] leading-none text-slate-500">Vehicle</p>
+                            <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{selectedTrip?.vehicle?.licensePlate || 'Unassigned'}</p>
                           </div>
                         </div>
-                      )
-                    })}
+                        <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
+                          <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-100 text-violet-700">
+                            <UserCheck className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-[10px] leading-none text-slate-500">Driver</p>
+                            <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{selectedTrip?.driver?.name || selectedTrip?.driver?.user?.name || 'Unassigned'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
+                          <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                            <CircleCheck className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-[10px] leading-none text-slate-500">Progress</p>
+                            <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{completed}/{total}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-500">
+                            <MapPin className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-[10px] leading-none text-slate-500">Drop points</p>
+                            <p className="mt-1 text-[12px] font-semibold leading-none text-slate-900">{selectedTrip?.dropPoints?.length ?? 0}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
+                      <p className="mb-3 flex items-center gap-2 text-[14px] font-bold leading-none text-[#0f172f]">
+                        <MapPin className="h-4 w-4 text-blue-600" />
+                        Drop Point Details
+                      </p>
+                      {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
+                        <div className="space-y-3">
+                          {selectedTrip.dropPoints.map((point: any, index: number) => {
+                            const statusLabelPoint = String(point.status || 'PENDING').replace(/_/g, ' ')
+                            const statusClass =
+                              ['COMPLETED', 'DELIVERED', 'ARRIVED'].includes(String(point.status || ''))
+                                ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                : ['FAILED', 'FAILED_DELIVERY', 'CANCELLED', 'SKIPPED'].includes(String(point.status || ''))
+                                  ? 'bg-red-100 text-red-700 border-red-200'
+                                  : ['IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(String(point.status || ''))
+                                    ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                    : 'bg-gray-100 text-gray-700 border-gray-200'
+
+                            const hasCoordinates = typeof point.latitude === 'number' && typeof point.longitude === 'number'
+                            return (
+                              <div key={point.id || `${selectedTrip.id}-dp-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex min-w-0 items-start gap-3">
+                                    <span className="mt-1 grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full bg-blue-100 text-blue-600">
+                                      <MapPin className="h-5 w-5" />
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-[12px] font-semibold leading-none text-slate-900">
+                                        Drop Point {index + 1}: {point.locationName || 'Unnamed drop point'}
+                                      </p>
+                                      <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                                        {hasCoordinates
+                                          ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
+                                          : 'Coordinates: Not available'}
+                                      </p>
+                                      {point?.order ? (
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                          Fulfillment legs: {deriveOrderFulfillmentSummary(point.order).deliveredLegs}/{deriveOrderFulfillmentSummary(point.order).totalLegs} delivered
+                                        </p>
+                                      ) : null}
+                                      <div className="mt-4">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className="h-8 rounded-lg border-slate-300 px-3 text-[11px] font-medium text-slate-900 hover:bg-slate-50"
+                                          onClick={() => setSelectedDropPointDetail(point)}
+                                        >
+                                          <Eye className="mr-2 h-4 w-4" />
+                                          View Details
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold leading-none ${statusClass}`}>
+                                    {statusLabelPoint}
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">No drop-point records attached to this trip yet.</p>
+                      )}
+                    </div>
+                    <div className="flex justify-end pt-2">
+                      <Button variant="outline" className="h-10 min-w-[86px] rounded-lg border-slate-300 px-4 text-sm font-medium text-slate-900 hover:bg-slate-50" onClick={() => setSelectedTrip(null)}>
+                        Close
+                      </Button>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No drop-point records attached to this trip yet.</p>
-                )}
-              </div>
-              <div className="flex justify-end mt-4">
-                <Button variant="outline" onClick={() => setSelectedTrip(null)}>Close</Button>
-              </div>
-            </div>
+                </div>
+              )
+            })()
           )}
         </DialogContent>
       </Dialog>
 
       <Dialog open={!!selectedDropPointDetail} onOpenChange={(open) => !open && setSelectedDropPointDetail(null)}>
-        <DialogContent className="max-w-xl w-full rounded-2xl border border-slate-200 p-0">
+        <DialogContent className="max-w-xl w-full overflow-hidden rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
           {selectedDropPointDetail ? (
-            <div className="space-y-4 p-5">
-              <div className="border-b border-slate-200 pb-3">
-                <h3 className="text-[1.4rem] font-black tracking-[-0.02em] text-slate-900">Drop Point Details</h3>
+            <div className="space-y-4 p-6">
+              {/* Header */}
+              <div className="flex items-center gap-3 border-b border-slate-200/70 pb-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-[0_8px_18px_rgba(37,99,235,0.28)]">
+                  <MapPin className="h-5 w-5 text-white" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900">Drop Point Details</h3>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-[1.05rem] text-slate-700 space-y-2">
-                <p><span className="font-bold text-slate-900">Customer:</span> {selectedDropPointDetail.locationName || selectedDropPointDetail.contactName || 'N/A'}</p>
-                <p><span className="font-bold text-slate-900">Phone:</span> {selectedDropPointDetail.contactPhone || 'N/A'}</p>
-                <p><span className="font-bold text-slate-900">Address:</span> {selectedDropPointDetail.address || 'N/A'}</p>
-                <p><span className="font-bold text-slate-900">PO Number:</span> {selectedDropPointDetail.order?.orderNumber || 'N/A'}</p>
+
+              {/* Info card */}
+              <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)] space-y-2.5 text-sm">
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Customer</span>
+                  <span className="text-slate-700">{selectedDropPointDetail.locationName || selectedDropPointDetail.contactName || 'N/A'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Phone</span>
+                  <span className="text-slate-700">{selectedDropPointDetail.contactPhone || 'N/A'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Address</span>
+                  <span className="text-slate-700">{selectedDropPointDetail.address || 'N/A'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">PO Number</span>
+                  <span className="font-mono text-slate-800">{selectedDropPointDetail.order?.orderNumber || 'N/A'}</span>
+                </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900">PO Status:</span>
-                  <span className="inline-flex rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
-                    {String(selectedDropPointDetail.order?.status || 'N/A').replace(/_/g, ' ')}
+                  <span className="min-w-[108px] font-semibold text-slate-900">PO Status</span>
+                  {(() => {
+                    const raw = String(selectedDropPointDetail.order?.status || 'N/A').toUpperCase()
+                    const isActive = ['OUT_FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED'].includes(raw)
+                    const isDone = raw === 'DELIVERED'
+                    const isFailed = ['CANCELLED', 'FAILED', 'FAILED_DELIVERY', 'REJECTED'].includes(raw)
+                    return (
+                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                        isActive  ? 'border-sky-200 bg-sky-50 text-sky-700' :
+                        isDone    ? 'border-emerald-200 bg-emerald-50 text-emerald-700' :
+                        isFailed  ? 'border-red-200 bg-red-50 text-red-700' :
+                                    'border-slate-200 bg-slate-50 text-slate-600'
+                      }`}>
+                        {raw.replace(/_/g, ' ')}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Total Amount</span>
+                  <span className="font-semibold text-indigo-600">
+                    {selectedDropPointDetail.order?.totalAmount != null
+                      ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0))
+                      : 'N/A'}
                   </span>
                 </div>
-                <p><span className="font-bold text-slate-900">Total Amount:</span> {selectedDropPointDetail.order?.totalAmount != null ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0)) : 'N/A'}</p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-base font-bold text-slate-900">Order Items</p>
+
+              {/* Order Items */}
+              <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)]">
+                <p className="mb-3 text-sm font-semibold text-slate-900">Order Items</p>
                 {Array.isArray(selectedDropPointDetail.order?.items) && selectedDropPointDetail.order.items.length > 0 ? (
-                  <div className="mt-2 space-y-2 text-sm text-slate-700">
+                  <div className="space-y-2 text-sm">
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
-                      <div key={`dp-detail-item-${itemIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div key={`dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
-                        <p className="text-xs text-slate-600">Quantity: {Number(item?.quantity || 0)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Size: {(() => {
+                            const product = item?.product || {}
+                            const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
+                              ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
+                              : ''
+                            const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
+                            return fromSizes || fromField || 'N/A'
+                          })()}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-500">No order items.</p>
+                  <p className="text-sm text-slate-500">No order items.</p>
                 )}
               </div>
+
+              {/* Footer */}
               <div className="flex justify-end pt-1">
-                <Button variant="outline" className="h-11 min-w-24 rounded-xl" onClick={() => setSelectedDropPointDetail(null)}>Close</Button>
+                <Button
+                  variant="outline"
+                  className="h-10 min-w-24 rounded-xl border-white/50 bg-white/65 text-slate-700 backdrop-blur-md hover:bg-white/85 hover:text-slate-950"
+                  onClick={() => setSelectedDropPointDetail(null)}
+                >
+                  Close
+                </Button>
               </div>
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
+
+
+      <AlertDialog open={deleteDriverOpen} onOpenChange={setDeleteDriverOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600">Deactivate Driver?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will deactivate{' '}
+              <span className="font-semibold text-foreground">
+                {driverToDelete?.user?.name || driverToDelete?.name || 'this driver'}
+              </span>
+              . They will no longer appear as active. You can reactivate them later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingDriver}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={deleteDriver}
+              disabled={isDeletingDriver}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeletingDriver ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Deactivate Driver
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

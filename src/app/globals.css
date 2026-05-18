@@ -120,6 +120,20 @@
     background-color: var(--background);
     color: var(--foreground);
   }
+  /* Radix UI portals render directly into <body>, so they inherit font from body.
+     This ensures any portal container that escapes the component tree still uses Poppins. */
+  [data-radix-popper-content-wrapper],
+  [data-radix-dialog-content],
+  [data-radix-alert-dialog-content],
+  [data-radix-select-content],
+  [data-radix-dropdown-menu-content],
+  [data-radix-context-menu-content],
+  [data-radix-tooltip-content],
+  [data-radix-popover-content],
+  [data-radix-hover-card-content],
+  [data-radix-sheet-content] {
+    font-family: inherit;
+  }
 }
 
 /* Dynamic height/width utilities for charts and bars */

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -187,7 +187,7 @@ export function FeedbackView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -277,7 +277,7 @@ export function FeedbackView() {
       <Card>
         <CardContent className="pt-4">
           <label className="text-sm font-medium text-gray-700">Feedback Search and Filter</label>
-          <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex flex-row gap-3">
             <div className="relative flex-1">
               {/* Search icon removed */}
               <Input
@@ -347,10 +347,10 @@ export function FeedbackView() {
                         <MessageSquare className="h-5 w-5 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">• {item.order?.orderNumber || 'No Order'}</span></p>
+                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">� {item.order?.orderNumber || 'No Order'}</span></p>
                         <div className="mt-2 flex items-center gap-2">
                           {renderStars(Number(item.rating || 0))}
-                          <span className="text-sm text-gray-500">• {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
+                          <span className="text-sm text-gray-500">� {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
                         </div>
                       </div>
                     </div>

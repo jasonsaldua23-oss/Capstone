@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 type CustomerCheckoutViewProps = {
   setActiveView: (view: any) => void
@@ -17,6 +18,14 @@ type CustomerCheckoutViewProps = {
   getProductImage: (imageUrl?: string | null) => string
   formatPeso: (value: number) => string
   selectedSubtotal: number
+  discountName: string
+  discountType: string
+  discountPercent: number
+  discountAmountPerCase: number
+  discountPerCase: number
+  discountCasesAffected: number
+  totalDiscount: number
+  finalTotal: number
   notes: string
   setNotes: (value: string) => void
   deliveryDate: string
@@ -36,6 +45,14 @@ export function CustomerCheckoutView({
   getProductImage,
   formatPeso,
   selectedSubtotal,
+  discountName,
+  discountType,
+  discountPercent,
+  discountAmountPerCase,
+  discountPerCase,
+  discountCasesAffected,
+  totalDiscount,
+  finalTotal,
   notes,
   setNotes,
   deliveryDate,
@@ -44,6 +61,10 @@ export function CustomerCheckoutView({
   isPlacingOrder,
   canPlaceOrder,
 }: CustomerCheckoutViewProps) {
+  const today = new Date()
+  const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const minDeliveryDate = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`
+
   return (
     <section className="-mx-4 -mt-4 bg-white/55 pb-20 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
       <div className="border-b bg-white px-3 py-3 md:rounded-t-xl">
@@ -100,10 +121,11 @@ export function CustomerCheckoutView({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
               </div>
+              <CompactDiscountLine value={formatPeso(totalDiscount)} />
               <div className="h-px bg-slate-100" />
               <div className="flex items-center justify-between text-[15px] font-semibold text-slate-900 md:text-base">
                 <span>Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</span>
-                <span className="text-emerald-600">{formatPeso(selectedSubtotal)}</span>
+                <span className="text-emerald-600">{formatPeso(finalTotal)}</span>
               </div>
             </CardContent>
           </Card>
@@ -121,7 +143,7 @@ export function CustomerCheckoutView({
               <Input
                 type="date"
                 value={deliveryDate}
-                min={new Date().toISOString().split('T')[0]}
+                min={minDeliveryDate}
                 onChange={e => setDeliveryDate(e.target.value)}
                 className="h-10 rounded-xl border-slate-200 bg-white text-[13px] text-slate-700 focus-visible:ring-emerald-500 md:h-11 md:text-sm"
               />
@@ -131,11 +153,11 @@ export function CustomerCheckoutView({
       )}
 
       {selectedCartItems.length > 0 ? (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
+        <div className="fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
           <div className="flex items-center gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 md:text-sm">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>
-              <p className="text-lg font-semibold text-emerald-700 md:text-2xl">{formatPeso(selectedSubtotal)}</p>
+              <p className="text-lg font-semibold text-emerald-700 md:text-2xl">{formatPeso(finalTotal)}</p>
             </div>
             <Button
               className="h-8 rounded-xl bg-rose-500 px-4 text-[11px] text-white hover:bg-rose-600 md:h-11 md:px-8 md:text-sm"

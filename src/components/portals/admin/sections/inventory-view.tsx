@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from './shared'
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
@@ -51,60 +52,6 @@ const WEIGHT_BY_SIZE: Record<string, number> = {
   '2L (68 oz)': 2.08,
 }
 
-function getCollection<T>(payload: unknown, keys: string[]): T[] {
-  if (Array.isArray(payload)) return payload as T[]
-  if (!payload || typeof payload !== 'object') return []
-  const record = payload as Record<string, unknown>
-
-  for (const key of keys) {
-    if (Array.isArray(record[key])) return record[key] as T[]
-  }
-
-  if (Array.isArray(record.data)) return record.data as T[]
-  return []
-}
-
-function getWarehouseIdFromRow(row: any) {
-  const value = row?.warehouseId ?? row?.warehouse_id ?? row?.warehouse?.id ?? row?.warehouse
-  return typeof value === 'object' && value !== null ? String(value.id || '') : String(value || '')
-}
-
-function formatPeso(value: number) {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))
-}
-
-async function safeFetchJson(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-  options: { timeoutMs?: number } = {}
-): Promise<{ ok: boolean; status: number; data: any }> {
-  const timeoutMs = options.timeoutMs ?? 12000
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetch(input, {
-      cache: 'no-store',
-      credentials: 'include',
-      ...init,
-      signal: controller.signal,
-    })
-
-    const text = await response.text()
-    const data = text ? JSON.parse(text) : {}
-    return { ok: response.ok && data?.success !== false, status: response.status, data }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Request failed'
-    return { ok: false, status: 0, data: { error: message } }
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
 
 export function InventoryView() {
   const [inventory, setInventory] = useState<any[]>([])
@@ -184,8 +131,9 @@ export function InventoryView() {
         return
       }
       const list = getCollection<any>(result.data, ['warehouses'])
-      setWarehouses(list)
-      if (selectedWarehouseId !== 'all' && !list.some((warehouse) => warehouse?.id === selectedWarehouseId)) {
+      const activeWarehouses = list.filter((warehouse) => warehouse?.isActive !== false)
+      setWarehouses(activeWarehouses)
+      if (selectedWarehouseId !== 'all' && !activeWarehouses.some((warehouse) => warehouse?.id === selectedWarehouseId)) {
         setSelectedWarehouseId('all')
       }
     } catch (error) {
@@ -242,8 +190,8 @@ export function InventoryView() {
 
   const getReservedQty = (item: any) => Number(item.reservedQuantity ?? item.reserved_quantity ?? 0)
   const getAvailableQty = (item: any) => Math.max(0, (item.quantity ?? 0) - getReservedQty(item))
-  const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? 0)
-  const getStockStatus = (item: any) => ((item.quantity ?? 0) <= getThreshold(item) * 1.5 ? 'restock' : 'healthy')
+  const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? item.min_stock ?? 0)
+  const getStockStatus = (item: any) => (getAvailableQty(item) <= getThreshold(item) * 1.5 ? 'restock' : 'healthy')
   const filteredInventory = useMemo(() => {
     if (selectedWarehouseId === 'all') return inventory
     return inventory.filter((item) => getWarehouseIdFromRow(item) === selectedWarehouseId)
@@ -409,13 +357,13 @@ export function InventoryView() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>Inventory</CardTitle>
             </div>
-            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+            <div className="flex w-full flex-wrap gap-2 md:w-auto md:flex-nowrap">
               <select
-                className="h-10 min-w-[180px] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:w-[220px] sm:flex-none"
+                className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm md:w-[260px] md:flex-none"
                 value={selectedWarehouseId}
                 onChange={(event) => setSelectedWarehouseId(event.target.value)}
                 title="Filter by warehouse"
@@ -432,7 +380,7 @@ export function InventoryView() {
                   setProductSkuSeed(createSkuSeed())
                   setRegisterProductOpen(true)
                 }}
-                className="whitespace-nowrap"
+                className="shrink-0 whitespace-nowrap"
               >
                 Register Product
               </Button>
@@ -447,8 +395,8 @@ export function InventoryView() {
           ) : filteredInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] text-sm">
+            <div className="w-full overflow-x-auto pb-1">
+              <table className="w-full min-w-[1220px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
@@ -494,7 +442,7 @@ export function InventoryView() {
                               <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
                               <p className="text-xs text-gray-500">
                                 {Array.isArray(item.product?.sizes) && item.product.sizes.length > 0
-                                  ? item.product.sizes[0]
+                                  ? item.product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
                                   : 'N/A'}
                               </p>
                             </div>
@@ -510,8 +458,8 @@ export function InventoryView() {
                         <td className="p-2.5 font-semibold text-orange-600">{reservedQty}</td>
                         <td className="p-2.5 text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
                         <td className="p-2.5">
-                          {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
-                          {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
+                          {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
+                          {status === 'restock' && <Badge className="whitespace-nowrap bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                         </td>
                         <td className="p-2.5">
                           <Button
@@ -588,7 +536,7 @@ export function InventoryView() {
                     {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Delete Product
                   </Button>
-                  <Button className="flex-1 bg-black text-white hover:bg-black/90" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
+                  <Button className="flex-1" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
                     {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Save Changes
                   </Button>
@@ -637,7 +585,7 @@ export function InventoryView() {
             <DialogTitle>Register New Product</DialogTitle>
             <DialogDescription>Add a new product to your inventory system.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="md:col-span-2 space-y-1">
               <label className="text-sm font-medium text-gray-700">Select Warehouse *</label>
               <select
@@ -762,7 +710,7 @@ export function InventoryView() {
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-black text-white hover:bg-black/90"
+                className="flex-1"
                 onClick={registerProduct}
                 disabled={isSubmittingProduct}
               >

@@ -1,8 +1,8 @@
 export const NEGROS_OCCIDENTAL_BOUNDS = {
-  minLat: 9.18,
-  maxLat: 11.05,
-  minLng: 122.22,
-  maxLng: 123.35,
+  minLat: 10.62,
+  maxLat: 10.94,
+  minLng: 122.86,
+  maxLng: 123.08,
 }
 
 export const isWithinNegrosOccidental = (lat: number, lng: number) =>

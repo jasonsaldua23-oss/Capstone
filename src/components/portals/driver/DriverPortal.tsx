@@ -1,7 +1,6 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { Poppins } from 'next/font/google'
 import { useEffect } from 'react'
 import { useAuth } from '@/app/page'
 import { toast } from 'sonner'
@@ -9,16 +8,12 @@ import { HistoryView } from './sections/history/history-view'
 import { HomeView } from './sections/home/home-view'
 import { DriverBottomNav } from './sections/layout/bottom-nav'
 import { DriverNativeCameraGateDialog } from './sections/layout/native-camera-gate-dialog'
+import { portalFont } from '../portal-font'
 import { DriverPortalHeader } from './sections/layout/portal-header'
 import { useDriverPortalState } from './sections/layout/portal-state'
 import { ProfileView } from './sections/profile/profile-view'
 import { TripDetailView } from './sections/trips/trip-detail-view'
 import { TripsListView } from './sections/trips/trips-list-view'
-
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
 
 // Driver portal shell: delegates business logic to hook and section components.
 export function DriverPortal() {
@@ -75,7 +70,7 @@ export function DriverPortal() {
 
   return (
     // Full-viewport container with shared portal background treatment.
-    <div className={`${poppins.className} min-h-[100dvh] bg-[#dff0ea] md:bg-[#dceff0]`}>
+    <div className={`${portalFont.className} min-h-[100dvh] bg-[#dff0ea] md:bg-[#dceff0]`}>
       <div className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-transparent">
         {/* Decorative background glows */}
         <div className="pointer-events-none absolute inset-0">

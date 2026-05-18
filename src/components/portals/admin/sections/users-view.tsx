@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -18,11 +18,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
+import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from 'lucide-react'
+import { validatePasswordPolicy } from '@/lib/password-policy'
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
+}
+
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
+function isValidPhilippinePhone(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '')
+  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
+}
+
+function formatPhilippinePhoneInput(value: string): string {
+  // Remove non-digits
+  let cleaned = value.replace(/\D/g, '')
+  // Limit to 12 digits max (for 63 prefix)
+  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
+  // Ensure starts with 09 or 63
+  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
+    // Default to 09 if no valid prefix
+    cleaned = '09' + cleaned.slice(0, 9)
+  }
+  return cleaned
 }
 
 function formatRoleLabel(role: string | null | undefined) {
@@ -64,6 +83,17 @@ export function UsersView() {
     confirmPassword: '',
     isActive: true,
   })
+  const hasPassword = form.password.length > 0
+  const passwordRequirements = [
+    { id: 'length', label: 'At least 8 characters', met: form.password.length >= 8 },
+    { id: 'upper', label: 'At least 1 uppercase letter', met: hasPassword && /[A-Z]/.test(form.password) },
+    { id: 'lower', label: 'At least 1 lowercase letter', met: hasPassword && /[a-z]/.test(form.password) },
+    { id: 'number', label: 'At least 1 number', met: hasPassword && /\d/.test(form.password) },
+    { id: 'special', label: 'At least 1 special character', met: hasPassword && /[^A-Za-z0-9\s]/.test(form.password) },
+    { id: 'no-spaces', label: 'No spaces', met: hasPassword && !/\s/.test(form.password) },
+  ]
+  const passwordPolicySatisfied = passwordRequirements.every((rule) => rule.met)
+  const passwordsMatch = form.password !== '' && form.password === form.confirmPassword
 
   const fetchUsers = async () => {
     setIsLoading(true)
@@ -361,19 +391,19 @@ export function UsersView() {
       </Card>
 
       <Dialog open={addOpen} onOpenChange={(open) => { if (open) resetForm(); setAddOpen(open); }}>
-        <DialogContent className="max-w-4xl w-full">
+        <DialogContent className="max-w-2xl w-full sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add User</DialogTitle>
             <DialogDescription>Create a new staff account.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Email</label>
-              <div className="flex gap-2">
+              <div className="flex items-end gap-2">
                 <Input
                   type="email"
                   autoComplete="off"
@@ -386,19 +416,26 @@ export function UsersView() {
                     setEmailVerified(false)
                     setEmailVerificationToken('')
                   }}
+                  className="flex-1"
                 />
                 <Button type="button" variant="outline" onClick={requestEmailVerification} disabled={isVerificationSending}>
                   {isVerificationSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                   Send Code
                 </Button>
               </div>
-              <div className="text-xs text-gray-500">
-                {emailVerified ? 'Gmail address verified.' : 'Send a code to the Gmail address, then enter it below.'}
-              </div>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input autoComplete="off" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input
+                autoComplete="off"
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+              />
+              {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>
@@ -427,7 +464,9 @@ export function UsersView() {
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
                   value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, password: e.target.value }))
+                  }}
                   className="pr-11"
                 />
                 <button
@@ -439,7 +478,20 @@ export function UsersView() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  {passwordRequirements.map((rule) => (
+                    <div key={rule.id} className="flex items-start gap-2 text-xs">
+                      {rule.met ? (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
+                      ) : (
+                        <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
+                      )}
+                      <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium text-gray-700">Confirm Password</label>
@@ -473,7 +525,11 @@ export function UsersView() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button className="flex-1" onClick={() => saveUser('create')} disabled={isSubmitting || !emailVerified}>
+            <Button
+              className="flex-1"
+              onClick={() => saveUser('create')}
+              disabled={isSubmitting || !emailVerified || !passwordPolicySatisfied || !passwordsMatch}
+            >
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save User
             </Button>
@@ -482,12 +538,12 @@ export function UsersView() {
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>
-        <DialogContent className="max-w-4xl w-full">
+        <DialogContent className="max-w-2xl w-full sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>Update account profile, role and status.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -498,7 +554,16 @@ export function UsersView() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input autoComplete="off" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input
+                autoComplete="off"
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+              />
+              {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>

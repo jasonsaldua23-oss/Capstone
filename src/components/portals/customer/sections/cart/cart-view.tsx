@@ -124,7 +124,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
             </div>
 
             {cart.length > 0 ? (
-              <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white px-3 py-2 md:static md:mt-auto md:rounded-b-2xl md:border md:border-slate-200">
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] left-0 right-0 z-30 border-t border-slate-200 bg-white px-3 py-2 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] md:static md:mt-auto md:rounded-b-2xl md:border md:border-slate-200 md:shadow-none">
                 <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-2 py-2">
                   <button
                     type="button"

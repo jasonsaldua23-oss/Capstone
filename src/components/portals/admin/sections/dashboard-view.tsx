@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, ShoppingCart, Truck, MapPin, CircleCheck, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package } from 'lucide-react'
+import { Loader2, ShoppingCart, Truck, Warehouse, Users, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package, CircleCheck } from 'lucide-react'
 import type { DashboardStats } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,6 +11,8 @@ import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shar
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
+  const [welcomeMessage, setWelcomeMessage] = useState("Welcome back!")
+  const [warehouseCount, setWarehouseCount] = useState(0)
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -32,26 +34,64 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     fetchDashboardData()
   }, [])
 
+  useEffect(() => {
+    async function fetchWarehouseCount() {
+      try {
+        const result = await fetchAllPaginatedCollection<any>(
+          '/api/warehouses',
+          'warehouses',
+          { cache: 'no-store' },
+          { retries: 2, timeoutMs: 12000, pageSize: 100, maxPages: 20 }
+        )
+        if (!result.ok) return
+        setWarehouseCount(getCollection<any>(result.data, ['warehouses']).length)
+      } catch {
+        setWarehouseCount(0)
+      }
+    }
+    fetchWarehouseCount()
+  }, [])
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem('admin_welcome_state')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const name = String(parsed?.name || '').trim()
+      if (mode === 'new') {
+        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
+      } else {
+        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
+      }
+      window.sessionStorage.removeItem('admin_welcome_state')
+    } catch {}
+  }, [])
+
   const dashboardOrderStats = useMemo(() => {
-    const totalOrders = Number(stats?.totalOrders || dashboardOrders.length || 0)
-    const outForDelivery = Number(stats?.inTransitOrders || 0)
-    const delivered = Number(stats?.deliveredOrders || 0)
+    const businessOrders = dashboardOrders.filter(
+      (order: any) => !String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
+    )
+    const totalOrders = businessOrders.length
+    const outForDelivery = businessOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'OUT_FOR_DELIVERY').length
+    const delivered = businessOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'DELIVERED').length
 
     return {
       totalOrders,
       outForDelivery,
       delivered,
     }
-  }, [dashboardOrders.length, stats])
+  }, [dashboardOrders])
 
-  const activeTripsFromData = Number(stats?.activeTrips || 0)
+  const totalVehicles = Number(stats?.totalVehicles || 0)
+  const totalClients = Number(stats?.totalCustomers || 0)
   const availableDrivers = Number(stats?.availableDrivers || stats?.activeDrivers || 0)
 
   const statCards = [
-    { label: 'Total Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
-    { label: 'Out for Delivery', value: dashboardOrderStats.outForDelivery, color: 'red', icon: MapPin },
-    { label: 'Delivered', value: dashboardOrderStats.delivered, color: 'green', icon: CircleCheck },
-    { label: 'Active Trips', value: activeTripsFromData, color: 'indigo', icon: Truck },
+    { label: 'Purchase Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
+    { label: 'Warehouses', value: warehouseCount, color: 'red', icon: Warehouse },
+    { label: 'Vehicles', value: totalVehicles, color: 'green', icon: Truck },
+    { label: 'Clients', value: totalClients, color: 'indigo', icon: Users },
   ]
 
   const colorClasses = {
@@ -166,11 +206,11 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500">Welcome back! Here's your logistics overview.</p>
+        <p className="text-gray-500">{welcomeMessage} Here&apos;s your logistics overview.</p>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {statCards.map((stat, i) => {
           const gradients: { [key: string]: string } = {
             blue: 'from-blue-50 to-indigo-50',
@@ -199,7 +239,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       </div>
 
       {/* Quick Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
 
         <Card className="bg-gradient-to-br from-green-600 to-green-700 text-white">
           <CardContent className="pt-6">
@@ -242,7 +282,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -295,7 +335,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       </div>
 
       {/* Alerts Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

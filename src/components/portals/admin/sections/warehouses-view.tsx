@@ -53,6 +53,16 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+function parseWarehouseCodeSequence(code: string): number {
+  const match = /^WH-(\d+)$/i.exec(String(code || '').trim())
+  if (!match) return 0
+  return Number(match[1] || 0)
+}
+
+function formatWarehouseCodeSequence(sequence: number): string {
+  return `WH-${String(Math.max(1, sequence)).padStart(4, '0')}`
+}
+
 export function WarehousesView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [warehouseStaffUsers, setWarehouseStaffUsers] = useState<any[]>([])
@@ -68,9 +78,16 @@ export function WarehousesView() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<any | null>(null)
   const [warehouseInventoryItems, setWarehouseInventoryItems] = useState<any[]>([])
   const [insightStockBatches, setInsightStockBatches] = useState<any[]>([])
+  const getNextWarehouseCode = () => {
+    const maxSequence = warehouses.reduce((max, warehouse) => {
+      const sequence = parseWarehouseCodeSequence(String(warehouse?.code || ''))
+      return sequence > max ? sequence : max
+    }, 0)
+    return formatWarehouseCodeSequence(maxSequence + 1)
+  }
   const [form, setForm] = useState({
     name: '',
-    code: '',
+    code: 'WH-0001',
     address: '',
     city: '',
     province: '',
@@ -130,9 +147,10 @@ export function WarehousesView() {
   }
 
   const resetForm = () => {
+    const nextCode = getNextWarehouseCode()
     setForm({
       name: '',
-      code: '',
+      code: nextCode,
       address: '',
       city: '',
       province: '',
@@ -259,8 +277,17 @@ export function WarehousesView() {
   }
 
   const saveWarehouse = async (mode: 'create' | 'edit') => {
-    if (!form.name.trim() || !form.code.trim() || !form.address.trim() || !form.city.trim() || !form.province.trim() || !form.zipCode.trim()) {
-      toast.error('Name, code, address, city, province and zip code are required')
+    if (!form.name.trim() || !form.address.trim() || !form.city.trim() || !form.province.trim() || !form.zipCode.trim()) {
+      toast.error('Name, address, city, province and zip code are required')
+      return
+    }
+    if (!form.capacity.trim()) {
+      toast.error('Capacity is required')
+      return
+    }
+    const capacityValue = Number(form.capacity)
+    if (!Number.isFinite(capacityValue) || capacityValue <= 0) {
+      toast.error('Capacity must be a valid number greater than 0')
       return
     }
 
@@ -279,12 +306,16 @@ export function WarehousesView() {
     try {
       const endpoint = mode === 'create' ? '/api/warehouses' : `/api/warehouses/${selectedWarehouse.id}`
       const method = mode === 'create' ? 'POST' : 'PUT'
+      const finalCode =
+        mode === 'create'
+          ? getNextWarehouseCode()
+          : (form.code || selectedWarehouse?.code || '').trim().toUpperCase()
       const response = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: form.name.trim(),
-          code: form.code.trim().toUpperCase(),
+          code: finalCode,
           address: form.address.trim(),
           city: form.city.trim(),
           province: form.province.trim(),
@@ -292,7 +323,7 @@ export function WarehousesView() {
           country: form.country.trim() || 'Philippines',
           latitude: latitudeValue,
           longitude: longitudeValue,
-          capacity: form.capacity ? Number(form.capacity) : 1000,
+          capacity: capacityValue,
           managerId: form.managerId || null,
           isActive: form.isActive,
         }),
@@ -336,6 +367,31 @@ export function WarehousesView() {
     if (!managerId) return 'Unassigned'
     const staff = warehouseStaffUsers.find((entry) => entry.id === managerId)
     return staff?.name || 'Assigned'
+  }
+
+  const assignedWarehouseCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    warehouses.forEach((warehouse) => {
+      const managerId = String(warehouse?.managerId || '')
+      if (!managerId) return
+      counts[managerId] = (counts[managerId] || 0) + 1
+    })
+    return counts
+  }, [warehouses])
+
+  const getAssignedWarehouseLabel = (staffId: string) => {
+    const assigned = warehouses.filter((warehouse: any) => String(warehouse?.managerId || '') === staffId)
+    if (assigned.length === 0) return 'Unassigned'
+    return assigned
+      .map((warehouse: any) => String(warehouse?.name || warehouse?.code || warehouse?.id || '').trim())
+      .filter(Boolean)
+      .join(', ')
+  }
+
+  const isStaffSelectableForCurrentWarehouse = (staffId: string) => {
+    const currentManagerId = String(selectedWarehouse?.managerId || '')
+    if (currentManagerId && currentManagerId === staffId) return true
+    return (assignedWarehouseCounts[staffId] ?? 0) === 0
   }
 
   const openInsights = async (warehouse: any) => {
@@ -472,14 +528,21 @@ export function WarehousesView() {
   const stockHealthCounts = warehouseInventoryItems.reduce(
     (acc: { healthy: number; low: number; critical: number; overstocked: number }, item: any) => {
       const qty = Number(item?.quantity || 0)
-      const reserved = Number(item?.reservedQuantity || 0)
-      const minStock = Math.max(0, Number(item?.minStock || 0))
-      const maxStock = Math.max(0, Number(item?.maxStock || 0))
+      const reserved = Number(item?.reservedQuantity ?? item?.reserved_quantity ?? 0)
+      const minStock = Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0))
       const available = Math.max(0, qty - reserved)
+      const lastRestockedRaw = item?.lastRestockedAt ?? item?.last_restocked_at ?? item?.updatedAt ?? item?.updated_at
+      const lastRestockedAt = lastRestockedRaw ? new Date(lastRestockedRaw) : null
+      const overstockPersistedForSevenDays = Boolean(
+        lastRestockedAt &&
+        !Number.isNaN(lastRestockedAt.getTime()) &&
+        (Date.now() - lastRestockedAt.getTime()) >= (7 * 24 * 60 * 60 * 1000)
+      )
+      const isOverstocked = minStock > 0 && available >= (minStock * 3) && overstockPersistedForSevenDays
 
-      if (available <= minStock) acc.critical += 1
-      else if (available <= Math.ceil(minStock * 1.2)) acc.low += 1
-      else if (maxStock > 0 && available >= Math.floor(maxStock * 0.9)) acc.overstocked += 1
+      if (minStock > 0 && available <= Math.max(1, Math.floor(minStock * 0.5))) acc.critical += 1
+      else if (minStock > 0 && available <= minStock) acc.low += 1
+      else if (isOverstocked) acc.overstocked += 1
       else acc.healthy += 1
 
       return acc
@@ -515,55 +578,49 @@ export function WarehousesView() {
           <h1 className="text-2xl font-bold text-gray-900">Warehouses</h1>
           <p className="text-gray-500">Manage storage facilities and locations</p>
         </div>
-        <Button className="gap-2" onClick={() => setAddOpen(true)}>
+        <Button className="gap-2" onClick={() => { resetForm(); setAddOpen(true) }}>
           {/* Warehouse icon removed */}
           Add Warehouse
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-blue-50 p-1.5">
-                <Building2 className="h-3.5 w-3.5 text-blue-600" />
-              </div>
+      <div className="grid grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg p-2 bg-blue-100 text-blue-600"><Building2 className="h-4 w-4" /></div>
               <div>
-                <p className="text-xs text-gray-500">Total Warehouses</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{totalWarehouses}</p>
+                <p className="text-sm text-gray-600">Total Warehouses</p>
+                <p className="text-2xl font-bold">{totalWarehouses}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-emerald-50 p-1.5">
-                <Database className="h-3.5 w-3.5 text-emerald-600" />
-              </div>
+        <Card>
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg p-2 bg-emerald-100 text-emerald-600"><Database className="h-4 w-4" /></div>
               <div>
-                <p className="text-xs text-gray-500">Total Capacity</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{totalWarehouseCapacity.toLocaleString()}</p>
+                <p className="text-sm text-gray-600">Total Capacity</p>
+                <p className="text-2xl font-bold">{totalWarehouseCapacity.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-violet-50 p-1.5">
-                <TrendingUp className="h-3.5 w-3.5 text-violet-600" />
-              </div>
+        <Card>
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg p-2 bg-violet-100 text-violet-600"><TrendingUp className="h-4 w-4" /></div>
               <div>
-                <p className="text-xs text-gray-500">Avg Efficiency</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{avgEfficiency}%</p>
+                <p className="text-sm text-gray-600">Avg Efficiency</p>
+                <p className="text-2xl font-bold">{avgEfficiency}%</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           <div className="col-span-full flex items-center justify-center h-64">
             {/* Loader2 icon removed */}
@@ -572,7 +629,7 @@ export function WarehousesView() {
           <div className="col-span-full text-center py-12">
             {/* Warehouse icon removed */}
             <p className="text-gray-500">No warehouses found</p>
-            <Button className="mt-4" onClick={() => setAddOpen(true)}>Add First Warehouse</Button>
+            <Button className="mt-4" onClick={() => { resetForm(); setAddOpen(true) }}>Add First Warehouse</Button>
           </div>
         ) : (
           warehouses.map((warehouse: any) => (
@@ -608,14 +665,14 @@ export function WarehousesView() {
             <DialogTitle>Add Warehouse</DialogTitle>
             <DialogDescription>Create a new storage facility.</DialogDescription>
           </DialogHeader>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Code</label>
-              <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
+              <Input value={form.code} readOnly disabled />
             </div>
                 <div className="space-y-1 sm:col-span-2">
               <div className="flex items-center justify-between gap-2">
@@ -651,7 +708,7 @@ export function WarehousesView() {
               <Input value={form.zipCode} onChange={(e) => setForm((f) => ({ ...f, zipCode: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Capacity</label>
+              <label className="text-sm font-medium text-gray-700">Capacity (Unit)</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
             </div>
             <div className="space-y-1">
@@ -672,8 +729,8 @@ export function WarehousesView() {
               >
                 <option value="">Unassigned</option>
                 {warehouseStaffUsers.map((staff) => (
-                  <option key={staff.id} value={staff.id}>
-                    {staff.name}
+                  <option key={staff.id} value={staff.id} disabled={!isStaffSelectableForCurrentWarehouse(String(staff.id))}>
+                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))}){!isStaffSelectableForCurrentWarehouse(String(staff.id)) ? ' - Unavailable' : ''}
                   </option>
                 ))}
               </select>
@@ -695,14 +752,14 @@ export function WarehousesView() {
             <DialogTitle>Manage Warehouse</DialogTitle>
             <DialogDescription>Update warehouse details and status.</DialogDescription>
           </DialogHeader>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Code</label>
-              <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
+              <Input value={form.code} readOnly disabled />
             </div>
                     <div className="space-y-1 sm:col-span-2">
               <div className="flex items-center justify-between gap-2">
@@ -738,7 +795,7 @@ export function WarehousesView() {
               <Input value={form.zipCode} onChange={(e) => setForm((f) => ({ ...f, zipCode: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Capacity</label>
+              <label className="text-sm font-medium text-gray-700">Capacity (Unit)</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
             </div>
             <div className="space-y-1">
@@ -759,8 +816,8 @@ export function WarehousesView() {
               >
                 <option value="">Unassigned</option>
                 {warehouseStaffUsers.map((staff) => (
-                  <option key={staff.id} value={staff.id}>
-                    {staff.name}
+                  <option key={staff.id} value={staff.id} disabled={!isStaffSelectableForCurrentWarehouse(String(staff.id))}>
+                    {staff.name} ({getAssignedWarehouseLabel(String(staff.id))}){!isStaffSelectableForCurrentWarehouse(String(staff.id)) ? ' - Unavailable' : ''}
                   </option>
                 ))}
               </select>
@@ -857,7 +914,7 @@ export function WarehousesView() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="rounded-xl border bg-gradient-to-br from-slate-50 via-white to-blue-50/40 p-4 shadow-sm">
                     <p className="mb-2 text-sm font-medium text-gray-600">Used vs Free Capacity</p>
                     <ChartContainer
@@ -901,7 +958,7 @@ export function WarehousesView() {
                       </PieChart>
                     </ChartContainer>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm items-start content-start auto-rows-min self-start">
+                  <div className="grid grid-cols-3 gap-3 text-sm items-start content-start auto-rows-min self-start">
                     <div className="rounded-xl border bg-white p-3 shadow-sm h-fit self-start">
                       <p className="text-gray-500">Used</p>
                       <p className="text-lg font-semibold text-blue-700">{usagePercent}%</p>
@@ -919,7 +976,7 @@ export function WarehousesView() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-3 gap-4">
               <Card className="lg:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Capacity Trend (Last 7 Days)</CardTitle>
@@ -958,7 +1015,7 @@ export function WarehousesView() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-3 gap-4">
               <Card className="lg:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">SKU Velocity Chart</CardTitle>
@@ -1042,7 +1099,7 @@ export function WarehousesView() {
                 <CardDescription>Quick operational signals inside this warehouse.</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="grid grid-cols-2 gap-2">
                   {warehouseActivities.map((activity) => (
                     <div key={activity.id} className="rounded-md border bg-gray-50 px-3 py-2 text-sm text-gray-700">
                       <p className="text-sm font-medium text-gray-900">{activity.label}</p>

@@ -44,6 +44,7 @@ import {
   fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -55,6 +56,7 @@ const AddressMapPicker = dynamic(
 )
 
 export function CustomersView() {
+  const { user } = useAuth()
   const [customers, setCustomers] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [feedback, setFeedback] = useState<any[]>([])
@@ -62,6 +64,12 @@ export function CustomersView() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [ratingFilter, setRatingFilter] = useState('all')
+  const [discountDialogOpen, setDiscountDialogOpen] = useState(false)
+  const [isSavingDiscount, setIsSavingDiscount] = useState(false)
+  const [discountTarget, setDiscountTarget] = useState<any | null>(null)
+  const [discountOption, setDiscountOption] = useState('NO_DISCOUNT')
+  const [discountStatus, setDiscountStatus] = useState('ACTIVE')
+  const [discountPercent, setDiscountPercent] = useState('')
 
   const fetchCustomers = async () => {
     setIsLoading(true)
@@ -226,6 +234,49 @@ export function CustomersView() {
     URL.revokeObjectURL(url)
   }
 
+  const openDiscountDialog = (row: any) => {
+    setDiscountTarget(row)
+    setDiscountOption(String(row.discountOption || 'NO_DISCOUNT').toUpperCase())
+    const normalizedStatus = String(row.discountStatus || 'ACTIVE').toUpperCase()
+    setDiscountStatus(normalizedStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE')
+    setDiscountPercent(String(Number(row.discountPercent || 0) || ''))
+    setDiscountDialogOpen(true)
+  }
+
+  const saveDiscount = async () => {
+    if (!discountTarget?.id) return
+    const percentValue = Number(discountPercent || 0)
+    const isOwner = String((user as any)?.role || '').toUpperCase() === 'SUPER_ADMIN'
+    if (discountOption === 'OTHER' && percentValue > 25 && !isOwner) {
+      toast.error('Only owner can apply custom discount above 25%')
+      return
+    }
+    setIsSavingDiscount(true)
+    try {
+      const response = await fetch(`/api/customers/${discountTarget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          discountOption,
+          discountStatus: discountStatus === 'ACTIVE' ? 'ACTIVE' : 'REMOVED',
+          discountPercent: Number(discountPercent || 0),
+          discountAmountPerCase: 0,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to save discount')
+      }
+      toast.success('Customer discount updated')
+      setDiscountDialogOpen(false)
+      await fetchCustomers()
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save discount')
+    } finally {
+      setIsSavingDiscount(false)
+    }
+  }
+
   const renderStars = (rating: number | null) => {
     if (rating === null || !Number.isFinite(Number(rating))) {
       return <span className="text-sm text-gray-500">N/A</span>
@@ -242,6 +293,23 @@ export function CustomersView() {
         ))}
       </span>
     )
+  }
+
+  const getDiscountDisplay = (row: any) => {
+    const status = String(row?.discountStatus || 'REMOVED').toUpperCase()
+    const option = String(row?.discountOption || 'NO_DISCOUNT').toUpperCase()
+    if (status === 'REMOVED' || status === 'CANCELLED' || option === 'NO_DISCOUNT') {
+      return { label: 'No Discount', statusLabel: 'INACTIVE' }
+    }
+    if (option.startsWith('DISCOUNT_')) {
+      const pct = option.replace('DISCOUNT_', '')
+      return { label: `${pct}% Discount`, statusLabel: status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' }
+    }
+    if (option === 'OTHER') {
+      const percent = Number(row?.discountPercent || 0)
+      return { label: percent > 0 ? `${percent}% Discount` : 'Custom Discount', statusLabel: status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' }
+    }
+    return { label: option.replace(/_/g, ' '), statusLabel: status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' }
   }
 
   return (
@@ -300,7 +368,7 @@ export function CustomersView() {
 
       <Card>
         <CardContent className="p-3">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          <div className="flex flex-row items-center gap-2">
             <Input
               placeholder="Search by client name or email..."
               value={search}
@@ -356,14 +424,29 @@ export function CustomersView() {
                     <th className="text-left p-4 font-medium text-gray-600">Last Order</th>
                     <th className="text-left p-4 font-medium text-gray-600">Satisfaction</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Discount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredRows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="p-4">
-                        <p className="font-semibold text-gray-900">{row.name || 'N/A'}</p>
-                        <p className="text-sm text-gray-500">Retail Customer</p>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10 border border-slate-200">
+                            {row.avatar ? <img src={String(row.avatar)} alt={row.name || 'Customer avatar'} className="h-full w-full object-cover" /> : null}
+                            <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold">
+                              {String(row.name || row.email || 'CU')
+                                .trim()
+                                .split(/\s+/)
+                                .slice(0, 2)
+                                .map((part) => part[0]?.toUpperCase() || '')
+                                .join('') || 'CU'}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-semibold text-gray-900">{row.name || 'N/A'}</p>
+                          </div>
+                        </div>
                       </td>
                       <td className="p-4">
                         <p className="text-sm text-gray-700">{row.email || 'N/A'}</p>
@@ -400,6 +483,19 @@ export function CustomersView() {
                           {row.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                       </td>
+                      <td className="p-4">
+                        <div className="space-y-1">
+                          {(() => {
+                            const discountView = getDiscountDisplay(row)
+                            return (
+                              <>
+                                <CompactDiscountLine value={discountView.label} className="text-xs" />
+                              </>
+                            )
+                          })()}
+                          <Button size="sm" variant="outline" onClick={() => openDiscountDialog(row)}>Apply Discount</Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -408,6 +504,53 @@ export function CustomersView() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={discountDialogOpen} onOpenChange={setDiscountDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apply Discount</DialogTitle>
+            <DialogDescription>
+              {discountTarget ? `Customer: ${discountTarget.name || discountTarget.email}` : 'Select discount rule'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Discount Option</label>
+              <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={discountOption} onChange={(e) => setDiscountOption(e.target.value)}>
+                <option value="NO_DISCOUNT">No Discount</option>
+                <option value="DISCOUNT_5">5% Discount - courtesy discount</option>
+                <option value="DISCOUNT_10">10% Discount - regular customer discount</option>
+                <option value="DISCOUNT_15">15% Discount - loyal customer discount</option>
+                <option value="DISCOUNT_20">20% Discount - bulk order discount</option>
+                <option value="DISCOUNT_25">25% Discount - maximum recommended discount</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            {discountOption === 'OTHER' ? (
+              <div className="grid grid-cols-1 gap-2">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Custom %</label>
+                  <Input type="number" min="0" step="0.01" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
+                </div>
+              </div>
+            ) : null}
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Discount Status</label>
+              <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={discountStatus} onChange={(e) => setDiscountStatus(e.target.value)}>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setDiscountDialogOpen(false)}>Cancel</Button>
+            <Button className="flex-1" disabled={isSavingDiscount} onClick={saveDiscount}>
+              {isSavingDiscount ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Discount
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

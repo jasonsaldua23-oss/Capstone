@@ -474,11 +474,6 @@ export function TrackingView() {
         </div>
       </div>
 
-      <div className="text-sm text-slate-600">
-        Route colors: <span className="font-medium text-blue-400">Muted blue dashed = Completed</span> |{' '}
-        <span className="font-medium text-blue-700">Bright blue = Upcoming</span>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
           <Card className="h-[500px]">

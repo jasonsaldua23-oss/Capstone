@@ -84,14 +84,36 @@ const poppins = Poppins({
   weight: ['400', '500', '600', '700', '800'],
 })
 
+const getLocalDateOnly = () => {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
+const parseDateOnly = (value: string) => {
+  const [yearText, monthText, dayText] = String(value || '').split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) return null
+  return new Date(year, month - 1, day)
+}
+
 
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
   const [pendingCancelOrder, setPendingCancelOrder] = useState<{ id: string; orderNumber: string } | null>(null)
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
   const [reviewByOrderId, setReviewByOrderId] = useState<Record<string, any>>({})
+  const [customerDiscountOption, setCustomerDiscountOption] = useState('NO_DISCOUNT')
+  const [customerDiscountStatus, setCustomerDiscountStatus] = useState('REMOVED')
+  const [customerDiscountPercent, setCustomerDiscountPercent] = useState(0)
+  const [customerDiscountAmountPerCase, setCustomerDiscountAmountPerCase] = useState(0)
   const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false)
+  const [orderFilterStatus, setOrderFilterStatus] = useState('ALL')
+  const [orderFilterDateFrom, setOrderFilterDateFrom] = useState('')
+  const [orderFilterDateTo, setOrderFilterDateTo] = useState('')
   const {
     activeView,
     setActiveView,
@@ -354,6 +376,10 @@ export function CustomerPortal() {
     setProfilePhone(String(customer?.phone || '').trim())
     setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
     setProfileAvatarFile(null)
+    setCustomerDiscountOption(String(customer?.discountOption || 'NO_DISCOUNT').toUpperCase())
+    setCustomerDiscountStatus(String(customer?.discountStatus || 'REMOVED').toUpperCase())
+    setCustomerDiscountPercent(Number(customer?.discountPercent || 0))
+    setCustomerDiscountAmountPerCase(Number(customer?.discountAmountPerCase || 0))
   }
 
   useEffect(() => {
@@ -851,9 +877,69 @@ export function CustomerPortal() {
     () => selectedCartItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
     [selectedCartItems]
   )
+  const discountCasesAffected = useMemo(
+    () => selectedCartItems.reduce((sum, i) => sum + Math.max(0, Number(i.quantity || 0)), 0),
+    [selectedCartItems]
+  )
+  const checkoutDiscountBreakdown = useMemo(() => {
+    const normalizedOption = String(customerDiscountOption || 'NO_DISCOUNT').toUpperCase()
+    const normalizedStatus = String(customerDiscountStatus || 'REMOVED').toUpperCase()
+    const isActive = normalizedStatus === 'ACTIVE'
+    const presetPercentMap: Record<string, number> = {
+      NO_DISCOUNT: 0,
+      DISCOUNT_5: 5,
+      DISCOUNT_10: 10,
+      DISCOUNT_15: 15,
+      DISCOUNT_20: 20,
+      DISCOUNT_25: 25,
+    }
+    let name = 'No Discount'
+    let discountType = 'NO_DISCOUNT'
+    let discountPercent = 0
+    let amountPerCase = 0
+    if (isActive) {
+      if (normalizedOption in presetPercentMap) {
+        discountPercent = presetPercentMap[normalizedOption] || 0
+        discountType = discountPercent > 0 ? 'PERCENTAGE' : 'NO_DISCOUNT'
+        if (normalizedOption !== 'NO_DISCOUNT') name = `${discountPercent}% Discount`
+      } else if (normalizedOption === 'OTHER') {
+        name = 'Other (Manual)'
+        amountPerCase = Math.max(0, Number(customerDiscountAmountPerCase || 0))
+        discountPercent = Math.max(0, Number(customerDiscountPercent || 0))
+        discountType = amountPerCase > 0 ? 'AMOUNT_PER_CASE' : 'PERCENTAGE'
+      }
+    }
+    const perCaseDiscount = discountType === 'AMOUNT_PER_CASE'
+      ? amountPerCase
+      : ((selectedSubtotal / Math.max(1, discountCasesAffected)) * (discountPercent / 100))
+    const totalDiscount = isActive ? Math.min(selectedSubtotal, Math.max(0, perCaseDiscount * discountCasesAffected)) : 0
+    return {
+      name,
+      discountType,
+      discountPercent,
+      amountPerCase,
+      perCaseDiscount: isActive ? perCaseDiscount : 0,
+      casesAffected: discountCasesAffected,
+      totalDiscount,
+      finalTotal: Math.max(0, selectedSubtotal - totalDiscount),
+    }
+  }, [
+    customerDiscountOption,
+    customerDiscountStatus,
+    customerDiscountAmountPerCase,
+    customerDiscountPercent,
+    discountCasesAffected,
+    selectedSubtotal,
+  ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
   const canPlaceOrder = useMemo(
-    () => selectedCartItems.length > 0 && Boolean(String(deliveryDate || '').trim()),
+    () => {
+      const deliveryDateText = String(deliveryDate || '').trim()
+      if (!deliveryDateText) return false
+      const parsedDate = parseDateOnly(deliveryDateText)
+      if (!parsedDate) return false
+      return parsedDate >= getLocalDateOnly() && selectedCartItems.length > 0
+    },
     [selectedCartItems.length, deliveryDate]
   )
   const allCartSelected = useMemo(
@@ -905,7 +991,32 @@ export function CustomerPortal() {
     shippingZipCode,
   ])
 
-  const filteredOrders = useMemo(() => orders, [orders])
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
+      const orderDate = new Date(order.createdAt)
+
+      if (orderFilterStatus !== 'ALL' && normalized !== orderFilterStatus) return false
+
+      if (orderFilterDateFrom) {
+        const from = parseDateOnly(orderFilterDateFrom)
+        if (from) {
+          const fromStart = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0)
+          if (orderDate.getTime() < fromStart.getTime()) return false
+        }
+      }
+
+      if (orderFilterDateTo) {
+        const to = parseDateOnly(orderFilterDateTo)
+        if (to) {
+          const toEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999)
+          if (orderDate.getTime() > toEnd.getTime()) return false
+        }
+      }
+
+      return true
+    })
+  }, [orders, orderFilterStatus, orderFilterDateFrom, orderFilterDateTo])
 
   const deliveryIssuesByOrderId = useMemo(() => {
     const byOrderId: Record<string, DeliveryIssueSummary> = {}
@@ -932,8 +1043,8 @@ export function CustomerPortal() {
 
   const sortedFilteredOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
-      const aTime = a.deliveryDate ? new Date(a.deliveryDate).getTime() : new Date(a.createdAt).getTime()
-      const bTime = b.deliveryDate ? new Date(b.deliveryDate).getTime() : new Date(b.createdAt).getTime()
+      const aTime = new Date(a.createdAt).getTime()
+      const bTime = new Date(b.createdAt).getTime()
       return bTime - aTime
     })
   }, [filteredOrders])
@@ -945,25 +1056,28 @@ export function CustomerPortal() {
     { id: 'REPLACEMENT', label: 'Replacement' },
   ]
 
+  const isReplacementOrder = (order: any): boolean =>
+    String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
+
   const tabFilteredOrders = useMemo(() => {
-    if (ordersTab === 'ALL') return sortedFilteredOrders
+    if (ordersTab === 'ALL') return sortedFilteredOrders.filter((order) => !isReplacementOrder(order))
 
     return sortedFilteredOrders.filter((order) => {
-      const raw = String(order.status || '').toUpperCase()
       const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
+      const replacementOrder = isReplacementOrder(order)
       if (ordersTab === 'TO_REVIEW') {
-        return normalized === 'DELIVERED' && !reviewedOrderIds.has(order.id)
+        return !replacementOrder && normalized === 'DELIVERED' && !reviewedOrderIds.has(order.id)
       }
       if (ordersTab === 'REPLACEMENT') {
-        return Boolean(deliveryIssuesByOrderId[order.id])
+        return replacementOrder
       }
       if (ordersTab === 'DELIVERED') {
-        return normalized === 'DELIVERED'
+        return !replacementOrder && normalized === 'DELIVERED'
       }
 
       return true
     })
-  }, [sortedFilteredOrders, ordersTab, reviewedOrderIds, deliveryIssuesByOrderId])
+  }, [sortedFilteredOrders, ordersTab, reviewedOrderIds])
 
   const visibleOrders = useMemo(() => {
     const query = ordersSearch.trim().toLowerCase()
@@ -990,8 +1104,16 @@ export function CustomerPortal() {
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
       return bTime - aTime
     })
-    if (!query) return sorted
-    return sorted.filter((record) => {
+    // Keep only the latest replacement per order to avoid showing stale prior cases.
+    const latestByOrder = new Map<string, any>()
+    for (const record of sorted) {
+      const key = String(record?.orderId || record?.orderNumber || '').trim().toUpperCase()
+      if (!key) continue
+      if (!latestByOrder.has(key)) latestByOrder.set(key, record)
+    }
+    const latestOnly = Array.from(latestByOrder.values())
+    if (!query) return latestOnly
+    return latestOnly.filter((record) => {
       const haystack = [
         record.orderNumber,
         record.replacementNumber,
@@ -1030,6 +1152,15 @@ export function CustomerPortal() {
       toast.error('Please select a delivery date before placing your order')
       return
     }
+    const parsedDeliveryDate = parseDateOnly(deliveryDate)
+    if (!parsedDeliveryDate) {
+      toast.error('Please select a valid delivery date')
+      return
+    }
+    if (parsedDeliveryDate < getLocalDateOnly()) {
+      toast.error('Delivery date cannot be before today')
+      return
+    }
     if (shippingLatitude === null || shippingLongitude === null) {
       toast.error('Please pin your delivery address on the map before placing your order')
       setIsAddressDialogOpen(true)
@@ -1057,6 +1188,15 @@ export function CustomerPortal() {
         shippingLongitude,
         notes,
         deliveryDate: deliveryDate || null,
+        discountPreview: {
+          type: checkoutDiscountBreakdown.discountType,
+          name: checkoutDiscountBreakdown.name,
+          percent: checkoutDiscountBreakdown.discountPercent,
+          amountPerCase: checkoutDiscountBreakdown.amountPerCase,
+          perCaseDiscount: checkoutDiscountBreakdown.perCaseDiscount,
+          casesAffected: checkoutDiscountBreakdown.casesAffected,
+          totalDiscount: checkoutDiscountBreakdown.totalDiscount,
+        },
         items: selectedCartItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
       })
       if (!response.ok || data?.success === false) {
@@ -1897,6 +2037,7 @@ export function CustomerPortal() {
       >
         {activeView === 'home' && (
           <CustomerHomeView
+            customerName={String(user?.name || profileName || '').trim()}
             productSearch={productSearch}
             setProductSearch={setProductSearch}
             isProductsLoading={isProductsLoading}
@@ -1940,6 +2081,14 @@ export function CustomerPortal() {
             getProductImage={getProductImage}
             formatPeso={formatPeso}
             selectedSubtotal={selectedSubtotal}
+            discountName={checkoutDiscountBreakdown.name}
+            discountType={checkoutDiscountBreakdown.discountType}
+            discountPercent={checkoutDiscountBreakdown.discountPercent}
+            discountAmountPerCase={checkoutDiscountBreakdown.amountPerCase}
+            discountPerCase={checkoutDiscountBreakdown.perCaseDiscount}
+            discountCasesAffected={checkoutDiscountBreakdown.casesAffected}
+            totalDiscount={checkoutDiscountBreakdown.totalDiscount}
+            finalTotal={checkoutDiscountBreakdown.finalTotal}
             notes={notes}
             setNotes={setNotes}
             deliveryDate={deliveryDate}
@@ -1964,6 +2113,7 @@ export function CustomerPortal() {
             getReplacementBadgeClass={getReplacementBadgeClass}
             visibleOrders={visibleOrders}
             deliveryIssuesByOrderId={deliveryIssuesByOrderId}
+            deliveryIssueRecords={deliveryIssueRecords}
             normalizeDeliveryStatus={normalizeDeliveryStatus}
             reviewedOrderIds={reviewedOrderIds}
             orderRatings={orderRatings}
@@ -2204,10 +2354,67 @@ export function CustomerPortal() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Filter Orders</DialogTitle>
-            <DialogDescription>Coming soon - More filter options available</DialogDescription>
+            <DialogDescription>Refine the list by status and date range.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">Filters are currently under development. Use the search bar above to find orders by ID or date.</p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">Status</label>
+              <select
+                value={orderFilterStatus}
+                onChange={(event) => setOrderFilterStatus(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                title="Order status filter"
+              >
+                <option value="ALL">All statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="PROCESSING">Processing</option>
+                <option value="OUT_FOR_DELIVERY">Out for delivery</option>
+                <option value="DELIVERED">Delivered</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Date from</label>
+                <input
+                  type="date"
+                  value={orderFilterDateFrom}
+                  onChange={(event) => setOrderFilterDateFrom(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Date to</label>
+                <input
+                  type="date"
+                  value={orderFilterDateTo}
+                  onChange={(event) => setOrderFilterDateTo(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={() => {
+                  setOrderFilterStatus('ALL')
+                  setOrderFilterDateFrom('')
+                  setOrderFilterDateTo('')
+                }}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="h-9 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-500"
+                onClick={() => setIsFilterDialogOpen(false)}
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

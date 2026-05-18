@@ -6,6 +6,7 @@ export type WarehouseDashboardViewProps = {
   scopedInventory: any[]
   lowStockCount: number
   pendingReplacementCases: number
+  totalReplacementCases: number
   warehouseOrdersChartConfig: ChartConfig
   weeklyTrendData: any[]
   transactionDateFrom: string
@@ -54,21 +55,25 @@ export type WarehouseOrdersViewProps = {
   setOrderMaxPriceFilter: (value: string) => void
   filteredOrders: any[]
   formatPeso: (value: number) => string
-  formatWarehouseOrderStatus: (status: any, paymentStatus?: any, warehouseStage?: any) => string
+  formatWarehouseOrderStatus: (status: any, paymentStatus?: any, warehouseStage?: any, notes?: any) => string
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => Promise<void>
   updatingOrderId: string | null
+  openRejectDialog: (order: any) => void
 }
 
 export type WarehouseReplacementSummary = {
   totalCases: number
   resolvedOnDelivery: number
   needsFollowUp: number
+  rejected: number
   replacedQty: number
+  replacedBottleQty: number
+  replacedCaseQty: number
 }
 
 export type WarehouseReplacementsViewProps = {
@@ -77,15 +82,21 @@ export type WarehouseReplacementsViewProps = {
   scopedReplacements: any[]
   parseIssueMeta: (notes?: string | null) => any
   formatIssueStatus: (ret: any) => string
-  updateIssueStatus: (replacementId: string, status: 'COMPLETED' | 'NEEDS_FOLLOW_UP', notes?: string) => Promise<void>
+  updateIssueStatus: (
+    replacementId: string,
+    status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
+    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
+  ) => Promise<void>
   updatingReplacementId: string | null
   selectedReplacement: any | null
   setSelectedReplacement: (value: any | null) => void
   buildReplacementLines: (replacement: any, meta: any) => Array<{
     originalProductName: string
     replacementProductName: string
-    quantityToReplace: string
-    quantityReplaced: string
+    quantityToReplace: number
+    quantityReplaced: number
+    quantityToReplaceDisplay?: string
+    quantityReplacedDisplay?: string
   }>
 }
 

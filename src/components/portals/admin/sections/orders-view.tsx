@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, User, Mail, Phone, PackageCheck, Route, Car, CalendarClock, Camera } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -43,7 +43,9 @@ import {
   formatRoleLabel,
   fetchAllPaginatedCollection,
   safeFetchJson,
+  deriveOrderFulfillmentSummary,
 } from './shared'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -54,11 +56,14 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
-export function OrdersView() {
-  const ORDERS_CACHE_KEY = 'admin_orders_cache_v1'
+export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: () => void } = {}) {
+  const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
+  const [warehouseDirectory, setWarehouseDirectory] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
+  const [orderDetailsById, setOrderDetailsById] = useState<Record<string, any>>({})
+  const hydrationInFlightRef = useRef<Record<string, boolean>>({})
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -76,7 +81,7 @@ export function OrdersView() {
 
   const getItemSizeLabel = (item: any): string => {
     const fromProductSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes.filter(Boolean) : []
-    if (fromProductSizes.length > 0) return String(fromProductSizes[0])
+    if (fromProductSizes.length > 0) return fromProductSizes.map((v: any) => String(v).trim()).filter(Boolean).join(' ')
     const fromUnit = String(item?.product?.unit || item?.productUnit || '').trim()
     return fromUnit
   }
@@ -86,6 +91,11 @@ export function OrdersView() {
     const size = getItemSizeLabel(item)
     const qty = Number(item?.quantity || 0)
     return `${name}${size ? ` (${size})` : ''} x${qty}`
+  }
+
+  const isReplacementOrder = (order: any): boolean => {
+    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+    return Boolean(order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
   }
 
   useEffect(() => {
@@ -159,12 +169,21 @@ export function OrdersView() {
       return marker
     }
 
+    const fetchWarehouses = async () => {
+      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+      if (!result.ok) return
+      const list = getCollection<any>(result.data, ['warehouses'])
+      if (isMounted) {
+        setWarehouseDirectory(list.filter((warehouse) => warehouse?.isActive !== false))
+      }
+    }
+
     async function fetchOrdersFull(silent = false) {
       if (isFetchingOrders) return
       isFetchingOrders = true
       try {
         const result = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=preview',
+          '/api/orders?includeItems=preview&includeFulfillments=true&includeWarehouseAllocations=true',
           'orders',
           { cache: 'no-store' },
           { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
@@ -172,7 +191,7 @@ export function OrdersView() {
 
         if (!result.ok) {
           // Fallback: try a simpler single-page request before failing.
-          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=200', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=200&includeFulfillments=true&includeWarehouseAllocations=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
           if (fallback.ok && isMounted) {
             const fallbackOrders = getCollection<any>(fallback.data, ['orders'])
             if (fallbackOrders.length > 0) {
@@ -229,6 +248,8 @@ export function OrdersView() {
 
         const params = new URLSearchParams({
           includeItems: 'preview',
+          includeFulfillments: 'true',
+          includeWarehouseAllocations: 'true',
           sort: 'updated_at',
           page: '1',
           pageSize: '200',
@@ -265,6 +286,7 @@ export function OrdersView() {
     }
 
     loadCachedOrders()
+    void fetchWarehouses()
     void fetchOrdersFull()
 
     const unsubscribe = subscribeDataSync((message) => {
@@ -312,7 +334,12 @@ export function OrdersView() {
       const response = await fetch(`/api/orders/${order.id}`, { credentials: 'include' })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false || !payload?.order) return
-      setSelectedOrder(payload.order)
+      const fullOrder = payload.order
+      setSelectedOrder(fullOrder)
+      if (fullOrder?.id) {
+        setOrderDetailsById((prev) => ({ ...prev, [String(fullOrder.id)]: fullOrder }))
+        setOrders((prev) => prev.map((row) => (String(row?.id) === String(fullOrder.id) ? { ...row, ...fullOrder } : row)))
+      }
     } catch (error) {
       console.error('Failed to load full order details:', error)
     } finally {
@@ -337,28 +364,140 @@ export function OrdersView() {
     return value.replace(/_/g, ' ')
   }
 
+  const getDisplayOrderStatus = (order: any) => {
+    const summary = deriveOrderFulfillmentSummary(order)
+    if (summary.totalLegs > 1) {
+      if (summary.fulfillmentStatus === 'PARTIALLY_FULFILLED') return 'PARTIALLY FULFILLED'
+      if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
+      if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
+    }
+    return formatOrderStatus(order?.status, order?.paymentStatus)
+  }
+
+  const getOrderWarehouseMeta = (order: any) => {
+    const idSet = new Set<string>()
+    const nameSet = new Set<string>()
+
+    const add = (idLike: unknown, nameLike: unknown) => {
+      const id = String(idLike || '').trim()
+      const name = String(nameLike || '').trim()
+      if (id) idSet.add(id)
+      if (name && name.toLowerCase() !== 'unassigned') nameSet.add(name)
+    }
+    const parseMaybeList = (value: unknown): string[] => {
+      if (Array.isArray(value)) return value.map((entry) => String(entry || '').trim()).filter(Boolean)
+      if (typeof value !== 'string') return []
+      const raw = value.trim()
+      if (!raw) return []
+      if (raw.startsWith('[') && raw.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) return parsed.map((entry) => String(entry || '').trim()).filter(Boolean)
+        } catch {
+          // fallback to csv
+        }
+      }
+      return raw.split(',').map((entry) => entry.trim()).filter(Boolean)
+    }
+
+    const summary = deriveOrderFulfillmentSummary(order)
+    summary.legs.forEach((leg: any) => add(leg?.warehouseId, leg?.warehouseName))
+
+    add(order?.warehouseId ?? order?.warehouse_id, order?.warehouseName ?? order?.warehouseCode)
+
+    parseMaybeList(order?.warehouseIds).forEach((id) => add(id, ''))
+    toArray<any>(order?.warehouses).forEach((warehouse) =>
+      add(warehouse?.id ?? warehouse?.warehouseId ?? warehouse?.warehouse_id, warehouse?.name ?? warehouse?.code ?? warehouse?.warehouseName)
+    )
+    toArray<any>(order?.allocations).forEach((allocation) =>
+      add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+    )
+    toArray<any>(order?.warehouseAllocations).forEach((allocation) =>
+      add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+    )
+
+    toArray<any>(order?.items).forEach((item) => {
+      add(item?.warehouseId ?? item?.warehouse_id ?? item?.warehouse?.id, item?.warehouseName ?? item?.warehouse?.name ?? item?.warehouse?.code)
+      toArray<any>(item?.allocations).forEach((allocation) =>
+        add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+      )
+      toArray<any>(item?.warehouseAllocations).forEach((allocation) =>
+        add(allocation?.warehouseId ?? allocation?.warehouse_id ?? allocation?.warehouse?.id, allocation?.warehouseName ?? allocation?.warehouse?.name ?? allocation?.warehouse?.code)
+      )
+    })
+
+    const ids = Array.from(idSet.values())
+    const names = Array.from(nameSet.values())
+    return { ids, names, hasMultipleWarehouses: ids.length > 1 || names.length > 1 }
+  }
+
+  const getOrderWarehouseIds = (order: any): string[] => {
+    const meta = getOrderWarehouseMeta(order)
+    if (meta.ids.length > 0) return meta.ids
+    const fallbackId = String(getWarehouseIdFromRow(order) || '').trim()
+    return fallbackId ? [fallbackId] : []
+  }
+
+  const getOrderWarehouseNames = (order: any): string[] => {
+    const meta = getOrderWarehouseMeta(order)
+    if (meta.names.length > 0) return meta.names
+    const fallbackName = String(order?.warehouseName || order?.warehouseCode || '').trim()
+    return fallbackName ? [fallbackName] : []
+  }
+
+  const needsWarehouseHydration = (order: any) => {
+    const meta = getOrderWarehouseMeta(order)
+    if (meta.ids.length > 0 || meta.names.length > 0) return false
+    const key = String(order?.id || '')
+    if (!key) return false
+    return !orderDetailsById[key]
+  }
+
   const warehouseFilterOptions = useMemo(() => {
     const map = new Map<string, string>()
-    orders.forEach((order) => {
-      const warehouseId = String(getWarehouseIdFromRow(order) || '').trim()
+    warehouseDirectory.forEach((warehouse) => {
+      const warehouseId = String(warehouse?.id || '').trim()
       if (!warehouseId) return
-      const label =
-        String(order?.warehouseName || '').trim() ||
-        String(order?.warehouseCode || '').trim() ||
-        warehouseId
+      const label = String(warehouse?.name || warehouse?.code || warehouseId).trim()
       if (!map.has(warehouseId)) {
         map.set(warehouseId, label)
       }
     })
+    orders.forEach((order) => {
+      if (isReplacementOrder(order)) return
+      const summary = deriveOrderFulfillmentSummary(order)
+      summary.legs.forEach((leg: any) => {
+        const warehouseId = String(leg?.warehouseId || '').trim()
+        if (!warehouseId) return
+        const label =
+          String(leg?.warehouseName || '').trim() ||
+          String(order?.warehouseName || '').trim() ||
+          String(order?.warehouseCode || '').trim() ||
+          warehouseId
+        if (!map.has(warehouseId)) {
+          map.set(warehouseId, label)
+        }
+      })
+      const meta = getOrderWarehouseMeta(order)
+      meta.ids.forEach((warehouseId) => {
+        if (!warehouseId) return
+        if (!map.has(warehouseId)) {
+          const fallbackLabel = meta.names[0] || warehouseId
+          map.set(warehouseId, fallbackLabel)
+        }
+      })
+    })
     return Array.from(map.entries())
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label))
-  }, [orders])
+  }, [orders, warehouseDirectory])
 
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
+    statuses.add('PARTIALLY FULFILLED')
     orders.forEach((order) => {
-      statuses.add(formatOrderStatus(order?.status, order?.paymentStatus))
+      if (isReplacementOrder(order)) return
+      statuses.add(getDisplayOrderStatus(order))
     })
     return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
   }, [orders])
@@ -379,11 +518,14 @@ export function OrdersView() {
     const hasMaxPrice = orderMaxPriceFilter.trim() !== '' && Number.isFinite(maxPrice)
 
     return orders.filter((order) => {
-      if (warehouseFilterId !== 'all' && String(getWarehouseIdFromRow(order) || '').trim() !== warehouseFilterId) {
-        return false
+      if (isReplacementOrder(order)) return false
+
+      if (warehouseFilterId !== 'all') {
+        const warehouseIds = getOrderWarehouseIds(order)
+        if (!warehouseIds.includes(warehouseFilterId)) return false
       }
 
-      const normalizedStatus = formatOrderStatus(order?.status, order?.paymentStatus)
+      const normalizedStatus = getDisplayOrderStatus(order)
       if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
 
       const rawDate = String(order?.deliveryDate || order?.createdAt || '')
@@ -403,6 +545,51 @@ export function OrdersView() {
       return true
     })
   }, [orders, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter])
+
+  const fulfillmentAlerts = useMemo(() => {
+    let unallocated = 0
+    let missingTrips = 0
+    let splitOrders = 0
+    filteredOrders.forEach((order) => {
+      const summary = deriveOrderFulfillmentSummary(order)
+      if (summary.needsSplit) splitOrders += 1
+      if (summary.unassignedTripCount > 0) missingTrips += 1
+      const allocated = summary.legs.reduce((sum: number, leg: any) => sum + Number(leg.allocatedQty || 0), 0)
+      const required = toArray<any>(order.items).reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
+      if (allocated < required) unallocated += 1
+    })
+    return { unallocated, missingTrips, splitOrders }
+  }, [filteredOrders])
+
+  useEffect(() => {
+    const candidates = orders
+      .filter((order) => needsWarehouseHydration(order))
+      .slice(0, 8)
+
+    if (candidates.length === 0) return
+
+    candidates.forEach((order) => {
+      const id = String(order?.id || '')
+      if (!id || hydrationInFlightRef.current[id]) return
+      hydrationInFlightRef.current[id] = true
+
+      void (async () => {
+        try {
+          const response = await fetch(`/api/orders/${id}`, { credentials: 'include', cache: 'no-store' })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok || payload?.success === false || !payload?.order) return
+          const fullOrder = payload.order
+          const fullId = String(fullOrder?.id || id)
+          setOrderDetailsById((prev) => ({ ...prev, [fullId]: fullOrder }))
+          setOrders((prev) => prev.map((row) => (String(row?.id) === fullId ? { ...row, ...fullOrder } : row)))
+        } catch {
+          // best effort enrichment only
+        } finally {
+          hydrationInFlightRef.current[id] = false
+        }
+      })()
+    })
+  }, [orders, orderDetailsById])
 
   useEffect(() => {
     if (warehouseFilterId === 'all') return
@@ -471,7 +658,7 @@ export function OrdersView() {
 
   const updateOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED',
+    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -556,8 +743,8 @@ export function OrdersView() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
-          <p className="text-gray-500">Manage customer orders and fulfillment</p>
+          <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
+          <p className="text-gray-700">View customer purchase orders and fulfillment status</p>
         </div>
       </div>
 
@@ -651,6 +838,9 @@ export function OrdersView() {
       </Card>
 
       <Card>
+        <CardHeader className="pb-0">
+          <CardTitle className="text-base">Purchase Orders</CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
@@ -670,13 +860,13 @@ export function OrdersView() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left p-4 font-medium text-gray-600">ORDER ID</th>
-                    <th className="text-left p-4 font-medium text-gray-600">CUSTOMER</th>
-                    <th className="text-left p-4 font-medium text-gray-600">PRODUCTS</th>
-                    <th className="text-left p-4 font-medium text-gray-600">WAREHOUSE</th>
-                    <th className="text-left p-4 font-medium text-gray-600">DELIVERY</th>
-                    <th className="text-left p-4 font-medium text-gray-600">VALUE</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">CUSTOMER</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">PRODUCTS</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">WAREHOUSE</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">DELIVERY</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">VALUE</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -690,7 +880,7 @@ export function OrdersView() {
                       </td>
                       <td className="p-4">
                         <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
-                        <p className="text-sm text-gray-500">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
+                        <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
                       </td>
                       <td className="p-4">
                         <p className="font-medium text-gray-900">
@@ -704,8 +894,36 @@ export function OrdersView() {
                         </p>
                       </td>
                       <td className="p-4">
-                        <p className="font-medium text-gray-900">{order.warehouseName || order.warehouseCode || 'Unassigned'}</p>
-                        <p className="text-sm text-gray-500">{order.warehouseCity || order.warehouseProvince || 'N/A'}</p>
+                        {(() => {
+                          const enrichedOrder =
+                            orderDetailsById[String(order.id)] ||
+                            (selectedOrder?.id === order.id ? selectedOrder : null) ||
+                            order
+                          const summary = deriveOrderFulfillmentSummary(enrichedOrder)
+                          const warehouseMeta = getOrderWarehouseMeta(enrichedOrder)
+                          const warehouseNames = getOrderWarehouseNames(enrichedOrder)
+                          const warehouseText = warehouseNames.length > 0
+                            ? warehouseNames.slice(0, 2).join(', ')
+                            : warehouseMeta.hasMultipleWarehouses
+                              ? 'Multiple warehouses'
+                              : 'Pending warehouse allocation'
+                          const extraWarehouseCount = warehouseNames.length > 2 ? warehouseNames.length - 2 : 0
+                          return (
+                            <div className="space-y-1">
+                              <p className="font-medium text-gray-900">
+                                {warehouseText}
+                                {extraWarehouseCount > 0 ? ` +${extraWarehouseCount} more` : ''}
+                              </p>
+                              {summary.totalLegs > 1 && (
+                                <p className="text-xs text-gray-700">
+                                  Legs: {summary.deliveredLegs}/{summary.totalLegs} delivered
+                                  {summary.unassignedTripCount > 0 ? ` | ${summary.unassignedTripCount} without trip` : ''}
+                                  {!warehouseMeta.hasMultipleWarehouses && warehouseNames.length === 0 ? ' | awaiting warehouse assignment' : ''}
+                                </p>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td className="p-4 text-gray-600">
                         {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
@@ -734,114 +952,232 @@ export function OrdersView() {
       </Card>
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-        <DialogContent className="flex max-h-[90vh] w-[92vw] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-[980px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
           {selectedOrder && (
             <>
-              <DialogHeader className="shrink-0">
-                <DialogTitle>Order Progress - {selectedOrder.orderNumber}</DialogTitle>
+              <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 sm:px-7">
+                <DialogTitle className="flex items-center gap-3 text-[0.98rem] font-bold tracking-tight text-slate-900 sm:text-[1.3rem]">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:h-11 sm:w-11">
+                    <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
+                  </span>
+                  <span>Order Progress - {selectedOrder.orderNumber}</span>
+                </DialogTitle>
               </DialogHeader>
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                <div className="rounded-md border p-3">
-                  <p className="text-xs text-gray-500">Order Status</p>
-                  <p className="font-semibold">{formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}</p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="text-xs text-gray-500">Warehouse Stage</p>
-                  <p className="font-semibold">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
-                  {selectedOrder.isDriverAssigned ? (
-                    <p className="text-xs text-gray-600">
-                      Driver: {selectedOrder.assignedDriverName || 'Assigned'}
-                    </p>
-                  ) : (
-                    <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 shadow-[0_6px_14px_rgba(239,68,68,0.14)]">
-                      Driver not assigned
+              <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-7 sm:py-6">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Order Status</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
+                        <Truck className="h-5 w-5" />
+                      </div>
                     </div>
-                  )}
-                  {(selectedOrder.exceptionHoldReason || selectedOrder.exceptionShortLoadQty || selectedOrder.exceptionDamagedOnLoadingQty) ? (
-                    <p className="text-xs text-red-600">
-                      Exceptions: short load {Number(selectedOrder.exceptionShortLoadQty || 0)}, damaged {Number(selectedOrder.exceptionDamagedOnLoadingQty || 0)}
-                      {selectedOrder.exceptionHoldReason ? `, hold: ${selectedOrder.exceptionHoldReason}` : ''}
-                    </p>
-                  ) : null}
+                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{getDisplayOrderStatus(selectedOrder)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Warehouse Stage</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-blue-700 sm:h-11 sm:w-11">
+                        <Building2 className="h-5 w-5" />
+                      </div>
+                    </div>
+                    <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
+                    {selectedOrder.isDriverAssigned ? (
+                      <p className="mt-1 text-sm text-slate-700">
+                        Driver: {selectedOrder.assignedDriverName || 'Assigned'}
+                      </p>
+                    ) : (
+                      <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                        Driver not assigned
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="rounded-md border p-3 space-y-1">
-                  <p className="font-medium">Client Information</p>
-                  <p className="text-sm text-gray-700">{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.customer?.email || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
-                  <p className="text-sm text-gray-600">
-                    {formatOrderAddress(selectedOrder)}
-                  </p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="font-medium mb-2">Order Details</p>
-                  <div className="space-y-1">
-                    {(selectedOrder.items || []).map((item: any) => (
-                      <div key={item.id} className="flex justify-between gap-3 text-sm">
-                        <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {item.spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number(item.spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)} | Policy {Number(item.spareProducts.minPercent || 0)}-{Number(item.spareProducts.maxPercent || 0)}%</p>
+
+                {(() => {
+                  const summary = deriveOrderFulfillmentSummary(selectedOrder)
+                  const isMultiWarehouse = summary.totalLegs > 1
+                  if (!isMultiWarehouse) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
+                      <div className="space-y-2">
+                        {summary.legs.map((leg: any) => (
+                          <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                              </span>
                             </div>
-                          ) : null}
+                            <p className="mt-1 text-xs text-slate-600">
+                              Trip: {leg.tripNumber || leg.tripId || 'Not assigned'}{` | Allocated Qty: ${Number(leg.allocatedQty || 0)}`}
+                            </p>
+                            {!leg.tripId && !leg.tripNumber ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <p className="text-xs font-medium text-amber-700">Needs trip assignment.</p>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 rounded-md px-2 text-[11px]"
+                                  onClick={() => {
+                                    try {
+                                      window.sessionStorage.setItem(
+                                        'admin_transport_focus',
+                                        JSON.stringify({
+                                          orderId: String(selectedOrder?.id || ''),
+                                          orderNumber: String(selectedOrder?.orderNumber || ''),
+                                          warehouseId: String(leg?.warehouseId || ''),
+                                          at: Date.now(),
+                                        })
+                                      )
+                                    } catch {
+                                      // best effort only
+                                    }
+                                    setSelectedOrder(null)
+                                    onOpenTransportation?.()
+                                  }}
+                                >
+                                  Open in Transportation
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-indigo-50 text-indigo-600">
+                      <User className="h-5 w-5" />
+                    </span>
+                    Client Information
+                  </p>
+                  <div className="space-y-2 text-slate-700">
+                    <p className="flex items-center gap-3 text-sm sm:text-base"><User className="h-5 w-5 text-slate-500" />{selectedOrder.customer?.name || selectedOrder.shippingName || 'N/A'}</p>
+                    <p className="flex items-center gap-3 text-sm text-blue-700 sm:text-base"><Mail className="h-5 w-5 text-slate-500" />{selectedOrder.customer?.email || 'N/A'}</p>
+                    <p className="flex items-center gap-3 text-sm sm:text-base"><Phone className="h-5 w-5 text-slate-500" />{selectedOrder.shippingPhone || selectedOrder.customer?.phone || 'N/A'}</p>
+                    <p className="flex items-start gap-3 text-sm sm:text-base"><MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{formatOrderAddress(selectedOrder)}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+                      <PackageCheck className="h-5 w-5" />
+                    </span>
+                    Order Details
+                  </p>
+                  <div className="space-y-2.5">
+                    {(selectedOrder.items || []).map((item: any) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-2.5">
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                            {item?.product?.imageUrl ? (
+                              <img
+                                src={String(item.product.imageUrl)}
+                                alt={String(item?.product?.name || 'Product')}
+                                className="h-full w-full object-contain"
+                              />
+                            ) : (
+                              <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
+                            )}
+                          </div>
+                          <div className="min-w-0 pt-0.5">
+                            <p className="text-sm text-slate-800 sm:text-[1.02rem]">
+                              {item.product?.name || 'Product'}
+                              {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
+                              {' '}x{item.quantity}
+                            </p>
+                            <CompactDiscountLine value={formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
+                          </div>
                         </div>
-                        <span>{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
+                        <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                       </div>
                     ))}
-                    <p className="text-right font-semibold pt-2">Total: {formatPeso(selectedOrder.totalAmount || 0)}</p>
+                    <div className="h-px bg-slate-200" />
+                    <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">Total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span></p>
                   </div>
                 </div>
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="font-medium">Progress</p>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                      {selectedOrder.progress?.dropPoint?.status
-                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'No trip progress yet'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-sm text-gray-700">
-                    <p>Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
-                    <p>Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
-                    <p>Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
-                    <p>
-                      Drop Point Status: {selectedOrder.progress?.dropPoint?.status
-                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'Pending'}
-                    </p>
-                    <p>
-                      Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}
-                    </p>
-                    <p>
-                      Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="mb-2 font-medium">Proof Of Delivery</p>
-                  {(() => {
-                    const podUrl = String(
-                      selectedOrder.progress?.pod?.deliveryPhoto ||
-                      selectedOrder.deliveryPhoto ||
-                      selectedOrder.deliveryProofUrl ||
-                      selectedOrder.proofOfDeliveryUrl ||
-                      ''
-                    ).trim()
-                    if (!podUrl) return <p className="mt-3 text-sm text-gray-500">No POD uploaded yet.</p>
-                    return (
-                      <img
-                        src={podUrl}
-                        alt="Proof of delivery"
-                        className="mt-3 h-56 w-full rounded-md border border-slate-200 object-cover"
-                      />
-                    )
-                  })()}
-                </div>
-                <div className="sticky bottom-0 bg-white pb-1 pt-1">
+
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                          <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
+                            <Clock className="h-5 w-5" />
+                          </span>
+                          Progress
+                        </p>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+                          {selectedOrder.progress?.dropPoint?.status
+                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            : 'No trip progress yet'}
+                          <CircleCheck className="h-3.5 w-3.5" />
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
+                        <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
+                        <p>
+                          <span className="inline-flex items-center gap-3"><MapPin className="h-5 w-5 text-slate-500" />Drop Point Status: {selectedOrder.progress?.dropPoint?.status
+                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            : 'Pending'}</span>
+                        </p>
+                        <p>
+                          <span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span>
+                        </p>
+                        <p>
+                          <span className="inline-flex items-center gap-3"><LogOut className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span>
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
+                          <Camera className="h-5 w-5" />
+                        </span>
+                        Proof Of Delivery
+                      </p>
+                      {(() => {
+                        const podUrl = String(
+                          selectedOrder.progress?.pod?.deliveryPhoto ||
+                          selectedOrder.deliveryPhoto ||
+                          selectedOrder.deliveryProofUrl ||
+                          selectedOrder.proofOfDeliveryUrl ||
+                          ''
+                        ).trim()
+                        if (!podUrl) return <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
+                        return (
+                          <img
+                            src={podUrl}
+                            alt="Proof of delivery"
+                            className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
+                          />
+                        )
+                      })()}
+                    </div>
+                  )
+                })()}
+
+                <div className="bg-white py-1">
                   <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setSelectedOrder(null)} className="flex-1">
+                  <Button variant="outline" onClick={() => setSelectedOrder(null)} className="h-11 flex-1 rounded-xl text-lg font-semibold">
                     Close
                   </Button>
                   </div>
@@ -873,13 +1209,11 @@ export function OrdersView() {
                           }
                         />
                         <div>
-                          <p>{item.product?.name || 'Product'} x{item.quantity}</p>
-                          {item.spareProducts ? (
-                            <div className="mt-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              <p>Spare products: {Number(item.spareProducts.recommendedQuantity || 0)}</p>
-                              <p>Total load {Number(item.spareProducts.totalLoadQuantity || item.quantity || 0)}</p>
-                            </div>
-                          ) : null}
+                          <p>
+                            {item.product?.name || 'Product'}
+                            {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
+                            {' '}x{item.quantity}
+                          </p>
                         </div>
                       </label>
                     ))}
@@ -945,11 +1279,14 @@ export function OrdersView() {
                         toast.error('Rejection reason is required')
                         return
                       }
-                      if (!['PREPARING'].includes(rejectOrder.status)) {
-                        toast.error('You can only update eligible delivery orders')
+                      const orderStatus = String(rejectOrder?.status || '').toUpperCase()
+                      const paymentStatus = String(rejectOrder?.paymentStatus || '').toLowerCase()
+                      const canReject = paymentStatus === 'pending_approval' || orderStatus === 'PENDING'
+                      if (!canReject) {
+                        toast.error('Only not-yet-approved orders can be rejected')
                         return
                       }
-                      await updateOrderStatus(rejectOrder.id, 'PREPARING', rejectReason.trim())
+                      await updateOrderStatus(rejectOrder.id, 'REJECTED', rejectReason.trim())
                       setRejectOrder(null)
                     }}
                     disabled={updatingOrderId === rejectOrder.id}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +21,15 @@ type AssignedOrderRow = {
     warehouseProvince?: string
     loadedAt?: string | null
     checklistQuantityVerified?: boolean
+    scheduledReplacement?: {
+      replacementId?: string
+      replacementNumber?: string
+      quantityToReplace?: number
+      quantityReplaced?: number
+      quantityRemaining?: number
+      unitMode?: string
+      qtyPerUnit?: number
+    } | null
     items?: Array<{
       id?: string
       quantity?: number
@@ -64,6 +73,7 @@ export function HomeView({
   onMarkOrderLoaded: (orderId: string) => Promise<boolean>
 }) {
   const [loadChecklistByOrder, setLoadChecklistByOrder] = useState<Record<string, Record<string, boolean>>>({})
+  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back, Driver')
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
   const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
@@ -97,6 +107,57 @@ export function HomeView({
     return tripDate ? isSameLocalDate(tripDate, day) : false
   }
   const formatWarehouseStage = (stage: string | null | undefined) => String(stage || 'READY_TO_LOAD').toUpperCase().replace(/_/g, ' ')
+  const getItemDisplayNameWithSize = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
+    const product: any = item?.product || {}
+    const baseName = String(product?.name || 'Product').trim()
+    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
+      ? product.sizes.map((value: any) => String(value).trim()).filter(Boolean).join(', ')
+      : ''
+    const sizeFromField = String(product?.size || product?.sizeLabel || (item as any)?.size || '').trim()
+    const sizeLabel = sizeFromArray || sizeFromField
+    return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
+  }
+  const getItemQtyWithUnitLabel = (
+    order: AssignedOrderRow['order'],
+    item: NonNullable<AssignedOrderRow['order']['items']>[number],
+  ) => {
+    const replacementMeta: any = (order as any)?.scheduledReplacement || null
+    const replacementQty = Math.max(Number(replacementMeta?.quantityToReplace || 0), 0)
+    const replacementUnitMode = String(replacementMeta?.unitMode || '').trim().toUpperCase()
+    if (replacementQty > 0 && String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')) {
+      if (replacementUnitMode === 'BOTTLE') {
+        return `Qty ${replacementQty} bottle(s)`
+      }
+      const qtyPerUnit = Math.max(Number(replacementMeta?.qtyPerUnit || 0), 0)
+      if (qtyPerUnit > 0) {
+        const unitQty = replacementQty / qtyPerUnit
+        const unitText = Number.isInteger(unitQty) ? String(unitQty) : unitQty.toFixed(2).replace(/\.00$/, '')
+        return `Qty ${unitText} unit(s) (${replacementQty} bottle(s))`
+      }
+      return `Qty ${replacementQty} unit(s)`
+    }
+    const qty = Math.max(Number(item?.quantity || 0), 0)
+    const product: any = item?.product || {}
+    const unitHint = String(
+      (item as any)?.productUnit ||
+      (item as any)?.unit ||
+      (item as any)?.replacementUnit ||
+      product?.unit ||
+      ''
+    ).trim().toLowerCase()
+    if (unitHint.includes('bottle')) {
+      return `Qty ${qty} bottle(s)`
+    }
+    if (unitHint.includes('case')) {
+      const bottlesPerCase = Math.max(Number(product?.quantity_per_unit || (item as any)?.quantityPerCase || 0), 0)
+      if (bottlesPerCase > 0) {
+        const totalBottles = qty * bottlesPerCase
+        return `Qty ${qty} case(s) (${totalBottles} bottle(s))`
+      }
+      return `Qty ${qty} case(s)`
+    }
+    return `Qty ${qty} unit(s)`
+  }
   const getSpareProductInfo = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
     const spareProducts = item.spareProducts
     if (!spareProducts) return null
@@ -152,6 +213,27 @@ export function HomeView({
   ]
     .map((value) => String(value || '').trim())
     .find((value) => value.length > 0) || 'Driver'
+  useEffect(() => {
+    const fallbackBack = driverDisplayName ? `Welcome back, ${driverDisplayName}` : 'Welcome back!'
+    try {
+      const raw = window.sessionStorage.getItem('driver_welcome_state')
+      if (!raw) {
+        setWelcomeMessage(fallbackBack)
+        return
+      }
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const name = String(parsed?.name || '').trim() || driverDisplayName
+      if (mode === 'new') {
+        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
+      } else {
+        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
+      }
+      window.sessionStorage.removeItem('driver_welcome_state')
+    } catch {
+      setWelcomeMessage(fallbackBack)
+    }
+  }, [driverDisplayName])
   const terminalStopStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
   const pendingStops = activeTrip
     ? (activeTrip.dropPoints || []).filter((point) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
@@ -182,7 +264,7 @@ export function HomeView({
     <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
-        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Welcome, {driverDisplayName}</h2>
+        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">{welcomeMessage}</h2>
         <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
       </div>
 
@@ -279,6 +361,9 @@ export function HomeView({
           ) : (
             assignedOrderRows.map(({ trip, dropPoint, order }) => {
               const orderId = String(order.id || '')
+              const isReplacementOrder =
+                Boolean((order as any)?.isScheduledReplacement) ||
+                String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
               const warehouseStage = String(order.warehouseStage || 'READY_TO_LOAD').toUpperCase()
               const checklistDone = isWarehouseChecklistComplete(order)
               const pickupWarehouseName =
@@ -301,7 +386,7 @@ export function HomeView({
                 (order.items || []).flatMap((item) => {
                   const itemId = String(item.id)
                   const entries: [string, boolean][] = [[itemId, checklistDone]]
-                  if (getSpareProductInfo(item)) entries.push([`${itemId}:spare`, checklistDone])
+                  if (!isReplacementOrder && getSpareProductInfo(item)) entries.push([`${itemId}:spare`, checklistDone])
                   return entries
                 })
               )
@@ -316,6 +401,11 @@ export function HomeView({
                     <div className="space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-bold tracking-tight text-slate-900">{order.orderNumber}</p>
+                        {isReplacementOrder ? (
+                          <Badge className="border border-blue-200 bg-blue-50 text-blue-700">
+                            Replacement
+                          </Badge>
+                        ) : null}
                         <Badge className={stageBadgeStyles[warehouseStage] || 'bg-slate-100 text-slate-700 border border-slate-200'}>
                           {formatWarehouseStage(order.warehouseStage)}
                         </Badge>
@@ -343,13 +433,13 @@ export function HomeView({
                         const itemId = String(item.id)
                         const spareItemId = `${itemId}:spare`
                         const checked = Boolean(checklistState[itemId])
-                        const spareProductInfo = getSpareProductInfo(item)
+                        const spareProductInfo = !isReplacementOrder ? getSpareProductInfo(item) : null
                         return (
                           <div key={itemId} className="space-y-2">
                           <label className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                             <div>
-                              <p className="font-medium text-slate-900">{item.product?.name || 'Product'}</p>
-                              <p className="text-xs text-slate-500">Qty {Number(item.quantity || 0)}</p>
+                              <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
+                              <p className="text-xs text-slate-500">{getItemQtyWithUnitLabel(order, item)}</p>
                             </div>
                             <input
                               type="checkbox"
@@ -370,7 +460,7 @@ export function HomeView({
                           {spareProductInfo ? (
                             <label className={`ml-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checklistState[spareItemId] ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                               <div>
-                                <p className="font-medium text-slate-900">Spare products for {item.product?.name || 'Product'}</p>
+                                <p className="font-medium text-slate-900">Spare products for {getItemDisplayNameWithSize(item)}</p>
                                 <p className="text-xs text-slate-500">Qty {spareProductInfo.recommendedQuantity} | Total {spareProductInfo.totalLoadQuantity}</p>
                               </div>
                               <input
