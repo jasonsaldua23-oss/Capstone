@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -73,10 +73,9 @@ export function ReportsView() {
   const [inventoryTransactions, setInventoryTransactions] = useState<any[]>([])
   const [replacementsData, setReplacementsData] = useState<any[]>([])
   const [feedback, setFeedback] = useState<any[]>([])
+  const [stockBatches, setStockBatches] = useState<any[]>([])
   const reportBranding = {
     companyName: "Ann Ann's Beverages Trading",
-    subtitle: 'Logistics Management System - Report Pack',
-    preparedBy: String(user?.name || user?.email || 'System Administrator'),
   }
   useEffect(() => {
     let isMounted = true
@@ -84,7 +83,7 @@ export function ReportsView() {
     async function fetchReportsPack() {
       setIsLoading(true)
       try {
-        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes] = await Promise.all([
+        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes, stockBatchesRes] = await Promise.all([
           fetchAllPaginatedCollection<any>('/api/orders', 'orders', undefined, {
             retries: 5,
             timeoutMs: 20000,
@@ -98,6 +97,7 @@ export function ReportsView() {
           safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
           safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
           safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/stock-batches?limit=2000', undefined, { retries: 5, timeoutMs: 20000 }),
         ])
 
         if (!isMounted) return
@@ -111,6 +111,7 @@ export function ReportsView() {
         const fallbackReplacements = ordersRes.ok ? getCollection<any>(ordersRes.data, ['replacements']) : []
         setReplacementsData(replacementsRes.ok ? getCollection<any>(replacementsRes.data, ['replacements']) : fallbackReplacements)
         setFeedback(feedbackRes.ok ? getCollection<any>(feedbackRes.data, ['feedback']) : [])
+        setStockBatches(stockBatchesRes.ok ? getCollection<any>(stockBatchesRes.data, ['batches']) : [])
       } catch (error) {
         console.error('Failed to load reports pack:', error)
         if (isMounted) {
@@ -122,6 +123,7 @@ export function ReportsView() {
           setInventoryTransactions([])
           setReplacementsData([])
           setFeedback([])
+          setStockBatches([])
         }
       } finally {
         if (isMounted) {
@@ -403,6 +405,120 @@ export function ReportsView() {
         subject: item.subject || 'N/A',
       }))
   }, [feedback, rangeStart, selectedFeedbackStatus])
+
+  // Stock Expiry Report Rows - tracks batches nearing expiration
+  const stockExpiryRows = useMemo(() => {
+    const now = new Date()
+    return stockBatches
+      .map((batch) => {
+        const expiryDate = batch.expiryDate ? new Date(batch.expiryDate) : null
+        const receiptDate = batch.receiptDate ? new Date(batch.receiptDate) : null
+        const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null
+        const warehouse = batch.inventory?.warehouse?.name || 'N/A'
+        const product = batch.inventory?.product?.name || 'N/A'
+        const sku = batch.inventory?.product?.sku || 'N/A'
+        return {
+          batchNumber: batch.batchNumber || 'N/A',
+          product,
+          sku,
+          warehouse,
+          quantity: Number(batch.quantity || 0),
+          receiptDate: receiptDate ? formatDateTime(batch.receiptDate) : 'N/A',
+          expiryDate: expiryDate ? formatDateTime(batch.expiryDate) : 'N/A',
+          daysUntilExpiry: daysUntilExpiry !== null ? daysUntilExpiry : 'N/A',
+          status: daysUntilExpiry !== null
+            ? daysUntilExpiry < 0 ? 'EXPIRED'
+              : daysUntilExpiry <= 30 ? 'CRITICAL'
+                : daysUntilExpiry <= 60 ? 'WARNING'
+                  : 'GOOD'
+            : 'N/A',
+        }
+      })
+      .filter((row) => row.status !== 'N/A')
+      .sort((a, b) => {
+        const aDays = typeof a.daysUntilExpiry === 'number' ? a.daysUntilExpiry : Infinity
+        const bDays = typeof b.daysUntilExpiry === 'number' ? b.daysUntilExpiry : Infinity
+        return aDays - bDays
+      })
+  }, [stockBatches])
+
+  // Driver Performance Report Rows - tracks driver metrics
+  const driverPerformanceRows = useMemo(() => {
+    const tripStats = new Map<string, { total: number; completed: number; onTime: number }>()
+    trips.forEach((trip) => {
+      const driverId = trip.driver?.id
+      if (!driverId) return
+      const stats = tripStats.get(driverId) || { total: 0, completed: 0, onTime: 0 }
+      stats.total++
+      if (normalizeTripStatus(trip.status) === 'COMPLETED') stats.completed++
+      if (trip.actualEndAt && trip.plannedEndAt) {
+        const actual = new Date(trip.actualEndAt).getTime()
+        const planned = new Date(trip.plannedEndAt).getTime()
+        if (actual <= planned) stats.onTime++
+      }
+      tripStats.set(driverId, stats)
+    })
+
+    return drivers.map((driver) => {
+      const stats = tripStats.get(driver.id) || { total: 0, completed: 0, onTime: 0 }
+      const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0
+      const onTimeRate = stats.total > 0 ? Math.round((stats.onTime / stats.total) * 100) : 0
+      const licenseExpiry = driver.licenseExpiry ? new Date(driver.licenseExpiry) : null
+      const daysUntilExpiry = licenseExpiry ? Math.ceil((licenseExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
+
+      return {
+        driverName: driver.user?.name || driver.name || 'N/A',
+        licenseNumber: driver.licenseNumber || 'N/A',
+        licenseType: driver.licenseType || 'N/A',
+        licenseStatus: daysUntilExpiry !== null
+          ? daysUntilExpiry < 0 ? 'EXPIRED'
+            : daysUntilExpiry <= 30 ? 'EXPIRING_SOON'
+              : 'VALID'
+          : 'N/A',
+        licenseExpiry: licenseExpiry ? formatDateTime(driver.licenseExpiry) : 'N/A',
+        rating: Number(driver.rating || 0).toFixed(1),
+        totalDeliveries: Number(driver.totalDeliveries || 0),
+        totalTrips: stats.total,
+        completedTrips: stats.completed,
+        completionRate: `${completionRate}%`,
+        onTimeRate: `${onTimeRate}%`,
+        isActive: driver.isActive ? 'Active' : 'Inactive',
+      }
+    }).sort((a, b) => Number(b.totalTrips) - Number(a.totalTrips))
+  }, [drivers, trips])
+
+  // Low Stock Alert Rows - tracks products below minimum stock levels
+  const lowStockRows = useMemo(() => {
+    return inventory
+      .filter((item) => selectedWarehouse === 'all' || String(item.warehouse?.id) === selectedWarehouse)
+      .map((item) => {
+        const quantity = Number(item.quantity || 0)
+        const minStock = Number(item.minStock || 0)
+        const reorderPoint = Number(item.reorderPoint || 0)
+        const maxStock = Number(item.maxStock || 100)
+        const shortage = Math.max(0, reorderPoint - quantity)
+        const stockPercent = maxStock > 0 ? Math.round((quantity / maxStock) * 100) : 0
+
+        return {
+          warehouse: item.warehouse?.name || 'N/A',
+          product: item.product?.name || 'N/A',
+          sku: item.product?.sku || 'N/A',
+          currentStock: quantity,
+          minStock,
+          reorderPoint,
+          maxStock,
+          shortage,
+          stockPercent,
+          status: quantity <= 0 ? 'OUT_OF_STOCK'
+            : quantity < minStock ? 'CRITICAL'
+              : quantity < reorderPoint ? 'LOW'
+                : 'OK',
+          suggestedReorder: shortage > 0 ? Math.ceil(shortage * 1.2) : 0,
+        }
+      })
+      .filter((row) => row.status !== 'OK')
+      .sort((a, b) => a.currentStock - b.currentStock)
+  }, [inventory, selectedWarehouse])
 
   const orderStatusOptions = useMemo(() => {
     return Array.from(
@@ -902,6 +1018,34 @@ export function ReportsView() {
     return { total, avgRating, open }
   }, [feedbackRows])
 
+  // KPI calculations for new reports
+  const stockExpiryKpi = useMemo(() => {
+    const critical = stockExpiryRows.filter((row) => row.status === 'CRITICAL').length
+    const warning = stockExpiryRows.filter((row) => row.status === 'WARNING').length
+    const expired = stockExpiryRows.filter((row) => row.status === 'EXPIRED').length
+    const atRiskValue = stockExpiryRows
+      .filter((row) => ['CRITICAL', 'WARNING', 'EXPIRED'].includes(String(row.status)))
+      .reduce((acc, row) => acc + (Number(row.quantity || 0) * 100), 0) // Assuming avg value of 100 per unit
+    return { total: stockExpiryRows.length, critical, warning, expired, atRiskValue }
+  }, [stockExpiryRows])
+
+  const driverPerformanceKpi = useMemo(() => {
+    const total = driverPerformanceRows.length
+    const active = driverPerformanceRows.filter((row) => row.isActive === 'Active').length
+    const avgRating = driverPerformanceRows.length > 0
+      ? driverPerformanceRows.reduce((acc, row) => acc + Number(row.rating), 0) / driverPerformanceRows.length
+      : 0
+    const licenseIssues = driverPerformanceRows.filter((row) => ['EXPIRED', 'EXPIRING_SOON'].includes(String(row.licenseStatus))).length
+    return { total, active, avgRating: avgRating.toFixed(1), licenseIssues }
+  }, [driverPerformanceRows])
+
+  const lowStockKpi = useMemo(() => {
+    const critical = lowStockRows.filter((row) => row.status === 'CRITICAL').length
+    const outOfStock = lowStockRows.filter((row) => row.status === 'OUT_OF_STOCK').length
+    const totalShortage = lowStockRows.reduce((acc, row) => acc + Number(row.shortage || 0), 0)
+    return { total: lowStockRows.length, critical, outOfStock, totalShortage }
+  }, [lowStockRows])
+
   const chartCardClassName = 'rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden'
   const chartTooltipStyle = {
     backgroundColor: '#0f172a',
@@ -909,43 +1053,18 @@ export function ReportsView() {
     borderRadius: '12px',
     boxShadow: '0 12px 30px rgba(15, 23, 42, 0.22)',
   }
-  const buildReportSummaryLines = (rows: Array<Record<string, unknown>>, maxRows: number, headers: string[]) => {
-    const summaryLines: string[] = []
-    summaryLines.push(`Total records: ${rows.length}`)
-    summaryLines.push(`Included in this page: ${maxRows}`)
-    const lowerHeaders = headers.map((header) => header.toLowerCase())
-    const statusHeader = headers.find((header, index) => lowerHeaders[index].includes('status'))
-    const amountHeader = headers.find((header, index) =>
-      ['amount', 'total', 'value', 'cost'].some((token) => lowerHeaders[index].includes(token))
-    )
-    if (statusHeader) {
-      const statusCounts = new Map<string, number>()
-      rows.forEach((row) => {
-        const key = String(row[statusHeader] || 'UNKNOWN').trim() || 'UNKNOWN'
-        statusCounts.set(key, (statusCounts.get(key) || 0) + 1)
-      })
-      const topStatuses = Array.from(statusCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-        .map(([status, count]) => `${status}: ${count}`)
-      if (topStatuses.length > 0) summaryLines.push(`Status summary: ${topStatuses.join(' | ')}`)
-    }
-    if (amountHeader) {
-      const amounts = rows.map((row) => Number(row[amountHeader])).filter((value) => Number.isFinite(value))
-      if (amounts.length > 0) {
-        const totalAmount = amounts.reduce((acc, value) => acc + value, 0)
-        const avgAmount = totalAmount / amounts.length
-        summaryLines.push(`Amount summary: Total ${formatPeso(totalAmount)} | Avg ${formatPeso(avgAmount)}`)
-      }
-    }
-    return summaryLines
+  // Helper to sanitize text for PDF (WinAnsi encoding only supports Latin-1)
+  const sanitizeForPdf = (text: string): string => {
+    return text
+      .replace(/₱/g, 'PHP ')
+      .replace(/[€£¥]/g, '')
   }
 
   const downloadPdf = async (
     filename: string,
     title: string,
     rows: Array<Record<string, unknown>>,
-    options?: { companyName?: string; subtitle?: string; preparedBy?: string }
+    options?: { companyName?: string; summaryLines?: string[] }
   ) => {
     if (!rows.length) {
       toast.error(`No data to export for ${filename}`)
@@ -956,42 +1075,54 @@ export function ReportsView() {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
     const companyName = options?.companyName || "Ann Ann's Beverages Trading"
-    const subtitle = options?.subtitle || 'Logistics Management System'
-    const preparedBy = options?.preparedBy || 'System Administrator'
     const margin = 28
     const usableWidth = 842 - margin * 2
     const lineHeight = 14
     const maxRows = Math.min(rows.length, 180)
-    const headers = Object.keys(rows[0]).slice(0, 8)
+    const headers = Object.keys(rows[0]).slice(0, 10)
     const colWidth = usableWidth / Math.max(1, headers.length)
     const ellipsize = (value: string, maxChars: number) => {
-      const normalized = String(value ?? '').replace(/\s+/g, ' ').trim()
-      if (normalized.length <= maxChars) return normalized
-      return `${normalized.slice(0, Math.max(0, maxChars - 3))}...`
+      // Replace Peso symbol with PHP for PDF compatibility (WinAnsi encoding)
+      const sanitized = String(value ?? '').replace(/₱/g, 'PHP ').replace(/\s+/g, ' ').trim()
+      if (sanitized.length <= maxChars) return sanitized
+      return `${sanitized.slice(0, Math.max(0, maxChars - 3))}...`
     }
-    let y = 560
-    page.drawText(companyName, { x: margin, y, size: 16, font: boldFont, color: rgb(0.08, 0.08, 0.08) })
-    y -= 16
-    page.drawText(subtitle, { x: margin, y, size: 10, font, color: rgb(0.25, 0.25, 0.25) })
-    y -= 18
-    page.drawText(title, { x: margin, y, size: 14, font: boldFont, color: rgb(0.1, 0.1, 0.1) })
-    y -= 14
-    page.drawText(`Generated: ${new Date().toLocaleString()} | Prepared by: ${preparedBy}`, {
-      x: margin, y, size: 9, font, color: rgb(0.35, 0.35, 0.35),
+    let y = 550
+    // Add logo on left side
+    try {
+      const logoResponse = await fetch('/ann-anns-logo.png')
+      if (logoResponse.ok) {
+        const logoBytes = await logoResponse.arrayBuffer()
+        const logoImage = await pdfDoc.embedPng(logoBytes)
+        const logoWidth = 45
+        const logoHeight = (logoImage.height / logoImage.width) * logoWidth
+        page.drawImage(logoImage, {
+          x: margin,
+          y: 535,
+          width: logoWidth,
+          height: logoHeight,
+        })
+      }
+    } catch {
+      // Logo failed to load, continue without it
+    }
+
+    page.drawText(companyName, { x: margin + 55, y: 550, size: 16, font: boldFont, color: rgb(0.08, 0.08, 0.08) })
+    page.drawText(title, { x: margin, y: 520, size: 14, font: boldFont, color: rgb(0.1, 0.1, 0.1) })
+    page.drawText(`Generated: ${new Date().toLocaleString()}`, {
+      x: margin, y: 500, size: 9, font, color: rgb(0.35, 0.35, 0.35),
     })
-    y -= 18
-    const summaryLines = buildReportSummaryLines(rows, maxRows, headers)
-    const summaryHeight = summaryLines.length * 12 + 12
-    page.drawRectangle({ x: margin, y: y - summaryHeight, width: usableWidth, height: summaryHeight, color: rgb(0.96, 0.98, 1), borderColor: rgb(0.82, 0.88, 0.96), borderWidth: 1 })
-    page.drawText('Summary', { x: margin + 8, y: y - 12, size: 10, font: boldFont, color: rgb(0.12, 0.22, 0.36) })
-    let summaryY = y - 24
-    summaryLines.forEach((line) => {
-      page.drawText(line, { x: margin + 8, y: summaryY, size: 8.5, font, color: rgb(0.24, 0.3, 0.4), maxWidth: usableWidth - 16 })
-      summaryY -= 12
-    })
-    y = y - summaryHeight - 12
+    y = 480
+    // Format headers to be human-readable
+    const formatHeader = (header: string): string => {
+      return header
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim()
+        .replace(/_/g, ' ')
+    }
     headers.forEach((header, index) => {
-      page.drawText(header, { x: margin + index * colWidth, y, size: 9, font: boldFont, color: rgb(0.15, 0.15, 0.15), maxWidth: colWidth - 8 })
+      page.drawText(formatHeader(header), { x: margin + index * colWidth, y, size: 9, font: boldFont, color: rgb(0.15, 0.15, 0.15), maxWidth: colWidth - 8 })
     })
     y -= lineHeight
     for (let i = 0; i < maxRows; i += 1) {
@@ -999,18 +1130,20 @@ export function ReportsView() {
       headers.forEach((header, index) => {
         const rawValue = String(row[header] ?? '')
         const value = ellipsize(rawValue, Math.max(10, Math.floor((colWidth - 10) / 4.7)))
-        page.drawText(value, { x: margin + index * colWidth, y, size: 8, font, color: rgb(0.25, 0.25, 0.25), maxWidth: colWidth - 8 })
+        page.drawText(value, { x: margin + index * colWidth, y, size: 7, font, color: rgb(0.25, 0.25, 0.25), maxWidth: colWidth - 6 })
       })
       y -= lineHeight
-      if (y < 30) break
+      if (y < 50) break
     }
-    const footerSummaryY = 44
-    const footerSummaryText = summaryLines.join(' | ')
-    page.drawRectangle({ x: margin, y: footerSummaryY - 8, width: usableWidth, height: 14, color: rgb(0.97, 0.98, 1), borderColor: rgb(0.84, 0.89, 0.96), borderWidth: 1 })
-    page.drawText(`Bottom Summary: ${ellipsize(footerSummaryText, 180)}`, { x: margin + 6, y: footerSummaryY - 2, size: 8, font, color: rgb(0.23, 0.3, 0.4), maxWidth: usableWidth - 12 })
-    page.drawText('Prepared by: ____________________', { x: margin, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
-    page.drawText('Reviewed by: ____________________', { x: margin + 240, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
-    page.drawText('Approved by: ____________________', { x: margin + 480, y: 26, size: 9, font, color: rgb(0.25, 0.25, 0.25) })
+    // Summary at bottom
+    y -= 8
+    const summaryLines = options?.summaryLines && options.summaryLines.length > 0
+      ? options.summaryLines
+      : [`Total records: ${rows.length}`]
+    summaryLines.forEach((line) => {
+      page.drawText(sanitizeForPdf(line), { x: margin, y, size: 9, font, color: rgb(0.35, 0.35, 0.35) })
+      y -= 12
+    })
     const bytes = await pdfDoc.save()
     const blob = new Blob([bytes], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
@@ -1025,12 +1158,30 @@ export function ReportsView() {
 
   const exportAllPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
-    await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, reportBranding)
-    await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, reportBranding)
-    await downloadPdf(`warehouse-inventory-report-${stamp}.pdf`, 'Warehouse & Inventory Movement Report', inventoryMovementRows, reportBranding)
-    await downloadPdf(`warehouse-dispatch-compliance-report-${stamp}.pdf`, 'Warehouse Dispatch Compliance Report', warehouseDispatchRows, reportBranding)
-    await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, reportBranding)
-    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, reportBranding)
+    await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, {
+      ...reportBranding,
+      summaryLines: [`Total Orders: ${orderKpi.total}`, `Delivered: ${orderKpi.delivered}`, `Fulfillment Rate: ${orderKpi.fulfillmentRate}%`, `Delivered Revenue: PHP ${orderKpi.deliveredRevenue.toLocaleString()}`]
+    })
+    await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, {
+      ...reportBranding,
+      summaryLines: [`Total Trips: ${transportRows.length}`, `Completed: ${transportRows.filter(r => r.status === 'COMPLETED').length}`, `In Progress: ${transportRows.filter(r => r.status === 'IN_PROGRESS').length}`]
+    })
+    await downloadPdf(`warehouse-report-${stamp}.pdf`, 'Warehouse Operations Report', warehouseDispatchRows, {
+      ...reportBranding,
+      summaryLines: [`Total Warehouses: ${warehouses.length}`, `Dispatch Orders: ${warehouseDispatchRows.length}`, `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`]
+    })
+    await downloadPdf(`inventory-report-${stamp}.pdf`, 'Inventory Movement Report', inventoryMovementRows, {
+      ...reportBranding,
+      summaryLines: [`Total Movements: ${inventoryMovementRows.length}`, `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Low Stock Items: ${lowStockKpi.total}`]
+    })
+    await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, {
+      ...reportBranding,
+      summaryLines: [`Total Cases: ${replacementKpi.total}`, `Completed: ${replacementKpi.completed}`, `Open Cases: ${replacementKpi.open}`]
+    })
+    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
+      ...reportBranding,
+      summaryLines: [`Total Feedback: ${feedbackKpi.total}`, `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`, `Open Items: ${feedbackKpi.open}`]
+    })
     toast.success('All PDF reports exported')
   }
 
@@ -1135,36 +1286,116 @@ export function ReportsView() {
   const exportCurrentPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
     if (activeReportTab === 'orders') {
-      await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, reportBranding)
+      await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, {
+        ...reportBranding,
+        summaryLines: [
+          `Total Orders: ${orderKpi.total}`,
+          `Delivered: ${orderKpi.delivered}`,
+          `Fulfillment Rate: ${orderKpi.fulfillmentRate}%`,
+          `Delivered Revenue: PHP ${orderKpi.deliveredRevenue.toLocaleString()}`,
+        ]
+      })
       return
     }
     if (activeReportTab === 'transport') {
-      await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, reportBranding)
+      await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, {
+        ...reportBranding,
+        summaryLines: [
+          `Total Trips: ${transportRows.length}`,
+          `Completed: ${transportRows.filter(r => r.status === 'COMPLETED').length}`,
+          `In Progress: ${transportRows.filter(r => r.status === 'IN_PROGRESS').length}`,
+        ]
+      })
       return
     }
     if (activeReportTab === 'warehouse') {
       await downloadPdf(
-        `warehouse-inventory-report-${stamp}.pdf`,
-        'Warehouse & Inventory Movement Report',
+        `warehouse-report-${stamp}.pdf`,
+        'Warehouse Operations Report',
+        warehouseDispatchRows,
+        {
+          ...reportBranding,
+          summaryLines: [
+            `Total Warehouses: ${warehouses.length}`,
+            `Dispatch Orders: ${warehouseDispatchRows.length}`,
+            `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`,
+          ]
+        }
+      )
+      return
+    }
+    if (activeReportTab === 'inventory') {
+      await downloadPdf(
+        `inventory-report-${stamp}.pdf`,
+        'Inventory Movement Report',
         inventoryMovementRows,
-        reportBranding
+        {
+          ...reportBranding,
+          summaryLines: [
+            `Total Movements: ${inventoryMovementRows.length}`,
+            `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
+            `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
+            `Low Stock Items: ${lowStockKpi.total} (${lowStockKpi.critical} critical, ${lowStockKpi.outOfStock} out of stock)`,
+          ]
+        }
       )
       return
     }
     if (activeReportTab === 'replacement') {
-      await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, reportBranding)
+      await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, {
+        ...reportBranding,
+        summaryLines: [
+          `Total Cases: ${replacementKpi.total}`,
+          `Completed: ${replacementKpi.completed}`,
+          `Open Cases: ${replacementKpi.open}`,
+        ]
+      })
       return
     }
-    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, reportBranding)
+    if (activeReportTab === 'stock-expiry') {
+      await downloadPdf(`stock-expiry-report-${stamp}.pdf`, 'Stock Batch Expiry Report', stockExpiryRows, {
+        ...reportBranding,
+        summaryLines: [
+          `Total Batches: ${stockExpiryKpi.total}`,
+          `Critical (<30 days): ${stockExpiryKpi.critical}`,
+          `Expired: ${stockExpiryKpi.expired}`,
+          `Warning (30-60 days): ${stockExpiryKpi.warning}`,
+        ]
+      })
+      return
+    }
+    if (activeReportTab === 'drivers') {
+      await downloadPdf(`driver-performance-report-${stamp}.pdf`, 'Driver Performance Report', driverPerformanceRows, {
+        ...reportBranding,
+        summaryLines: [
+          `Total Drivers: ${driverPerformanceKpi.total}`,
+          `Active Drivers: ${driverPerformanceKpi.active}`,
+          `Average Rating: ${driverPerformanceKpi.avgRating}`,
+          `License Issues: ${driverPerformanceKpi.licenseIssues}`,
+        ]
+      })
+      return
+    }
+    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
+      ...reportBranding,
+      summaryLines: [
+        `Total Feedback: ${feedbackKpi.total}`,
+        `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
+        `Open Items: ${feedbackKpi.open}`,
+      ]
+    })
   }
 
   const printCurrentReport = () => {
-    const reportMap: Record<string, { title: string; rows: Array<Record<string, unknown>> }> = {
-      orders: { title: 'Order Fulfillment Report', rows: orderRows },
-      transport: { title: 'Transportation & Delivery Status Report', rows: transportRows },
-      warehouse: { title: 'Warehouse & Inventory Movement Report', rows: inventoryMovementRows },
-      replacement: { title: 'Replacement Handling Report', rows: replacementRows },
-      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows },
+    const reportMap: Record<string, { title: string; rows: Array<Record<string, unknown>>; summaryLines: string[] }> = {
+      orders: { title: 'Order Fulfillment Report', rows: orderRows, summaryLines: [`Total Orders: ${orderKpi.total}`, `Delivered: ${orderKpi.delivered}`, `Fulfillment Rate: ${orderKpi.fulfillmentRate}%`, `Delivered Revenue: PHP ${orderKpi.deliveredRevenue.toLocaleString()}`] },
+      transport: { title: 'Transportation & Delivery Status Report', rows: transportRows, summaryLines: [`Total Trips: ${transportRows.length}`, `Completed: ${transportRows.filter(r => r.status === 'COMPLETED').length}`, `In Progress: ${transportRows.filter(r => r.status === 'IN_PROGRESS').length}`] },
+      warehouse: { title: 'Warehouse Operations Report', rows: warehouseDispatchRows, summaryLines: [`Total Warehouses: ${warehouses.length}`, `Dispatch Orders: ${warehouseDispatchRows.length}`, `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`] },
+      inventory: { title: 'Inventory Movement Report', rows: inventoryMovementRows, summaryLines: [`Total Movements: ${inventoryMovementRows.length}`, `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Low Stock Items: ${lowStockKpi.total}`] },
+      replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: [`Total Cases: ${replacementKpi.total}`, `Completed: ${replacementKpi.completed}`, `Open Cases: ${replacementKpi.open}`] },
+      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows, summaryLines: [`Total Feedback: ${feedbackKpi.total}`, `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`, `Open Items: ${feedbackKpi.open}`] },
+      'stock-expiry': { title: 'Stock Batch Expiry Report', rows: stockExpiryRows, summaryLines: [`Total Batches: ${stockExpiryKpi.total}`, `Critical (<30 days): ${stockExpiryKpi.critical}`, `Expired: ${stockExpiryKpi.expired}`, `Warning (30-60 days): ${stockExpiryKpi.warning}`] },
+      drivers: { title: 'Driver Performance Report', rows: driverPerformanceRows, summaryLines: [`Total Drivers: ${driverPerformanceKpi.total}`, `Active Drivers: ${driverPerformanceKpi.active}`, `Average Rating: ${driverPerformanceKpi.avgRating}`, `License Issues: ${driverPerformanceKpi.licenseIssues}`] },
     }
 
     const report = reportMap[activeReportTab]
@@ -1174,7 +1405,7 @@ export function ReportsView() {
     }
 
     const columns = Object.keys(report.rows[0])
-    const summaryLines = buildReportSummaryLines(report.rows, Math.min(report.rows.length, 300), columns)
+    const summaryLines = report.summaryLines
     const bodyRows = report.rows
       .slice(0, 300)
       .map((row) => `<tr>${columns.map((column) => `<td>${String(row[column] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`)
@@ -1185,47 +1416,28 @@ export function ReportsView() {
         <head>
           <title>${report.title}</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
-            h1 { margin: 0 0 2px 0; font-size: 20px; }
-            h2 { margin: 0 0 12px 0; font-size: 12px; color: #4b5563; font-weight: 500; }
-            p { margin: 0 0 12px 0; color: #444; }
-            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 24px; color: #111; }
+            h1 { margin: 0 0 2px 0; font-size: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+            p { margin: 0 0 12px 0; color: #444; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
             th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
-            th { background: #f5f5f5; }
-            .summary-box { margin: 10px 0 12px; border: 1px solid #bfdbfe; background: #eff6ff; padding: 8px 10px; }
-            .summary-title { font-weight: 700; margin-bottom: 4px; color: #1e3a8a; }
-            .summary-line { font-size: 11px; color: #334155; margin: 0 0 2px 0; }
-            .bottom-summary { margin-top: 12px; border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px; font-size: 11px; color: #334155; }
-            .signatures { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-            .signature-line { margin-top: 32px; border-top: 1px solid #111; padding-top: 6px; font-size: 11px; }
+            th { background: #f5f5f5; font-weight: 600; }
+            .summary { margin: 16px 0 0 0; }
+            .summary-line { font-size: 12px; color: #444; margin: 0 0 4px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
           </style>
         </head>
         <body>
           <h1>${reportBranding.companyName}</h1>
-          <h2>${reportBranding.subtitle}</h2>
           <p><strong>${report.title}</strong></p>
-          <p>Generated at ${new Date().toLocaleString()} | Date range: last ${rangeDays} days | Prepared by: ${reportBranding.preparedBy}</p>
-          <div class="summary-box">
-            <div class="summary-title">Summary</div>
-            ${summaryLines.map((line) => `<p class="summary-line">${line}</p>`).join('')}
-          </div>
+          <p>Generated at ${new Date().toLocaleString()} | Date range: last ${rangeDays} days</p>
           <table>
             <thead>
-              <tr>${columns.map((column) => `<th>${column}</th>`).join('')}</tr>
+              <tr>${columns.map((column) => `<th>${column.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()).trim()}</th>`).join('')}</tr>
             </thead>
             <tbody>${bodyRows}</tbody>
           </table>
-          <div class="bottom-summary">Bottom Summary: ${summaryLines.join(' | ')}</div>
-          <div class="signatures">
-            <div>
-              <div class="signature-line">Prepared by</div>
-            </div>
-            <div>
-              <div class="signature-line">Reviewed by</div>
-            </div>
-            <div>
-              <div class="signature-line">Approved by</div>
-            </div>
+          <div class="summary">
+            ${summaryLines.map((line) => `<p class="summary-line">${line}</p>`).join('')}
           </div>
         </body>
       </html>
@@ -1263,10 +1475,13 @@ export function ReportsView() {
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-5">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-7">
               <TabsTrigger value="orders" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Orders</TabsTrigger>
               <TabsTrigger value="transport" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Transport</TabsTrigger>
-              <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse/Inventory</TabsTrigger>
+              <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse</TabsTrigger>
+              <TabsTrigger value="inventory" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Database className="h-4 w-4" />Inventory</TabsTrigger>
+              <TabsTrigger value="stock-expiry" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><AlertTriangle className="h-4 w-4" />Stock Expiry</TabsTrigger>
+              <TabsTrigger value="drivers" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Users className="h-4 w-4" />Drivers</TabsTrigger>
               <TabsTrigger value="replacement" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Replacement</TabsTrigger>
               <TabsTrigger value="feedback" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
             </TabsList>
@@ -1640,6 +1855,229 @@ export function ReportsView() {
               </CardContent>
             </Card>
 
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Shortage</CardDescription><CardTitle className="text-[30px] leading-none">{lowStockKpi.totalShortage}</CardTitle><p className="text-[11px] text-slate-400">Units needed</p></CardHeader></Card>
+            </div>
+
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div>
+                  <CardTitle>Low Stock Alert Report</CardTitle>
+                  <CardDescription>Products requiring replenishment attention</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Warehouse</th>
+                        <th className="p-3 text-left">Product</th>
+                        <th className="p-3 text-left">SKU</th>
+                        <th className="p-3 text-left">Current Stock</th>
+                        <th className="p-3 text-left">Min Stock</th>
+                        <th className="p-3 text-left">Reorder Point</th>
+                        <th className="p-3 text-left">Shortage</th>
+                        <th className="p-3 text-left">Stock %</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-left">Suggested Order</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(lowStockRows).map((row, index) => (
+                        <tr key={`${row.sku}-${index}`} className="border-b last:border-0">
+                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                          <td className="p-3 font-medium">{String(row.product || 'N/A')}</td>
+                          <td className="p-3">{String(row.sku || 'N/A')}</td>
+                          <td className="p-3">{String(row.currentStock || 0)}</td>
+                          <td className="p-3">{String(row.minStock || 0)}</td>
+                          <td className="p-3">{String(row.reorderPoint || 0)}</td>
+                          <td className="p-3 font-semibold text-red-600">{String(row.shortage || 0)}</td>
+                          <td className="p-3">{String(row.stockPercent || 0)}%</td>
+                          <td className="p-3">
+                            <Badge variant={
+                              row.status === 'OUT_OF_STOCK' ? 'destructive' :
+                              row.status === 'CRITICAL' ? 'destructive' : 'secondary'
+                            }>{String(row.status || 'N/A')}</Badge>
+                          </td>
+                          <td className="p-3 text-emerald-600 font-medium">{String(row.suggestedReorder || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {lowStockRows.length === 0 ? <p className="py-8 text-center text-gray-500">All stock levels are healthy</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="inventory" className="space-y-4">
+            {reportToolbar({
+              title: 'Inventory',
+              statusLabel: 'Movement Types',
+              statusOptions: inventoryMovementTypeOptions,
+              statusValue: selectedMovementType,
+              onStatusChange: setSelectedMovementType,
+              showWarehouse: true,
+            })}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-emerald-600">+12.5% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-emerald-600">+28.3% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-emerald-600">+15.4% vs prev {rangeDays} days</p></CardHeader></Card>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg">Inventory Movement by Product</CardTitle>
+                      <CardDescription>Top products by movement volume</CardDescription>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Top 5 Products</div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    {inventoryMovementByProductChart.length === 0 ? (
+                      <p className="py-8 text-center text-gray-500">No product movement data for this range</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={inventoryMovementByProductChart.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }} barGap={8}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} tickCount={5} />
+                          <Legend verticalAlign="top" align="center" wrapperStyle={{ paddingBottom: '8px', color: '#64748b', fontSize: '12px' }} iconType="rect" />
+                          <Tooltip contentStyle={chartTooltipStyle} formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]} />
+                          <Bar dataKey="inQty" name="Stock In" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={22}><LabelList dataKey="inQty" position="top" fill="#0f172a" fontSize={11} /></Bar>
+                          <Bar dataKey="outQty" name="Stock Out" fill="#fbbf24" radius={[4, 4, 0, 0]} maxBarSize={22}><LabelList dataKey="outQty" position="top" fill="#0f172a" fontSize={11} /></Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Low Stock Alerts</CardTitle>
+                  <CardDescription>Products below minimum stock levels</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    {lowStockRows.length === 0 ? (
+                      <p className="py-8 text-center text-gray-500">All stock levels are healthy</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={lowStockRows.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={chartTooltipStyle} />
+                          <Bar dataKey="currentStock" name="Current" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                          <Bar dataKey="reorderPoint" name="Reorder Point" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div>
+                  <CardTitle>Inventory Movement Report</CardTitle>
+                  <CardDescription>Warehouse stock movements within selected range</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Warehouse</th>
+                        <th className="p-3 text-left">Product</th>
+                        <th className="p-3 text-left">Type</th>
+                        <th className="p-3 text-left">Quantity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(inventoryMovementRows).map((row, index) => (
+                        <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
+                          <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                          <td className="p-3">{String(row.product || 'N/A')}</td>
+                          <td className="p-3">{String(row.type || 'N/A')}</td>
+                          <td className="p-3">{String(row.quantity || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {inventoryMovementRows.length === 0 ? <p className="py-8 text-center text-gray-500">No inventory movement found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Shortage</CardDescription><CardTitle className="text-[30px] leading-none">{lowStockKpi.totalShortage}</CardTitle><p className="text-[11px] text-slate-400">Units needed</p></CardHeader></Card>
+            </div>
+
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div>
+                  <CardTitle>Low Stock Alert Report</CardTitle>
+                  <CardDescription>Products requiring replenishment attention</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Warehouse</th>
+                        <th className="p-3 text-left">Product</th>
+                        <th className="p-3 text-left">SKU</th>
+                        <th className="p-3 text-left">Current Stock</th>
+                        <th className="p-3 text-left">Min Stock</th>
+                        <th className="p-3 text-left">Reorder Point</th>
+                        <th className="p-3 text-left">Shortage</th>
+                        <th className="p-3 text-left">Stock %</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-left">Suggested Order</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(lowStockRows).map((row, index) => (
+                        <tr key={`${row.sku}-${index}`} className="border-b last:border-0">
+                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                          <td className="p-3 font-medium">{String(row.product || 'N/A')}</td>
+                          <td className="p-3">{String(row.sku || 'N/A')}</td>
+                          <td className="p-3">{String(row.currentStock || 0)}</td>
+                          <td className="p-3">{String(row.minStock || 0)}</td>
+                          <td className="p-3">{String(row.reorderPoint || 0)}</td>
+                          <td className="p-3 font-semibold text-red-600">{String(row.shortage || 0)}</td>
+                          <td className="p-3">{String(row.stockPercent || 0)}%</td>
+                          <td className="p-3">
+                            <Badge variant={row.status === 'OUT_OF_STOCK' ? 'destructive' : row.status === 'CRITICAL' ? 'destructive' : 'secondary'}>{String(row.status || 'N/A')}</Badge>
+                          </td>
+                          <td className="p-3 text-emerald-600 font-medium">{String(row.suggestedReorder || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {lowStockRows.length === 0 ? <p className="py-8 text-center text-gray-500">All stock levels are healthy</p> : null}
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="replacement" className="space-y-4">
@@ -1825,6 +2263,142 @@ export function ReportsView() {
                     </tbody>
                   </table>
                   {feedbackRows.length === 0 ? <p className="py-8 text-center text-gray-500">No feedback records found for this range</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="stock-expiry" className="space-y-4">
+            {reportToolbar({
+              title: 'Stock Expiry',
+              statusLabel: 'Expiry Statuses',
+              statusOptions: ['CRITICAL', 'WARNING', 'EXPIRED', 'GOOD'],
+              statusValue: 'all',
+              onStatusChange: () => {},
+              showWarehouse: true,
+              showStatus: false,
+            })}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">All tracked batches</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Warning (30-60 days)</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{stockExpiryKpi.warning}</CardTitle><p className="text-[11px] text-amber-600">Plan usage/sale</p></CardHeader></Card>
+            </div>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div>
+                  <CardTitle>Stock Batch Expiry Report</CardTitle>
+                  <CardDescription>Batches nearing expiration sorted by urgency</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Batch #</th>
+                        <th className="p-3 text-left">Product</th>
+                        <th className="p-3 text-left">SKU</th>
+                        <th className="p-3 text-left">Warehouse</th>
+                        <th className="p-3 text-left">Quantity</th>
+                        <th className="p-3 text-left">Receipt Date</th>
+                        <th className="p-3 text-left">Expiry Date</th>
+                        <th className="p-3 text-left">Days Left</th>
+                        <th className="p-3 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(stockExpiryRows).map((row, index) => (
+                        <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.product || 'N/A')}</td>
+                          <td className="p-3">{String(row.sku || 'N/A')}</td>
+                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                          <td className="p-3">{String(row.quantity || 0)}</td>
+                          <td className="p-3">{String(row.receiptDate || 'N/A')}</td>
+                          <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
+                          <td className="p-3">{typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A'}</td>
+                          <td className="p-3">
+                            <Badge variant={
+                              row.status === 'EXPIRED' ? 'destructive' :
+                              row.status === 'CRITICAL' ? 'destructive' :
+                              row.status === 'WARNING' ? 'secondary' : 'default'
+                            }>{String(row.status || 'N/A')}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {stockExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="drivers" className="space-y-4">
+            {reportToolbar({
+              title: 'Driver Performance',
+              statusLabel: 'Driver Status',
+              statusOptions: ['Active', 'Inactive'],
+              statusValue: 'all',
+              onStatusChange: () => {},
+              showStatus: false,
+            })}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Drivers</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Registered drivers</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Active Drivers</CardDescription><CardTitle className="text-[30px] leading-none text-emerald-600">{driverPerformanceKpi.active}</CardTitle><p className="text-[11px] text-emerald-600">Currently active</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Avg Rating</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.avgRating}</CardTitle><p className="text-[11px] text-slate-400">Out of 5.0</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">License Issues</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{driverPerformanceKpi.licenseIssues}</CardTitle><p className="text-[11px] text-red-600">Expired/Expiring soon</p></CardHeader></Card>
+            </div>
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div>
+                  <CardTitle>Driver Performance Report</CardTitle>
+                  <CardDescription>Driver metrics and performance indicators</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Driver Name</th>
+                        <th className="p-3 text-left">License #</th>
+                        <th className="p-3 text-left">Type</th>
+                        <th className="p-3 text-left">License Status</th>
+                        <th className="p-3 text-left">Rating</th>
+                        <th className="p-3 text-left">Total Deliveries</th>
+                        <th className="p-3 text-left">Total Trips</th>
+                        <th className="p-3 text-left">Completed</th>
+                        <th className="p-3 text-left">Completion %</th>
+                        <th className="p-3 text-left">On-Time %</th>
+                        <th className="p-3 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(driverPerformanceRows).map((row, index) => (
+                        <tr key={`${row.driverName}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.driverName || 'N/A')}</td>
+                          <td className="p-3">{String(row.licenseNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.licenseType || 'N/A')}</td>
+                          <td className="p-3">
+                            <Badge variant={
+                              row.licenseStatus === 'EXPIRED' ? 'destructive' :
+                              row.licenseStatus === 'EXPIRING_SOON' ? 'secondary' : 'default'
+                            }>{String(row.licenseStatus || 'N/A')}</Badge>
+                          </td>
+                          <td className="p-3">{String(row.rating || 'N/A')}</td>
+                          <td className="p-3">{String(row.totalDeliveries || 0)}</td>
+                          <td className="p-3">{String(row.totalTrips || 0)}</td>
+                          <td className="p-3">{String(row.completedTrips || 0)}</td>
+                          <td className="p-3">{String(row.completionRate || '0%')}</td>
+                          <td className="p-3">{String(row.onTimeRate || '0%')}</td>
+                          <td className="p-3">{String(row.isActive || 'N/A')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {driverPerformanceRows.length === 0 ? <p className="py-8 text-center text-gray-500">No driver performance data available</p> : null}
                 </div>
               </CardContent>
             </Card>

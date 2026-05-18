@@ -66,4 +66,5 @@ urlpatterns = [
     path("trips/<str:trip_id>/drop-points/<str:drop_point_id>", v.trip_drop_point_update),
     path("trips/<str:trip_id>/stops/<str:stop_id>", v.trip_stop_update),
     path("trips/<str:trip_id>/unassign", v.trip_unassign_items),
+    path("trips/check/<str:trip_number>", v.trip_check),
 ]

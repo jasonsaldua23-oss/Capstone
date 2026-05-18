@@ -71,7 +71,10 @@ export function WarehouseDashboardView({
   const dashboardOrderStats = useMemo(() => {
     const nonReplacementOrders = dashboardOrders.filter((order) => {
       const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
-      return !Boolean(order?.isScheduledReplacement) && !orderNumber.startsWith('RPL-')
+      const status = String(order?.status || '').toUpperCase()
+      return !Boolean(order?.isScheduledReplacement) && 
+             !orderNumber.startsWith('RPL-') &&
+             status !== 'CANCELLED'
     })
     const totalOrders = nonReplacementOrders.length || 0
     const outForDelivery = nonReplacementOrders.filter((o) => o?.status === 'IN_TRANSIT').length

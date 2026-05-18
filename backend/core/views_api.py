@@ -1548,14 +1548,21 @@ def _build_order_fulfillment_legs_map(order_ids: list[str]) -> dict[str, list[di
         if not order_id:
             continue
         trip = getattr(point, "trip", None)
+        # Skip if trip doesn't exist (was deleted)
+        if not trip:
+            continue
         warehouse_id = str(getattr(trip, "warehouse_id", "") or "").strip()
         warehouse = warehouse_lookup.get(warehouse_id) if warehouse_id else None
         status_value = _normalize_order_status(getattr(point, "status", None) or getattr(trip, "status", None))
         trip_id = str(getattr(trip, "id", "") or "").strip()
         trip_number = str(getattr(trip, "trip_number", "") or "").strip()
 
-        # Track seen combinations to avoid duplicates (use empty string for None)
+        # Check for duplicates BEFORE adding
         key = f"{warehouse_id}::{trip_id}"
+        if key in seen_keys.get(order_id, set()):
+            continue  # Skip duplicate
+        
+        # Track seen combination
         seen_keys.setdefault(order_id, set()).add(key)
 
         out.setdefault(order_id, []).append(
@@ -6743,7 +6750,23 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
         return _err("Only planned trips can be deleted", 409)
 
     trip_number = trip.trip_number
-    trip.delete()
+    
+    # Explicitly delete related objects first to ensure clean deletion
+    with transaction.atomic():
+        # Delete drop points
+        TripDropPoint.objects.filter(trip_id=trip.id).delete()
+        # Delete stops
+        TripStop.objects.filter(trip_id=trip.id).delete()
+        # Delete location logs
+        LocationLog.objects.filter(trip_id=trip.id).delete()
+        # Delete inventory transactions related to this trip
+        InventoryTransaction.objects.filter(
+            reference_type="order_item_trip_assign",
+            notes__icontains=f'"tripId":"{trip.id}"'
+        ).delete()
+        # Finally delete the trip
+        trip.delete()
+    
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
         title="Trip deleted",
@@ -6753,6 +6776,40 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
         reference_id=trip_id,
     )
     return _ok({"success": True, "message": f"Trip {trip_number} deleted"})
+
+
+@require_GET
+def trip_check(request: HttpRequest, trip_number: str) -> JsonResponse:
+    """Check if a trip exists and return its details."""
+    staff, err = _require_staff(request)
+    if err:
+        return err
+    
+    trip = Trip.objects.filter(trip_number=trip_number).first()
+    if not trip:
+        return _ok({"exists": False, "message": f"Trip {trip_number} not found"})
+    
+    # Count related objects
+    drop_points_count = TripDropPoint.objects.filter(trip_id=trip.id).count()
+    stops_count = TripStop.objects.filter(trip_id=trip.id).count()
+    location_logs_count = LocationLog.objects.filter(trip_id=trip.id).count()
+    
+    return _ok({
+        "exists": True,
+        "trip": {
+            "id": trip.id,
+            "tripNumber": trip.trip_number,
+            "status": trip.status,
+            "driverId": trip.driver_id,
+            "vehicleId": trip.vehicle_id,
+            "warehouseId": trip.warehouse_id,
+        },
+        "relatedCounts": {
+            "dropPoints": drop_points_count,
+            "stops": stops_count,
+            "locationLogs": location_logs_count,
+        }
+    })
 
 
 @csrf_exempt

@@ -25,19 +25,21 @@ function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
 }
 
-// Philippine mobile number validation: 09XXXXXXXXX (11 digits starting with 09)
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
 function isValidPhilippinePhone(phone: string): boolean {
   const cleaned = phone.replace(/\D/g, '')
-  return /^09\d{9}$/.test(cleaned)
+  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
 }
 
 function formatPhilippinePhoneInput(value: string): string {
-  // Remove non-digits, limit to 11 digits starting with 09
+  // Remove non-digits
   let cleaned = value.replace(/\D/g, '')
-  if (cleaned.length > 11) cleaned = cleaned.slice(0, 11)
-  // Ensure starts with 09
-  if (cleaned.length >= 2 && !cleaned.startsWith('09')) {
-    cleaned = '09' + cleaned.slice(2)
+  // Limit to 12 digits max (for 63 prefix)
+  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
+  // Ensure starts with 09 or 63
+  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
+    // Default to 09 if no valid prefix
+    cleaned = '09' + cleaned.slice(0, 9)
   }
   return cleaned
 }
@@ -432,7 +434,7 @@ export function UsersView() {
                 onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
               />
               {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
-                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567)</p>
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
               )}
             </div>
             <div className="space-y-1">
@@ -560,7 +562,7 @@ export function UsersView() {
                 onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
               />
               {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
-                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567)</p>
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
               )}
             </div>
             <div className="space-y-1">

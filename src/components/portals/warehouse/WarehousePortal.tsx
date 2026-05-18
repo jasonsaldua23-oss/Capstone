@@ -1484,7 +1484,14 @@ export function WarehousePortal() {
 
   const filteredInventoryTransactions = useMemo(() => {
     return scopedInventoryTransactions.filter((entry) => {
+      // Only show inventory transactions: IN, OUT, RESERVE, UNRESERVE
+      // Exclude ASSIGN (trip assignments) and other non-inventory types
       const rawType = String(entry?.type || '').trim().toUpperCase()
+      const validInventoryTypes = ['IN', 'OUT', 'RESERVE', 'UNRESERVE']
+      if (!validInventoryTypes.includes(rawType)) {
+        return false
+      }
+
       if (transactionTypeFilter !== 'all' && rawType !== transactionTypeFilter.toUpperCase()) {
         return false
       }
@@ -3160,6 +3167,17 @@ export function WarehousePortal() {
           allocatedQty,
         }
       })
+    
+    // Deduplicate direct legs by warehouseName + tripNumber combination
+    const seenLegKeys = new Set<string>()
+    const deduplicatedDirectLegs = normalizedDirectLegs.filter((leg: any) => {
+      const key = `${leg.warehouseName}::${leg.tripNumber || 'no-trip'}`
+      if (seenLegKeys.has(key)) {
+        return false // Skip duplicate
+      }
+      seenLegKeys.add(key)
+      return true
+    })
 
     const topLevelAllocations = [
       ...toList<any>(order?.warehouseAllocations),
@@ -3208,14 +3226,14 @@ export function WarehousePortal() {
     })
     const normalizedAllocationLegs = Array.from(allocationByWarehouse.values())
 
-    if (normalizedDirectLegs.length > 0) {
+    if (deduplicatedDirectLegs.length > 0) {
       const allocationQtyByWarehouseKey = new Map<string, number>()
       normalizedAllocationLegs.forEach((leg: any) => {
         const key = getWarehouseKey(leg)
         if (!key) return
         allocationQtyByWarehouseKey.set(key, Number(leg?.allocatedQty || 0))
       })
-      const hydratedDirectLegs = normalizedDirectLegs.map((leg: any) => {
+      const hydratedDirectLegs = deduplicatedDirectLegs.map((leg: any) => {
         const key = getWarehouseKey(leg)
         const fallbackQty = key ? Number(allocationQtyByWarehouseKey.get(key) || 0) : 0
         const currentQty = Number(leg?.allocatedQty || 0)
@@ -3255,10 +3273,21 @@ export function WarehousePortal() {
 
   const deriveOrderFulfillmentSummary = (order: any) => {
     const legs = extractFulfillmentLegs(order)
-    const deliveredCount = legs.filter((leg: any) => leg.status === 'DELIVERED').length
-    const failedCount = legs.filter((leg: any) => leg.status === 'FAILED' || leg.status === 'CANCELLED').length
-    const unassignedTripCount = legs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
-    const total = legs.length
+    // Filter out legs for trips that don't exist (were deleted)
+    const validLegs = legs.filter((leg: any) => {
+      const legTripId = String(leg?.tripId || '').trim()
+      const legTripNumber = String(leg?.tripNumber || '').trim()
+      if (!legTripId && !legTripNumber) return true // Keep unassigned legs
+      // Check if trip exists in our trips list
+      return trips.some((t: any) => 
+        String(t?.id || '').trim() === legTripId || 
+        String(t?.tripNumber || '').trim() === legTripNumber
+      )
+    })
+    const deliveredCount = validLegs.filter((leg: any) => leg.status === 'DELIVERED').length
+    const failedCount = validLegs.filter((leg: any) => leg.status === 'FAILED' || leg.status === 'CANCELLED').length
+    const unassignedTripCount = validLegs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
+    const total = validLegs.length
     const fulfillmentStatus = total === 0
       ? 'PENDING'
       : deliveredCount === total
@@ -3269,7 +3298,7 @@ export function WarehousePortal() {
             ? 'FAILED'
             : 'IN_PROGRESS'
     return {
-      legs,
+      legs: validLegs,
       totalLegs: total,
       deliveredLegs: deliveredCount,
       unassignedTripCount,
@@ -4319,23 +4348,33 @@ export function WarehousePortal() {
                               {order.products && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
                               )}
-                              {Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0 ? (
-                                <div className="mt-0.5 space-y-0.5">
-                                  {(order as any).productAllocations.map((line: any, index: number) => (
-                                    <div
-                                      key={`${String(line?.itemId || index)}-map`}
-                                      className={`text-[11px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
-                                    >
-                                      {String(line?.productName || 'Product')}
-                                      {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                              {(() => {
+                                // Check if this is a multi-warehouse order
+                                const summary = deriveOrderFulfillmentSummary(order)
+                                const isMultiWarehouse = summary.totalLegs > 1
+                                if (!isMultiWarehouse) return null
+                                
+                                if (Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0) {
+                                  return (
+                                    <div className="mt-0.5 space-y-0.5">
+                                      {(order as any).productAllocations.map((line: any, index: number) => (
+                                        <div
+                                          key={`${String(line?.itemId || index)}-map`}
+                                          className={`text-[11px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                        >
+                                          {String(line?.productName || 'Product')}
+                                          {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                        </div>
+                                      ))}
                                     </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className={`mt-0.5 text-[11px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                  Allocated for this warehouse: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
-                                </div>
-                              )}
+                                  )
+                                }
+                                return (
+                                  <div className={`mt-0.5 text-[11px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    Allocated for this warehouse: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
+                                  </div>
+                                )
+                              })()}
                               {order.latitude && order.longitude && (
                                 <div className="mt-0.5 text-[11px] text-gray-500">Coordinates: {order.latitude}, {order.longitude}</div>
                               )}
@@ -4473,27 +4512,34 @@ export function WarehousePortal() {
                     )}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
-                  <div className="space-y-2">
-                    {deriveOrderFulfillmentSummary(selectedOrder).legs.map((leg: any) => (
-                      <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
-                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
-                            {String(leg.status || 'PENDING').replace(/_/g, ' ')}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Trip: {leg.tripNumber || leg.tripId || 'Not assigned'} | Allocated Qty: {Number(leg.allocatedQty || 0)}
-                        </p>
-                        {!leg.tripId && !leg.tripNumber ? (
-                          <p className="mt-1 text-xs font-medium text-amber-700">Needs trip assignment.</p>
-                        ) : null}
+                {(() => {
+                  const summary = deriveOrderFulfillmentSummary(selectedOrder)
+                  const isMultiWarehouse = summary.totalLegs > 1
+                  if (!isMultiWarehouse) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
+                      <div className="space-y-2">
+                        {summary.legs.map((leg: any) => (
+                          <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">
+                              Trip: {leg.tripNumber || leg.tripId || 'Not assigned'}{` | Allocated Qty: ${Number(leg.allocatedQty || 0)}`}
+                            </p>
+                            {!leg.tripId && !leg.tripNumber ? (
+                              <p className="mt-1 text-xs font-medium text-amber-700">Needs trip assignment.</p>
+                            ) : null}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  )
+                })()}
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
                   <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-indigo-50 text-indigo-600">
@@ -4508,74 +4554,81 @@ export function WarehousePortal() {
                     <p className="flex items-start gap-3 text-sm sm:text-base"><MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{formatWarehouseOrderAddress(selectedOrder)}</p>
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-50 text-emerald-600">
-                      <PackageCheck className="h-5 w-5" />
-                    </span>
-                    Order Details
-                  </p>
-                  {(() => {
-                    const assignedWarehouseId = String(assignedWarehouse?.id || '').trim()
-                    const orderItems = Array.isArray(selectedOrder.items) ? selectedOrder.items : []
-                    const getItemAllocatedForWarehouse = (item: any) => {
-                      const allocs = Array.isArray(item?.warehouseAllocations) ? item.warehouseAllocations : []
-                      const fromItem = allocs
-                        .filter((entry: any) => String(entry?.warehouseId || entry?.warehouse_id || '').trim() === assignedWarehouseId)
-                        .reduce((sum: number, entry: any) => sum + Number(entry?.allocatedQty || entry?.quantity || 0), 0)
-                      if (fromItem > 0) return fromItem
-                      const orderHasAllocationData = Array.isArray(selectedOrder?.warehouseAllocations) && selectedOrder.warehouseAllocations.length > 0
-                      if (orderHasAllocationData) return 0
-                      return Number(item?.quantity || 0)
-                    }
-                    const warehouseScopedTotal = orderItems.reduce((sum: number, item: any) => {
-                      const allocatedQty = getItemAllocatedForWarehouse(item)
-                      const unitPrice = Number(item?.unitPrice ?? item?.unit_price ?? 0)
-                      const lineTotal = Number(item?.totalPrice ?? item?.total_price ?? 0)
-                      const safeLineTotal = lineTotal > 0 ? lineTotal : unitPrice * Number(item?.quantity || 0)
-                      const qty = Number(item?.quantity || 0)
-                      const ratio = qty > 0 ? allocatedQty / qty : 0
-                      return sum + (ratio > 0 ? safeLineTotal * ratio : 0)
-                    }, 0)
-
-                    return (
+                {(() => {
+                  const summary = deriveOrderFulfillmentSummary(selectedOrder)
+                  const isMultiWarehouse = summary.totalLegs > 1
+                  const assignedWarehouseId = String(assignedWarehouse?.id || '').trim()
+                  const orderItems = Array.isArray(selectedOrder.items) ? selectedOrder.items : []
+                  const getItemAllocatedForWarehouse = (item: any) => {
+                    const allocs = Array.isArray(item?.warehouseAllocations) ? item.warehouseAllocations : []
+                    const fromItem = allocs
+                      .filter((entry: any) => String(entry?.warehouseId || entry?.warehouse_id || '').trim() === assignedWarehouseId)
+                      .reduce((sum: number, entry: any) => sum + Number(entry?.allocatedQty || entry?.quantity || 0), 0)
+                    if (fromItem > 0) return fromItem
+                    const orderHasAllocationData = Array.isArray(selectedOrder?.warehouseAllocations) && selectedOrder.warehouseAllocations.length > 0
+                    if (orderHasAllocationData) return 0
+                    return Number(item?.quantity || 0)
+                  }
+                  const warehouseScopedTotal = orderItems.reduce((sum: number, item: any) => {
+                    const allocatedQty = getItemAllocatedForWarehouse(item)
+                    const unitPrice = Number(item?.unitPrice ?? item?.unit_price ?? 0)
+                    const lineTotal = Number(item?.totalPrice ?? item?.total_price ?? 0)
+                    const safeLineTotal = lineTotal > 0 ? lineTotal : unitPrice * Number(item?.quantity || 0)
+                    const qty = Number(item?.quantity || 0)
+                    const ratio = qty > 0 ? allocatedQty / qty : 0
+                    return sum + (ratio > 0 ? safeLineTotal * ratio : 0)
+                  }, 0)
+                  
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+                          <PackageCheck className="h-5 w-5" />
+                        </span>
+                        Order Details
+                      </p>
                       <div className="space-y-2">
                         {orderItems.map((item: any) => (
-                      <div key={item.id} className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-2.5">
-                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
-                            {item?.product?.imageUrl ? (
-                              <img src={String(item.product.imageUrl)} alt={String(item?.product?.name || 'Product')} className="h-full w-full object-contain" />
-                            ) : (
-                              <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
-                            )}
+                          <div key={item.id} className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2.5">
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                                {item?.product?.imageUrl ? (
+                                  <img src={String(item.product.imageUrl)} alt={String(item?.product?.name || 'Product')} className="h-full w-full object-contain" />
+                                ) : (
+                                  <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
+                                )}
+                              </div>
+                              <div className="min-w-0 pt-0.5">
+                                <p className="text-sm text-slate-800 sm:text-[1.02rem]">
+                                  {item.product?.name || 'Product'}
+                                  {getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
+                                  {' '}x{item.quantity}
+                                </p>
+                                {isMultiWarehouse && (
+                                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                                    Allocated for this warehouse: {getItemAllocatedForWarehouse(item)}
+                                  </p>
+                                )}
+                                <CompactDiscountLine value={formatPeso(Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
+                              </div>
+                            </div>
+                            <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                           </div>
-                          <div className="min-w-0 pt-0.5">
-                            <p className="text-sm text-slate-800 sm:text-[1.02rem]">
-                              {item.product?.name || 'Product'}
-                              {getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
-                              {' '}x{item.quantity}
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">
-                              Allocated for this warehouse: {getItemAllocatedForWarehouse(item)}
-                            </p>
-                            <CompactDiscountLine value={formatPeso(Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
-                          </div>
-                        </div>
-                        <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
-                      </div>
-                    ))}
+                        ))}
                         <div className="h-px bg-slate-200" />
-                        <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
-                          Warehouse scoped total: <span className="text-emerald-700">{formatPeso(warehouseScopedTotal || 0)}</span>
-                        </p>
-                        <p className="text-right text-xs text-slate-500">
-                          Order total: {formatPeso(selectedOrder.totalAmount || 0)}
-                        </p>
+                        {isMultiWarehouse ? (
+                          <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
+                            Warehouse scoped total: <span className="text-emerald-700">{formatPeso(warehouseScopedTotal || 0)}</span>
+                          </p>
+                        ) : (
+                          <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
+                            Order total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span>
+                          </p>
+                        )}
                       </div>
-                    )
-                  })()}
-                </div>
+                    </div>
+                  )
+                })()}
                 <div className="hidden">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="font-medium">Checklist</p>
@@ -4602,102 +4655,114 @@ export function WarehousePortal() {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
-                      <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
-                        <Clock className="h-5 w-5" />
-                      </span>
-                      Progress
-                    </p>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
-                      {selectedOrder.progress?.dropPoint?.status
-                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'No trip progress yet'}
-                      <CircleCheck className="h-3.5 w-3.5" />
-                    </span>
-                  </div>
-                  <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
-                    <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
-                    <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.progress?.trip?.driver?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
-                    <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
-                    <p><span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span></p>
-                    <p><span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span></p>
-                  </div>
-                  {(() => {
-                    const trip = selectedOrder.progress?.trip
-                    const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
-                    const selectedSchedule = String(
-                      selectedOrder.deliveryDate || trip?.tripSchedule || ''
-                    )
-                      .trim()
-                      .slice(0, 10)
-                    const scheduledOrders = points
-                      .map((point: any) => point?.order)
-                      .filter((order: any) => order && String(order.id || '').trim())
-                      .filter((order: any) => {
-                        if (!selectedSchedule) return true
-                        return String(order.deliveryDate || '').trim().slice(0, 10) === selectedSchedule
-                      })
-                      .filter(
-                        (order: any, index: number, rows: any[]) =>
-                          rows.findIndex((candidate: any) => String(candidate.id) === String(order.id)) === index
-                      )
-
-                    return (
-                      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                        <p className="text-xs font-medium text-slate-500">Scheduled Orders On This Trip</p>
-                        {scheduledOrders.length === 0 ? (
-                          <p className="mt-1 text-sm text-slate-600">No scheduled orders found for this trip date.</p>
-                        ) : (
-                          <div className="mt-1 space-y-1">
-                            {scheduledOrders.map((order: any) => {
-                              const rawStatus = String(order.status || 'N/A').toUpperCase()
-                              const rawScheduleDate = String(order.deliveryDate || order.timeline?.deliveryDate || '').trim()
-                              const parsedScheduleDate = rawScheduleDate ? new Date(rawScheduleDate) : null
-                              const hasValidScheduleDate = Boolean(parsedScheduleDate && !Number.isNaN(parsedScheduleDate.getTime()))
-                              const scheduleLabel = hasValidScheduleDate
-                                ? parsedScheduleDate!.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                : null
-
-                              return (
-                                <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
-                                  <span className="inline-flex items-center gap-2">
-                                    <span>{String(order.orderNumber || order.id || 'Order')}</span>
-                                    {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
-                                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
-                                    ) : null}
-                                  </span>
-                                  <span className="text-xs uppercase text-slate-500">
-                                    {rawStatus.replace(/_/g, ' ')}
-                                    {rawStatus === 'RESCHEDULED' && scheduleLabel ? ` • ${scheduleLabel}` : ''}
-                                  </span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                          <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
+                            <Clock className="h-5 w-5" />
+                          </span>
+                          Progress
+                        </p>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+                          {selectedOrder.progress?.dropPoint?.status
+                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            : 'No trip progress yet'}
+                          <CircleCheck className="h-3.5 w-3.5" />
+                        </span>
                       </div>
-                    )
-                  })()}
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
-                      <Camera className="h-5 w-5" />
-                    </span>
-                    Proof Of Delivery
-                  </p>
-                  {selectedOrder.progress?.pod?.deliveryPhoto ? (
-                    <img
-                      src={selectedOrder.progress.pod.deliveryPhoto}
-                      alt="Proof of delivery"
-                      className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
-                    />
-                  ) : (
-                    <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
-                  )}
-                </div>
+                      <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
+                        <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.progress?.trip?.driver?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
+                        <p><span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span></p>
+                        <p><span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span></p>
+                      </div>
+                      {(() => {
+                        const trip = selectedOrder.progress?.trip
+                        const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+                        const selectedSchedule = String(
+                          selectedOrder.deliveryDate || trip?.tripSchedule || ''
+                        )
+                          .trim()
+                          .slice(0, 10)
+                        const scheduledOrders = points
+                          .map((point: any) => point?.order)
+                          .filter((order: any) => order && String(order.id || '').trim())
+                          .filter((order: any) => {
+                            if (!selectedSchedule) return true
+                            return String(order.deliveryDate || '').trim().slice(0, 10) === selectedSchedule
+                          })
+                          .filter(
+                            (order: any, index: number, rows: any[]) =>
+                              rows.findIndex((candidate: any) => String(candidate.id) === String(order.id)) === index
+                          )
+
+                        return (
+                          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                            <p className="text-xs font-medium text-slate-500">Scheduled Orders On This Trip</p>
+                            {scheduledOrders.length === 0 ? (
+                              <p className="mt-1 text-sm text-slate-600">No scheduled orders found for this trip date.</p>
+                            ) : (
+                              <div className="mt-1 space-y-1">
+                                {scheduledOrders.map((order: any) => {
+                                  const rawStatus = String(order.status || 'N/A').toUpperCase()
+                                  const rawScheduleDate = String(order.deliveryDate || order.timeline?.deliveryDate || '').trim()
+                                  const parsedScheduleDate = rawScheduleDate ? new Date(rawScheduleDate) : null
+                                  const hasValidScheduleDate = Boolean(parsedScheduleDate && !Number.isNaN(parsedScheduleDate.getTime()))
+                                  const scheduleLabel = hasValidScheduleDate
+                                    ? parsedScheduleDate!.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : null
+
+                                  return (
+                                    <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
+                                      <span className="inline-flex items-center gap-2">
+                                        <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                        {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                        ) : null}
+                                      </span>
+                                      <span className="text-xs uppercase text-slate-500">
+                                        {rawStatus.replace(/_/g, ' ')}
+                                        {rawStatus === 'RESCHEDULED' && scheduleLabel ? ` • ${scheduleLabel}` : ''}
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  )
+                })()}
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
+                          <Camera className="h-5 w-5" />
+                        </span>
+                        Proof Of Delivery
+                      </p>
+                      {selectedOrder.progress?.pod?.deliveryPhoto ? (
+                        <img
+                          src={selectedOrder.progress.pod.deliveryPhoto}
+                          alt="Proof of delivery"
+                          className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
+                        />
+                      ) : (
+                        <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
+                      )}
+                    </div>
+                  )
+                })()}
                 {(() => {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
                   const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()

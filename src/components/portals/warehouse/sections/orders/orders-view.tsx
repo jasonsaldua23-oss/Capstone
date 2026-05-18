@@ -142,6 +142,7 @@ export function WarehouseOrdersView({
                             <Badge>{String((order as any)?._displayStatus || formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))}</Badge>
                             {(() => {
                               const summary = (order as any)?._fulfillmentSummary
+                              // Only show for multi-warehouse orders (more than 1 leg)
                               if (!summary || Number(summary.totalLegs || 0) <= 1) return null
                               return (
                                 <p className="text-[11px] text-slate-500">

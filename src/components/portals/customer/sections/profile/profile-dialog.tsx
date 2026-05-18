@@ -27,16 +27,16 @@ export function CustomerProfileDialog(props: any) {
     isSavingProfile,
   } = props
 
-  // Philippine mobile number validation: 09XXXXXXXXX (11 digits starting with 09)
+  // Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
   const isValidPhilippinePhone = (phone: string): boolean => {
     const cleaned = phone.replace(/\D/g, '')
-    return /^09\d{9}$/.test(cleaned)
+    return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
   }
 
   const phoneError = useMemo(() => {
     if (!profilePhone || profilePhone.length === 0) return null
     if (!isValidPhilippinePhone(profilePhone)) {
-      return 'Please enter a valid Philippine mobile number (e.g., 09171234567)'
+      return 'Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)'
     }
     return null
   }, [profilePhone])
@@ -88,12 +88,12 @@ export function CustomerProfileDialog(props: any) {
                 placeholder="09XX XXX XXXX"
                 maxLength={13}
                 onInput={(e) => {
-                  // Auto-format: remove non-digits, limit to 11 digits starting with 09
+                  // Auto-format: remove non-digits, allow 09 (11 digits) or 63 (12 digits) prefixes
                   let value = e.currentTarget.value.replace(/\D/g, '')
-                  if (value.length > 11) value = value.slice(0, 11)
-                  // Ensure starts with 09
-                  if (value.length >= 2 && !value.startsWith('09')) {
-                    value = '09' + value.slice(2)
+                  if (value.length > 12) value = value.slice(0, 12)
+                  // Allow both 09 and 63 prefixes
+                  if (value.length >= 2 && !value.startsWith('09') && !value.startsWith('63')) {
+                    value = '09' + value.slice(0, 9)
                   }
                   setProfilePhone(value)
                 }}

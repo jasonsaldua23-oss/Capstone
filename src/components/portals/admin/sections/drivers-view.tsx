@@ -1,6 +1,21 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
+
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
+function isValidPhilippinePhone(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '')
+  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
+}
+
+function formatPhilippinePhoneInput(value: string): string {
+  let cleaned = value.replace(/\D/g, '')
+  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
+  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
+    cleaned = '09' + cleaned.slice(0, 9)
+  }
+  return cleaned
+}
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -396,7 +411,15 @@ export function DriversView() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Phone</label>
-                  <Input value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value }))} />
+                  <Input
+                    value={driverForm.phone}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+                    placeholder="09XX XXX XXXX"
+                    maxLength={13}
+                  />
+                  {driverForm.phone && driverForm.phone.length > 0 && !isValidPhilippinePhone(driverForm.phone) && (
+                    <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Password</label>

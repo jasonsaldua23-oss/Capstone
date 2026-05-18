@@ -820,10 +820,7 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
 
       <Card>
         <CardHeader className="pb-0">
-          <CardTitle className="text-base">Fulfillment Monitoring</CardTitle>
-          <CardDescription className="text-gray-700">
-            Split orders: {fulfillmentAlerts.splitOrders} | Missing trip legs: {fulfillmentAlerts.missingTrips} | Unallocated qty: {fulfillmentAlerts.unallocated}
-          </CardDescription>
+          <CardTitle className="text-base">Purchase Orders</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
@@ -898,11 +895,13 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
                                 {warehouseText}
                                 {extraWarehouseCount > 0 ? ` +${extraWarehouseCount} more` : ''}
                               </p>
-                              <p className="text-xs text-gray-700">
-                                Legs: {summary.deliveredLegs}/{summary.totalLegs} delivered
-                                {summary.unassignedTripCount > 0 ? ` | ${summary.unassignedTripCount} without trip` : ''}
-                                {!warehouseMeta.hasMultipleWarehouses && warehouseNames.length === 0 ? ' | awaiting warehouse assignment' : ''}
-                              </p>
+                              {summary.totalLegs > 1 && (
+                                <p className="text-xs text-gray-700">
+                                  Legs: {summary.deliveredLegs}/{summary.totalLegs} delivered
+                                  {summary.unassignedTripCount > 0 ? ` | ${summary.unassignedTripCount} without trip` : ''}
+                                  {!warehouseMeta.hasMultipleWarehouses && warehouseNames.length === 0 ? ' | awaiting warehouse assignment' : ''}
+                                </p>
+                              )}
                             </div>
                           )
                         })()}
@@ -976,54 +975,61 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
-                  <div className="space-y-2">
-                    {deriveOrderFulfillmentSummary(selectedOrder).legs.map((leg: any) => (
-                      <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
-                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
-                            {String(leg.status || 'PENDING').replace(/_/g, ' ')}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Trip: {leg.tripNumber || leg.tripId || 'Not assigned'} | Allocated Qty: {Number(leg.allocatedQty || 0)}
-                        </p>
-                        {!leg.tripId && !leg.tripNumber ? (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <p className="text-xs font-medium text-amber-700">Needs trip assignment.</p>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-7 rounded-md px-2 text-[11px]"
-                              onClick={() => {
-                                try {
-                                  window.sessionStorage.setItem(
-                                    'admin_transport_focus',
-                                    JSON.stringify({
-                                      orderId: String(selectedOrder?.id || ''),
-                                      orderNumber: String(selectedOrder?.orderNumber || ''),
-                                      warehouseId: String(leg?.warehouseId || ''),
-                                      at: Date.now(),
-                                    })
-                                  )
-                                } catch {
-                                  // best effort only
-                                }
-                                setSelectedOrder(null)
-                                onOpenTransportation?.()
-                              }}
-                            >
-                              Open in Transportation
-                            </Button>
+                {(() => {
+                  const summary = deriveOrderFulfillmentSummary(selectedOrder)
+                  const isMultiWarehouse = summary.totalLegs > 1
+                  if (!isMultiWarehouse) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">Fulfillment Legs</p>
+                      <div className="space-y-2">
+                        {summary.legs.map((leg: any) => (
+                          <div key={leg.id} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">
+                              Trip: {leg.tripNumber || leg.tripId || 'Not assigned'}{` | Allocated Qty: ${Number(leg.allocatedQty || 0)}`}
+                            </p>
+                            {!leg.tripId && !leg.tripNumber ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <p className="text-xs font-medium text-amber-700">Needs trip assignment.</p>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 rounded-md px-2 text-[11px]"
+                                  onClick={() => {
+                                    try {
+                                      window.sessionStorage.setItem(
+                                        'admin_transport_focus',
+                                        JSON.stringify({
+                                          orderId: String(selectedOrder?.id || ''),
+                                          orderNumber: String(selectedOrder?.orderNumber || ''),
+                                          warehouseId: String(leg?.warehouseId || ''),
+                                          at: Date.now(),
+                                        })
+                                      )
+                                    } catch {
+                                      // best effort only
+                                    }
+                                    setSelectedOrder(null)
+                                    onOpenTransportation?.()
+                                  }}
+                                >
+                                  Open in Transportation
+                                </Button>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  )
+                })()}
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
                   <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
@@ -1079,64 +1085,76 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
-                      <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
-                        <Clock className="h-5 w-5" />
-                      </span>
-                      Progress
-                    </p>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
-                      {selectedOrder.progress?.dropPoint?.status
-                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'No trip progress yet'}
-                      <CircleCheck className="h-3.5 w-3.5" />
-                    </span>
-                  </div>
-                  <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
-                    <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
-                    <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
-                    <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
-                    <p>
-                      <span className="inline-flex items-center gap-3"><MapPin className="h-5 w-5 text-slate-500" />Drop Point Status: {selectedOrder.progress?.dropPoint?.status
-                        ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
-                        : 'Pending'}</span>
-                    </p>
-                    <p>
-                      <span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span>
-                    </p>
-                    <p>
-                      <span className="inline-flex items-center gap-3"><LogOut className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span>
-                    </p>
-                  </div>
-                </div>
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                          <span className="grid h-9 w-9 place-items-center rounded-full bg-violet-50 text-violet-600">
+                            <Clock className="h-5 w-5" />
+                          </span>
+                          Progress
+                        </p>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+                          {selectedOrder.progress?.dropPoint?.status
+                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            : 'No trip progress yet'}
+                          <CircleCheck className="h-3.5 w-3.5" />
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 text-sm text-slate-700 sm:text-base">
+                        <p className="flex items-center gap-3"><Route className="h-5 w-5 text-slate-500" />Trip: {selectedOrder.progress?.trip?.tripNumber || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><User className="h-5 w-5 text-slate-500" />Driver: {selectedOrder.progress?.trip?.driver?.user?.name || selectedOrder.assignedDriverName || 'Not assigned yet'}</p>
+                        <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
+                        <p>
+                          <span className="inline-flex items-center gap-3"><MapPin className="h-5 w-5 text-slate-500" />Drop Point Status: {selectedOrder.progress?.dropPoint?.status
+                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            : 'Pending'}</span>
+                        </p>
+                        <p>
+                          <span className="inline-flex items-center gap-3"><CalendarClock className="h-5 w-5 text-slate-500" />Arrival: {selectedOrder.progress?.pod?.actualArrival ? new Date(selectedOrder.progress.pod.actualArrival).toLocaleString() : 'N/A'}</span>
+                        </p>
+                        <p>
+                          <span className="inline-flex items-center gap-3"><LogOut className="h-5 w-5 text-slate-500" />Departure: {selectedOrder.progress?.pod?.actualDeparture ? new Date(selectedOrder.progress.pod.actualDeparture).toLocaleString() : 'N/A'}</span>
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()}
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
-                      <Camera className="h-5 w-5" />
-                    </span>
-                    Proof Of Delivery
-                  </p>
-                  {(() => {
-                    const podUrl = String(
-                      selectedOrder.progress?.pod?.deliveryPhoto ||
-                      selectedOrder.deliveryPhoto ||
-                      selectedOrder.deliveryProofUrl ||
-                      selectedOrder.proofOfDeliveryUrl ||
-                      ''
-                    ).trim()
-                    if (!podUrl) return <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
-                    return (
-                      <img
-                        src={podUrl}
-                        alt="Proof of delivery"
-                        className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
-                      />
-                    )
-                  })()}
-                </div>
+                {(() => {
+                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (!hasTrip) return null
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-50 text-amber-600">
+                          <Camera className="h-5 w-5" />
+                        </span>
+                        Proof Of Delivery
+                      </p>
+                      {(() => {
+                        const podUrl = String(
+                          selectedOrder.progress?.pod?.deliveryPhoto ||
+                          selectedOrder.deliveryPhoto ||
+                          selectedOrder.deliveryProofUrl ||
+                          selectedOrder.proofOfDeliveryUrl ||
+                          ''
+                        ).trim()
+                        if (!podUrl) return <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
+                        return (
+                          <img
+                            src={podUrl}
+                            alt="Proof of delivery"
+                            className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
+                          />
+                        )
+                      })()}
+                    </div>
+                  )
+                })()}
 
                 <div className="bg-white py-1">
                   <div className="flex gap-2">

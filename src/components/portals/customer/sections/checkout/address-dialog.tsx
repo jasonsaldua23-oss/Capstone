@@ -1,6 +1,21 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+
+// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
+function isValidPhilippinePhone(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '')
+  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
+}
+
+function formatPhilippinePhoneInput(value: string): string {
+  let cleaned = value.replace(/\D/g, '')
+  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
+  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
+    cleaned = '09' + cleaned.slice(0, 9)
+  }
+  return cleaned
+}
 import { motion } from 'framer-motion'
 import { ArrowLeft, Loader2, MapPin, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -103,15 +118,16 @@ export function CustomerAddressDialog(props: any) {
 
             <div className="space-y-2">
               <Label>Phone number</Label>
-              <div className="flex h-11 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="flex items-center whitespace-nowrap border-r border-slate-200 px-3 text-sm font-medium text-slate-600">PH +63</div>
-                <Input
-                  className="h-11 rounded-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                  placeholder="9460056944"
-                  value={shippingPhone}
-                  onChange={(e) => setShippingPhone(e.target.value.replace(/[^\d]/g, ''))}
-                />
-              </div>
+              <Input
+                className={`h-11 rounded-xl border-slate-200 bg-white ${shippingPhone && !isValidPhilippinePhone(shippingPhone) ? 'border-red-300 focus-visible:ring-red-400' : 'focus-visible:ring-slate-400'}`}
+                placeholder="09XX XXX XXXX or 639XX XXX XXXX"
+                maxLength={13}
+                value={shippingPhone}
+                onChange={(e) => setShippingPhone(formatPhilippinePhoneInput(e.target.value))}
+              />
+              {shippingPhone && shippingPhone.length > 0 && !isValidPhilippinePhone(shippingPhone) && (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
+              )}
             </div>
 
             <div className="space-y-2">
