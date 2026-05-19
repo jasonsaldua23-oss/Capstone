@@ -24,11 +24,16 @@ def _response(data: dict, status: int = 200) -> JsonResponse:
 
 
 def _set_auth_cookie(response: JsonResponse, token: str) -> None:
+    # Use secure cookies in production (HTTPS) - required for cross-origin/cross-site contexts
+    from django.conf import settings
+    import os
+    is_prod = not getattr(settings, "DEBUG", True)
+    secure = os.getenv("AUTH_COOKIE_SECURE", "1" if is_prod else "0").lower() in ("1", "true", "yes", "on")
     response.set_cookie(
         TOKEN_NAME,
         token,
         httponly=True,
-        secure=False,
+        secure=secure,
         samesite="Lax",
         max_age=24 * 60 * 60,
         path="/",

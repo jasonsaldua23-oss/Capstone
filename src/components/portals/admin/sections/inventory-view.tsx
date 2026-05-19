@@ -361,9 +361,9 @@ export function InventoryView() {
             <div>
               <CardTitle>Inventory</CardTitle>
             </div>
-            <div className="flex w-full flex-wrap gap-2 md:w-auto md:flex-nowrap">
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
               <select
-                className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm md:w-[260px] md:flex-none"
+                className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm sm:w-[260px] sm:flex-none"
                 value={selectedWarehouseId}
                 onChange={(event) => setSelectedWarehouseId(event.target.value)}
                 title="Filter by warehouse"
@@ -396,22 +396,20 @@ export function InventoryView() {
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
             <div className="w-full overflow-x-auto pb-1">
-              <table className="w-full min-w-[1220px] text-sm">
+              <table className="w-full min-w-[1120px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap min-w-[190px]">Product</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Unit</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Price</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Threshold</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Bottles</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Total Bottles</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Available</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Reserved</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Location</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Status</th>
-                    <th className="text-left p-2.5 font-medium text-gray-600 whitespace-nowrap">Actions</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap min-w-[190px]">Product</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Price</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Threshold</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Bottles</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Available</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Reserved</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Location</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Status</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -422,12 +420,11 @@ export function InventoryView() {
                     const caseQty = Math.max(Number(item.quantity ?? 0), 0)
                     const quantityPerCase = Math.max(Number(item.quantityPerCase ?? item.product?.quantityPerCase ?? item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? 0), 0)
                     const looseBottles = Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0)
-                    const totalBottles = quantityPerCase > 0 ? (caseQty * quantityPerCase) + looseBottles : caseQty + looseBottles
                     return (
                       <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-2.5 font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
+                        <td className="p-2.5 text-center font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
                         <td className="p-2.5">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-center gap-2">
                             <img
                               src={item.product?.imageUrl || '/logo.svg'}
                               alt={item.product?.name || 'Product'}
@@ -438,30 +435,29 @@ export function InventoryView() {
                                 target.src = '/logo.svg'
                               }}
                             />
-                            <div>
+                            <div className="text-center">
                               <p className="font-semibold text-gray-900">{item.product?.name ?? 'N/A'}</p>
                               <p className="text-xs text-gray-500">
-                                {Array.isArray(item.product?.sizes) && item.product.sizes.length > 0
+                                {(Array.isArray(item.product?.sizes) && item.product.sizes.length > 0
                                   ? item.product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
-                                  : 'N/A'}
+                                  : 'N/A')
+                                } • {item.product?.unit || 'case'}
                               </p>
                             </div>
                           </div>
                         </td>
-                        <td className="p-2.5 font-medium text-gray-900">{item.product?.unit || 'case'}</td>
-                        <td className="p-2.5 font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
-                        <td className="p-2.5 font-semibold text-gray-900">{getThreshold(item)}</td>
-                        <td className="p-2.5 font-semibold text-gray-900">{quantityPerCase}</td>
-                        <td className="p-2.5 font-semibold text-gray-900">{looseBottles}</td>
-                        <td className="p-2.5 font-semibold text-gray-900">{totalBottles}</td>
-                        <td className="p-2.5 font-semibold text-gray-900">{availableQty}</td>
-                        <td className="p-2.5 font-semibold text-orange-600">{reservedQty}</td>
-                        <td className="p-2.5 text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
-                        <td className="p-2.5">
+                        <td className="p-2.5 text-center font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
+                        <td className="p-2.5 text-center font-semibold text-gray-900">{getThreshold(item)}</td>
+                        <td className="p-2.5 text-center font-semibold text-gray-900">{quantityPerCase}</td>
+                        <td className="p-2.5 text-center font-semibold text-gray-900">{looseBottles}</td>
+                        <td className="p-2.5 text-center font-semibold text-gray-900">{availableQty}</td>
+                        <td className="p-2.5 text-center font-semibold text-orange-600">{reservedQty}</td>
+                        <td className="p-2.5 text-center text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
+                        <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
                           {status === 'restock' && <Badge className="whitespace-nowrap bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                         </td>
-                        <td className="p-2.5">
+                        <td className="p-2.5 text-center">
                           <Button
                             size="icon"
                             variant="ghost"

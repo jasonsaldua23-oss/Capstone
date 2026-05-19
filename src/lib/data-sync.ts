@@ -11,6 +11,8 @@ export type DataSyncScope =
   | 'replacements'
   | 'drivers'
   | 'vehicles'
+  | 'stocks'
+  | 'feedback'
 
 interface DataSyncMessage {
   scopes: DataSyncScope[]

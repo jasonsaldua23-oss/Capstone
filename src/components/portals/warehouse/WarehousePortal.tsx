@@ -222,6 +222,9 @@ interface WarehouseOrderItem {
       name?: string
       sku?: string
     }
+    // Additional fields from API
+    productName?: string
+    name?: string
   }>
   progress?: {
     trip?: {
@@ -259,6 +262,26 @@ interface WarehouseOrderItem {
       actualDeparture?: string | null
     } | null
   } | null
+  // Additional API response fields
+  warehouse_id?: string
+  warehouseIds?: string[]
+  warehouseAllocations?: Array<{
+    warehouseId?: string
+    warehouse_id?: string
+    warehouse?: { id?: string; name?: string; code?: string }
+    allocatedQty?: number
+  }>
+  fulfillments?: Array<{
+    warehouseId?: string
+    warehouse_id?: string
+    warehouse?: { id?: string; name?: string }
+    status?: string
+    tripId?: string
+  }>
+  isScheduledReplacement?: boolean
+  order_number?: string
+  assignedTripId?: string
+  tripId?: string
 }
 
 interface WarehouseTripItem {
@@ -318,6 +341,10 @@ interface WarehouseReplacementItem {
       name?: string
     }
   }
+  // Additional API response fields for replacement items
+  quantityToReplace?: number
+  damagedQuantity?: number
+  quantityReplaced?: number
 }
 
 interface DriverOption {

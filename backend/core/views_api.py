@@ -1387,9 +1387,12 @@ def _create_customer_notification(
 
 
 def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = False) -> None:
+    # Use secure cookies in production (HTTPS) - required for cross-origin/cross-site contexts
+    is_prod = not getattr(settings, "DEBUG", True)
+    secure = os.getenv("AUTH_COOKIE_SECURE", "1" if is_prod else "0").lower() in ("1", "true", "yes", "on")
     cookie_kwargs = {
         "httponly": True,
-        "secure": False,
+        "secure": secure,
         "samesite": "Lax",
         "path": "/",
     }

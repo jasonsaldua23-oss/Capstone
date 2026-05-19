@@ -22,16 +22,38 @@ node_modules
 
 # misc
 .DS_Store
+
+# Secrets and keys
 *.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+secrets/
+secrets.*
+*.secret
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+!.env.example
+
+# Backend secrets
+certificates/
+backend/.env
+backend/.env.*
+backend/**/settings_local.py
+backend/**/local_settings.py
+backend/**/*.sqlite3
+backend/**/*.db
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
 
 # vercel
 .vercel
@@ -55,9 +77,6 @@ replay_pid*.log
 /skills/# Python / Django
 __pycache__/
 *.py[cod]
-backend/db.sqlite3
 skills/
 dev*.log
 dev_stdout.log
-
-certificates

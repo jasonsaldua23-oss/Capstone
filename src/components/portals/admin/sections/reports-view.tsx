@@ -1145,7 +1145,7 @@ export function ReportsView() {
       y -= 12
     })
     const bytes = await pdfDoc.save()
-    const blob = new Blob([bytes], { type: 'application/pdf' })
+    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
