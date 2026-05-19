@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 export function CustomerProfileDialog(props: any) {
   const {
@@ -26,12 +27,6 @@ export function CustomerProfileDialog(props: any) {
     saveProfile,
     isSavingProfile,
   } = props
-
-  // Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
-  const isValidPhilippinePhone = (phone: string): boolean => {
-    const cleaned = phone.replace(/\D/g, '')
-    return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
-  }
 
   const phoneError = useMemo(() => {
     if (!profilePhone || profilePhone.length === 0) return null
@@ -84,19 +79,10 @@ export function CustomerProfileDialog(props: any) {
               <Input
                 id="customer-profile-phone"
                 value={profilePhone}
-                onChange={(e) => setProfilePhone(e.target.value)}
+                onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))}
                 placeholder="09XX XXX XXXX"
                 maxLength={13}
-                onInput={(e) => {
-                  // Auto-format: remove non-digits, allow 09 (11 digits) or 63 (12 digits) prefixes
-                  let value = e.currentTarget.value.replace(/\D/g, '')
-                  if (value.length > 12) value = value.slice(0, 12)
-                  // Allow both 09 and 63 prefixes
-                  if (value.length >= 2 && !value.startsWith('09') && !value.startsWith('63')) {
-                    value = '09' + value.slice(0, 9)
-                  }
-                  setProfilePhone(value)
-                }}
+                inputMode="numeric"
                 className={`border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500 ${phoneError ? 'border-red-300 focus-visible:ring-red-400' : ''}`}
               />
               {phoneError && (

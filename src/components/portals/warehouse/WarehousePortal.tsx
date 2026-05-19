@@ -39,6 +39,7 @@ import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
+import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
 import {
   Boxes,
   Archive,
@@ -4071,7 +4072,7 @@ export function WarehousePortal() {
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="warehouse-profile-phone">Phone</Label>
-                    <Input id="warehouse-profile-phone" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} />
+                    <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} />
                   </div>
                   {isProfileEmailChanged ? (
                     <div className="space-y-2 rounded-md border p-3">

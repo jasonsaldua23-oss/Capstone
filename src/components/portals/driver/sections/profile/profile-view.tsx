@@ -10,21 +10,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-
-// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
-function isValidPhilippinePhone(phone: string): boolean {
-  const cleaned = phone.replace(/\D/g, '')
-  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
-}
-
-function formatPhilippinePhoneInput(value: string): string {
-  let cleaned = value.replace(/\D/g, '')
-  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
-  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
-    cleaned = '09' + cleaned.slice(0, 9)
-  }
-  return cleaned
-}
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,

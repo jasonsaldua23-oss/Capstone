@@ -20,28 +20,10 @@ import {
 } from '@/components/ui/alert-dialog'
 import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from 'lucide-react'
 import { validatePasswordPolicy } from '@/lib/password-policy'
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
-}
-
-// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
-function isValidPhilippinePhone(phone: string): boolean {
-  const cleaned = phone.replace(/\D/g, '')
-  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
-}
-
-function formatPhilippinePhoneInput(value: string): string {
-  // Remove non-digits
-  let cleaned = value.replace(/\D/g, '')
-  // Limit to 12 digits max (for 63 prefix)
-  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
-  // Ensure starts with 09 or 63
-  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
-    // Default to 09 if no valid prefix
-    cleaned = '09' + cleaned.slice(0, 9)
-  }
-  return cleaned
 }
 
 function formatRoleLabel(role: string | null | undefined) {

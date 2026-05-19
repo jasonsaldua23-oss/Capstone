@@ -1,27 +1,13 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-
-// Philippine mobile number validation: 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits)
-function isValidPhilippinePhone(phone: string): boolean {
-  const cleaned = phone.replace(/\D/g, '')
-  return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned)
-}
-
-function formatPhilippinePhoneInput(value: string): string {
-  let cleaned = value.replace(/\D/g, '')
-  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
-  if (cleaned.length >= 2 && !cleaned.startsWith('09') && !cleaned.startsWith('63')) {
-    cleaned = '09' + cleaned.slice(0, 9)
-  }
-  return cleaned
-}
 import { motion } from 'framer-motion'
 import { ArrowLeft, Loader2, MapPin, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 const AddressMapPicker = dynamic(
   () => import('@/components/maps/AddressMapPicker').then((mod) => mod.AddressMapPicker),
