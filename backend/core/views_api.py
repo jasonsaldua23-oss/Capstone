@@ -4062,55 +4062,61 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
             return _err(f"Google authentication failed: {str(exc)}", 503)
         return _err("Google authentication service is temporarily unavailable", 503)
 
-    email = _normalize_email(claims.get("email"))
-    if not email:
-        return _err("Google account email is unavailable")
-    if not bool(claims.get("email_verified")):
-        return _err("Google email is not verified", 401)
-    if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed (example@gmail.com)")
+    try:
+        email = _normalize_email(claims.get("email"))
+        if not email:
+            return _err("Google account email is unavailable")
+        if not bool(claims.get("email_verified")):
+            return _err("Google email is not verified", 401)
+        if not _is_gmail_email(email):
+            return _err("Only Gmail addresses are allowed (example@gmail.com)")
 
-    name = str(claims.get("name") or "").strip() or email.split("@")[0]
-    avatar = str(claims.get("picture") or "").strip() or None
+        name = str(claims.get("name") or "").strip() or email.split("@")[0]
+        avatar = str(claims.get("picture") or "").strip() or None
 
-    with transaction.atomic():
-        customer = Customer.objects.filter(email=email).first()
-        created = False
+        with transaction.atomic():
+            customer = Customer.objects.filter(email=email).first()
+            created = False
 
-        if customer and not customer.is_active:
-            return _err("Account is deactivated", 403)
+            if customer and not customer.is_active:
+                return _err("Account is deactivated", 403)
 
-        if not customer:
-            customer = Customer.objects.create(
-                email=email,
-                password=hash_password(secrets.token_urlsafe(32)),
-                name=name,
-                avatar=avatar,
-            )
-            created = True
-        else:
-            changed_fields: list[str] = []
-            if avatar and customer.avatar != avatar:
-                customer.avatar = avatar
-                changed_fields.append("avatar")
-            if changed_fields:
-                changed_fields.append("updated_at")
-                customer.save(update_fields=changed_fields)
+            if not customer:
+                customer = Customer.objects.create(
+                    email=email,
+                    password=hash_password(secrets.token_urlsafe(32)),
+                    name=name,
+                    avatar=avatar,
+                )
+                created = True
+            else:
+                changed_fields: list[str] = []
+                if avatar and customer.avatar != avatar:
+                    customer.avatar = avatar
+                    changed_fields.append("avatar")
+                if changed_fields:
+                    changed_fields.append("updated_at")
+                    customer.save(update_fields=changed_fields)
 
-    payload = _customer_payload(customer)
-    token = create_token(payload, 24 * 30 if remember_me else 24)
-    resp = _ok(
-        {
-            "success": True,
-            "user": payload,
-            "token": token,
-            "message": "Registration successful" if created else "Login successful",
-            "created": created,
-        },
-        201 if created else 200,
-    )
-    _set_auth_cookie(resp, token, remember_me)
-    return resp
+        payload = _customer_payload(customer)
+        token = create_token(payload, 24 * 30 if remember_me else 24)
+        resp = _ok(
+            {
+                "success": True,
+                "user": payload,
+                "token": token,
+                "message": "Registration successful" if created else "Login successful",
+                "created": created,
+            },
+            201 if created else 200,
+        )
+        _set_auth_cookie(resp, token, remember_me)
+        return resp
+    except Exception as exc:
+        logger.exception("Google customer auth post-verification failed: %s", str(exc))
+        if getattr(settings, "DEBUG", False):
+            return _err(f"Google sign-in post-verification failed: {str(exc)}", 500)
+        return _err("Google sign-in is temporarily unavailable. Please use email/password for now.", 500)
 
 
 @csrf_exempt
