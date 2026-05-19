@@ -16,7 +16,13 @@ load_dotenv(REPO_ROOT / ".env")
 load_dotenv(BASE_DIR / ".env")
 
 # Ensure Python uses an up-to-date CA bundle for outbound TLS (SMTP/HTTPS).
-if certifi is not None:
+# On Windows, use the downloaded Mozilla CA bundle to fix SSL verification issues
+REPO_ROOT = BASE_DIR.parent
+cacert_path = REPO_ROOT / "cacert.pem"
+if cacert_path.exists():
+    os.environ.setdefault("SSL_CERT_FILE", str(cacert_path))
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", str(cacert_path))
+elif certifi is not None:
     os.environ.setdefault("SSL_CERT_FILE", certifi.where())
     os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
@@ -164,6 +170,8 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Google OAuth (customer registration/login)
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+# Dev only: disable SSL verification for Google APIs (fix Windows cert issues)
+GOOGLE_OAUTH_SKIP_SSL_VERIFY = _bool("GOOGLE_OAUTH_SKIP_SSL_VERIFY", DEBUG)
 
 # PayMongo (test/sandbox or live, depending on keys)
 PAYMONGO_ENABLE_CHECKOUT = _bool("PAYMONGO_ENABLE_CHECKOUT", False)

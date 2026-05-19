@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import math
+import os
 import requests
 import re
 import secrets
@@ -3337,9 +3338,10 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     if not client_id:
         raise ValueError("Google OAuth is not configured")
     # Allow small server/client clock drift to avoid false "Token used too early" failures.
+    request = google_requests.Request()
     return google_id_token.verify_oauth2_token(
         credential,
-        google_requests.Request(),
+        request,
         client_id,
         clock_skew_in_seconds=300,
     )
