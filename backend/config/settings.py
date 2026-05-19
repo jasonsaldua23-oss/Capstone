@@ -15,13 +15,12 @@ REPO_ROOT = BASE_DIR.parent
 load_dotenv(REPO_ROOT / ".env")
 load_dotenv(BASE_DIR / ".env")
 
-# Ensure Python uses an up-to-date CA bundle for outbound TLS (SMTP/HTTPS).
-# On Windows, use the downloaded Mozilla CA bundle to fix SSL verification issues
-REPO_ROOT = BASE_DIR.parent
-cacert_path = REPO_ROOT / "cacert.pem"
-if cacert_path.exists():
-    os.environ.setdefault("SSL_CERT_FILE", str(cacert_path))
-    os.environ.setdefault("REQUESTS_CA_BUNDLE", str(cacert_path))
+# Ensure Python uses a CA bundle for outbound TLS (SMTP/HTTPS).
+# Prefer repo-level cacert.pem when present, otherwise certifi.
+_repo_ca_bundle = REPO_ROOT / "cacert.pem"
+if _repo_ca_bundle.exists():
+    os.environ.setdefault("SSL_CERT_FILE", str(_repo_ca_bundle))
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", str(_repo_ca_bundle))
 elif certifi is not None:
     os.environ.setdefault("SSL_CERT_FILE", certifi.where())
     os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())

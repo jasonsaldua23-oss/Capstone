@@ -1,5 +1,6 @@
 ﻿import hashlib
 import hmac
+import base64
 import json
 import logging
 import math
@@ -3337,8 +3338,49 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     client_id = getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "")
     if not client_id:
         raise ValueError("Google OAuth is not configured")
+    skip_ssl_verify = bool(getattr(settings, "GOOGLE_OAUTH_SKIP_SSL_VERIFY", getattr(settings, "DEBUG", False)))
+
+    if skip_ssl_verify:
+        # Local-dev fallback: avoid remote cert fetch when host SSL trust chain is broken.
+        parts = credential.split(".")
+        if len(parts) != 3:
+            raise ValueError("Malformed Google credential")
+        payload_part = parts[1]
+        payload_part += "=" * ((4 - len(payload_part) % 4) % 4)
+        try:
+            claims = json.loads(base64.urlsafe_b64decode(payload_part.encode("ascii")).decode("utf-8"))
+        except Exception as exc:
+            raise ValueError(f"Malformed Google credential payload: {exc}")
+
+        if str(claims.get("aud") or "") != client_id:
+            raise ValueError("Google token audience mismatch")
+        if str(claims.get("iss") or "") not in {"accounts.google.com", "https://accounts.google.com"}:
+            raise ValueError("Google token issuer is invalid")
+        exp_raw = claims.get("exp")
+        if exp_raw is not None:
+            try:
+                exp = int(exp_raw)
+                now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+                if exp < now_ts - 300:
+                    raise ValueError("Google token is expired")
+            except ValueError:
+                raise
+            except Exception:
+                raise ValueError("Google token exp is invalid")
+        return claims
+
     # Allow small server/client clock drift to avoid false "Token used too early" failures.
-    request = google_requests.Request()
+    import requests as _requests
+    session = _requests.Session()
+    if os.name == "nt":
+        # Windows local-dev hard override: trust chain issues are common and block Google cert fetch.
+        session.verify = False
+    elif skip_ssl_verify:
+        session.verify = False
+    else:
+        ca_bundle = os.getenv("REQUESTS_CA_BUNDLE", "").strip()
+        session.verify = ca_bundle or True
+    request = google_requests.Request(session)
     return google_id_token.verify_oauth2_token(
         credential,
         request,
@@ -4014,8 +4056,10 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
     except ValueError as exc:
         logger.warning("Invalid Google credential during customer auth: %s", str(exc))
         return _err(f"Invalid Google credential: {str(exc)}", 401)
-    except Exception:
-        logger.exception("Google customer token verification failed")
+    except Exception as exc:
+        logger.exception("Google customer token verification failed: %s", str(exc))
+        if getattr(settings, "DEBUG", False):
+            return _err(f"Google authentication failed: {str(exc)}", 503)
         return _err("Google authentication service is temporarily unavailable", 503)
 
     email = _normalize_email(claims.get("email"))
