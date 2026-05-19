@@ -16,11 +16,11 @@ load_dotenv(REPO_ROOT / ".env")
 load_dotenv(BASE_DIR / ".env")
 
 # Ensure Python uses a CA bundle for outbound TLS (SMTP/HTTPS).
-# Prefer repo-level cacert.pem when present, otherwise certifi.
-_repo_ca_bundle = REPO_ROOT / "cacert.pem"
-if _repo_ca_bundle.exists():
-    os.environ.setdefault("SSL_CERT_FILE", str(_repo_ca_bundle))
-    os.environ.setdefault("REQUESTS_CA_BUNDLE", str(_repo_ca_bundle))
+# Production default: certifi. Local override: set CUSTOM_CA_BUNDLE explicitly.
+custom_ca_bundle = os.getenv("CUSTOM_CA_BUNDLE", "").strip()
+if custom_ca_bundle:
+    os.environ.setdefault("SSL_CERT_FILE", custom_ca_bundle)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", custom_ca_bundle)
 elif certifi is not None:
     os.environ.setdefault("SSL_CERT_FILE", certifi.where())
     os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())

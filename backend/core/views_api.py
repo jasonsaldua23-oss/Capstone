@@ -3340,7 +3340,7 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
         raise ValueError("Google OAuth is not configured")
     skip_ssl_verify = bool(getattr(settings, "GOOGLE_OAUTH_SKIP_SSL_VERIFY", getattr(settings, "DEBUG", False)))
 
-    if skip_ssl_verify:
+    if skip_ssl_verify and getattr(settings, "DEBUG", False):
         # Local-dev fallback: avoid remote cert fetch when host SSL trust chain is broken.
         parts = credential.split(".")
         if len(parts) != 3:
@@ -3372,10 +3372,10 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     # Allow small server/client clock drift to avoid false "Token used too early" failures.
     import requests as _requests
     session = _requests.Session()
-    if os.name == "nt":
+    if os.name == "nt" and getattr(settings, "DEBUG", False):
         # Windows local-dev hard override: trust chain issues are common and block Google cert fetch.
         session.verify = False
-    elif skip_ssl_verify:
+    elif skip_ssl_verify and getattr(settings, "DEBUG", False):
         session.verify = False
     else:
         ca_bundle = os.getenv("REQUESTS_CA_BUNDLE", "").strip()
