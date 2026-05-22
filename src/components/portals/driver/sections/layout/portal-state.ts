@@ -769,7 +769,7 @@ export function useDriverPortalState() {
         } else if (geolocationErrorCode === 3) {
           toast.error('Location request timed out. Please move to open sky and try again.')
         } else {
-          toast.error('Unable to get current location right now. Please try again.')
+          toast.error('Unable to get current location right now due to unstable internet connection.')
         }
         return false
       }
