@@ -78,6 +78,7 @@ import {
 } from './sections/orders/order-status'
 import { downloadOrderReceipt } from './sections/orders/receipt-utils'
 import { isWithinNegrosOccidental } from './sections/checkout/location-utils'
+import { isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -360,7 +361,8 @@ export function CustomerPortal() {
       }
     }
 
-    setShippingPhone(String(customer?.phone || '').trim())
+    const hydratedPhone = String(customer?.phone || '').trim()
+    setShippingPhone(hydratedPhone)
     setShippingHouseNumber(houseNumber)
     setShippingStreetName(streetName)
     setShippingSubdivision(subdivision)
@@ -373,7 +375,7 @@ export function CustomerPortal() {
     setShippingLongitude(typeof customer?.longitude === 'number' ? customer.longitude : null)
     setProfileName(String(customer?.name || '').trim())
     setProfileEmail(String(customer?.email || '').trim())
-    setProfilePhone(String(customer?.phone || '').trim())
+    setProfilePhone(hydratedPhone)
     setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
     setProfileAvatarFile(null)
     setCustomerDiscountOption(String(customer?.discountOption || 'NO_DISCOUNT').toUpperCase())
@@ -780,6 +782,15 @@ export function CustomerPortal() {
     return (product.inventory || []).reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
   }
 
+  const getProductSizeLabel = (product: Product) => {
+    const sizes = Array.isArray((product as any)?.sizes)
+      ? (product as any).sizes.map((s: any) => String(s).trim()).filter(Boolean)
+      : []
+    if (sizes.length > 0) return sizes.join(', ')
+    const fallback = String((product as any)?.sizeLabel || (product as any)?.size || '').trim()
+    return fallback || String((product as any)?.unit || '').trim() || 'case'
+  }
+
   const addToCart = (product: Product, requestedQty = 1) => {
     const available = getAvailableQty(product)
     const qty = Math.max(1, Math.floor(Number(requestedQty || 1)))
@@ -799,6 +810,7 @@ export function CustomerPortal() {
             sku: product.sku,
             imageUrl: product.imageUrl || null,
             unit: product.unit,
+            sizeLabel: getProductSizeLabel(product),
             unitPrice: product.price,
             quantity: Math.min(qty, available),
             available,
@@ -813,11 +825,27 @@ export function CustomerPortal() {
               quantity: Math.min(existing.quantity + qty, available),
               available,
               imageUrl: i.imageUrl || product.imageUrl || null,
+              sizeLabel: i.sizeLabel || getProductSizeLabel(product),
             }
           : i
       )
     })
   }
+
+  useEffect(() => {
+    if (!Array.isArray(products) || products.length === 0) return
+    setCart((prev) =>
+      prev.map((item) => {
+        const currentSize = String((item as any)?.sizeLabel || '').trim()
+        if (currentSize && currentSize.toUpperCase() !== 'N/A') return item
+        const product = products.find((p) => String(p.id) === String(item.productId))
+        if (!product) {
+          return { ...item, sizeLabel: String(item.unit || 'case').trim() || 'case' }
+        }
+        return { ...item, sizeLabel: getProductSizeLabel(product) }
+      })
+    )
+  }, [products, setCart])
 
   const openAddToCartDialog = (product: Product) => {
     const available = getAvailableQty(product)
@@ -1424,6 +1452,11 @@ export function CustomerPortal() {
       toast.error('Pinned location must be within Negros Occidental, Philippines')
       return false
     }
+    const normalizedShippingPhone = String(shippingPhone || '').replace(/\D/g, '')
+    if (!normalizedShippingPhone || !isValidPhilippinePhone(normalizedShippingPhone)) {
+      toast.error('Please enter a valid Philippine mobile number before saving')
+      return false
+    }
 
     setIsSavingAddress(true)
     try {
@@ -1439,7 +1472,7 @@ export function CustomerPortal() {
         country: 'Philippines',
         latitude: shippingLatitude,
         longitude: shippingLongitude,
-        phone: shippingPhone,
+        phone: normalizedShippingPhone,
       })
       if (!response.ok || data?.success === false) throw new Error(data?.error || 'Failed to save')
       const updatedCustomer = extractCustomerPayload(data)
@@ -1837,6 +1870,11 @@ export function CustomerPortal() {
       toast.error('Email is required')
       return false
     }
+    const normalizedProfilePhone = String(profilePhone || '').replace(/\D/g, '')
+    if (!normalizedProfilePhone || !isValidPhilippinePhone(normalizedProfilePhone)) {
+      toast.error('Please enter a valid Philippine mobile number before saving')
+      return false
+    }
 
     setIsSavingProfile(true)
     try {
@@ -1848,7 +1886,7 @@ export function CustomerPortal() {
       const { response, payload } = await updateCustomerProfile(customerId, {
         name: profileName.trim(),
         email: profileEmail.trim(),
-        phone: profilePhone.trim(),
+        phone: normalizedProfilePhone,
         avatar: avatarToSave,
       })
       if (!response.ok || payload?.success === false) {

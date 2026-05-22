@@ -106,7 +106,9 @@ export function CustomerCheckoutView({
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-slate-800">{item.name}</p>
-                    <p className="mt-1 inline-block max-w-full truncate rounded border bg-gray-50 px-2 py-1 text-xs text-gray-600">{item.unit}</p>
+                    <p className="mt-1 inline-block max-w-full truncate rounded border bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                      Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}
+                    </p>
                     <p className="mt-1 text-xl font-semibold text-emerald-700">{formatPeso(item.unitPrice)}</p>
                     <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
                   </div>

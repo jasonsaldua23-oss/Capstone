@@ -41,6 +41,9 @@ export interface Product {
   name: string
   imageUrl?: string | null
   unit: string
+  sizes?: string[]
+  size?: string
+  sizeLabel?: string
   price: number
   availableQuantity?: number
   inventory?: Array<{
@@ -55,6 +58,7 @@ export interface CartItem {
   sku: string
   imageUrl?: string | null
   unit: string
+  sizeLabel?: string
   unitPrice: number
   quantity: number
   available: number

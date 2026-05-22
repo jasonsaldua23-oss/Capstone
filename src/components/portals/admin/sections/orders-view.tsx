@@ -1145,7 +1145,11 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
 
                 {(() => {
                   const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
-                  if (!hasTrip) return null
+                  const orderStatus = String(selectedOrder.status || '').toUpperCase()
+                  const dropPointStatus = String(selectedOrder.progress?.dropPoint?.status || '').toUpperCase()
+                  const isDelivered = ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(orderStatus)
+                    || ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(dropPointStatus)
+                  if (!hasTrip || !isDelivered) return null
                   return (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
                       <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">

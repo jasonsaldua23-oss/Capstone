@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -13,9 +13,15 @@ type ForgotPasswordDialogProps = {
   accountType: 'staff' | 'customer'
   initialEmail?: string
   triggerClassName?: string
+  triggerContent?: ReactNode
 }
 
-export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerClassName }: ForgotPasswordDialogProps) {
+export function ForgotPasswordDialog({
+  accountType,
+  initialEmail = '',
+  triggerClassName,
+  triggerContent,
+}: ForgotPasswordDialogProps) {
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState(initialEmail)
   const [otp, setOtp] = useState('')
@@ -127,7 +133,7 @@ export function ForgotPasswordDialog({ accountType, initialEmail = '', triggerCl
     >
       <DialogTrigger asChild>
         <button type="button" className={triggerClassName || 'w-full text-center text-sm text-slate-500 hover:text-slate-700 transition-colors'}>
-          Forgot password
+          {triggerContent || 'Forgot password'}
         </button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden">

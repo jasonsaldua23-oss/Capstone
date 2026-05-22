@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Circle, Clock3, Eye, Loader2, MapPin, Trash2, Truck, User, Warehouse } from 'lucide-react'
+import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
 
 type TripDropPointItem = {
   id: string
@@ -50,6 +50,7 @@ type WarehouseTripsSectionProps = {
   selectedTrip: TripItem | null
   setSelectedTrip: Dispatch<SetStateAction<TripItem | null>>
   onOpenCreateTripFlow: () => void
+  onEditTrip: (trip: TripItem) => void
   onDeleteTrip: (trip: TripItem) => void
   onUnassignOrderItems?: (tripId: string, orderId: string, warehouseId: string, itemIds: string[]) => void
   availableOrders: Array<{
@@ -75,6 +76,7 @@ export function WarehouseTripsSection({
   onUnassignOrderItems,
   setSelectedTrip,
   onOpenCreateTripFlow,
+  onEditTrip,
   onDeleteTrip,
   availableOrders,
   onEditTripDropPoints,
@@ -555,6 +557,18 @@ export function WarehouseTripsSection({
                         }}
                       >
                         View Details
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onEditTrip(trip)
+                        }}
+                        title="Edit trip"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="outline"

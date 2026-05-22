@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Loader2, MapPin, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, Loader2, MapPin, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -33,10 +33,6 @@ export function CustomerAddressDialog(props: any) {
     setShippingName,
     shippingPhone,
     setShippingPhone,
-    addressSearch,
-    isSearchingAddress,
-    searchAddressInNegrosOccidental,
-    addressSearchResults,
     handlePinnedLocation,
     shippingHouseNumber,
     shippingStreetName,
@@ -105,71 +101,46 @@ export function CustomerAddressDialog(props: any) {
             <div className="space-y-2">
               <Label>Phone number</Label>
               <Input
-                className={`h-11 rounded-xl border-slate-200 bg-white ${shippingPhone && !isValidPhilippinePhone(shippingPhone) ? 'border-red-300 focus-visible:ring-red-400' : 'focus-visible:ring-slate-400'}`}
+                className="h-11 rounded-xl border-slate-200 bg-white focus-visible:ring-slate-400"
                 placeholder="09XX XXX XXXX or 639XX XXX XXXX"
                 maxLength={13}
+                required
                 value={shippingPhone}
-                onChange={(e) => setShippingPhone(formatPhilippinePhoneInput(e.target.value))}
+                onChange={(e) => {
+                  const next = formatPhilippinePhoneInput(e.target.value)
+                  setShippingPhone(next)
+                  e.currentTarget.setCustomValidity('')
+                }}
+                onInvalid={(e) => {
+                  const el = e.currentTarget
+                  const value = String(el.value || '').trim()
+                  if (!value) {
+                    el.setCustomValidity('Please enter a Philippine mobile number.')
+                    return
+                  }
+                  if (!isValidPhilippinePhone(value)) {
+                    el.setCustomValidity('Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567).')
+                    return
+                  }
+                  el.setCustomValidity('')
+                }}
+                onBlur={(e) => {
+                  const el = e.currentTarget
+                  const value = String(el.value || '').trim()
+                  if (!value || isValidPhilippinePhone(value)) {
+                    el.setCustomValidity('')
+                    return
+                  }
+                  el.setCustomValidity('Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567).')
+                  el.reportValidity()
+                }}
               />
-              {shippingPhone && shippingPhone.length > 0 && !isValidPhilippinePhone(shippingPhone) && (
-                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
-              )}
             </div>
 
             <div className="space-y-2">
               <Label>Address</Label>
               <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
-                <p className="text-xs text-slate-500">Fill up manually, or use Search Address, or pin on the map.</p>
-
-                <div className="space-y-2">
-                  <Label className="text-xs text-slate-600">Search Address (Alternative)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Search street, barangay, or city in Negros Occidental"
-                      value={addressSearch}
-                      onChange={(e) => setAddressSearch(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          searchAddressInNegrosOccidental()
-                        }
-                      }}
-                    />
-                    <Button type="button" variant="outline" onClick={searchAddressInNegrosOccidental} disabled={isSearchingAddress}>
-                      {isSearchingAddress ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  {addressSearchResults.length > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-sm font-medium text-slate-500">Nearby locations</p>
-                      <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
-                        {addressSearchResults.map((item: any, index: number) => {
-                          const parts = item.displayName.split(',')
-                          const title = parts[0]?.trim() || 'Address result'
-                          const subtitle = parts.slice(1).join(',').trim()
-                          return (
-                            <button
-                              key={`${item.latitude}-${item.longitude}-${index}`}
-                              type="button"
-                              className="w-full text-left flex items-start gap-3"
-                              onClick={() => {
-                                setAddressSearch(title)
-                                setAddressSearchResults([])
-                                void handlePinnedLocation(item.latitude, item.longitude)
-                              }}
-                            >
-                              <MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />
-                              <span className="block">
-                                <span className="block text-sm font-semibold text-slate-900">{title}</span>
-                                <span className="block text-sm text-slate-500">{subtitle}</span>
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <p className="text-xs text-slate-500">Fill up manually, or pin on the map.</p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">

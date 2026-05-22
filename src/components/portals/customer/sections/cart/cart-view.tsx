@@ -98,7 +98,9 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                         />
                         <div className="min-w-0 flex-1 space-y-1">
                           <p className="truncate text-[1.05rem] font-semibold text-slate-900">{item.name}</p>
-                          <p className="inline-block max-w-full truncate rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">{item.unit}</p>
+                          <p className="inline-block max-w-full truncate rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+                            Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}
+                          </p>
                           <p className="text-[2rem] font-bold leading-none text-emerald-700">{formatPeso(item.unitPrice)}</p>
                           <div className="pt-0.5">
                             <div className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50/80 px-1">

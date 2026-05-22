@@ -4,10 +4,6 @@ export function isValidPhilippinePhone(phone: string): boolean {
 }
 
 export function formatPhilippinePhoneInput(value: string): string {
-  let cleaned = String(value || "").replace(/\D/g, "")
-  if (cleaned.length > 12) cleaned = cleaned.slice(0, 12)
-  if (cleaned.length >= 2 && !cleaned.startsWith("09") && !cleaned.startsWith("63")) {
-    cleaned = "09" + cleaned.slice(0, 9)
-  }
-  return cleaned
+  const cleaned = String(value || "").replace(/\D/g, "")
+  return cleaned.slice(0, 12)
 }

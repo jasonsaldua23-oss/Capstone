@@ -288,6 +288,7 @@ interface WarehouseOrderItem {
 interface WarehouseTripItem {
   id: string
   tripNumber: string
+  tripSchedule?: string | null
   warehouseId?: string
   warehouse?: {
     id?: string
@@ -298,11 +299,14 @@ interface WarehouseTripItem {
   totalDropPoints?: number
   completedDropPoints?: number
   driver?: {
+    id?: string
+    name?: string
     user?: {
       name?: string
     }
   }
   vehicle?: {
+    id?: string
     licensePlate?: string
   }
   dropPoints?: Array<{
@@ -384,6 +388,7 @@ interface RoutePlanOrderItem {
   sequence: number
   distanceKm: number | null
   status: string
+  currentTripOrder?: boolean
 }
 
 interface RoutePlanCityGroup {
@@ -391,6 +396,16 @@ interface RoutePlanCityGroup {
   orderCount: number
   totalDistanceKm: number
   orders: RoutePlanOrderItem[]
+}
+
+interface TripEditorState {
+  tripId: string
+  tripNumber: string
+  originalOrderIds: string[]
+  originalDriverId: string
+  originalVehicleId: string
+  driverName: string
+  vehiclePlate: string
 }
 
 interface SavedRouteDraft {
@@ -554,6 +569,7 @@ export function WarehousePortal() {
   const [trackingDate, setTrackingDate] = useState(() => formatDayKey(new Date()))
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
+  const [editingTripState, setEditingTripState] = useState<TripEditorState | null>(null)
   const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('inventory')
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [loadingWarehouses, setLoadingWarehouses] = useState(true)
@@ -919,9 +935,16 @@ export function WarehousePortal() {
 
     try {
       const response = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' })
-      const data = await response.json().catch(() => ({}))
+      const raw = await response.text()
+      let data: any = {}
+      try {
+        data = raw ? JSON.parse(raw) : {}
+      } catch {
+        data = {}
+      }
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to delete trip')
+        const fallbackText = String(raw || '').trim()
+        throw new Error(data?.error || fallbackText || 'Failed to delete trip')
       }
 
       setSelectedTrip((current) => (current?.id === trip.id ? null : current))
@@ -964,24 +987,24 @@ export function WarehousePortal() {
   }
 
   useEffect(() => {
-    if (createRouteOpen && warehouses.length > 0) {
+    if (createRouteOpen && warehouses.length > 0 && !editingTripState) {
       const effectiveWarehouseId = routeWarehouseId || warehouses[0].id
       const effectiveDate = routeDate || getDefaultRouteDate()
       if (!routeWarehouseId) setRouteWarehouseId(effectiveWarehouseId)
       if (!routeDate) setRouteDate(effectiveDate)
       void createRoutePlan(true, effectiveDate, effectiveWarehouseId)
     }
-  }, [createRouteOpen, warehouses])
+  }, [createRouteOpen, warehouses, editingTripState, routeWarehouseId, routeDate])
 
   useEffect(() => {
     if (routePlans.length > 0 && selectedRouteCity === '') {
       const firstGroup = routePlans[0]
       if (firstGroup) {
         setSelectedRouteCity(firstGroup.city)
-        setSelectedRouteOrderIds([])
+        setSelectedRouteOrderIds(editingTripState ? editingTripState.originalOrderIds : [])
       }
     }
-  }, [routePlans])
+  }, [routePlans, selectedRouteCity, editingTripState])
 
   const scopedTrips = useMemo(() => trips, [trips])
 
@@ -2372,25 +2395,107 @@ export function WarehousePortal() {
     }
   }
 
+  const getEditingTripSnapshot = (tripId?: string | null) => {
+    const normalizedTripId = String(tripId || editingTripState?.tripId || '').trim()
+    if (!normalizedTripId) return null
+    return trips.find((trip) => String(trip?.id || '').trim() === normalizedTripId) || null
+  }
+
+  const buildTripEditorOrder = (point: any) => {
+    const order = point?.order || {}
+    const items = Array.isArray(order?.items) ? order.items : []
+    const productSummary = items
+      .map((item: any) => String(item?.product?.name || item?.productName || item?.name || '').trim())
+      .filter(Boolean)
+      .join(', ')
+
+    return {
+      id: String(point?.orderId || order?.id || '').trim(),
+      orderNumber: String(point?.orderNumber || order?.orderNumber || '').trim() || 'Order',
+      city: String(order?.shippingCity || point?.city || '').trim() || 'Unassigned City',
+      customerName: String(order?.shippingName || order?.customer?.name || point?.locationName || '').trim() || 'Customer',
+      address: String(order?.shippingAddress || point?.address || '').trim(),
+      products: productSummary || undefined,
+      latitude: point?.latitude ?? order?.shippingLatitude ?? null,
+      longitude: point?.longitude ?? order?.shippingLongitude ?? null,
+      sequence: Number(point?.sequence || 0),
+      distanceKm: null,
+      status: String(point?.orderStatus || order?.status || point?.status || 'PENDING').trim() || 'PENDING',
+      currentTripOrder: true,
+    }
+  }
+
+  const mergeRoutePlansWithTripOrders = (
+    inputPlans: RoutePlanCityGroup[],
+    tripIdOverride?: string | null
+  ): RoutePlanCityGroup[] => {
+    const editingTrip = getEditingTripSnapshot(tripIdOverride)
+    if (!editingTrip) return inputPlans
+
+    const groupedPlans = new Map<string, RoutePlanCityGroup>()
+    inputPlans.forEach((group) => {
+      groupedPlans.set(group.city, {
+        ...group,
+        orders: Array.isArray(group.orders) ? [...group.orders] : [],
+      })
+    })
+
+    ;(Array.isArray(editingTrip?.dropPoints) ? editingTrip.dropPoints : []).forEach((point: any) => {
+      const tripOrder = buildTripEditorOrder(point)
+      if (!tripOrder.id) return
+
+      const cityKey = String(tripOrder.city || 'Unassigned City').trim() || 'Unassigned City'
+      const existingGroup = groupedPlans.get(cityKey) || {
+        city: cityKey,
+        orderCount: 0,
+        totalDistanceKm: 0,
+        orders: [],
+      }
+      const existingOrderIndex = existingGroup.orders.findIndex((order) => String(order?.id || '').trim() === tripOrder.id)
+      if (existingOrderIndex >= 0) {
+        const existingOrder = existingGroup.orders[existingOrderIndex] as any
+        existingGroup.orders[existingOrderIndex] = {
+          ...existingOrder,
+          ...tripOrder,
+          currentTripOrder: true,
+          sequence: Number(point?.sequence || tripOrder.sequence || existingOrder?.sequence || 0),
+        } as RoutePlanOrderItem
+      } else {
+        existingGroup.orders = [...existingGroup.orders, tripOrder as RoutePlanOrderItem]
+      }
+
+      existingGroup.orders.sort((left: any, right: any) => Number(left?.sequence || 0) - Number(right?.sequence || 0))
+      existingGroup.orderCount = existingGroup.orders.length
+      groupedPlans.set(cityKey, existingGroup)
+    })
+
+    return Array.from(groupedPlans.values()).sort((left, right) => left.city.localeCompare(right.city))
+  }
+
   const createRoutePlan = async (silent = false, inputDate?: string, inputWarehouseId?: string) => {
     const effectiveDate = inputDate ?? routeDate
     const effectiveWarehouseId = inputWarehouseId ?? routeWarehouseId
+    const preservedTripOrderIds = editingTripState
+      ? Array.from(new Set(
+          (selectedRouteOrderIds.length > 0 ? selectedRouteOrderIds : editingTripState.originalOrderIds).filter(Boolean)
+        ))
+      : []
     if (!effectiveDate || !effectiveWarehouseId) {
       if (!silent) toast.error('Select route date and warehouse')
       setRoutePlanMessage({ type: 'error', text: 'Select route date and warehouse first.' })
-      return false
+      return null
     }
     if (isBeforeTodayDayKey(effectiveDate)) {
       const message = 'Delivery date cannot be before today'
       if (!silent) toast.error(message)
       setRoutePlanMessage({ type: 'error', text: message })
-      return false
+      return null
     }
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
     setRoutePlans([])
     setSelectedRouteCity('')
-    setSelectedRouteOrderIds([])
+    setSelectedRouteOrderIds(editingTripState ? preservedTripOrderIds : [])
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 20000)
     try {
@@ -2407,7 +2512,7 @@ export function WarehousePortal() {
       }
 
       const rawPlans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
-      const plans = rawPlans
+      const eligiblePlans = rawPlans
         .map((group: any) => ({
           ...group,
           orders: (Array.isArray(group?.orders) ? group.orders : []).filter(
@@ -2415,19 +2520,30 @@ export function WarehousePortal() {
           ),
         }))
         .filter((group: any) => (Array.isArray(group?.orders) ? group.orders.length : 0) > 0)
+      const plans = mergeRoutePlansWithTripOrders(eligiblePlans)
       setRoutePlans(plans)
-      setSelectedRouteCity(plans[0]?.city || '')
-      setSelectedRouteOrderIds([])
-      if (plans.length === 0) {
+      setSelectedRouteCity((current) => {
+        if (current && plans.some((group) => group.city === current)) return current
+        const matchingGroup = plans.find((group) =>
+          group.orders.some((order: any) => preservedTripOrderIds.includes(String(order?.id || '').trim()))
+        )
+        return matchingGroup?.city || plans[0]?.city || ''
+      })
+      setSelectedRouteOrderIds(editingTripState ? preservedTripOrderIds : [])
+      if (eligiblePlans.length === 0 && !editingTripState) {
         setRoutePlanMessage({
           type: 'info',
           text: 'No eligible orders found for that delivery date.',
         })
       } else {
-        setRoutePlanMessage({ type: 'success', text: `Found ${plans.length} city group(s) for this delivery date.` })
+        const baseMessage =
+          eligiblePlans.length === 0 && editingTripState
+            ? 'Loaded the current trip contents. No additional eligible orders were found for this delivery date.'
+            : `Found ${plans.length} city group(s) for this delivery date.`
+        setRoutePlanMessage({ type: 'success', text: baseMessage })
         if (!silent) toast.success('Filtered scheduled orders by city')
       }
-      return plans.length > 0
+      return plans
     } catch (error: any) {
       const message =
         error?.name === 'AbortError' ? 'Request timed out. Please try again.' : error?.message || 'Failed to generate route plan'
@@ -2435,8 +2551,8 @@ export function WarehousePortal() {
       setRoutePlanMessage({ type: 'error', text: message })
       setRoutePlans([])
       setSelectedRouteCity('')
-      setSelectedRouteOrderIds([])
-      return false
+      setSelectedRouteOrderIds(editingTripState ? preservedTripOrderIds : [])
+      return null
     } finally {
       clearTimeout(timeout)
       setLoadingRoutePlans(false)
@@ -2450,6 +2566,10 @@ export function WarehousePortal() {
       if (!belongsToCity) return [orderId]
       if (prev.includes(orderId)) {
         const next = prev.filter((id) => id !== orderId)
+        if (editingTripState && prev.length === 1) {
+          toast.error('A trip must keep at least one drop point')
+          return prev
+        }
         return next.length > 0 ? next : [orderId]
       }
       return [...prev, orderId]
@@ -2474,16 +2594,18 @@ export function WarehousePortal() {
 
   const editTripDropPoints = async (
     trip: WarehouseTripItem,
-    changes: { addOrderIds?: string[]; removeDropPointIds?: string[]; assignWarehouseLegs?: boolean; assignWarehouseId?: string }
+    changes: { addOrderIds?: string[]; removeDropPointIds?: string[]; assignWarehouseLegs?: boolean; assignWarehouseId?: string; driverId?: string; vehicleId?: string }
   ) => {
     const addOrderIds = (changes.addOrderIds || []).filter(Boolean)
     const removeDropPointIds = (changes.removeDropPointIds || []).filter(Boolean)
     const assignWarehouseLegs = Boolean(changes.assignWarehouseLegs)
     const assignWarehouseId = String(changes.assignWarehouseId || '').trim()
-    if (addOrderIds.length === 0 && removeDropPointIds.length === 0 && !assignWarehouseLegs) return
+    const driverId = String(changes.driverId || '').trim()
+    const vehicleId = String(changes.vehicleId || '').trim()
+    if (addOrderIds.length === 0 && removeDropPointIds.length === 0 && !assignWarehouseLegs && !driverId && !vehicleId) return false
     if (String(trip.status || '').toUpperCase() !== 'PLANNED') {
       toast.error('Only planned trips can be edited')
-      return
+      return false
     }
 
     setEditingTripId(trip.id)
@@ -2491,7 +2613,7 @@ export function WarehousePortal() {
       const response = await fetch(`/api/trips/${trip.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addOrderIds, removeDropPointIds, assignWarehouseLegs, assignWarehouseId }),
+        body: JSON.stringify({ addOrderIds, removeDropPointIds, assignWarehouseLegs, assignWarehouseId, driverId, vehicleId }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -2505,8 +2627,10 @@ export function WarehousePortal() {
       await fetchOrdersData({ showLoading: false, silent: true })
       emitDataSync(['trips', 'orders'])
       toast.success('Trip updated')
+      return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update trip')
+      return false
     } finally {
       setEditingTripId(null)
     }
@@ -2681,6 +2805,67 @@ export function WarehousePortal() {
     } finally {
       setCreatingTripFromRoute(false)
     }
+  }
+
+  const saveTripEditsFromCurrentRoutePlan = async () => {
+    if (!editingTripState) return
+
+    const editingTrip = getEditingTripSnapshot(editingTripState.tripId)
+    if (!editingTrip) {
+      toast.error('Trip not found')
+      return
+    }
+    if (String(editingTrip.status || '').toUpperCase() !== 'PLANNED') {
+      toast.error('Only planned trips can be edited')
+      return
+    }
+
+    const desiredOrderIds = Array.from(
+      new Set(selectedRouteOrderIds.map((orderId) => String(orderId || '').trim()).filter(Boolean))
+    )
+    const effectiveSelectedDriverId = String(selectedRouteDriverId || editingTripState.originalDriverId || '').trim()
+    const originalOrderIdSet = new Set(
+      editingTripState.originalOrderIds.map((orderId) => String(orderId || '').trim()).filter(Boolean)
+    )
+    const desiredOrderIdSet = new Set(desiredOrderIds)
+    const addOrderIds = desiredOrderIds.filter((orderId) => !originalOrderIdSet.has(orderId))
+    const removeDropPointIds = (Array.isArray(editingTrip.dropPoints) ? editingTrip.dropPoints : [])
+      .filter((point: any) => {
+        const orderId = String(point?.orderId || point?.order?.id || '').trim()
+        return orderId && !desiredOrderIdSet.has(orderId)
+      })
+      .map((point: any) => String(point?.id || '').trim())
+      .filter(Boolean)
+    const driverChanged = Boolean(
+      effectiveSelectedDriverId &&
+      effectiveSelectedDriverId !== String(editingTripState.originalDriverId || '').trim()
+    )
+
+    if (!effectiveSelectedDriverId) {
+      toast.error('Select a driver')
+      return
+    }
+    if (driverChanged && !selectedDriverAssignedVehicle?.id) {
+      toast.error('Selected driver has no assigned vehicle')
+      return
+    }
+
+    if (addOrderIds.length === 0 && removeDropPointIds.length === 0 && !driverChanged) {
+      setCreateRouteOpen(false)
+      setEditingTripState(null)
+      toast.success('Trip already matches the selected settings')
+      return
+    }
+
+    const updated = await editTripDropPoints(editingTrip, {
+      addOrderIds,
+      removeDropPointIds,
+      driverId: driverChanged ? effectiveSelectedDriverId : undefined,
+      vehicleId: driverChanged ? String(selectedDriverAssignedVehicle?.id || '').trim() : undefined,
+    })
+    if (!updated) return
+    setCreateRouteOpen(false)
+    setEditingTripState(null)
   }
 
   useEffect(() => {
@@ -3335,6 +3520,67 @@ export function WarehousePortal() {
     }
   }
 
+  const openTripEditorInCreateDialog = async (trip: WarehouseTripItem) => {
+    const tripStatus = String(trip?.status || '').toUpperCase()
+    if (tripStatus !== 'PLANNED') {
+      toast.error('Only planned trips can be edited')
+      return
+    }
+    const dateValue = String(trip?.tripSchedule || routeDate || getDefaultRouteDate()).slice(0, 10)
+    const warehouseValue = String(trip?.warehouseId || routeWarehouseId || assignedWarehouse?.id || '').trim()
+    if (!dateValue || !warehouseValue) {
+      toast.error('Trip is missing schedule date or warehouse')
+      return
+    }
+    const tripOrderIds = Array.from(
+      new Set(
+        (Array.isArray(trip?.dropPoints) ? trip.dropPoints : [])
+          .map((point: any) => String(point?.orderId || point?.order?.id || '').trim())
+          .filter(Boolean)
+      )
+    )
+
+    setEditingTripState({
+      tripId: trip.id,
+      tripNumber: trip.tripNumber,
+      originalOrderIds: tripOrderIds,
+      originalDriverId: String(trip?.driver?.id || '').trim(),
+      originalVehicleId: String(trip?.vehicle?.id || '').trim(),
+      driverName: String(trip?.driver?.user?.name || trip?.driver?.name || 'Unassigned').trim() || 'Unassigned',
+      vehiclePlate: String(trip?.vehicle?.licensePlate || 'No assigned vehicle').trim() || 'No assigned vehicle',
+    })
+    setSelectedRouteDriverId(String(trip?.driver?.id || '').trim())
+    setSelectedRouteOrderIds(tripOrderIds)
+    setCreateRouteOpen(true)
+    setRouteDate(dateValue)
+    setRouteWarehouseId(warehouseValue)
+    const plans = await createRoutePlan(true, dateValue, warehouseValue)
+    const planGroups = mergeRoutePlansWithTripOrders(Array.isArray(plans) ? plans : [], trip.id)
+    setRoutePlans(planGroups)
+    if (planGroups.length === 0) return
+
+    let bestCity = String(planGroups[0]?.city || '')
+    let bestMatchCount = 0
+    for (const group of planGroups) {
+      const groupOrderIds = (Array.isArray(group?.orders) ? group.orders : [])
+        .map((order: any) => String(order?.id || '').trim())
+        .filter(Boolean)
+      const matched = groupOrderIds.filter((id: string) => tripOrderIds.includes(id))
+      if (matched.length > bestMatchCount) {
+        bestCity = String(group?.city || bestCity)
+        bestMatchCount = matched.length
+      }
+    }
+
+    setSelectedRouteCity(bestCity)
+    setSelectedRouteOrderIds(tripOrderIds)
+  }
+
+  const formatAllocatedQtyLabel = (order: any, allocatedQty: number, totalQty: number) => {
+    const summary = deriveOrderFulfillmentSummary(order)
+    return summary.totalLegs > 1 ? `${allocatedQty} / ${totalQty}` : `${allocatedQty}`
+  }
+
   const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null, notes?: string | null) => {
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING APPROVAL'
@@ -3920,6 +4166,9 @@ export function WarehousePortal() {
               selectedTrip={selectedTrip}
               setSelectedTrip={setSelectedTrip}
               onOpenCreateTripFlow={() => setCreateRouteOpen(true)}
+              onEditTrip={(trip) => {
+                void openTripEditorInCreateDialog(trip as WarehouseTripItem)
+              }}
               onDeleteTrip={(trip) => {
                 void deleteTrip(trip)
               }}
@@ -4167,6 +4416,7 @@ export function WarehousePortal() {
         onOpenChange={(open) => {
           setCreateRouteOpen(open)
           if (!open) {
+            setEditingTripState(null)
             setRoutePlans([])
             setSelectedRouteCity('')
             setSelectedRouteOrderIds([])
@@ -4176,18 +4426,21 @@ export function WarehousePortal() {
       >
         <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
           <DialogHeader>
-            <DialogTitle className="sr-only">Create Trip</DialogTitle>
+            <DialogTitle className="sr-only">{editingTripState ? 'Edit Trip' : 'Create Trip'}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-row w-full h-full">
             <div className="flex flex-col bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
-              <h2 className="mb-2 text-lg font-bold">Create Trip</h2>
+              <h2 className="mb-2 text-lg font-bold">{editingTripState ? `Edit ${editingTripState.tripNumber}` : 'Create Trip'}</h2>
               <div className="mb-2">
-                <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">Delivery Date</label>
+                <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">
+                  {editingTripState ? 'Trip Delivery Date' : 'Delivery Date'}
+                </label>
                 <Input
                   id="popup-route-date"
                   type="date"
                   value={routeDate}
                   min={getLocalTodayDayKey()}
+                  disabled={Boolean(editingTripState)}
                   onChange={(e) => {
                     const nextDate = e.target.value
                     setRouteDate(nextDate)
@@ -4200,7 +4453,7 @@ export function WarehousePortal() {
               </div>
               <Button className="mt-1 mb-2 h-9 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
-                Filter Orders
+                {editingTripState ? 'Refresh Orders' : 'Filter Orders'}
               </Button>
 
               {routePlanMessage && (
@@ -4213,7 +4466,7 @@ export function WarehousePortal() {
                 <h3 className="mb-1.5 text-base font-semibold">Orders by City</h3>
                 {routePlans.length === 0 ? (
                   <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
-                    {loadingRoutePlans ? 'Loading orders...' : 'Pick a delivery date and warehouse to view orders by city'}
+                    {loadingRoutePlans ? 'Loading orders...' : editingTripState ? 'No trip orders are available to edit right now' : 'Pick a delivery date and warehouse to view orders by city'}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -4253,6 +4506,9 @@ export function WarehousePortal() {
                                     {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
                                   </span>
                                   <span className="truncate">{order.orderNumber || order.id}</span>
+                                  {(order as any)?.currentTripOrder ? (
+                                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
+                                  ) : null}
                                   {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
                                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
                                   ) : null}
@@ -4266,15 +4522,11 @@ export function WarehousePortal() {
                                         className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
                                       >
                                         {String(line?.productName || 'Product')}
-                                        {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                        {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {formatAllocatedQtyLabel(order, Number(line?.allocatedQtyForSelectedWarehouse || 0), Number(line?.totalQty || 0))}
                                       </div>
                                     ))}
                                   </div>
-                                ) : (
-                                  <div className={`text-[10px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                    Allocated: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
-                                  </div>
-                                )}
+                                ) : null}
                               </button>
                             ))}
                           </div>
@@ -4285,46 +4537,91 @@ export function WarehousePortal() {
                 )}
               </div>
               <div className="mt-1 space-y-1">
-                <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
-                <select
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  title="Assign Driver"
-                  value={selectedRouteDriverId}
-                  onChange={(e) => setSelectedRouteDriverId(e.target.value)}
-                >
-                  <option value="">Select driver</option>
-                  {drivers.map((driver) => (
-                    <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
-                      {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  readOnly
-                  className="h-8 text-xs"
-                  value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
-                />
-                {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
-                  <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
-                ) : null}
+                {editingTripState ? (
+                  <>
+                    <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
+                    <select
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      title="Assign Driver"
+                      value={selectedRouteDriverId}
+                      onChange={(e) => setSelectedRouteDriverId(e.target.value)}
+                    >
+                      <option value="">Select driver</option>
+                      {drivers.map((driver) => (
+                        <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
+                          {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      readOnly
+                      className="h-8 text-xs"
+                      value={selectedDriverAssignedVehicle?.licensePlate || editingTripState.vehiclePlate}
+                    />
+                    {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId !== editingTripState.originalDriverId ? (
+                      <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                    ) : null}
+                    <p className="text-[11px] text-gray-500">This edit updates the trip orders and driver assignment.</p>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
+                    <select
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      title="Assign Driver"
+                      value={selectedRouteDriverId}
+                      onChange={(e) => setSelectedRouteDriverId(e.target.value)}
+                    >
+                      <option value="">Select driver</option>
+                      {drivers.map((driver) => (
+                        <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
+                          {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      readOnly
+                      className="h-8 text-xs"
+                      value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
+                    />
+                    {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
+                      <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                    ) : null}
+                  </>
+                )}
                 <Button
                   className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
-                    void createTripFromCurrentRoutePlan()
+                    if (editingTripState) {
+                      void saveTripEditsFromCurrentRoutePlan()
+                    } else {
+                      void createTripFromCurrentRoutePlan()
+                    }
                   }}
                   disabled={
                     creatingTripFromRoute ||
                     loadingRoutePlans ||
                     !routeDate ||
                     !routeWarehouseId ||
-                    !selectedRouteCity ||
-                    selectedRouteOrderIds.length === 0 ||
-                    !selectedRouteDriverId ||
-                    !selectedDriverAssignedVehicle?.id
+                    (editingTripState
+                      ? (
+                          editingTripId === editingTripState.tripId ||
+                          !String(selectedRouteDriverId || editingTripState.originalDriverId || '').trim() ||
+                          (
+                            String(selectedRouteDriverId || editingTripState.originalDriverId || '').trim() !== String(editingTripState.originalDriverId || '').trim() &&
+                            !selectedDriverAssignedVehicle?.id
+                          )
+                        )
+                      : (
+                          !selectedRouteCity ||
+                          selectedRouteOrderIds.length === 0 ||
+                          !selectedRouteDriverId ||
+                          !selectedDriverAssignedVehicle?.id
+                        ))
                   }
                 >
                   {creatingTripFromRoute ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Create Trip
+                  {editingTripState ? 'Save Trip Changes' : 'Create Trip'}
                 </Button>
               </div>
             </div>
@@ -4368,6 +4665,9 @@ export function WarehousePortal() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
                                 <span>{order.customerName || order.orderNumber}</span>
+                                {(order as any)?.currentTripOrder ? (
+                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
+                                ) : null}
                                 {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
                                   <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
                                 ) : null}
@@ -4388,10 +4688,10 @@ export function WarehousePortal() {
                                       {(order as any).productAllocations.map((line: any, index: number) => (
                                         <div
                                           key={`${String(line?.itemId || index)}-map`}
-                                          className={`text-[11px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
-                                        >
-                                          {String(line?.productName || 'Product')}
-                                          {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                        className={`text-[11px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                      >
+                                        {String(line?.productName || 'Product')}
+                                          {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {formatAllocatedQtyLabel(order, Number(line?.allocatedQtyForSelectedWarehouse || 0), Number(line?.totalQty || 0))}
                                         </div>
                                       ))}
                                     </div>
@@ -4399,7 +4699,7 @@ export function WarehousePortal() {
                                 }
                                 return (
                                   <div className={`mt-0.5 text-[11px] ${Number((order as any)?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                    Allocated for this warehouse: {Number((order as any)?.allocatedQtyForSelectedWarehouse || 0)} / {Number((order as any)?.totalOrderQty || 0)}
+                                    Allocated for this warehouse: {formatAllocatedQtyLabel(order, Number((order as any)?.allocatedQtyForSelectedWarehouse || 0), Number((order as any)?.totalOrderQty || 0))}
                                   </div>
                                 )
                               })()}

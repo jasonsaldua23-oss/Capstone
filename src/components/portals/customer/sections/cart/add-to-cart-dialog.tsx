@@ -16,6 +16,13 @@ export function CustomerAddToCartDialog(props: any) {
     getAvailableQty,
     confirmAddToCart,
   } = props
+  const pendingSizeLabel = (() => {
+    const sizes = Array.isArray(pendingCartProduct?.sizes)
+      ? pendingCartProduct.sizes.map((s: any) => String(s).trim()).filter(Boolean)
+      : []
+    if (sizes.length > 0) return sizes.join(', ')
+    return String(pendingCartProduct?.sizeLabel || pendingCartProduct?.size || pendingCartProduct?.unit || '').trim() || 'case'
+  })()
 
   return (
     <Dialog
@@ -64,6 +71,7 @@ export function CustomerAddToCartDialog(props: any) {
             <p className="text-lg font-semibold text-slate-900">
               {new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(pendingCartProduct?.price || 0))}
             </p>
+            <p className="text-xs text-slate-500">Size: {pendingSizeLabel}</p>
             <p className="text-xs text-slate-500">Available: {pendingCartProduct ? getAvailableQty(pendingCartProduct) : 0}</p>
           </div>
 

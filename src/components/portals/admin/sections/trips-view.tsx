@@ -303,9 +303,16 @@ export function TripsView() {
     setIsDeletingTrip(true)
     try {
       const response = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' })
-      const data = await response.json().catch(() => ({}))
+      const raw = await response.text()
+      let data: any = {}
+      try {
+        data = raw ? JSON.parse(raw) : {}
+      } catch {
+        data = {}
+      }
       if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to delete trip')
+        const fallbackText = String(raw || '').trim()
+        throw new Error(data?.error || fallbackText || 'Failed to delete trip')
       }
 
       setSelectedTrip((current: any) => (current?.id === trip.id ? null : current))

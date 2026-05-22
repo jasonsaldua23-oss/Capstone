@@ -142,9 +142,13 @@ export function CustomerHomeView({
               {sortedProducts.map((p, index) => {
                 const availableQty = p ? getAvailableQty(p) : 0
                 const sizeLabel = p
-                  ? (Array.isArray(p.sizes) && p.sizes.length > 0
-                      ? p.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
-                      : 'N/A')
+                  ? (() => {
+                      const sizes = Array.isArray((p as any).sizes)
+                        ? (p as any).sizes.map((s: any) => String(s).trim()).filter(Boolean)
+                        : []
+                      if (sizes.length > 0) return sizes.join(', ')
+                      return String((p as any).sizeLabel || (p as any).size || '').trim() || 'N/A'
+                    })()
                   : 'N/A'
                 const quantityPerUnit = p
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
@@ -205,7 +209,7 @@ export function CustomerHomeView({
                       </div>
 
                       <div className="mt-0.5 pt-0">
-                        <p className="mb-0.5 text-[8px] font-medium text-slate-500">Quantity</p>
+                        <p className="mb-1 text-[11px] font-semibold text-slate-700 md:text-xs">Quantity</p>
                         <div className="mb-0.5 flex items-center justify-between rounded-md border border-emerald-100 bg-white px-1 py-0.5">
                           <button
                             type="button"
@@ -294,6 +298,7 @@ export function CustomerHomeView({
                     <p className="text-xs text-slate-500">
                       {item.quantity} x {formatPeso(item.unitPrice || 0)}
                     </p>
+                    <p className="text-xs text-slate-500">Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}</p>
                   </div>
                   <p className="text-sm font-semibold text-slate-900">
                     {formatPeso((item.quantity || 0) * (item.unitPrice || 0))}

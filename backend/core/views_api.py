@@ -16,6 +16,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from django.db import IntegrityError, connection, transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import F, Max, Prefetch, Q, Sum
 from django.conf import settings
 from django.core.mail import send_mail
@@ -6690,13 +6691,48 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
         remove_drop_point_ids = [str(did).strip() for did in (body.get("removeDropPointIds") or []) if str(did).strip()]
         assign_warehouse_legs = bool(body.get("assignWarehouseLegs"))
         assign_warehouse_id = str(body.get("assignWarehouseId") or "").strip()
+        requested_driver_id = str(body.get("driverId") or "").strip()
+        requested_vehicle_id = str(body.get("vehicleId") or "").strip()
+        driver_change_requested = "driverId" in body or "vehicleId" in body
+        driver_changed = False
+        next_driver = None
+        next_vehicle = None
 
-        if not add_order_ids and not remove_drop_point_ids and not assign_warehouse_legs:
+        if driver_change_requested:
+            if not requested_driver_id or not requested_vehicle_id:
+                return _err("driverId and vehicleId are required when changing the trip driver", 400)
+            try:
+                next_driver = User.objects.get(id=requested_driver_id, role=RoleType.DRIVER)
+                next_vehicle = Vehicle.objects.get(id=requested_vehicle_id)
+            except (User.DoesNotExist, Vehicle.DoesNotExist):
+                return _err("Driver or vehicle not found", 404)
+            if str(next_vehicle.driver_id or "").strip() != str(next_driver.id or "").strip():
+                return _err("Selected vehicle is not assigned to the selected driver", 400)
+            driver_changed = (
+                str(trip.driver_id or "").strip() != str(next_driver.id or "").strip()
+                or str(trip.vehicle_id or "").strip() != str(next_vehicle.id or "").strip()
+            )
+
+        if not add_order_ids and not remove_drop_point_ids and not assign_warehouse_legs and not driver_changed:
             return _err("No trip changes provided", 400)
 
         terminal_drop_point_statuses = {"COMPLETED", "FAILED", "SKIPPED", "CANCELLED"}
 
         with transaction.atomic():
+            existing_drop_points_count = TripDropPoint.objects.select_for_update().filter(trip_id=trip.id).count()
+            projected_drop_points_count = existing_drop_points_count - len(remove_drop_point_ids)
+            if add_order_ids:
+                existing_order_ids_on_trip = set(
+                    TripDropPoint.objects.filter(trip_id=trip.id).values_list("order_id", flat=True)
+                )
+                deduplicated_add_order_ids = {
+                    oid for oid in add_order_ids if oid not in existing_order_ids_on_trip
+                }
+                projected_drop_points_count += len(deduplicated_add_order_ids)
+
+            if projected_drop_points_count <= 0:
+                return _err("A trip must keep at least one drop point", 409)
+
             if remove_drop_point_ids:
                 drop_points_to_remove = list(
                     TripDropPoint.objects.select_for_update().filter(trip_id=trip.id, id__in=remove_drop_point_ids)
@@ -6831,16 +6867,30 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                 trip_id=trip.id,
                 status__in=list(terminal_drop_point_statuses),
             ).count()
+            update_fields = ["total_drop_points", "completed_drop_points", "updated_at"]
+            if driver_changed and next_driver and next_vehicle:
+                trip.driver = next_driver
+                trip.vehicle = next_vehicle
+                update_fields.extend(["driver", "vehicle"])
             trip.total_drop_points = total_drop_points
             trip.completed_drop_points = completed_drop_points
-            trip.save(update_fields=["total_drop_points", "completed_drop_points", "updated_at"])
+            trip.save(update_fields=update_fields)
 
         actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        update_summary_parts = [
+            f"+{len(add_order_ids)} added",
+            f"-{len(remove_drop_point_ids)} removed",
+        ]
+        if driver_changed and next_driver and next_vehicle:
+            next_driver_name = str(getattr(next_driver, "name", "") or "").strip() or "Driver"
+            next_vehicle_label = str(getattr(next_vehicle, "license_plate", "") or "").strip() or "vehicle"
+            update_summary_parts.append(f"driver changed to {next_driver_name} ({next_vehicle_label})")
         _create_staff_notifications(
             title="Trip updated",
             message=(
                 f"{actor_name} updated trip {trip.trip_number}: "
-                f"+{len(add_order_ids)} added, -{len(remove_drop_point_ids)} removed."
+                + ", ".join(update_summary_parts)
+                + "."
             ),
             notification_type="TRIP",
             reference_type="trip",
@@ -6853,22 +6903,27 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
         return _err("Only planned trips can be deleted", 409)
 
     trip_number = trip.trip_number
-    
-    # Explicitly delete related objects first to ensure clean deletion
-    with transaction.atomic():
-        # Delete drop points
-        TripDropPoint.objects.filter(trip_id=trip.id).delete()
-        # Delete stops
-        TripStop.objects.filter(trip_id=trip.id).delete()
-        # Delete location logs
-        LocationLog.objects.filter(trip_id=trip.id).delete()
-        # Delete inventory transactions related to this trip
-        InventoryTransaction.objects.filter(
-            reference_type="order_item_trip_assign",
-            notes__icontains=f'"tripId":"{trip.id}"'
-        ).delete()
-        # Finally delete the trip
-        trip.delete()
+
+    try:
+        # Explicitly delete related objects first to ensure clean deletion
+        with transaction.atomic():
+            # Delete drop points
+            TripDropPoint.objects.filter(trip_id=trip.id).delete()
+            # "stops" alias is backed by TripDropPoint in this codebase.
+            TripDropPoint.objects.filter(trip_id=trip.id).delete()
+            # Delete location logs
+            LocationLog.objects.filter(trip_id=trip.id).delete()
+            # Delete inventory transactions related to this trip
+            InventoryTransaction.objects.filter(
+                reference_type="order_item_trip_assign",
+                notes__icontains=f'"tripId":"{trip.id}"'
+            ).delete()
+            # Finally delete the trip
+            trip.delete()
+    except ProtectedError:
+        return _err("Trip cannot be deleted because it is referenced by protected records", 409)
+    except Exception as exc:
+        return _err(f"Trip delete failed: {str(exc)}", 500)
     
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
@@ -6894,7 +6949,8 @@ def trip_check(request: HttpRequest, trip_number: str) -> JsonResponse:
     
     # Count related objects
     drop_points_count = TripDropPoint.objects.filter(trip_id=trip.id).count()
-    stops_count = TripStop.objects.filter(trip_id=trip.id).count()
+    # "stops" alias is backed by TripDropPoint in this codebase.
+    stops_count = TripDropPoint.objects.filter(trip_id=trip.id).count()
     location_logs_count = LocationLog.objects.filter(trip_id=trip.id).count()
     
     return _ok({
