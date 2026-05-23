@@ -3,7 +3,6 @@
 export type Trip = any
 export type DropPoint = any
 export type DriverGpsLocation = any
-export type SpareReplacementLine = any
 
 // Native camera permission check response shape.
 type NativeCameraCheckResult = {
@@ -20,8 +19,6 @@ export const NEGROS_OCCIDENTAL_BOUNDS = {
   east: 123.35,
 }
 
-export const MAX_SPARE_DAMAGE_PHOTOS = 2
-export const SPARE_DAMAGE_REASON_OPTIONS = ['Broken bottles', 'Cracked containers', 'Leakages', 'Spoilage', 'Others'] as const
 // Terminal statuses are treated as "done" in progress computations.
 export const TERMINAL_DROP_POINT_STATUSES = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
 

@@ -2181,36 +2181,5 @@
     "battery": null,
     "recorded_at": "2026-04-28T08:17:15.490Z"
   }
-},
-{
-  "model": "core.replacement",
-  "pk": "ce4504be319534a56b4a1fb8d",
-  "fields": {
-    "replacement_number": "RET-2026-0001",
-    "order": "cebb3b47505154c7497b2b07a",
-    "customer_id": "c946a576c89284abf993e835c",
-    "reason": "Broken bottles",
-    "description": "Replacement fulfilled by driver spare products",
-    "status": "RESOLVED_ON_DELIVERY",
-    "requested_by": "DRIVER",
-    "replacement_mode": "SPARE_PRODUCTS_IMMEDIATE",
-    "original_order_item_id": "c6bcc8e293de84ea0b3cdabbf",
-    "replacement_product_id": "c8260867b95cf4142b2cd36dd",
-    "replacement_quantity": 7,
-    "damage_photo_url": "/uploads/damages/damage-1777725942543.jpg",
-    "damage_photo_urls": "[\"/uploads/damages/damage-1777725942543.jpg\", \"/uploads/damages/damage-1777725942531.jpg\"]",
-    "trip_id": "c4189b17ab0c745f687750b89",
-    "drop_point_id": "c971f9a2201d14e48b149f8d2",
-    "pickup_address": "",
-    "pickup_city": "",
-    "pickup_province": "",
-    "pickup_zip_code": "",
-    "pickup_completed": null,
-    "processed_at": "2026-05-02T12:45:42.569Z",
-    "processed_by": "c19dc7abd18984088a3bfe912",
-    "notes": "Immediate replacement completed by driver\nMeta: {\"outcome\": \"RESOLVED\", \"damagePhotos\": [\"/uploads/damages/damage-1777725942543.jpg\", \"/uploads/damages/damage-1777725942531.jpg\"], \"reportedAt\": \"2026-05-02T12:45:42.569819+00:00\", \"tripId\": \"c4189b17ab0c745f687750b89\", \"dropPointId\": \"c971f9a2201d14e48b149f8d2\", \"quantityToReplace\": 7, \"quantityReplaced\": 7, \"remainingQuantity\": 0, \"replacementLines\": [{\"originalOrderItemId\": \"c6bcc8e293de84ea0b3cdabbf\", \"originalProductName\": \"Mountain dew\", \"originalProductSku\": \"MOUN-CAS-330M-X5E9R\", \"replacementProductName\": \"Mountain dew\", \"replacementProductSku\": \"MOUN-CAS-330M-X5E9R\", \"quantityToReplace\": 7, \"quantityReplaced\": 7, \"remainingQuantity\": 0}]}",
-    "created_at": "2026-05-02T12:45:42.570Z",
-    "updated_at": "2026-05-02T12:45:42.570Z"
-  }
 }
 ]

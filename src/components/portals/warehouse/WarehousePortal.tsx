@@ -70,6 +70,20 @@ import {
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import {
+  buildInventoryStatusBreakdown,
+  buildSkuVelocityData,
+  buildUtilizationTrend,
+  buildWarehouseCapacitySummary,
+  buildWeeklyOrderTrendData,
+  countActiveTrips,
+  getInventoryAlertLevel,
+  getInventoryAvailableQty,
+  getInventoryThreshold,
+  isInventoryOverstocked,
+  summarizeStockHealth,
+  summarizeWarehouseDashboardOrders,
+} from '@/lib/report-metrics'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -190,7 +204,6 @@ interface WarehouseOrderItem {
   checklistItemsVerified?: boolean
   checklistQuantityVerified?: boolean
   checklistPackagingVerified?: boolean
-  checklistSpareProductsVerified?: boolean
   checklistVehicleAssigned?: boolean
   checklistDriverAssigned?: boolean
   exceptionShortLoadQty?: number | null
@@ -642,26 +655,8 @@ export function WarehousePortal() {
     }
   }, [trackingDate])
 
-  const getItemThreshold = (item: InventoryItem | null | undefined) =>
-    Math.max(
-      0,
-      Number((item as any)?.minStock ?? (item as any)?.threshold ?? (item as any)?.min_stock ?? 0) || 0
-    )
-  const isOverstockedInventoryItem = (item: InventoryItem | null | undefined) => {
-    if (!item) return false
-    const threshold = getItemThreshold(item)
-    if (threshold <= 0) return false
-    const qty = Number((item as any)?.quantity ?? 0) || 0
-    const reserved = Number((item as any)?.reservedQuantity ?? (item as any)?.reserved_quantity ?? 0) || 0
-    const available = Math.max(0, qty - reserved)
-    if (available < threshold * 3) return false
-    const lastRestockedRaw = (item as any)?.lastRestockedAt ?? (item as any)?.last_restocked_at ?? (item as any)?.updatedAt ?? (item as any)?.updated_at
-    if (!lastRestockedRaw) return false
-    const lastRestockedAt = new Date(lastRestockedRaw)
-    if (Number.isNaN(lastRestockedAt.getTime())) return false
-    const daysInOverstockMs = Date.now() - lastRestockedAt.getTime()
-    return daysInOverstockMs >= (7 * 24 * 60 * 60 * 1000)
-  }
+  const getItemThreshold = (item: InventoryItem | null | undefined) => getInventoryThreshold(item)
+  const isOverstockedInventoryItem = (item: InventoryItem | null | undefined) => isInventoryOverstocked(item)
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
@@ -1778,10 +1773,15 @@ export function WarehousePortal() {
     }
   }, [scopedReplacements])
 
-  const lowStockCount = useMemo(
-    () => scopedInventory.filter((item) => (item.quantity ?? 0) <= getItemThreshold(item)).length,
-    [scopedInventory]
-  )
+  const stockHealthSummary = useMemo(() => summarizeStockHealth(scopedInventory), [scopedInventory])
+
+  const lowStockCount = useMemo(() => stockHealthSummary.belowThreshold, [stockHealthSummary])
+
+  const activeTripCount = useMemo(() => countActiveTrips(scopedTrips), [scopedTrips])
+
+  const dashboardOrderStats = useMemo(() => summarizeWarehouseDashboardOrders(scopedOrders), [scopedOrders])
+
+  const inventoryStatusBreakdown = useMemo(() => buildInventoryStatusBreakdown(scopedInventory), [scopedInventory])
 
   const last7Days = useMemo(() => {
     return Array.from({ length: 7 }).map((_, index) => {
@@ -1796,133 +1796,37 @@ export function WarehousePortal() {
     })
   }, [])
 
-  const weeklyTrendData = useMemo(() => {
-    const thisWeekCount = new Map<string, number>()
-    const lastWeekCount = new Map<string, number>()
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    for (const order of scopedOrders) {
-      if (!order?.createdAt) continue
-      const orderDate = new Date(order.createdAt)
-      if (Number.isNaN(orderDate.getTime())) continue
-      orderDate.setHours(0, 0, 0, 0)
-      const dayDiff = Math.floor((today.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24))
-      if (dayDiff >= 0 && dayDiff <= 6) {
-        const key = formatDayKey(orderDate)
-        thisWeekCount.set(key, (thisWeekCount.get(key) || 0) + 1)
-      } else if (dayDiff >= 7 && dayDiff <= 13) {
-        const mappedDate = new Date(orderDate)
-        mappedDate.setDate(mappedDate.getDate() + 7)
-        const mappedKey = formatDayKey(mappedDate)
-        lastWeekCount.set(mappedKey, (lastWeekCount.get(mappedKey) || 0) + 1)
-      }
-    }
-
-    return last7Days.map((day) => ({
-      day: day.label,
-      thisWeek: thisWeekCount.get(day.key) || 0,
-      lastWeek: lastWeekCount.get(day.key) || 0,
-    }))
-  }, [scopedOrders, last7Days])
+  const weeklyTrendData = useMemo(() => buildWeeklyOrderTrendData(scopedOrders), [scopedOrders])
 
   const warehouseOverviewStats = useMemo(() => {
     if (!assignedWarehouse) return null
 
-    const warehouseId = assignedWarehouse.id
     const scopedBatches = stockBatches.filter((batch) =>
       warehouseMatches(batch?.inventory?.warehouse?.id, batch?.inventory?.warehouse?.name, batch?.inventory?.warehouse?.code)
     )
-
-    const usedCapacity = scopedInventory.reduce((sum, item) => sum + Math.max(Number(item.quantity || 0), 0), 0)
-    const configuredCapacity = Math.max(Number(assignedWarehouse.capacity || 0), 0)
-    const totalCapacity = configuredCapacity > 0 ? configuredCapacity : Math.max(1000, usedCapacity + 250)
-    const usagePercent = Math.min(100, Math.round((usedCapacity / totalCapacity) * 100))
-    const availableCapacity = Math.max(totalCapacity - usedCapacity, 0)
-    const lowStockItems = scopedInventory.filter((item) => (item.quantity ?? 0) <= getItemThreshold(item)).length
+    const capacitySummary = buildWarehouseCapacitySummary(assignedWarehouse, scopedInventory)
+    const lowStockItems = stockHealthSummary.belowThreshold
     const pendingOrders = scopedOrders.filter((order) =>
       ['PENDING', 'CONFIRMED', 'PREPARING', 'RESCHEDULED'].includes(String(order.status || '').toUpperCase())
     ).length
-    const inTransitTrips = scopedTrips.filter((trip) => isActiveTripStatus(trip.status)).length
+    const inTransitTrips = activeTripCount
     const openReplacements = scopedReplacements.filter((entry) => {
       const raw = String(entry.status || '').toUpperCase()
       const normalized = raw === 'PROCESSED' ? 'COMPLETED' : raw
       return !['RESOLVED_ON_DELIVERY', 'COMPLETED', 'REJECTED'].includes(normalized)
     }).length
-    const utilizationStatus = usagePercent >= 90 ? 'Critical' : usagePercent >= 75 ? 'High' : usagePercent >= 55 ? 'Moderate' : 'Healthy'
-    const skuVelocityData = scopedInventory
-      .map((item) => {
-        const qty = Number(item.quantity || 0)
-        const reserved = Number((item as any).reservedQuantity ?? (item as any).reserved_quantity ?? 0)
-        const minStock = getItemThreshold(item)
-        const available = Math.max(0, qty - reserved)
-        const pressure = Math.max(0, minStock - available)
-        const velocity = reserved + pressure
-        return {
-          id: item.id,
-          name: item.product?.name || item.product?.sku || 'Item',
-          sku: item.product?.sku || 'N/A',
-          velocity,
-        }
-      })
-      .sort((a, b) => b.velocity - a.velocity)
-      .slice(0, 10)
-
-    const stockHealthCounts = scopedInventory.reduce(
-      (acc, item) => {
-        const qty = Number(item.quantity || 0)
-        const reserved = Number((item as any).reservedQuantity ?? (item as any).reserved_quantity ?? 0)
-        const minStock = getItemThreshold(item)
-        const available = Math.max(0, qty - reserved)
-
-        if (minStock > 0 && available <= Math.max(1, Math.floor(minStock * 0.5))) {
-          acc.critical += 1
-        } else if (minStock > 0 && available <= minStock) {
-          acc.low += 1
-        } else if (isOverstockedInventoryItem(item)) {
-          acc.overstocked += 1
-        } else {
-          acc.healthy += 1
-        }
-        return acc
-      },
-      { healthy: 0, low: 0, critical: 0, overstocked: 0 }
-    )
+    const skuVelocityData = buildSkuVelocityData(scopedInventory)
     const stockHealthDistribution = [
-      { name: 'Healthy', value: stockHealthCounts.healthy, color: '#10b981' },
-      { name: 'Low', value: stockHealthCounts.low, color: '#f59e0b' },
-      { name: 'Critical', value: stockHealthCounts.critical, color: '#ef4444' },
-      { name: 'Overstocked', value: stockHealthCounts.overstocked, color: '#3b82f6' },
+      { name: 'Healthy', value: stockHealthSummary.healthy, color: '#10b981' },
+      { name: 'Low', value: stockHealthSummary.low, color: '#f59e0b' },
+      { name: 'Critical', value: stockHealthSummary.critical + stockHealthSummary.outOfStock, color: '#ef4444' },
+      { name: 'Overstocked', value: stockHealthSummary.overstocked, color: '#3b82f6' },
     ]
-    const relevantBatches = scopedBatches
-      .map((batch) => ({
-        quantity: Math.max(0, Number(batch.quantity || 0)),
-        date: new Date(batch.receiptDate),
-      }))
-      .filter((entry) => !Number.isNaN(entry.date.getTime()))
-
-    const utilizationTrend = Array.from({ length: 7 }).map((_, index) => {
-      const pointDate = new Date()
-      pointDate.setHours(0, 0, 0, 0)
-      pointDate.setDate(pointDate.getDate() - (6 - index))
-
-      const endOfDay = new Date(pointDate)
-      endOfDay.setHours(23, 59, 59, 999)
-
-      const additionsAfterDay = relevantBatches
-        .filter((entry) => entry.date.getTime() > endOfDay.getTime())
-        .reduce((sum, entry) => sum + entry.quantity, 0)
-
-      const estimatedUsedAtDay = Math.max(0, usedCapacity - additionsAfterDay)
-      const dayUtilization = totalCapacity > 0
-        ? Math.min(100, Number(((estimatedUsedAtDay / totalCapacity) * 100).toFixed(1)))
-        : 0
-
-      return {
-        day: pointDate.toLocaleDateString('en-US', { weekday: 'short' }),
-        utilization: dayUtilization,
-      }
-    })
+    const utilizationTrend = buildUtilizationTrend(
+      capacitySummary.usedUnits,
+      capacitySummary.totalCapacity,
+      scopedBatches,
+    )
 
     const latestBatch = scopedBatches
       .sort((a, b) => new Date(b.receiptDate).getTime() - new Date(a.receiptDate).getTime())[0]
@@ -1931,7 +1835,7 @@ export function WarehousePortal() {
       {
         id: 'capacity',
         label: 'Capacity update',
-        detail: `${usedCapacity.toLocaleString()} units stored out of ${totalCapacity.toLocaleString()} (${usagePercent}% total usage)`,
+        detail: `${capacitySummary.usedUnits.toLocaleString()} units stored out of ${capacitySummary.totalCapacity.toLocaleString()} (${capacitySummary.usagePercent}% total usage)`,
       },
       {
         id: 'stock',
@@ -1966,7 +1870,7 @@ export function WarehousePortal() {
       {
         id: 'r1',
         title: 'Capacity updated',
-        detail: `${usagePercent}% utilization (${usedCapacity.toLocaleString()} units stored).`,
+        detail: `${capacitySummary.usagePercent}% utilization (${capacitySummary.usedUnits.toLocaleString()} units stored).`,
         time: '2 mins ago',
       },
       {
@@ -1990,27 +1894,24 @@ export function WarehousePortal() {
     ]
 
     return {
-      totalCapacity,
-      usedCapacity,
-      availableCapacity,
-      usagePercent,
-      utilizationStatus,
+      totalCapacity: capacitySummary.totalCapacity,
+      usedCapacity: capacitySummary.usedUnits,
+      availableCapacity: capacitySummary.availableCapacity,
+      usagePercent: capacitySummary.usagePercent,
+      utilizationStatus: capacitySummary.utilizationStatus,
       stockItemsCount: scopedInventory.length,
       lowStockItems,
       pendingOrders,
       inTransitTrips,
       openReplacements,
-      capacityBreakdown: [
-        { name: 'Used', value: Math.max(0, usedCapacity), color: '#3b82f6' },
-        { name: 'Free', value: Math.max(0, availableCapacity), color: '#34d399' },
-      ],
+      capacityBreakdown: capacitySummary.capacityBreakdown,
       skuVelocityData,
       stockHealthDistribution,
       activities,
       utilizationTrend,
       recentActivities,
     }
-  }, [assignedWarehouse, scopedInventory, scopedOrders, scopedTrips, scopedReplacements, stockBatches])
+  }, [activeTripCount, assignedWarehouse, scopedInventory, scopedOrders, scopedReplacements, stockBatches, stockHealthSummary])
 
   const tripStatusColors: Record<string, string> = {
     PLANNED: 'bg-blue-100 text-blue-800',
@@ -3004,13 +2905,11 @@ export function WarehousePortal() {
     }
   }
 
-  const getAvailableQty = (item: InventoryItem) =>
-    Math.max(0, (item.quantity ?? 0) - Number((item as any).reservedQuantity ?? (item as any).reserved_quantity ?? 0))
+  const getAvailableQty = (item: InventoryItem) => getInventoryAvailableQty(item)
 
   const getStockStatus = (item: InventoryItem) => {
-    const qty = item.quantity ?? 0
-    const min = getItemThreshold(item)
-    return qty <= min * 1.5 ? 'restock' : 'healthy'
+    const level = getInventoryAlertLevel(item)
+    return level === 'healthy' || level === 'overstocked' ? 'healthy' : 'restock'
   }
 
   const openEditDialog = (item: InventoryItem) => {
@@ -4111,7 +4010,11 @@ export function WarehousePortal() {
             <WarehouseDashboardView
               assignedWarehouse={assignedWarehouse}
               scopedInventory={scopedInventory}
+              scopedOrders={scopedOrders}
+              dashboardOrderStats={dashboardOrderStats}
+              inventoryStatusBreakdown={inventoryStatusBreakdown}
               lowStockCount={lowStockCount}
+              activeTripCount={activeTripCount}
               pendingReplacementCases={replacementSummary.needsFollowUp}
               totalReplacementCases={replacementSummary.totalCases}
               warehouseOrdersChartConfig={warehouseOrdersChartConfig}

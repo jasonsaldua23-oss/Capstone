@@ -24,13 +24,10 @@ import {
   DriverGpsLocation,
   DropPoint,
   isNativeCapacitorApp,
-  MAX_SPARE_DAMAGE_PHOTOS,
   mergeDropPointIntoTrip,
   NEGROS_OCCIDENTAL_BOUNDS,
   NEGROS_OCCIDENTAL_CENTER,
   openNativeAppSettings,
-  SPARE_DAMAGE_REASON_OPTIONS,
-  SpareReplacementLine,
   stripPhilippinesFromAddress,
   TERMINAL_DROP_POINT_STATUSES,
   Trip,
@@ -45,7 +42,7 @@ const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMa
   ssr: false,
 })
 
-// Main driver trip detail screen: controls stop workflow, map state, camera capture, and replacement actions.
+// Main driver trip detail screen: controls stop workflow, map state, and proof-of-delivery capture.
 export function TripDetailView({
   trip,
   onBack,
@@ -76,26 +73,6 @@ export function TripDetailView({
   const [isCameraLoading, setIsCameraLoading] = useState(false)
   const [isCameraPermissionDialogOpen, setIsCameraPermissionDialogOpen] = useState(false)
   const [cameraPermissionHint, setCameraPermissionHint] = useState<string>('')
-
-  // Spare/replacement workflow state.
-  const [isSpareReplaceOpen, setIsSpareReplaceOpen] = useState(false)
-  const [isReplacementWarningOpen, setIsReplacementWarningOpen] = useState(false)
-  const [replacementTargetDropPointId, setReplacementTargetDropPointId] = useState<string | null>(null)
-  const [replacementTargetDropPointName, setReplacementTargetDropPointName] = useState('')
-  const [spareTargetDropPointId, setSpareTargetDropPointId] = useState<string | null>(null)
-  const [spareOrderItemId, setSpareOrderItemId] = useState('')
-  const [spareQuantity, setSpareQuantity] = useState('1')
-  const [spareReplacementLines, setSpareReplacementLines] = useState<SpareReplacementLine[]>([])
-  const [spareOutcome, setSpareOutcome] = useState<'RESOLVED' | 'PARTIALLY_REPLACED'>('RESOLVED')
-  const [sparePartiallyReplacedQuantity, setSparePartiallyReplacedQuantity] = useState(0)
-  const [spareFollowUpReturnId, setSpareFollowUpReturnId] = useState<string | null>(null)
-  const [spareDamageReason, setSpareDamageReason] = useState('Broken bottles')
-  const [spareOtherDamageReason, setSpareOtherDamageReason] = useState('')
-  const [spareDamagePhotoFiles, setSpareDamagePhotoFiles] = useState<File[]>([])
-  const [spareDamagePhotoPreviews, setSpareDamagePhotoPreviews] = useState<string[]>([])
-  const [isSpareReplacing, setIsSpareReplacing] = useState(false)
-  const [liveSpareByProductId, setLiveSpareByProductId] = useState<Record<string, number>>({})
-  const [spareInlineError, setSpareInlineError] = useState<{ message: string; orderItemId: string | null } | null>(null)
 
   // Failed-delivery decision flow state.
   const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
@@ -131,8 +108,6 @@ export function TripDetailView({
   const driverMarkerAnimationFrameRef = useRef<number | null>(null)
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [cameraCaptureTarget, setCameraCaptureTarget] = useState<'pod' | 'spare'>('pod')
-  const sparePhotoFileInputRef = useRef<HTMLInputElement | null>(null)
   const isMobileViewport = useIsMobile()
   // Derived drop points sorted by sequence for consistent rendering and logic.
   const sortedDropPoints = useMemo(
@@ -149,12 +124,10 @@ export function TripDetailView({
   const hasBlockingDialogOpen =
     isStartTripConfirmOpen ||
     isArriveWarningOpen ||
-    isReplacementWarningOpen ||
     isDeliveredWarningOpen ||
     isFailedDeliveryActionWarningOpen ||
     isCameraOpen ||
     isCameraPermissionDialogOpen ||
-    isSpareReplaceOpen ||
     isFailedDeliveryChoiceOpen ||
     isFailedDeliveryRescheduleOpen
 
@@ -274,119 +247,6 @@ export function TripDetailView({
     COMPLETED: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
     FAILED: 'bg-rose-100 text-rose-800 border border-rose-200',
     CANCELLED: 'bg-slate-200 text-slate-800 border border-slate-300',
-  }
-
-  // Helpers for finding replacement records attached to the active drop point.
-  const getDropPointReplacementItems = (dropPoint: DropPoint | null) => {
-    if (!dropPoint?.order) return []
-    return dropPoint.order.items || []
-  }
-
-  const getDropPointOpenReplacement = (dropPoint: DropPoint | null) => {
-    const replacements = dropPoint?.order?.replacements || []
-    const openCandidates = replacements.filter((entry) => {
-      const isClosed = Boolean(entry?.isClosed)
-      const status = String(entry?.status || '').trim().toUpperCase()
-      const remainingQty = Number((entry as any)?.remainingQuantity ?? 0)
-      const hasOpenWorkflowStatus =
-        status === 'NEEDS_FOLLOW_UP' ||
-        status === 'IN_PROGRESS' ||
-        status === 'APPROVED' ||
-        status === 'UNDER_REVIEW' ||
-        status === 'PENDING' ||
-        status === 'REPORTED'
-      return !isClosed && (remainingQty > 0 || hasOpenWorkflowStatus)
-    })
-    if (openCandidates.length === 0) return null
-    return openCandidates
-      .slice()
-      .sort((a: any, b: any) => {
-        const aTime = new Date(String(a?.processedAt || a?.createdAt || a?.reportedAt || 0)).getTime()
-        const bTime = new Date(String(b?.processedAt || b?.createdAt || b?.reportedAt || 0)).getTime()
-        return bTime - aTime
-      })[0] || null
-  }
-
-  const isScheduledFollowUpReplacement = (entry: any) => {
-    const mode = String(entry?.replacementMode || entry?.replacement_mode || '').trim().toUpperCase()
-    const status = String(entry?.status || '').trim().toUpperCase()
-    return mode === 'SPARE_PRODUCTS_PARTIAL' && (status === 'NEEDS_FOLLOW_UP' || status === 'IN_PROGRESS')
-  }
-
-  const getDropPointBlockingOpenReplacement = (dropPoint: DropPoint | null) => {
-    const open = getDropPointOpenReplacement(dropPoint)
-    if (!open) return null
-    return isScheduledFollowUpReplacement(open) ? null : open
-  }
-
-  const hasResolvedReplacementForDropPoint = (dropPoint: DropPoint | null) => {
-    const replacements = dropPoint?.order?.replacements || []
-    return replacements.some((entry: any) => {
-      const status = String(entry?.status || '').toUpperCase()
-      return Boolean(entry?.isClosed) || status === 'RESOLVED' || status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED' || isScheduledFollowUpReplacement(entry)
-    })
-  }
-
-  const getOpenReplacementQuantities = (openReplacement: any, orderedQuantity: number) => {
-    const parseMeta = () => {
-      const notes = String(openReplacement?.notes || '')
-      const markerIndex = notes.lastIndexOf('Meta:')
-      if (markerIndex < 0) return {}
-      try {
-        const parsed = JSON.parse(notes.slice(markerIndex + 'Meta:'.length).trim())
-        return parsed && typeof parsed === 'object' ? parsed : {}
-      } catch {
-        return {}
-      }
-    }
-    const meta = parseMeta() as any
-    const targetQty = Number(
-      openReplacement?.quantityToReplace
-      ?? meta?.quantityToReplace
-      ?? openReplacement?.damagedQuantity
-      ?? meta?.damagedQuantity
-      ?? orderedQuantity
-    )
-    const replacedQty = Number(
-      openReplacement?.quantityReplaced
-      ?? openReplacement?.replacementQuantity
-      ?? meta?.quantityReplaced
-      ?? 0
-    )
-    const explicitRemaining = Number(openReplacement?.remainingQuantity ?? meta?.remainingQuantity)
-    const normalizedTargetQty = Number.isFinite(targetQty) ? targetQty : orderedQuantity
-    const normalizedReplacedQty = Number.isFinite(replacedQty) ? replacedQty : 0
-    const derivedRemaining = Math.max(normalizedTargetQty - normalizedReplacedQty, 0)
-    const remainingQty = Number.isFinite(normalizedTargetQty)
-      ? derivedRemaining
-      : Number.isFinite(explicitRemaining)
-        ? Math.max(explicitRemaining, 0)
-        : 0
-    return {
-      targetQty: normalizedTargetQty,
-      replacedQty: normalizedReplacedQty,
-      remainingQty,
-    }
-  }
-
-  const getReplacementProgress = (dropPoint: DropPoint | null) => {
-    const openReplacement = getDropPointOpenReplacement(dropPoint)
-    if (!openReplacement) {
-      return {
-        openReplacement: null,
-        replacedQuantity: 0,
-        remainingQuantity: 0,
-      }
-    }
-
-    const selectedItem = getDropPointReplacementItems(dropPoint).find((item) => item.id === openReplacement.originalOrderItemId) || null
-    const orderedQuantity = Number(selectedItem?.quantity || 0)
-    const quantities = getOpenReplacementQuantities(openReplacement, orderedQuantity)
-    return {
-      openReplacement,
-      replacedQuantity: quantities.replacedQty,
-      remainingQuantity: quantities.remainingQty,
-    }
   }
 
   const formatCurrency = (amount: number) =>
@@ -554,25 +414,6 @@ export function TripDetailView({
     setIsArriveWarningOpen(true)
   }
 
-  const isReplacementDropPointOrder = (dropPoint: DropPoint | null) => {
-    const orderNumberKey = String(dropPoint?.order?.orderNumber || '').trim().toUpperCase()
-    return Boolean((dropPoint?.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
-  }
-
-  const openReplacementWarning = (dropPoint: DropPoint) => {
-    if (isReplacementDropPointOrder(dropPoint)) {
-      toast.error('You cannot request replacement for a replacement order.')
-      return
-    }
-    if (!getDropPointOpenReplacement(dropPoint) && hasResolvedReplacementForDropPoint(dropPoint)) {
-      toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
-      return
-    }
-    setReplacementTargetDropPointId(String(dropPoint.id || ''))
-    setReplacementTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
-    setIsReplacementWarningOpen(true)
-  }
-
   const openDeliveredWarning = (dropPoint: DropPoint) => {
     setDeliveredTargetDropPointId(String(dropPoint.id || ''))
     setDeliveredTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
@@ -604,14 +445,10 @@ export function TripDetailView({
     const normalizedId = String(dropPointId || '').trim()
     if (!normalizedId) return
     setPodCaptureDropPointId(normalizedId)
-    openCameraCapture('pod')
+    openCameraCapture()
   }
 
   const submitDeliveredForDropPoint = async (dropPoint: DropPoint) => {
-    if (getDropPointBlockingOpenReplacement(dropPoint)) {
-      toast.error('Resolve the remaining replacement before marking this drop point as delivered')
-      return
-    }
     const dropPointId = String(dropPoint?.id || '').trim()
     const podDraft = podDraftByDropPoint[dropPointId]
     const podImageFile = podDraft?.file || null
@@ -740,27 +577,6 @@ export function TripDetailView({
     throw new Error(errorMessage)
   }
 
-  const uploadDamageImage = async (file: File) => {
-    const preparedFile = await prepareImageForUpload(file)
-    const formData = new FormData()
-    formData.append('file', preparedFile)
-    const response = await fetch('/api/uploads/damage-image', {
-      method: 'POST',
-      body: formData,
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (response.ok && payload?.success !== false && payload?.imageUrl) {
-      return String(payload.imageUrl)
-    }
-
-    const errorMessage = String(payload?.error || 'Failed to upload damage image')
-    if (/upload storage is unavailable/i.test(errorMessage)) {
-      toast('Storage is not configured on this deployment. The image will be saved inline for this record.')
-      return toDataUrl(preparedFile)
-    }
-    throw new Error(errorMessage)
-  }
-
   // POD image input handler with per-drop-point preview generation.
   const handlePodFileChange = (dropPointId: string, file: File | null) => {
     setPodFileForDropPoint(dropPointId, file)
@@ -860,9 +676,8 @@ export function TripDetailView({
   }
 
   // Opens camera flow and requests permission when needed.
-  const openCameraCapture = (target: 'pod' | 'spare' = 'pod') => {
+  const openCameraCapture = () => {
     if (isNativeCapacitorApp()) {
-      setCameraCaptureTarget(target)
       setCapturedCameraPhoto(null)
       setCameraError(null)
       setCameraPermissionHint('')
@@ -888,16 +703,12 @@ export function TripDetailView({
           const mimeType = blob.type || 'image/jpeg'
           const ext = mimeType.includes('png') ? 'png' : 'jpg'
           const file = new File([blob], `pod-camera-${Date.now()}.${ext}`, { type: mimeType })
-          if (target === 'spare') {
-            appendSpareDamagePhotos([file])
-          } else {
-            const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
-            if (!targetDropPointId) {
-              toast.error('Select a drop point first before capturing POD')
-              return
-            }
-            handlePodFileChange(targetDropPointId, file)
+          const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
+          if (!targetDropPointId) {
+            toast.error('Select a drop point first before capturing POD')
+            return
           }
+          handlePodFileChange(targetDropPointId, file)
         } catch (error: any) {
           const message = String(error?.message || '')
           if (/cancelled|canceled|user cancelled|user canceled/i.test(message)) {
@@ -912,138 +723,15 @@ export function TripDetailView({
     void (async () => {
       const permission = await ensureWebCameraPermission()
       if (!permission.granted) {
-        if (target === 'spare') {
-          // In browsers where live camera is blocked, fall back to image picker/camera capture via file input.
-          toast.message('Live camera is unavailable. Switching to Upload Photo as fallback.')
-          sparePhotoFileInputRef.current?.click()
-          return
-        }
         handleCameraPermissionDenied(permission.reason)
         return
       }
 
-      setCameraCaptureTarget(target)
       setCapturedCameraPhoto(null)
       setCameraError(null)
       setCameraPermissionHint('')
       setIsCameraOpen(true)
     })()
-  }
-
-  // Opens spare replacement dialog preloaded with the selected drop point.
-  const openSpareReplacement = (dropPoint: DropPoint) => {
-    if (isReplacementDropPointOrder(dropPoint)) {
-      toast.error('You cannot request replacement for a replacement order.')
-      return
-    }
-    const items = getDropPointReplacementItems(dropPoint)
-    const openReplacement = getDropPointOpenReplacement(dropPoint)
-    if (!openReplacement && hasResolvedReplacementForDropPoint(dropPoint)) {
-      toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
-      return
-    }
-    const selectedItemId = openReplacement?.originalOrderItemId || items[0]?.id || ''
-    const selectedItem = items.find((item) => item.id === selectedItemId) || null
-    const openReplacementQuantities = openReplacement
-      ? getOpenReplacementQuantities(openReplacement, Number(selectedItem?.quantity || 0))
-      : null
-    const remainingQuantity = openReplacement
-      ? openReplacementQuantities?.remainingQty ?? 0
-      : items.length
-        ? 0
-        : 0
-    setSpareTargetDropPointId(dropPoint.id)
-    setSpareOrderItemId(selectedItemId)
-    setSpareQuantity(String(openReplacement ? remainingQuantity : items.length ? 1 : 0))
-    setSpareReplacementLines(openReplacement
-      ? []
-      : selectedItemId
-        ? [{ orderItemId: selectedItemId, quantityToReplace: '0', quantityReplaced: '0' }]
-        : []
-    )
-    setSpareOutcome('RESOLVED')
-    setSparePartiallyReplacedQuantity(openReplacement ? remainingQuantity : 0)
-    setSpareFollowUpReturnId(openReplacement?.id || null)
-    setSpareDamageReason('Broken bottles')
-    setSpareOtherDamageReason('')
-    setSpareDamagePhotoFiles([])
-    setSpareDamagePhotoPreviews((previous) => {
-      previous.forEach((url) => URL.revokeObjectURL(url))
-      return []
-    })
-    void refreshLiveSpareProducts()
-    setIsSpareReplaceOpen(true)
-  }
-
-  const refreshLiveSpareProducts = async () => {
-    try {
-      const response = await fetch('/api/driver/spare-products', { cache: 'no-store' })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false) return
-      const rows = Array.isArray(payload?.spareProducts) ? payload.spareProducts : []
-      const mapping: Record<string, number> = {}
-      for (const row of rows) {
-        const productId = String(row?.product?.id || row?.productId || '').trim()
-        if (!productId) continue
-        const qty = Number(row?.quantity ?? row?.onHandQuantity ?? row?.on_hand_quantity ?? 0)
-        mapping[productId] = Number.isFinite(qty) ? Math.max(0, qty) : 0
-      }
-      setLiveSpareByProductId(mapping)
-    } catch {
-      // Keep existing UI values when live spare refresh fails.
-    }
-  }
-
-  const getAvailableSpareQtyForItem = (item: any): number => {
-    const productId = String(item?.productId || item?.product?.id || '').trim()
-    if (productId && Object.prototype.hasOwnProperty.call(liveSpareByProductId, productId)) {
-      return Math.max(0, Number(liveSpareByProductId[productId] || 0))
-    }
-    return 0
-  }
-
-  const getOrderedCasesForItem = (item: any): number => Math.max(Number(item?.quantity || 0), 0)
-
-  const getPolicySpareCasesForItem = (item: any): number => {
-    const recommended = Number(item?.spareProducts?.recommendedQuantity ?? 0)
-    if (Number.isFinite(recommended) && recommended > 0) return Math.max(0, Math.floor(recommended))
-    const orderedCases = getOrderedCasesForItem(item)
-    if (orderedCases <= 0) return 0
-    return Math.max(1, Math.round(orderedCases * 0.1))
-  }
-
-  const getUsableSpareQtyForItem = (item: any): number => {
-    const availableSpareCases = getAvailableSpareQtyForItem(item)
-    const orderedCases = getOrderedCasesForItem(item)
-    const policySpareCases = getPolicySpareCasesForItem(item)
-    return Math.min(availableSpareCases, orderedCases, policySpareCases)
-  }
-
-  const getAvailableSpareBottlesForItem = (item: any, line?: any): number => {
-    const spareCases = getUsableSpareQtyForItem(item)
-    const quantityPerCase = resolveQuantityPerCase(item, line)
-    return Math.max(0, spareCases * quantityPerCase)
-  }
-
-  const resolveQuantityPerCase = (item: any, line?: any): number => {
-    const candidates = [
-      line?.quantityPerCase,
-      item?.quantityPerCase,
-      item?.quantity_per_case,
-      item?.orderItem?.quantityPerCase,
-      item?.orderItem?.quantity_per_case,
-      item?.product?.quantityPerCase,
-      item?.product?.quantity_per_case,
-      item?.product?.quantityPerUnit,
-      item?.product?.quantity_per_unit,
-    ]
-    for (const raw of candidates) {
-      const parsed = Number(raw)
-      if (Number.isFinite(parsed) && parsed > 0) {
-        return Math.max(Math.floor(parsed), 1)
-      }
-    }
-    return 1
   }
 
   // Failed-delivery modal open/close helpers.
@@ -1074,394 +762,6 @@ export function TripDetailView({
     setFailedDeliveryRescheduleDropPointId(null)
     setFailedDeliveryReceiveAgain('tomorrow')
     setFailedDeliveryOtherDate('')
-  }
-
-  // Spare damage photo helpers: set, append, clear.
-  const setSpareDamagePhotos = (files: File[]) => {
-    const limitedFiles = files.slice(0, MAX_SPARE_DAMAGE_PHOTOS)
-    setSpareDamagePhotoFiles(limitedFiles)
-    setSpareDamagePhotoPreviews((previous) => {
-      previous.forEach((url) => URL.revokeObjectURL(url))
-      return limitedFiles.map((file) => URL.createObjectURL(file))
-    })
-  }
-
-  const appendSpareDamagePhotos = (files: File[]) => {
-    const nextFiles = files.filter((file) => Boolean(file))
-    if (!nextFiles.length) return
-
-    const remainingSlots = MAX_SPARE_DAMAGE_PHOTOS - spareDamagePhotoFiles.length
-    if (remainingSlots <= 0) {
-      toast.error(`Only ${MAX_SPARE_DAMAGE_PHOTOS} damage photos are allowed`)
-      return
-    }
-
-    const filesToAdd = nextFiles.slice(0, remainingSlots)
-    if (nextFiles.length > remainingSlots) {
-      toast.error(`Only ${MAX_SPARE_DAMAGE_PHOTOS} damage photos are allowed`)
-    }
-    setSpareDamagePhotos([...spareDamagePhotoFiles, ...filesToAdd])
-  }
-
-  const clearSpareDamagePhoto = (index?: number) => {
-    if (typeof index === 'number') {
-      setSpareDamagePhotos(spareDamagePhotoFiles.filter((_, currentIndex) => currentIndex !== index))
-    } else {
-      setSpareDamagePhotos([])
-    }
-  }
-
-  // Fully resets spare replacement modal state.
-  const closeSpareReplacement = () => {
-    setIsSpareReplaceOpen(false)
-    setSpareTargetDropPointId(null)
-    setSpareOrderItemId('')
-    setSpareQuantity('1')
-    setSpareReplacementLines([])
-    setSpareOutcome('RESOLVED')
-    setSparePartiallyReplacedQuantity(0)
-    setSpareFollowUpReturnId(null)
-    setSpareDamageReason('Broken bottles')
-    setSpareOtherDamageReason('')
-    setSpareDamagePhotoFiles([])
-    setSpareDamagePhotoPreviews((previous) => {
-      previous.forEach((url) => URL.revokeObjectURL(url))
-      return []
-    })
-    setIsSpareReplacing(false)
-    setSpareInlineError(null)
-  }
-
-  useEffect(() => {
-    if (!spareInlineError) return
-    // Clear stale inline validation as soon as the user edits replacement inputs.
-    setSpareInlineError(null)
-  }, [spareReplacementLines, spareOutcome, sparePartiallyReplacedQuantity, spareDamageReason, spareOtherDamageReason, spareDamagePhotoFiles.length])
-
-  // Convenience wrapper to reuse camera flow for spare damage evidence capture.
-  const openSpareCameraCapture = () => {
-    openCameraCapture('spare')
-  }
-
-  const parseSpareReplacementError = (rawError: unknown): { message: string; orderItemId: string | null } => {
-    const text = String(rawError || '').trim()
-    if (!text) return { message: 'Failed to process replacement. Please try again.', orderItemId: null }
-
-    const spareLimitMatch = text.match(/replacement item\s*(\d+).*(?:replacement|spare) stock \((\d+)\).*(PARTIALLY_REPLACED|RESOLVED)/i)
-    if (spareLimitMatch) {
-      const itemIndex = Number(spareLimitMatch[1] || 0)
-      const spareBottles = Number(spareLimitMatch[2] || 0)
-      const line = Number.isFinite(itemIndex) && itemIndex > 0 ? spareReplacementLines[itemIndex - 1] : null
-      const orderItemId = line?.orderItemId ? String(line.orderItemId) : null
-      const itemName = line
-        ? ((trip.dropPoints || [])
-            .find((point) => point.id === spareTargetDropPointId)
-            ?.order?.items || [])
-            .find((candidate) => candidate.id === line.orderItemId)
-            ?.product?.name || `Item ${itemIndex}`
-        : `Item ${itemIndex || ''}`.trim()
-      return {
-        message: `${itemName}: quantity replaced is higher than available replacement stock (${spareBottles} bottles). Lower "replaced" quantity or switch to By Bottle.`,
-        orderItemId,
-      }
-    }
-
-    if (/replacement quantity exceeds ordered quantity/i.test(text)) {
-      return { message: 'Replaced quantity cannot be more than the ordered quantity.', orderItemId: null }
-    }
-    if (/At least one damage photo is required/i.test(text)) {
-      return { message: 'Please add at least one damage photo before submitting.', orderItemId: null }
-    }
-    if (/Invalid replacementDeliveryDate/i.test(text)) {
-      return { message: 'Invalid delivery date format. Please select a valid date and try again.', orderItemId: null }
-    }
-    if (/Failed to fetch|NetworkError|network|timeout/i.test(text)) {
-      return { message: 'Network issue while submitting replacement. Check connection and try again.', orderItemId: null }
-    }
-    return { message: text, orderItemId: null }
-  }
-
-  // Submits replacement data and updates the trip optimistically.
-  const submitSpareReplacement = async () => {
-    const targetDropPoint = (trip.dropPoints || []).find((point) => point.id === spareTargetDropPointId) || null
-    if (!targetDropPoint) {
-      toast.error('Invalid drop point for on-delivery replacement')
-      return
-    }
-    if (!spareFollowUpReturnId) {
-      await refreshLiveSpareProducts()
-    }
-    const openReplacement = getDropPointOpenReplacement(targetDropPoint)
-    if (!openReplacement && hasResolvedReplacementForDropPoint(targetDropPoint)) {
-      toast.error('Replacement already resolved for this order. You cannot submit another replacement report.')
-      return
-    }
-    const orderId = String(targetDropPoint.order?.id || '').trim()
-    if (!orderId) {
-      toast.error('Order reference is missing for this drop point')
-      return
-    }
-    const selectedItem = (targetDropPoint.order?.items || []).find((item) => item.id === spareOrderItemId) || null
-            const replacementLines = spareFollowUpReturnId
-      ? []
-      : spareReplacementLines
-          .map((line) => {
-            const item = (targetDropPoint.order?.items || []).find((candidate) => candidate.id === line.orderItemId) || null
-            const quantityPerCase = resolveQuantityPerCase(item, line)
-            const replacementCases = Math.max(Number((line as any)?.replacementCases || 0), 0)
-            const replacementBottles = Math.max(Number((line as any)?.replacementBottles ?? line.quantityToReplace ?? 0), 0)
-            const normalizedQuantityToReplace = Math.max(Number(line.quantityToReplace) || ((replacementCases * quantityPerCase) + replacementBottles), 0)
-            return {
-              item,
-              orderItemId: line.orderItemId,
-              quantityPerCase,
-              replacementCases,
-              replacementBottles,
-              quantityToReplace: normalizedQuantityToReplace,
-              quantityReplaced: spareOutcome === 'RESOLVED' ? normalizedQuantityToReplace : Number(line.quantityReplaced),
-            }
-          })
-          .filter((line) => line.item && Number(line.quantityToReplace) > 0)
-    if (spareFollowUpReturnId && spareOutcome === 'RESOLVED' && !selectedItem) {
-      toast.error('Select an item to replace')
-      return
-    }
-    if (!spareFollowUpReturnId && replacementLines.length === 0) {
-      toast.error('Select at least one damaged product')
-      return
-    }
-    for (const line of replacementLines) {
-      if (!Number.isFinite(line.quantityToReplace) || line.quantityToReplace <= 0 || !Number.isInteger(line.quantityToReplace)) {
-        toast.error('Each damaged product needs a whole quantity to replace')
-        return
-      }
-      if (!Number.isFinite(line.quantityReplaced) || line.quantityReplaced < 0 || !Number.isInteger(line.quantityReplaced)) {
-        toast.error('Each replacement quantity must be a whole number')
-        return
-      }
-      if (line.quantityReplaced > line.quantityToReplace) {
-        toast.error('Quantity replaced cannot exceed quantity to replace')
-        return
-      }
-      const orderedCases = Math.max(Number(line.item?.quantity || 0), 0)
-      const maxBottleQty = orderedCases * Math.max(Number(line.quantityPerCase || 1), 1)
-      if (line.item && line.quantityToReplace > maxBottleQty) {
-        toast.error(`${line.item.product?.name || 'Product'} quantity exceeds ordered bottle quantity`)
-        return
-      }
-      if (spareOutcome === 'RESOLVED' && line.item) {
-        const availableSpareBottles = getAvailableSpareBottlesForItem(line.item, line)
-        if (Number.isFinite(availableSpareBottles) && line.quantityToReplace > availableSpareBottles) {
-          toast.error(
-            `${line.item.product?.name || 'Product'} quantity to replace (${line.quantityToReplace}) cannot exceed replacement stock (${availableSpareBottles} bottles) in Resolved mode`
-          )
-          return
-        }
-      }
-    }
-    if (spareOutcome === 'PARTIALLY_REPLACED' && replacementLines.length > 0) {
-      let hasAtLeastOnePartialLine = false
-      let hasAtLeastOneReplacedLine = false
-      for (const line of replacementLines) {
-        if (line.quantityReplaced < line.quantityToReplace) hasAtLeastOnePartialLine = true
-        if (line.quantityReplaced > 0) hasAtLeastOneReplacedLine = true
-        const availableSpareBottles = getAvailableSpareBottlesForItem(line.item, line)
-        if (Number.isFinite(availableSpareBottles) && line.quantityReplaced > availableSpareBottles) {
-          toast.error(
-            `${line.item?.product?.name || 'Product'} quantity replaced (${line.quantityReplaced}) cannot exceed replacement stock (${availableSpareBottles} bottles) in Partially Replaced mode`
-          )
-          return
-        }
-      }
-      if (!hasAtLeastOnePartialLine) {
-        toast.error('Partially Replaced requires at least one selected line with quantity replaced less than quantity to replace')
-        return
-      }
-      if (!hasAtLeastOneReplacedLine) {
-        toast.error('Partially Replaced requires at least one selected line with quantity replaced greater than zero')
-        return
-      }
-    }
-    const replacementQuantity = Number(spareQuantity)
-    if (spareFollowUpReturnId && (!Number.isFinite(replacementQuantity) || replacementQuantity < 0 || !Number.isInteger(replacementQuantity))) {
-      toast.error('Quantity must be a whole number (0 or higher)')
-      return
-    }
-    if (spareFollowUpReturnId && spareOutcome === 'RESOLVED' && replacementQuantity <= 0) {
-      toast.error('Resolved outcome requires replacement quantity greater than zero')
-      return
-    }
-    if (spareFollowUpReturnId && spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity <= 0) {
-      toast.error('Partially Replaced requires specifying how many items were replaced')
-      return
-    }
-    if (spareFollowUpReturnId && spareOutcome === 'PARTIALLY_REPLACED' && sparePartiallyReplacedQuantity > replacementQuantity) {
-      toast.error('Partially replaced quantity cannot exceed damaged quantity')
-      return
-    }
-    if (spareFollowUpReturnId && spareOutcome !== 'RESOLVED') {
-      toast.error('Follow-up replacement must be submitted as resolved')
-      return
-    }
-    if (spareFollowUpReturnId && (!openReplacement || openReplacement.id !== spareFollowUpReturnId)) {
-      toast.error('The selected follow-up replacement is no longer available')
-      return
-    }
-    if (spareFollowUpReturnId) {
-      try {
-        const refreshedTrips = await onRefreshTrips()
-        const refreshedTrip = (refreshedTrips || []).find((entry) => String(entry?.id || '') === String(trip.id || ''))
-        const refreshedDropPoint = (refreshedTrip?.dropPoints || []).find((point) => String(point?.id || '') === String(targetDropPoint.id || ''))
-        const refreshedOpenReplacement = getDropPointOpenReplacement(refreshedDropPoint || null)
-        if (!refreshedOpenReplacement || String(refreshedOpenReplacement.id || '') !== String(spareFollowUpReturnId)) {
-          toast.error('This follow-up replacement was already resolved or changed. Please reopen it.')
-          return
-        }
-        const refreshedSelectedItem = (refreshedDropPoint?.order?.items || []).find((item) => item.id === spareOrderItemId) || null
-        const freshReplacement = getOpenReplacementQuantities(refreshedOpenReplacement, Number(refreshedSelectedItem?.quantity || 0))
-        const freshRemainingQty = Number(freshReplacement.remainingQty || 0)
-        if (Number.isFinite(freshRemainingQty) && freshRemainingQty > 0 && replacementQuantity !== freshRemainingQty) {
-          setSpareQuantity(String(freshRemainingQty))
-          if (spareOutcome === 'PARTIALLY_REPLACED') {
-            setSparePartiallyReplacedQuantity(freshRemainingQty)
-          }
-          toast.error(`Remaining quantity is now ${freshRemainingQty}. Quantity was updated, please submit again.`)
-          return
-        }
-      } catch {
-        toast.error('Unable to verify latest replacement state. Please try again.')
-        return
-      }
-    }
-    if (spareFollowUpReturnId && selectedItem) {
-      const remainingQty = getOpenReplacementQuantities(openReplacement, Number(selectedItem.quantity || 0)).remainingQty
-      if (replacementQuantity !== remainingQty) {
-        toast.error(`Follow-up replacement must use the remaining quantity of ${remainingQty}`)
-        return
-      }
-    }
-    if (spareFollowUpReturnId && selectedItem && replacementQuantity > Number(selectedItem.quantity || 0)) {
-      toast.error('Replacement quantity exceeds ordered quantity')
-      return
-    }
-    const spareReason = spareFollowUpReturnId
-      ? String((openReplacement as any)?.reason || 'Follow-up replacement').trim()
-      : (spareDamageReason === 'Others' ? spareOtherDamageReason : spareDamageReason).trim()
-    if (!spareReason) {
-      toast.error('Replacement reason is required')
-      return
-    }
-    if (!spareDamagePhotoFiles.length) {
-      toast.error('At least one damage photo is required')
-      return
-    }
-    if (spareDamagePhotoFiles.length > MAX_SPARE_DAMAGE_PHOTOS) {
-      toast.error(`Only ${MAX_SPARE_DAMAGE_PHOTOS} damage photos are allowed`)
-      return
-    }
-
-    setIsSpareReplacing(true)
-    try {
-      const damagePhotos = await Promise.all(spareDamagePhotoFiles.map((photo) => uploadDamageImage(photo)))
-      const response = await fetch('/api/driver/replacements/from-spare-products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId,
-          productId: spareFollowUpReturnId ? selectedItem?.productId : undefined,
-          tripId: trip.id,
-          dropPointId: targetDropPoint.id,
-          orderItemId: spareFollowUpReturnId ? selectedItem?.id || '' : undefined,
-          followUpReturnId: spareFollowUpReturnId || undefined,
-          quantity: spareFollowUpReturnId ? replacementQuantity : undefined,
-          items: spareFollowUpReturnId
-            ? undefined
-            : replacementLines.map((line) => ({
-                orderItemId: line.orderItemId,
-                quantityToReplace: line.quantityToReplace,
-                quantityReplaced: line.quantityReplaced,
-                replacementCases: line.replacementCases,
-                replacementBottles: line.replacementBottles,
-                quantityPerCase: line.quantityPerCase,
-              })),
-          outcome: spareOutcome,
-          partiallyReplacedQuantity: spareOutcome === 'PARTIALLY_REPLACED' ? sparePartiallyReplacedQuantity : undefined,
-          reason: spareReason,
-          damagePhoto: damagePhotos[0],
-          damagePhotos,
-        }),
-      })
-      const rawBody = await response.text()
-      let payload: any = {}
-      try {
-        payload = rawBody ? JSON.parse(rawBody) : {}
-      } catch {
-        payload = {}
-      }
-      if (!response.ok || payload?.success === false) {
-        const backendError =
-          payload?.error ||
-          payload?.message ||
-          (rawBody && rawBody.length < 300 ? rawBody : '') ||
-          `Failed to process on-delivery replacement (HTTP ${response.status})`
-        const parsedError = parseSpareReplacementError(backendError)
-        throw new Error(JSON.stringify(parsedError))
-      }
-      const remainingSpareProducts = Number(payload?.remainingSpareProducts ?? 0)
-      toast.success(
-        spareOutcome === 'RESOLVED'
-          ? `Damage reported and resolved on delivery. Remaining replacement stock: ${remainingSpareProducts}`
-          : `Partially replaced reported. Remaining quantity is waiting for warehouse schedule. Spare left: ${remainingSpareProducts}`
-      )
-      const returnedReplacements = Array.isArray(payload?.replacements)
-        ? payload.replacements
-        : payload?.replacement
-          ? [payload.replacement]
-          : []
-      if (returnedReplacements.length && targetDropPoint.order) {
-        const nextReplacements = returnedReplacements.map((replacement: any) => ({
-          ...replacement,
-          remainingQuantity: Number(replacement?.remainingQuantity ?? payload?.remainingReplacementQty ?? 0),
-          isClosed: spareOutcome === 'RESOLVED',
-          originalOrderItemId: replacement.originalOrderItemId || (spareFollowUpReturnId ? selectedItem?.id : null) || null,
-          dropPointId: replacement.dropPointId || targetDropPoint.id,
-        }))
-        const existingReplacements = targetDropPoint.order.replacements || []
-        const nextReturns = [
-          ...existingReplacements.filter((entry) => !nextReplacements.some((replacement: any) => replacement.id === entry.id)),
-          ...nextReplacements,
-        ]
-        onApplyTripUpdate((currentTrip) =>
-          mergeDropPointIntoTrip(currentTrip, targetDropPoint.id, {
-            order: {
-              ...targetDropPoint.order!,
-              replacements: nextReturns,
-            },
-          })
-        )
-      }
-      setSparePartiallyReplacedQuantity(0)
-      closeSpareReplacement()
-      emitDataSync(['orders', 'trips', 'replacements'])
-      refreshTripsInBackground()
-    } catch (error: any) {
-      let parsed = parseSpareReplacementError(error?.message || error)
-      try {
-        const decoded = JSON.parse(String(error?.message || ''))
-        if (decoded && typeof decoded === 'object' && typeof decoded.message === 'string') {
-          parsed = {
-            message: String(decoded.message),
-            orderItemId: decoded.orderItemId ? String(decoded.orderItemId) : null,
-          }
-        }
-      } catch {
-        // ignore json parse errors from non-structured errors
-      }
-      setSpareInlineError(parsed)
-      toast.error(parsed.message)
-    } finally {
-      setIsSpareReplacing(false)
-    }
   }
 
   // Closes camera capture UI and clears camera-related temporary state.
@@ -1580,7 +880,7 @@ export function TripDetailView({
     toast.error('Camera permission is required to complete delivery')
   }
 
-  // Captures a still frame from video stream for POD or spare damage evidence.
+  // Captures a still frame from video stream for POD evidence.
   const captureFromCamera = () => {
     const video = videoRef.current
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
@@ -1605,28 +905,16 @@ export function TripDetailView({
     if (!capturedCameraPhoto) return
     try {
       const file = dataUrlToFile(capturedCameraPhoto, `camera-${Date.now()}.jpg`)
-      if (cameraCaptureTarget === 'spare') {
-        appendSpareDamagePhotos([file])
-      } else {
-        const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
-        if (!targetDropPointId) {
-          toast.error('Select a drop point first before capturing POD')
-          return
-        }
-        handlePodFileChange(targetDropPointId, file)
+      const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
+      if (!targetDropPointId) {
+        toast.error('Select a drop point first before capturing POD')
+        return
       }
+      handlePodFileChange(targetDropPointId, file)
       closeCameraCapture()
     } catch {
       toast.error('Failed to use captured photo')
     }
-  }
-
-  const handleSparePhotoFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    if (files.length > 0) {
-      appendSpareDamagePhotos(files)
-    }
-    event.currentTarget.value = ''
   }
 
   // Camera and state cleanup effects.
@@ -1635,10 +923,9 @@ export function TripDetailView({
       Object.values(podDraftByDropPoint).forEach((entry) => {
         if (entry?.preview) URL.revokeObjectURL(entry.preview)
       })
-      spareDamagePhotoPreviews.forEach((url) => URL.revokeObjectURL(url))
       stopCameraStream()
     }
-  }, [podDraftByDropPoint, spareDamagePhotoPreviews])
+  }, [podDraftByDropPoint])
 
   useEffect(() => {
     if (!isCameraOpen) return
@@ -2447,54 +1734,6 @@ export function TripDetailView({
             </DialogContent>
           </Dialog>
 
-          <Dialog open={isReplacementWarningOpen} onOpenChange={setIsReplacementWarningOpen}>
-            <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
-              <DialogHeader className="px-5 pt-5">
-                <DialogTitle className="text-amber-700">Confirm Replacement Report</DialogTitle>
-                <DialogDescription className="text-slate-600">
-                  You are about to open the replacement form for this delivery stop.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
-                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-xs font-medium text-slate-500">Target Stop</p>
-                  <p className="mt-1 font-semibold text-slate-900">
-                    {replacementTargetDropPointName || 'Selected delivery stop'}
-                  </p>
-                </div>
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  Reporting a replacement will require damage details and photo evidence before submission.
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsReplacementWarningOpen(false)}
-                    disabled={isUpdating || isSpareReplacing}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    className="bg-amber-600 text-white hover:bg-amber-700"
-                    onClick={() => {
-                      const targetId = String(replacementTargetDropPointId || '').trim()
-                      setIsReplacementWarningOpen(false)
-                      if (!targetId) return
-                      const targetDropPoint = sortedDropPoints.find((point) => String(point.id) === targetId)
-                      if (!targetDropPoint) return
-                      openSpareReplacement(targetDropPoint)
-                    }}
-                    disabled={isUpdating || isSpareReplacing || !replacementTargetDropPointId}
-                  >
-                    <AlertCircle className="mr-2 h-4 w-4" />
-                    Report Replacement
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
           <Dialog open={isDeliveredWarningOpen} onOpenChange={setIsDeliveredWarningOpen}>
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
@@ -2678,17 +1917,6 @@ export function TripDetailView({
                                             Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
                                           </p>
                                         </div>
-                                        {(() => {
-                                          const replacementProgress = getReplacementProgress(dropPoint)
-                                          if (!replacementProgress.openReplacement) return null
-                                          return (
-                                            <div className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
-                                              <p className="text-[11px] font-semibold text-emerald-800">
-                                                Replacement in progress: {replacementProgress.replacedQuantity} replaced, {replacementProgress.remainingQuantity} still need to be replaced.
-                                              </p>
-                                            </div>
-                                          )
-                                        })()}
                                       </>
                                     ) : null}
                                   </div>
@@ -2737,40 +1965,7 @@ export function TripDetailView({
                                         <Camera className="mr-2 h-4 w-4" />
                                         {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? 'Retake POD Photo' : 'Capture POD Photo'}
                                       </Button>
-                                      {dropPoint.order ? (
-                                        (() => {
-                                          const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
-                                          const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
-                                          if (isReplacementOrder) return null
-                                          const blockingOpenReplacement = getDropPointBlockingOpenReplacement(dropPoint)
-                                          const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
-                                          const replacementLocked = !blockingOpenReplacement && hasResolvedReplacement
-                                          return (
-                                            <Button
-                                              type="button"
-                                              variant="outline"
-                                              className={`w-full ${blockingOpenReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                if (blockingOpenReplacement) {
-                                                  openSpareReplacement(dropPoint)
-                                                } else {
-                                                  openReplacementWarning(dropPoint)
-                                                }
-                                              }}
-                                              disabled={isUpdating || isSpareReplacing || replacementLocked}
-                                            >
-                                              {blockingOpenReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Reported' : 'Report Replacement'}
-                                            </Button>
-                                          )
-                                        })()
-                                      ) : null}
                                       <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
-                                      {getDropPointBlockingOpenReplacement(dropPoint) ? (
-                                        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                                          Delivery is blocked until the open replacement is resolved with photo evidence.
-                                        </div>
-                                      ) : null}
                                       {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
                                         <img
                                           src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
@@ -2786,7 +1981,7 @@ export function TripDetailView({
                                           e.stopPropagation()
                                           openDeliveredWarning(dropPoint)
                                         }}
-                                        disabled={isUpdating || Boolean(getDropPointBlockingOpenReplacement(dropPoint))}
+                                        disabled={isUpdating}
                                       >
                                         <CheckCircle className="mr-2 h-4 w-4" />
                                         Delivered
@@ -2880,17 +2075,6 @@ export function TripDetailView({
                                     Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
                                   </p>
                                 </div>
-                                {(() => {
-                                  const replacementProgress = getReplacementProgress(dropPoint)
-                                  if (!replacementProgress.openReplacement) return null
-                                  return (
-                                    <div className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
-                                      <p className="text-[11px] font-semibold text-emerald-800">
-                                        Replacement in progress: {replacementProgress.replacedQuantity} replaced, {replacementProgress.remainingQuantity} still need to be replaced.
-                                      </p>
-                                    </div>
-                                  )
-                                })()}
                                 {(dropPoint.order.items || []).length > 0 ? (
                                   <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5 md:mt-2 md:px-3 md:py-2.5">
                                     {(() => {
@@ -2978,40 +2162,7 @@ export function TripDetailView({
                                 <Camera className="h-4 w-4 mr-2" />
                                 {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? 'Retake POD Photo' : 'Capture POD Photo'}
                               </Button>
-                              {dropPoint.order ? (
-                                (() => {
-                                  const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
-                                  const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
-                                  if (isReplacementOrder) return null
-                                  const blockingOpenReplacement = getDropPointBlockingOpenReplacement(dropPoint)
-                                  const hasResolvedReplacement = hasResolvedReplacementForDropPoint(dropPoint)
-                                  const replacementLocked = !blockingOpenReplacement && hasResolvedReplacement
-                                  return (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      className={`h-9 w-full text-sm md:h-10 md:text-base ${blockingOpenReplacement ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-sky-200 text-[#0f3d72] hover:bg-sky-50'}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (blockingOpenReplacement) {
-                                          openSpareReplacement(dropPoint)
-                                        } else {
-                                          openReplacementWarning(dropPoint)
-                                        }
-                                      }}
-                                      disabled={isUpdating || isSpareReplacing || replacementLocked}
-                                    >
-                                      {blockingOpenReplacement ? 'Resolve Replacement' : replacementLocked ? 'Replacement Reported' : 'Report Replacement'}
-                                    </Button>
-                                  )
-                                })()
-                              ) : null}
                               <p className="text-[11px] text-slate-500 md:text-xs">Camera access is required before marking as delivered.</p>
-                              {getDropPointBlockingOpenReplacement(dropPoint) ? (
-                                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800 md:px-3 md:py-2 md:text-xs">
-                                  Delivery is blocked until the open replacement is resolved with photo evidence.
-                                </div>
-                              ) : null}
                               {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
                                 <img
                                   src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
@@ -3027,7 +2178,7 @@ export function TripDetailView({
                                   e.stopPropagation();
                                   openDeliveredWarning(dropPoint)
                                 }}
-                                disabled={isUpdating || Boolean(getDropPointBlockingOpenReplacement(dropPoint))}
+                                disabled={isUpdating}
                               >
                                 <CheckCircle className="h-4 w-4 mr-2" />
                                 Delivered
@@ -3071,13 +2222,9 @@ export function TripDetailView({
         <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
-                {cameraCaptureTarget === 'spare' ? 'Capture Damage Photo' : 'Capture POD Photo'}
-              </DialogTitle>
+              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Capture POD Photo</DialogTitle>
               <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                {cameraCaptureTarget === 'spare'
-                  ? 'Take a clear photo of the damaged item evidence.'
-                  : 'Take a clear photo of the delivered package or recipient.'}
+                Take a clear photo of the delivered package or recipient.
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -3142,7 +2289,7 @@ export function TripDetailView({
                 onClick={() => {
                   setIsCameraPermissionDialogOpen(false)
                   window.setTimeout(() => {
-                    openCameraCapture(cameraCaptureTarget)
+                    openCameraCapture()
                   }, 120)
                 }}
               >
@@ -3158,507 +2305,6 @@ export function TripDetailView({
               </ol>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isSpareReplaceOpen} onOpenChange={(open) => { if (!open) closeSpareReplacement() }}>
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-lg">
-          <DialogHeader>
-            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">
-                {spareFollowUpReturnId ? 'Resolve Replacement' : 'Replacement Form'}
-              </DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                {spareFollowUpReturnId
-                  ? 'Capture follow-up photo evidence and submit the remaining replacement quantity to close the case.'
-                  : 'Capture damage evidence'}
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          {(() => {
-            const targetDropPoint = (trip.dropPoints || []).find((point) => point.id === spareTargetDropPointId) || null
-            const targetItems = getDropPointReplacementItems(targetDropPoint)
-            const targetOpenReplacement = getDropPointOpenReplacement(targetDropPoint)
-            const targetReplacementProgress = getReplacementProgress(targetDropPoint)
-            const targetSelectedItem = targetItems.find((item) => item.id === spareOrderItemId) || targetItems[0] || null
-            const targetFollowUpQuantities = targetOpenReplacement
-              ? getOpenReplacementQuantities(targetOpenReplacement, Number(targetSelectedItem?.quantity || 0))
-              : null
-            const followUpMode = Boolean(targetOpenReplacement)
-            const isPartialOutcomeBlocked = !followUpMode && spareReplacementLines.length > 0 && spareReplacementLines.every((line) => {
-              const quantityToReplace = Number(line.quantityToReplace || 0)
-              if (!Number.isFinite(quantityToReplace) || quantityToReplace <= 0) return false
-              const matchedItem = targetItems.find((item) => item.id === line.orderItemId)
-              if (!matchedItem) return false
-              const availableSpareBottles = getAvailableSpareBottlesForItem(matchedItem, line)
-              return Number.isFinite(availableSpareBottles) && availableSpareBottles >= quantityToReplace
-            })
-            const missingRequirements: string[] = []
-            if (!followUpMode && spareReplacementLines.length === 0) missingRequirements.push('Select at least one damaged product')
-            if (followUpMode && !spareOrderItemId) missingRequirements.push('Damaged item')
-            if (!followUpMode && !spareDamageReason) missingRequirements.push('Damage details')
-            if (!followUpMode && spareDamageReason === 'Others' && !String(spareOtherDamageReason || '').trim()) missingRequirements.push('Other damage reason')
-            if (spareDamagePhotoFiles.length === 0) missingRequirements.push('Damage photo')
-            const canSubmitSpareReplacement = !isSpareReplacing && missingRequirements.length === 0
-
-            return (
-              <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-                {spareInlineError && !spareInlineError.orderItemId ? (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                    {spareInlineError.message}
-                  </div>
-                ) : null}
-                {targetOpenReplacement ? (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                    Follow-up replacement in progress: {targetReplacementProgress.replacedQuantity} replaced, {targetReplacementProgress.remainingQuantity} still need to be replaced.
-                  </div>
-                ) : null}
-                {followUpMode ? (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="spare-order-item">Damaged Item</Label>
-                      <Select value={spareOrderItemId} onValueChange={setSpareOrderItemId} disabled>
-                        <SelectTrigger className="h-9 w-full rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
-                          <SelectValue placeholder={targetItems.length === 0 ? 'No item details available' : 'Select damaged item'} />
-                        </SelectTrigger>
-                        <SelectContent className="border-sky-200 bg-white text-slate-900">
-                          {targetItems.map((item) => (
-                            <SelectItem key={item.id} value={item.id} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
-                              {getItemDisplayNameWithSize(item)} ({item.product?.sku || 'N/A'}) - Qty {followUpMode && targetFollowUpQuantities ? targetFollowUpQuantities.targetQty : Number(item.quantity || 0)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="spare-qty">Quantity to Replace</Label>
-                      <Input id="spare-qty" type="text" inputMode="numeric" pattern="[0-9]*" value={spareQuantity} disabled />
-                    </div>
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <Label>Damaged Products</Label>
-                    <div className="space-y-2 rounded-md border bg-white p-2">
-                      {targetItems.length === 0 ? (
-                        <p className="px-2 py-3 text-sm text-slate-500">No item details available</p>
-                      ) : targetItems.map((item) => {
-                        const line = spareReplacementLines.find((entry) => entry.orderItemId === item.id) || null
-                        const checked = Boolean(line)
-                        const replacementInputMode = String((line as any)?.replacementInputMode || 'case')
-                        const isUnitMode = replacementInputMode === 'case'
-                        const maxQty = getOrderedCasesForItem(item)
-                        const quantityPerCase = resolveQuantityPerCase(item, line)
-                        const maxBottleQty = maxQty * quantityPerCase
-                        const availableSpareCases = getUsableSpareQtyForItem(item)
-                        const availableSpareBottleQty = availableSpareCases * quantityPerCase
-                        const usableSpareCases = availableSpareCases
-                        const usableSpareBottleQty = Math.min(availableSpareBottleQty, maxBottleQty)
-                        const effectiveMaxQtyToReplace = spareOutcome === 'RESOLVED'
-                          ? Math.min(maxBottleQty, availableSpareBottleQty)
-                          : maxBottleQty
-                        const rawProductUnit = String(item?.product?.unit || (item as any)?.productUnit || '').trim().toLowerCase()
-                        const unitSingularLabel = rawProductUnit.includes('pack')
-                          ? 'Pack'
-                          : rawProductUnit.includes('bundle')
-                            ? 'Bundle'
-                            : rawProductUnit.includes('case')
-                              ? 'Case'
-                              : 'Unit'
-                        const unitPluralLabel = `${unitSingularLabel}s`
-                        const setLine = (patch: Partial<SpareReplacementLine>) => {
-                          setSpareReplacementLines((previous) =>
-                            previous.map((entry) => entry.orderItemId === item.id ? { ...entry, ...patch } : entry)
-                          )
-                        }
-                        return (
-                          <div key={item.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                            <label className="flex items-start gap-3">
-                              <input
-                                type="checkbox"
-                                className="mt-1 h-4 w-4 rounded border-slate-300"
-                                checked={checked}
-                                onChange={(event) => {
-                                  if (event.target.checked) {
-                                    const initialCases = maxQty > 0 ? 1 : 0
-                                    const initialBottles = 0
-                                    const initialQty = String(Math.min((initialCases * quantityPerCase) + initialBottles, effectiveMaxQtyToReplace))
-                                    setSpareReplacementLines((previous) => [
-                                      ...previous.filter((entry) => entry.orderItemId !== item.id),
-                                      {
-                                        orderItemId: item.id,
-                                        quantityToReplace: initialQty,
-                                        quantityReplaced: spareOutcome === 'RESOLVED' ? initialQty : '0',
-                                        replacementCases: String(initialCases),
-                                        replacementBottles: String(initialBottles),
-                                        quantityPerCase: String(quantityPerCase),
-                                        replacementInputMode: 'case',
-                                      },
-                                    ])
-                                  } else {
-                                    setSpareReplacementLines((previous) => previous.filter((entry) => entry.orderItemId !== item.id))
-                                  }
-                                }}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-semibold text-slate-900">{getItemDisplayNameWithSize(item)}</span>
-                                <span className="block text-xs text-slate-500">
-                                  {isUnitMode
-                                    ? `Usable Spare ${unitPluralLabel} ${usableSpareCases} | Ordered ${unitPluralLabel} ${maxQty}`
-                                    : `Usable Spare Bottles ${usableSpareBottleQty} | Ordered ${unitPluralLabel} ${maxQty}`}
-                                  {` | Qty/Unit ${quantityPerCase}`}
-                                </span>
-                              </span>
-                            </label>
-                            {checked ? (
-                              <div className="mt-2 space-y-2">
-                                <div className="space-y-1">
-                                  <div className="mb-1 inline-flex overflow-hidden rounded-xl border border-sky-200 bg-white shadow-sm">
-                                    <button
-                                      type="button"
-                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${replacementInputMode === 'case' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
-                                      onClick={() => {
-                                        const currentCases = Math.max(Number((line as any)?.replacementCases ?? 0), 0)
-                                        const maxCases = Math.floor(effectiveMaxQtyToReplace / quantityPerCase)
-                                        const nextCases = Math.min(currentCases > 0 ? currentCases : (maxCases > 0 ? 1 : 0), maxCases)
-                                        const nextValue = String(nextCases * quantityPerCase)
-                                        setLine({
-                                          replacementInputMode: 'case',
-                                          replacementCases: String(nextCases),
-                                          replacementBottles: '0',
-                                          quantityToReplace: nextValue,
-                                          quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
-                                        })
-                                      }}
-                                    >
-                                      By Unit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${replacementInputMode === 'bottle' ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-sky-50'}`}
-                                      onClick={() => {
-                                        const currentBottles = Math.max(Number((line as any)?.replacementBottles ?? 0), 0)
-                                        const nextBottles = Math.min(
-                                          currentBottles > 0 ? currentBottles : (effectiveMaxQtyToReplace > 0 ? 1 : 0),
-                                          effectiveMaxQtyToReplace
-                                        )
-                                        const nextValue = String(nextBottles)
-                                        setLine({
-                                          replacementInputMode: 'bottle',
-                                          replacementCases: '0',
-                                          replacementBottles: String(nextBottles),
-                                          quantityToReplace: nextValue,
-                                          quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
-                                        })
-                                      }}
-                                    >
-                                      By Bottle
-                                    </button>
-                                  </div>
-                                  {replacementInputMode === 'case' ? (
-                                    <>
-                                      <Label className="text-xs">{unitPluralLabel} to Replace</Label>
-                                      <Input
-                                        type="text"
-                                        inputMode="numeric"
-                                        pattern="[0-9]*"
-                                        value={String((line as any)?.replacementCases ?? '')}
-                                        onChange={(event) => {
-                                          const raw = event.target.value.replace(/[^\d]/g, '')
-                                          const parsedCases = Math.max(Number(raw || 0), 0)
-                                          const maxCases = Math.floor(effectiveMaxQtyToReplace / quantityPerCase)
-                                          const nextCases = Math.min(parsedCases, maxCases)
-                                          const nextBottles = 0
-                                          const nextValue = String(nextCases * quantityPerCase)
-                                          setLine({
-                                            replacementInputMode: 'case',
-                                            replacementCases: String(nextCases),
-                                            replacementBottles: String(nextBottles),
-                                            quantityPerCase: String(quantityPerCase),
-                                            quantityToReplace: nextValue,
-                                            quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
-                                          })
-                                        }}
-                                      />
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Label className="text-xs">Loose Bottles to Replace</Label>
-                                      <Input
-                                        type="text"
-                                        inputMode="numeric"
-                                        pattern="[0-9]*"
-                                        value={String((line as any)?.replacementBottles ?? line?.quantityToReplace ?? '')}
-                                        onChange={(event) => {
-                                          const raw = event.target.value.replace(/[^\d]/g, '')
-                                          const parsedBottles = Math.max(Number(raw || 0), 0)
-                                          const currentCases = 0
-                                          const maxBottles = Math.max(effectiveMaxQtyToReplace, 0)
-                                          const nextBottles = Math.min(parsedBottles, maxBottles)
-                                          const nextValue = String(nextBottles)
-                                          setLine({
-                                            replacementInputMode: 'bottle',
-                                            replacementCases: String(currentCases),
-                                            replacementBottles: String(nextBottles),
-                                            quantityPerCase: String(quantityPerCase),
-                                            quantityToReplace: nextValue,
-                                            quantityReplaced: spareOutcome === 'RESOLVED' ? nextValue : line?.quantityReplaced || '0',
-                                          })
-                                        }}
-                                      />
-                                    </>
-                                  )}
-                                  <p className="text-[11px] text-slate-500">Total bottles to replace: {Number(line?.quantityToReplace || 0)}</p>
-                                </div>
-                                {spareOutcome === 'PARTIALLY_REPLACED' ? (
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">
-                                      {replacementInputMode === 'case' ? `${unitPluralLabel} Replaced` : 'Bottles Replaced'}
-                                    </Label>
-                                    <Input
-                                      type="text"
-                                      inputMode="numeric"
-                                      pattern="[0-9]*"
-                                      value={
-                                        replacementInputMode === 'case'
-                                          ? String(Math.floor(Math.max(Number(line?.quantityReplaced || 0), 0) / quantityPerCase))
-                                          : String(Math.max(Number(line?.quantityReplaced || 0), 0))
-                                      }
-                                      onChange={(event) => {
-                                        const availableSpareBottles = getAvailableSpareBottlesForItem(item, line)
-                                        const maxReplaceBottles = Number.isFinite(availableSpareBottles)
-                                          ? Math.min(Number(line?.quantityToReplace || 0), availableSpareBottles)
-                                          : Number(line?.quantityToReplace || 0)
-                                        const isCaseMode = String((line as any)?.replacementInputMode || 'case') === 'case'
-                                        const maxReplaceCases = Math.floor(maxReplaceBottles / quantityPerCase)
-                                        const raw = event.target.value.replace(/[^\d]/g, '')
-                                        const parsedUnits = Number(raw || 0)
-                                        const clampedUnits = Math.min(
-                                          Math.max(Number.isFinite(parsedUnits) ? parsedUnits : 0, 0),
-                                          isCaseMode ? maxReplaceCases : maxReplaceBottles
-                                        )
-                                        const nextBottles = isCaseMode ? clampedUnits * quantityPerCase : clampedUnits
-                                        setLine({ quantityReplaced: String(nextBottles) })
-                                      }}
-                                      onBlur={() => {
-                                        const availableSpareBottles = getAvailableSpareBottlesForItem(item, line)
-                                        const maxReplaceBottles = Number.isFinite(availableSpareBottles)
-                                          ? Math.min(Number(line?.quantityToReplace || 0), availableSpareBottles)
-                                          : Number(line?.quantityToReplace || 0)
-                                        const isCaseMode = String((line as any)?.replacementInputMode || 'case') === 'case'
-                                        const maxReplaceCases = Math.floor(maxReplaceBottles / quantityPerCase)
-                                        const currentDisplayValue = isCaseMode
-                                          ? Math.floor(Math.max(Number(line?.quantityReplaced || 0), 0) / quantityPerCase)
-                                          : Math.max(Number(line?.quantityReplaced || 0), 0)
-                                        const clampedUnits = Math.min(
-                                          Math.max(Number.isFinite(currentDisplayValue) ? currentDisplayValue : 0, 0),
-                                          isCaseMode ? maxReplaceCases : maxReplaceBottles
-                                        )
-                                        const nextBottles = isCaseMode ? clampedUnits * quantityPerCase : clampedUnits
-                                        setLine({ quantityReplaced: String(nextBottles) })
-                                      }}
-                                    />
-                                  </div>
-                                ) : null}
-                                {spareInlineError?.orderItemId && spareInlineError.orderItemId === item.id ? (
-                                  <p className="text-xs font-medium text-red-700">{spareInlineError.message}</p>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-                {!followUpMode ? (
-                  <div className="space-y-2">
-                    <Label>Resolution</Label>
-                    <>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className={
-                            spareOutcome === 'RESOLVED'
-                              ? 'h-10 rounded-xl border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white'
-                              : 'h-10 rounded-xl border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
-                          }
-                          onClick={() => setSpareOutcome('RESOLVED')}
-                          disabled={isSpareReplacing}
-                        >
-                          Resolved
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className={
-                            spareOutcome === 'PARTIALLY_REPLACED'
-                              ? 'h-10 rounded-xl border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white'
-                              : 'h-10 rounded-xl border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
-                          }
-                          onClick={() => {
-                            setSpareOutcome('PARTIALLY_REPLACED')
-                            if (followUpMode) {
-                              setSparePartiallyReplacedQuantity(Math.max(Number(spareQuantity || 0), 0))
-                            }
-                          }}
-                          disabled={isSpareReplacing || isPartialOutcomeBlocked}
-                        >
-                          Partially Replaced
-                        </Button>
-                      </div>
-                      {isPartialOutcomeBlocked ? (
-                        <p className="text-xs text-amber-700">
-                         
-                        </p>
-                      ) : null}
-                    </>
-                  </div>
-                ) : null}
-                <AnimatePresence mode="wait">
-                  {spareOutcome === 'PARTIALLY_REPLACED' && followUpMode ? (
-                    <motion.div
-                      key="partial-qty-field"
-                      initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                      animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
-                      exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                      transition={{ duration: 0.3, ease: 'easeInOut' }}
-                      className="space-y-2 overflow-hidden"
-                    >
-                      <Label htmlFor="spare-partial-qty">How Many Were Replaced?</Label>
-                      <Input
-                        id="spare-partial-qty"
-                        type="number"
-                        min="1"
-                        max={Number(spareQuantity || 0)}
-                        value={sparePartiallyReplacedQuantity}
-                        onChange={(e) => setSparePartiallyReplacedQuantity(Number(e.target.value || 0))}
-                        disabled={isSpareReplacing}
-                        placeholder="Enter quantity replaced"
-                      />
-                      <p className="text-xs text-slate-500">
-                        Total damaged: {spareQuantity} | You are replacing: {sparePartiallyReplacedQuantity}
-                      </p>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-                {!followUpMode ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="spare-reason">Damage Details</Label>
-                    <Select value={spareDamageReason} onValueChange={setSpareDamageReason} disabled={isSpareReplacing}>
-                      <SelectTrigger id="spare-reason" className="h-10 rounded-md border-sky-200 bg-white text-sm text-slate-900 shadow-sm focus:ring-emerald-500/30 focus:ring-offset-0">
-                        <SelectValue placeholder="Select damage reason" />
-                      </SelectTrigger>
-                      <SelectContent className="border-sky-200 bg-white text-slate-900">
-                        {SPARE_DAMAGE_REASON_OPTIONS.map((reason) => (
-                          <SelectItem key={reason} value={reason} className="data-[highlighted]:bg-sky-50 data-[highlighted]:text-[#0f3d72]">
-                            {reason}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {spareDamageReason === 'Others' ? (
-                      <Textarea
-                        id="spare-other-reason"
-                        value={spareOtherDamageReason}
-                        onChange={(event) => setSpareOtherDamageReason(event.target.value)}
-                        placeholder="Type specific damage reason..."
-                        disabled={isSpareReplacing}
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="space-y-2">
-                  <Label htmlFor="spare-photo">Damage Photo</Label>
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 gap-2">
-                      <input
-                        ref={sparePhotoFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={handleSparePhotoFileInput}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                        onClick={openSpareCameraCapture}
-                        disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
-                      >
-                        <Camera className="mr-2 h-4 w-4" />
-                        Take Photo
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                        onClick={() => sparePhotoFileInputRef.current?.click()}
-                        disabled={isSpareReplacing || spareDamagePhotoFiles.length >= MAX_SPARE_DAMAGE_PHOTOS}
-                      >
-                        Upload Photo
-                      </Button>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      Camera evidence is required. Up to {MAX_SPARE_DAMAGE_PHOTOS} photos only.
-                    </p>
-                    {spareDamagePhotoFiles.length ? (
-                      <div className="space-y-2">
-                        <p className="text-xs text-emerald-700">Selected: {spareDamagePhotoFiles.length}/{MAX_SPARE_DAMAGE_PHOTOS}</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {spareDamagePhotoPreviews.map((previewUrl, index) => (
-                            <div key={`damage-preview-${index}`} className="space-y-1">
-                              <img
-                                src={previewUrl}
-                                alt={`Damage photo preview ${index + 1}`}
-                                className="h-24 w-full rounded border border-slate-200 object-cover"
-                              />
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="w-full"
-                                onClick={() => clearSpareDamagePhoto(index)}
-                                disabled={isSpareReplacing}
-                              >
-                                Remove
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                {missingRequirements.length > 0 ? (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    Missing: {missingRequirements.join(', ')}
-                  </div>
-                ) : null}
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-sky-200 text-[#0f3d72] hover:bg-sky-50 hover:text-[#0f3d72]"
-                    onClick={closeSpareReplacement}
-                    disabled={isSpareReplacing}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    className="bg-emerald-600 hover:bg-emerald-700"
-                    onClick={() => void submitSpareReplacement()}
-                    disabled={!canSubmitSpareReplacement}
-                  >
-                    {isSpareReplacing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                    {followUpMode ? 'Resolved' : 'Submit Report'}
-                  </Button>
-                </div>
-              </div>
-            )
-          })()}
         </DialogContent>
       </Dialog>
 

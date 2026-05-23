@@ -8,7 +8,7 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,7 @@ import {
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
+import { resolveClientImageUrl } from '@/lib/client-image'
 import {
   toArray,
   getCollection,
@@ -433,7 +434,13 @@ export function CustomersView() {
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10 border border-slate-200">
-                            {row.avatar ? <img src={String(row.avatar)} alt={row.name || 'Customer avatar'} className="h-full w-full object-cover" /> : null}
+                            {resolveClientImageUrl(row.avatar) ? (
+                              <AvatarImage
+                                src={resolveClientImageUrl(row.avatar) || undefined}
+                                alt={row.name || 'Customer avatar'}
+                                className="object-cover"
+                              />
+                            ) : null}
                             <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold">
                               {String(row.name || row.email || 'CU')
                                 .trim()

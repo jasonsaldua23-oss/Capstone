@@ -3,6 +3,7 @@
 import { ChevronDown, LogOut, MapPin, ShoppingCart, User } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { resolveClientImageUrl } from '@/lib/client-image'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ export function CustomerPortalHeader(props: any) {
     setIsAddressDialogOpen,
     handleLogout,
   } = props
+  const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
 
   return (
     <header className="shrink-0 border-b border-slate-200 bg-white text-slate-900">
@@ -52,7 +54,7 @@ export function CustomerPortalHeader(props: any) {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-slate-700 hover:bg-slate-50 md:h-10 md:rounded-xl md:px-2.5">
                   <Avatar className="mr-2 h-7 w-7 border border-white/25">
-                    {avatarPreviewUrl ? <AvatarImage src={avatarPreviewUrl} alt={profileName || user?.name || 'Profile'} /> : null}
+                    {resolvedAvatarPreviewUrl ? <AvatarImage src={resolvedAvatarPreviewUrl} alt={profileName || user?.name || 'Profile'} className="object-cover" /> : null}
                     <AvatarFallback className="bg-[#0e5aa8] text-white">
                       {(profileName || user?.name || 'C').charAt(0).toUpperCase()}
                     </AvatarFallback>

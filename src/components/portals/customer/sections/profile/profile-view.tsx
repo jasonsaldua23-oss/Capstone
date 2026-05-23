@@ -4,6 +4,7 @@ import type { MutableRefObject } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { resolveClientImageUrl } from '@/lib/client-image'
 import { Camera, User } from 'lucide-react'
 
 type CustomerProfileViewProps = {
@@ -37,6 +38,8 @@ export function CustomerProfileView({
   openAvatarCropDialog,
   setIsProfileDialogOpen,
 }: CustomerProfileViewProps) {
+  const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
+
   return (
     <div className="space-y-3">
       <Card>
@@ -44,7 +47,7 @@ export function CustomerProfileView({
           <div className="flex flex-col items-center">
             <div className="relative mb-3">
               <Avatar className="h-16 w-16">
-                {avatarPreviewUrl ? <AvatarImage src={avatarPreviewUrl} alt={profileName || user?.name || 'Profile'} /> : null}
+                {resolvedAvatarPreviewUrl ? <AvatarImage src={resolvedAvatarPreviewUrl} alt={profileName || user?.name || 'Profile'} className="object-cover" /> : null}
                 <AvatarFallback className="bg-teal-700 text-white">{(profileName || user?.name || 'C').charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
               <input

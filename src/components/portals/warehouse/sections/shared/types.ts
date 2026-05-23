@@ -1,10 +1,15 @@
 import type { ComponentType } from 'react'
 import type { ChartConfig } from '@/components/ui/chart'
+import type { InventoryStatusBreakdown, WarehouseOrderStats } from '@/lib/report-metrics'
 
 export type WarehouseDashboardViewProps = {
   assignedWarehouse: any
   scopedInventory: any[]
+  scopedOrders: any[]
+  dashboardOrderStats: WarehouseOrderStats
+  inventoryStatusBreakdown: InventoryStatusBreakdown
   lowStockCount: number
+  activeTripCount: number
   pendingReplacementCases: number
   totalReplacementCases: number
   warehouseOrdersChartConfig: ChartConfig

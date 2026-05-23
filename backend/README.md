@@ -51,8 +51,6 @@ python manage.py runserver 0.0.0.0:8000
 - `GET /api/customer/tracking`
 - `POST /api/driver/location`
 - `GET|PUT /api/driver/profile`
-- `GET|POST /api/driver/spare-products`
-- `POST /api/driver/replacements/from-spare-products`
 - `GET|POST /api/trips/route-plan`
 - `POST /api/trips/:id/start`
 - `PATCH /api/trips/:id/drop-points/:dropPointId`

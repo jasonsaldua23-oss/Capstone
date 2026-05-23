@@ -12,6 +12,18 @@ const DEFAULTS: Required<PrepareImageOptions> = {
   initialQuality: 0.9,
 }
 
+export function resolveClientImageUrl(value?: string | null): string | null {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+  if (/^(blob:|data:|https?:\/\/)/i.test(raw)) return raw
+  if (raw.startsWith('//')) {
+    if (typeof window === 'undefined') return `https:${raw}`
+    return `${window.location.protocol}${raw}`
+  }
+  if (typeof window === 'undefined') return raw
+  return new URL(raw, window.location.origin).toString()
+}
+
 function readImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)

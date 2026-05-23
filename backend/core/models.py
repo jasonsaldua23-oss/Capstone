@@ -329,14 +329,6 @@ class Order(models.Model):
         self.checklist_quantity_verified = bool(value)
 
     @property
-    def checklist_spare_products_verified(self) -> bool:
-        return bool(self.checklist_quantity_verified)
-
-    @checklist_spare_products_verified.setter
-    def checklist_spare_products_verified(self, value: bool) -> None:
-        self.checklist_quantity_verified = bool(value)
-
-    @property
     def checklist_vehicle_assigned(self) -> bool:
         return bool(self.checklist_quantity_verified)
 
@@ -399,21 +391,6 @@ class Vehicle(models.Model):
 
     class Meta:
         db_table = "Vehicle"
-
-
-class DriverSpareStock(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="spare_stock")
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="spare_stock")
-    on_hand_quantity = models.IntegerField(default=0)
-    minimum_required_quantity = models.IntegerField(default=0)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "DriverSpareStock"
-        constraints = [models.UniqueConstraint(fields=["driver", "product"], name="unique_driver_spare_stock")]
-
 
 class Trip(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)

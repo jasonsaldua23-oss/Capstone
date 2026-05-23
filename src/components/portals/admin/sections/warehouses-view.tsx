@@ -43,6 +43,12 @@ import {
   formatRoleLabel,
   safeFetchJson,
 } from './shared'
+import {
+  buildSkuVelocityData,
+  buildUtilizationTrend,
+  buildWarehouseCapacitySummary,
+  summarizeStockHealth,
+} from '@/lib/report-metrics'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -426,12 +432,14 @@ export function WarehousesView() {
     }
   }
 
-  const totalCapacity = Number(selectedWarehouse?.capacity || 0)
-  const estimatedUsage = warehouseInventoryItems.reduce((sum, item) => sum + Number(item?.quantity || 0), 0)
-  const usagePercent = totalCapacity > 0 ? Math.min(100, Math.round((estimatedUsage / totalCapacity) * 100)) : 0
-  const freeCapacity = Math.max(0, totalCapacity - estimatedUsage)
+  const capacitySummary = buildWarehouseCapacitySummary(selectedWarehouse, warehouseInventoryItems)
+  const stockHealthSummary = summarizeStockHealth(warehouseInventoryItems)
+  const totalCapacity = capacitySummary.totalCapacity
+  const estimatedUsage = capacitySummary.usedUnits
+  const usagePercent = capacitySummary.usagePercent
+  const freeCapacity = capacitySummary.availableCapacity
   const stockKeepingUnits = warehouseInventoryItems.length
-  const lowStockItems = warehouseInventoryItems.filter((item) => Number(item?.quantity || 0) <= Number(item?.minStock || 0)).length
+  const lowStockItems = stockHealthSummary.belowThreshold
   const warehouseActivities = [
     {
       id: 'capacity',
@@ -449,36 +457,9 @@ export function WarehousesView() {
       detail: getAssignedStaffName(selectedWarehouse?.managerId),
     },
   ]
-  const utilizationStatus = usagePercent >= 90 ? 'Critical' : usagePercent >= 75 ? 'High' : usagePercent >= 55 ? 'Moderate' : 'Healthy'
-  const usageTrend = Array.from({ length: 7 }).map((_, index) => {
-    const pointDate = new Date()
-    pointDate.setHours(0, 0, 0, 0)
-    pointDate.setDate(pointDate.getDate() - (6 - index))
-
-    const endOfDay = new Date(pointDate)
-    endOfDay.setHours(23, 59, 59, 999)
-
-    const additionsAfterDay = insightStockBatches
-      .filter((entry: any) => {
-        const receiptDate = new Date(entry?.receiptDate || entry?.createdAt || 0)
-        return !Number.isNaN(receiptDate.getTime()) && receiptDate.getTime() > endOfDay.getTime()
-      })
-      .reduce((sum: number, entry: any) => sum + Math.max(0, Number(entry?.quantity || 0)), 0)
-
-    const estimatedUsedAtDay = Math.max(0, estimatedUsage - additionsAfterDay)
-    const dayUtilization = totalCapacity > 0
-      ? Math.min(100, Number(((estimatedUsedAtDay / totalCapacity) * 100).toFixed(1)))
-      : 0
-
-    return {
-      day: pointDate.toLocaleDateString('en-US', { weekday: 'short' }),
-      utilization: dayUtilization,
-    }
-  })
-  const capacityBreakdown = [
-    { name: 'Used', value: Math.max(0, estimatedUsage), color: '#3b82f6' },
-    { name: 'Free', value: Math.max(0, freeCapacity), color: '#34d399' },
-  ]
+  const utilizationStatus = capacitySummary.utilizationStatus
+  const usageTrend = buildUtilizationTrend(estimatedUsage, totalCapacity, insightStockBatches)
+  const capacityBreakdown = capacitySummary.capacityBreakdown
   const recentActivities = [
     {
       id: 'a1',
@@ -507,54 +488,13 @@ export function WarehousesView() {
       time: '1 hr ago',
     },
   ]
-  const skuVelocityData = warehouseInventoryItems
-    .map((item: any, index: number) => {
-      const qty = Number(item?.quantity || 0)
-      const reserved = Number(item?.reservedQuantity || 0)
-      const minStock = Number(item?.minStock || 0)
-      const available = Math.max(0, qty - reserved)
-      const pressure = Math.max(0, minStock - available)
-      const velocity = reserved + pressure
-      return {
-        id: item?.id || `${item?.product?.sku || 'sku'}-${index}`,
-        name: item?.product?.name || item?.product?.sku || 'Item',
-        sku: item?.product?.sku || 'N/A',
-        velocity,
-      }
-    })
-    .sort((a, b) => b.velocity - a.velocity)
-    .slice(0, 10)
-
-  const stockHealthCounts = warehouseInventoryItems.reduce(
-    (acc: { healthy: number; low: number; critical: number; overstocked: number }, item: any) => {
-      const qty = Number(item?.quantity || 0)
-      const reserved = Number(item?.reservedQuantity ?? item?.reserved_quantity ?? 0)
-      const minStock = Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0))
-      const available = Math.max(0, qty - reserved)
-      const lastRestockedRaw = item?.lastRestockedAt ?? item?.last_restocked_at ?? item?.updatedAt ?? item?.updated_at
-      const lastRestockedAt = lastRestockedRaw ? new Date(lastRestockedRaw) : null
-      const overstockPersistedForSevenDays = Boolean(
-        lastRestockedAt &&
-        !Number.isNaN(lastRestockedAt.getTime()) &&
-        (Date.now() - lastRestockedAt.getTime()) >= (7 * 24 * 60 * 60 * 1000)
-      )
-      const isOverstocked = minStock > 0 && available >= (minStock * 3) && overstockPersistedForSevenDays
-
-      if (minStock > 0 && available <= Math.max(1, Math.floor(minStock * 0.5))) acc.critical += 1
-      else if (minStock > 0 && available <= minStock) acc.low += 1
-      else if (isOverstocked) acc.overstocked += 1
-      else acc.healthy += 1
-
-      return acc
-    },
-    { healthy: 0, low: 0, critical: 0, overstocked: 0 }
-  )
+  const skuVelocityData = buildSkuVelocityData(warehouseInventoryItems)
 
   const stockHealthDistribution = [
-    { name: 'Healthy', value: stockHealthCounts.healthy, color: '#10b981' },
-    { name: 'Low', value: stockHealthCounts.low, color: '#f59e0b' },
-    { name: 'Critical', value: stockHealthCounts.critical, color: '#ef4444' },
-    { name: 'Overstocked', value: stockHealthCounts.overstocked, color: '#3b82f6' },
+    { name: 'Healthy', value: stockHealthSummary.healthy, color: '#10b981' },
+    { name: 'Low', value: stockHealthSummary.low, color: '#f59e0b' },
+    { name: 'Critical', value: stockHealthSummary.critical + stockHealthSummary.outOfStock, color: '#ef4444' },
+    { name: 'Overstocked', value: stockHealthSummary.overstocked, color: '#3b82f6' },
   ]
 
   const getStockHealthDotClass = (name: string) => {

@@ -8,7 +8,6 @@ from django.utils import timezone
 from .auth import create_token
 from .models import (
     Customer,
-    DriverSpareStock,
     DropPointType,
     Inventory,
     InventoryTransaction,
@@ -1281,7 +1280,6 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
                     "itemsVerified": True,
                     "quantityVerified": True,
                     "packagingVerified": True,
-                    "spareProductsVerified": True,
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },
@@ -1314,7 +1312,6 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
                     "itemsVerified": True,
                     "quantityVerified": True,
                     "packagingVerified": True,
-                    "spareProductsVerified": True,
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },
@@ -1331,112 +1328,6 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertEqual(order.warehouse_stage, WarehouseStage.LOADED)
         self.assertEqual(order.status, OrderStatus.PREPARING)
         self.assertIsNotNone(order.loaded_at)
-
-    def test_loaded_stage_auto_allocates_spare_products_for_driver(self) -> None:
-        order = self._create_order(status=OrderStatus.PREPARING)
-        warehouse = Warehouse.objects.create(
-            name="Stage Warehouse",
-            code=f"WH-STAGE-{Warehouse.objects.count() + 1:03d}",
-            address="Stage Warehouse Address",
-            city="Bacolod",
-            province="Negros Occidental",
-            zip_code="6100",
-            is_active=True,
-        )
-        order.warehouse_id = warehouse.id
-        order.save(update_fields=["warehouse_id", "updated_at"])
-        product = Product.objects.create(
-            sku="SKU-STAGE-SPARE-CASE-001",
-            name="Stage Spare Case",
-            unit="case",
-            price=25,
-        )
-        inventory = Inventory.objects.create(
-            warehouse=warehouse,
-            product=product,
-            quantity=100,
-            reserved_quantity=0,
-            threshold=0,
-        )
-        StockBatch.objects.create(
-            batch_number=f"BATCH-STAGE-{StockBatch.objects.count() + 1:03d}",
-            inventory=inventory,
-            quantity=100,
-            receipt_date=timezone.now(),
-            status="ACTIVE",
-        )
-        order_item = OrderItem.objects.create(
-            order=order,
-            product=product,
-            quantity=25,
-            unit_price=25,
-            total_price=625,
-        )
-        self._assign_order_to_driver(order)
-
-        response = self._patch_stage(
-            order.id,
-            {
-                "warehouseStage": "LOADED",
-                "checklist": {
-                    "itemsVerified": True,
-                    "quantityVerified": True,
-                    "packagingVerified": True,
-                    "spareProductsVerified": True,
-                    "vehicleAssigned": True,
-                    "driverAssigned": True,
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        order.refresh_from_db()
-        self.assertTrue(order.checklist_quantity_verified)
-
-        spare_products = DriverSpareStock.objects.get(driver=self.driver, product=product)
-        self.assertEqual(spare_products.on_hand_quantity, 3)
-        self.assertEqual(spare_products.minimum_required_quantity, 3)
-
-        transaction = InventoryTransaction.objects.get(
-            driver_id=self.driver.id,
-            driver=self.driver,
-            product=product,
-            reference_type="order_spare_products_auto_load",
-            reference_id=order_item.id,
-        )
-        self.assertEqual(transaction.quantity, 3)
-
-    def test_driver_trips_includes_spare_product_policy_per_item(self) -> None:
-        order = self._create_order(status=OrderStatus.PREPARING)
-        product = Product.objects.create(
-            sku="SKU-STAGE-SPARE-PACK-001",
-            name="Stage Spare Pack",
-            unit="pack(bundle)",
-            price=12,
-        )
-        OrderItem.objects.create(
-            order=order,
-            product=product,
-            quantity=100,
-            unit_price=12,
-            total_price=1200,
-        )
-        self._assign_order_to_driver(order)
-
-        response = self.client.get(
-            "/api/driver/trips",
-            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        trip_order = payload["trips"][0]["dropPoints"][0]["order"]
-        self.assertIn("items", trip_order)
-        self.assertEqual(trip_order["items"][0]["spareProducts"]["minPercent"], 3)
-        self.assertEqual(trip_order["items"][0]["spareProducts"]["maxPercent"], 5)
-        self.assertEqual(trip_order["items"][0]["spareProducts"]["recommendedPercent"], 4)
-        self.assertEqual(trip_order["items"][0]["spareProducts"]["recommendedQuantity"], 4)
 
     def test_dispatched_stage_is_automatic_when_trip_starts(self) -> None:
         order = self._create_order(warehouse_stage=WarehouseStage.LOADED)
@@ -3203,55 +3094,6 @@ class PaginationGuardsContractTests(TestCase):
         self.assertEqual(returned["replacementItems"][0]["quantityToReplace"], 6)
         self.assertEqual(returned["replacementItems"][0]["quantityReplaced"], 1)
 
-    def test_driver_spare_replacement_accepts_multiple_damaged_products(self) -> None:
-        driver_token = create_token(
-            {
-                "userId": self.driver_user.id,
-                "email": self.driver_user.email,
-                "name": self.driver_user.name,
-                "role": "DRIVER",
-                "type": "staff",
-            }
-        )
-        order = Order.objects.create(
-            order_number="ORD-MULTI-DAMAGE",
-            customer=self.customer,
-            status=OrderStatus.PREPARING,
-            subtotal=100,
-            total_amount=110,
-        )
-        coke = Product.objects.create(sku="MULTI-COKE-001", name="coke", price=10)
-        sprite = Product.objects.create(sku="MULTI-SPRITE-001", name="sprite", price=12)
-        coke_item = OrderItem.objects.create(order=order, product=coke, quantity=8, unit_price=10, total_price=80)
-        sprite_item = OrderItem.objects.create(order=order, product=sprite, quantity=5, unit_price=12, total_price=60)
-        DriverSpareStock.objects.create(driver=self.driver, product=coke, on_hand_quantity=10, minimum_required_quantity=0)
-        DriverSpareStock.objects.create(driver=self.driver, product=sprite, on_hand_quantity=10, minimum_required_quantity=0)
-
-        response = self.client.post(
-            "/api/driver/replacements/from-spare-products",
-            data=json.dumps({
-                "orderId": order.id,
-                "tripId": "trip-multi-damage",
-                "dropPointId": "drop-multi-damage",
-                "outcome": "PARTIALLY_REPLACED",
-                "reason": "Multiple damaged products",
-                "damagePhotos": ["/uploads/pods/multi-damage.jpg"],
-                "items": [
-                    {"orderItemId": coke_item.id, "quantityToReplace": 6, "quantityReplaced": 1},
-                    {"orderItemId": sprite_item.id, "quantityToReplace": 3, "quantityReplaced": 2},
-                ],
-            }),
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {driver_token}",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(len(payload["replacements"]), 2)
-        quantities = sorted((row["originalProductName"], row["quantityToReplace"], row["quantityReplaced"]) for row in payload["replacements"])
-        self.assertEqual(quantities, [("coke", 6, 1), ("sprite", 3, 2)])
-        self.assertEqual(Replacement.objects.filter(order=order).count(), 2)
-
     def test_trips_endpoint_uses_expected_pagination_defaults_and_bounds(self) -> None:
         default_response = self.client.get("/api/trips", HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
         self.assertEqual(default_response.status_code, 200)
@@ -3376,7 +3218,6 @@ class DeliveryLifecycleFlowContractTests(TestCase):
                     "itemsVerified": True,
                     "quantityVerified": True,
                     "packagingVerified": True,
-                    "spareProductsVerified": True,
                     "vehicleAssigned": True,
                     "driverAssigned": True,
                 },

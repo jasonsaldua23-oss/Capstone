@@ -611,17 +611,10 @@ export function ReplacementsView() {
 
   const replacementsBySource = useMemo(() => {
     const customerRequests: any[] = []
-    const duringDelivery: any[] = []
     filteredReplacements.forEach((item) => {
-      const meta = parseMeta(item?.notes)
-      const mode = String(item?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
-      if (mode === 'CUSTOMER_SUBMITTED') {
-        customerRequests.push(item)
-      } else {
-        duringDelivery.push(item)
-      }
+      customerRequests.push(item)
     })
-    return { customerRequests, duringDelivery }
+    return { customerRequests }
   }, [filteredReplacements])
 
   const orderItemsByOrderNumber = useMemo(() => {
@@ -807,224 +800,74 @@ export function ReplacementsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <Package className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Total Cases</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{totalIssues}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Total Cases</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{totalIssues}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
               <CheckCircle className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Resolved on Delivery</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{resolvedOnDelivery}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Resolved on Delivery</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{resolvedOnDelivery}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-rose-50 p-2.5 text-rose-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
               <XCircle className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Rejected</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{rejectedCount}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Rejected</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{rejectedCount}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
               <BarChart3 className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Replaced Bottles</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacedTypeSummary.bottles}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Replaced Bottles</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacedTypeSummary.bottles}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
               <Package className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Replaced Unit</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{totalReplacedQty}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Replaced Unit</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{totalReplacedQty}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-3 p-5">
-            <div className="rounded-xl bg-sky-50 p-2.5 text-sky-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
               <Clock className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Scheduled Replacements</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{scheduledReplacementsCount}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Scheduled Replacements</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{scheduledReplacementsCount}</p>
             </div>
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>During Delivery Replacements</CardTitle>
-          <CardDescription>Reported and handled while delivery is ongoing</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
-          ) : replacementsBySource.duringDelivery.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-gray-500">No during-delivery replacement cases found</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Order #</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Warehouse</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Reported</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {replacementsBySource.duringDelivery.map((item: any) => {
-                    const meta = parseMeta(item?.notes)
-                    const rawStatus = String(item?.status || '').trim().toUpperCase()
-                    const issueReason = getReplacementDetailsText(item, meta)
-                    const replacementLines = buildReplacementLines(item, meta)
-                    const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
-                    const orderItems =
-                      (Array.isArray(item?.order?.items) ? item.order.items : []).length > 0
-                        ? item.order.items
-                        : (orderItemsByOrderNumber.get(orderNumberKey) || [])
-                    const totalLoss = replacementLines.reduce((sum, line, index) => {
-                      const sourceLine =
-                        (Array.isArray(item?.replacementLines) ? item.replacementLines[index] : undefined) ||
-                        (Array.isArray(item?.replacementItems) ? item.replacementItems[index] : undefined) ||
-                        (Array.isArray(meta?.replacementLines) ? meta.replacementLines[index] : undefined) ||
-                        (Array.isArray(meta?.replacementItems) ? meta.replacementItems[index] : undefined) ||
-                        {}
-                      const matchedOrderItem = orderItems.find((orderItem: any) => {
-                        const srcOrderItemId = String(sourceLine?.orderItemId ?? '').trim()
-                        const oiId = String(orderItem?.id ?? '').trim()
-                        if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
-
-                        const srcProductId = String(
-                          sourceLine?.productId ??
-                          sourceLine?.originalProductId ??
-                          sourceLine?.replacementProductId ??
-                          ''
-                        ).trim()
-                        const oiProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
-                        if (srcProductId && oiProductId && srcProductId === oiProductId) return true
-
-                        const srcName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
-                        const oiName = String(orderItem?.product?.name ?? orderItem?.name ?? '').trim().toLowerCase()
-                        return Boolean(srcName && oiName && srcName === oiName)
-                      })
-
-                      const unitPrice = Number(
-                        sourceLine?.unitPrice ??
-                        sourceLine?.price ??
-                        sourceLine?.sellingPrice ??
-                        sourceLine?.replacementUnitPrice ??
-                        sourceLine?.originalUnitPrice ??
-                        matchedOrderItem?.unitPrice ??
-                        matchedOrderItem?.price ??
-                        matchedOrderItem?.product?.price ??
-                        0
-                      )
-                      const qtyPerCase = Math.max(1, Number(sourceLine?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerUnit ?? 1))
-                      const effectiveUnit = String(
-                        sourceLine?.productUnit ??
-                        sourceLine?.replacementProductUnit ??
-                        sourceLine?.originalProductUnit ??
-                        matchedOrderItem?.product?.unit ??
-                        matchedOrderItem?.unit ??
-                        ''
-                      ).trim().toLowerCase()
-                      const isBottleUnit = effectiveUnit.includes('bottle')
-                      const basePrice = Number.isFinite(unitPrice) ? unitPrice : 0
-                      const qty = Math.max(Number(line?.quantityReplaced || 0), 0)
-                      const replacedQtyInBillingUnit = isBottleUnit ? qty : (qty / qtyPerCase)
-                      const lineLoss = replacedQtyInBillingUnit > 0 ? replacedQtyInBillingUnit * basePrice : 0
-                      return sum + lineLoss
-                    }, 0)
-                    const evidenceUrls = collectEvidenceUrls(item, meta)
-                    const evidenceCount = evidenceUrls.length
-                    const hasEvidence = evidenceCount > 0
-                    const statusLabel = formatIssueStatus(item)
-
-                    return (
-                      <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4 font-medium">{item.replacementNumber}</td>
-                        <td className="p-4">{item.orderNumber || item.order?.orderNumber || 'N/A'}</td>
-                        <td className="p-4">{item.customerName || item.order?.customer?.name || 'N/A'}</td>
-                        <td className="p-4">
-                          <p className="font-medium text-gray-900">{item.warehouseName || item.warehouseCode || item.order?.warehouseName || item.order?.warehouseCode || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
-                        </td>
-                        <td className="p-4">
-                          <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
-                          {totalLoss > 0 ? <p className="mt-1 text-xs font-semibold text-red-600">Loss: {formatPeso(totalLoss)}</p> : null}
-                        </td>
-                        <td className="p-4">
-                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
-                            {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
-                          </Badge>
-                        </td>
-                        <td className="p-4">
-                          <Badge
-                            className={
-                              statusLabel === 'Needs Follow-up'
-                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
-                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                            }
-                          >
-                            {statusLabel}
-                          </Badge>
-                        </td>
-                        <td className="p-4 text-gray-500">
-                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td className="p-4 min-w-[220px]">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setSelectedReplacement(item)}
-                          >
-                            View Details
-                          </Button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -1345,64 +1188,50 @@ export function ReplacementsView() {
                 <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
-                    {(() => {
-                      const isCustomerRequest = rawMode.trim().toUpperCase() === 'CUSTOMER_SUBMITTED'
-                      if (!isCustomerRequest) {
-                        // Driver-reported replacement â€” admin is read-only, driver already handled it
-                        return (
-                          <div className="mt-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-700">
-                            This replacement was reported and handled by the driver during delivery. No admin action is required.
-                          </div>
-                        )
-                      }
-                      // Customer-submitted replacement â€” admin must review and approve/reject
-                      return (
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          {rawStatus === 'UNDER_REVIEW' ? (
-                            <>
-                              <Button
-                                size="sm"
-                                className="bg-emerald-600 text-white hover:bg-emerald-700"
-                                onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
-                                  notes: 'Replacement approved for processing',
-                                })}
-                                disabled={updatingReplacementId === selectedReplacement.id}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => {
-                                  setRejectReason('')
-                                  setRejectDialogOpen(true)
-                                }}
-                                disabled={updatingReplacementId === selectedReplacement.id}
-                              >
-                                Reject
-                              </Button>
-                            </>
-                          ) : !isScheduledReplacement && !isFinalizedStatus && rawStatus !== 'APPROVED' ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-blue-200 text-blue-700 hover:bg-blue-50"
-                              onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
-                              disabled={updatingReplacementId === selectedReplacement.id}
-                            >
-                              Under Review
-                            </Button>
-                          ) : isScheduledReplacement ? (
-                            <p className="text-sm text-blue-700">Scheduled replacement is already queued for trip planning.</p>
-                          ) : (
-                            <p className="text-sm text-slate-500">This replacement is already finalized.</p>
-                          )}
-                          {updatingReplacementId === selectedReplacement.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                          ) : null}
-                        </div>
-                      )
-                    })()}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {rawStatus === 'UNDER_REVIEW' ? (
+                        <>
+                          <Button
+                            size="sm"
+                            className="bg-emerald-600 text-white hover:bg-emerald-700"
+                            onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
+                              notes: 'Replacement approved for processing',
+                            })}
+                            disabled={updatingReplacementId === selectedReplacement.id}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              setRejectReason('')
+                              setRejectDialogOpen(true)
+                            }}
+                            disabled={updatingReplacementId === selectedReplacement.id}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      ) : !isScheduledReplacement && !isFinalizedStatus && rawStatus !== 'APPROVED' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                          onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
+                          disabled={updatingReplacementId === selectedReplacement.id}
+                        >
+                          Under Review
+                        </Button>
+                      ) : isScheduledReplacement ? (
+                        <p className="text-sm text-blue-700">Scheduled replacement is already queued for trip planning.</p>
+                      ) : (
+                        <p className="text-sm text-slate-500">This replacement is already finalized.</p>
+                      )}
+                      {updatingReplacementId === selectedReplacement.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </>

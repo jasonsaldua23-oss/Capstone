@@ -7,7 +7,7 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,9 +23,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, User, Star, Download, Pencil, Trash2, CalendarDays } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
+import { resolveClientImageUrl } from '@/lib/client-image'
 import {
   toArray,
   getCollection,
@@ -307,8 +308,8 @@ export function FeedbackView() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-4 space-y-4">
+      <Card className="overflow-hidden rounded-[1.25rem] border border-slate-200/80 bg-white/95 shadow-[0_12px_28px_rgba(148,163,184,0.12)]">
+        <CardContent className="space-y-2.5 p-2.5 md:p-3">
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -339,30 +340,71 @@ export function FeedbackView() {
                 item?.order?.trip?.driver?.name ||
                 item?.trip?.driver?.name ||
                 null
+              const customerName = String(item.customer?.name || 'Customer')
+              const customerAvatarUrl = resolveClientImageUrl(item?.customer?.avatar)
+              const orderNumber = String(item.order?.orderNumber || item.orderNumber || 'No Order')
+              const createdDate = item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-US') : 'N/A'
+              const feedbackMessage = String(item.message || item.subject || 'No message')
+                .replace(/\s*\n+\s*/g, ' - ')
+                .trim()
               return (
-                <div key={item.id} className="rounded-xl border p-4">
-                  <div className="flex items-start gap-4">
-                    <div className="flex items-start gap-3">
-                      <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                        <MessageSquare className="h-5 w-5 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-xl">{item.customer?.name || 'Customer'} <span className="text-base font-normal text-gray-500">� {item.order?.orderNumber || 'No Order'}</span></p>
-                        <div className="mt-2 flex items-center gap-2">
+                <article
+                  key={item.id}
+                  className="rounded-[1rem] border border-slate-200/80 bg-white px-2.5 py-2.5 shadow-[0_8px_18px_rgba(148,163,184,0.09)] md:px-3 md:py-3"
+                >
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex flex-col gap-2.5 md:flex-row md:items-start">
+                      <Avatar className="h-14 w-14 shrink-0 border border-[#d6e3ff] shadow-[0_8px_18px_rgba(148,163,184,0.16)]">
+                        {customerAvatarUrl ? <AvatarImage src={customerAvatarUrl} alt={customerName} className="object-cover" /> : null}
+                        <AvatarFallback className="bg-[linear-gradient(145deg,#e6ecff_0%,#dfe8ff_52%,#d9e4ff_100%)] text-[#4f7ef4]">
+                          {String(customerName || 'CU')
+                            .trim()
+                            .split(/\s+/)
+                            .slice(0, 2)
+                            .map((part) => part[0]?.toUpperCase() || '')
+                            .join('') || 'CU'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-lg font-bold tracking-tight text-slate-900 md:text-[1.4rem]">{customerName}</h3>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.82rem] text-slate-500 md:text-[0.88rem]">
+                          <FileText className="h-3.5 w-3.5 text-[#5b84f5]" strokeWidth={2} />
+                          <span>Order</span>
+                          <span className="text-[1rem] font-semibold leading-none tracking-wide text-[#2047a8] md:text-[1.15rem]">
+                            {orderNumber}
+                          </span>
+                        </div>
+                        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-slate-500">
                           {renderStars(Number(item.rating || 0))}
-                          <span className="text-sm text-gray-500">� {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</span>
+                          <span className="hidden h-5 w-px bg-slate-200 md:block" />
+                          <div className="flex items-center gap-1 text-[0.82rem] md:text-[0.88rem]">
+                            <CalendarDays className="h-3.5 w-3.5 text-slate-500" strokeWidth={1.8} />
+                            <span>{createdDate}</span>
+                          </div>
+                          <span className="hidden h-5 w-px bg-slate-200 md:block" />
+                          <Badge className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[0.7rem] font-semibold text-emerald-700 hover:bg-emerald-50">
+                            <Truck className="mr-1 h-3 w-3" strokeWidth={2.1} />
+                            Delivery
+                          </Badge>
                         </div>
                       </div>
                     </div>
+                    <div className="h-px w-full bg-slate-200" />
+                    <div className="flex flex-wrap items-center gap-1.5 text-[0.82rem] md:text-[0.88rem]">
+                      <User className="h-4 w-4 text-[#4f7ef4]" strokeWidth={1.9} />
+                      <span className="text-slate-500">Assigned Driver:</span>
+                      <span className="font-semibold text-slate-900">{assignedDriverName || 'Unassigned'}</span>
+                    </div>
+                    <div className="rounded-[0.9rem] border border-[#d6e3ff] bg-[#fbfdff] px-2.5 py-2.5 md:px-3 md:py-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-[1.6rem] font-bold leading-none text-[#355fca]">“</span>
+                        <p className="pt-0.5 text-[0.82rem] leading-[1.55] text-slate-900 md:text-[0.9rem]">
+                          {feedbackMessage}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-3">
-                    <Badge variant="outline">Delivery</Badge>
-                  </div>
-                  <p className="mt-2 text-sm text-gray-600">
-                    Assigned Driver: {assignedDriverName || 'Unassigned'}
-                  </p>
-                  <p className="mt-3 text-xl leading-normal">{item.message || item.subject || 'No message'}</p>
-                </div>
+                </article>
               )
             })
           )}

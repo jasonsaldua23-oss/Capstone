@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Boxes, CalendarDays, ClipboardList, Loader2, PackageCheck, XCircle } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Boxes, CalendarDays, ClipboardList, Loader2, PackageCheck, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -22,6 +22,11 @@ export function WarehouseReplacementsView({
 }: WarehouseReplacementsViewProps) {
   const [replacementDeliveryDate, setReplacementDeliveryDate] = useState('')
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
+  const openReplacementDetails = (entry: any) => {
+    const scheduled = String(entry?.scheduledDeliveryDate || '').trim()
+    setReplacementDeliveryDate(scheduled)
+    setSelectedReplacement(entry)
+  }
   const hasStrictScheduledFollowUp = (entry: any): boolean => {
     const scheduledDeliveryDate = String(entry?.scheduledDeliveryDate || '').trim()
     const replacementOrderId = String(entry?.replacementOrderId || '').trim()
@@ -47,41 +52,16 @@ export function WarehouseReplacementsView({
     )
     return Number.isFinite(qtyToReplace) && Number.isFinite(qtyReplaced) && qtyToReplace > qtyReplaced
   }
-  const isPartialFollowUpOpen = (entry: any, meta: any): boolean => {
-    const rawMode = String(entry?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
-    if (rawMode !== 'SPARE_PRODUCTS_PARTIAL') return false
-    return hasOutstandingReplacementQty(entry, meta)
-  }
   const getWarehouseStatusLabel = (entry: any, meta: any): string => {
     const rawStatus = String(entry?.status || '').trim().toUpperCase()
-    const rawMode = String(entry?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
     const hasScheduledFollowUp = hasStrictScheduledFollowUp(entry)
-    if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && hasScheduledFollowUp) {
+    if (rawStatus === 'IN_PROGRESS' && hasScheduledFollowUp) {
       return 'Scheduled for Delivery'
     }
-    if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
+    if (rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
       return 'Approved'
     }
-    if (rawMode === 'CUSTOMER_SUBMITTED') {
-      return formatIssueStatus(entry)
-    }
-    if (isPartialFollowUpOpen(entry, meta) || hasOutstandingReplacementQty(entry, meta)) {
-      return hasScheduledFollowUp ? 'Scheduled for Delivery' : 'Waiting for Schedule'
-    }
-    if (rawStatus === 'NEEDS_FOLLOW_UP') {
-      return 'Waiting for Schedule'
-    }
     return formatIssueStatus(entry)
-  }
-  const canScheduleFromDuringDeliveryRow = (entry: any, meta: any): boolean => {
-    const rawStatus = String(entry?.status || '').trim().toUpperCase()
-    const rawMode = String(entry?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
-    const isClosedStatus = ['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED'].includes(rawStatus)
-    if (isClosedStatus) return false
-    const hasOutstanding = hasOutstandingReplacementQty(entry, meta)
-    const isPartialFlow = rawMode === 'SPARE_PRODUCTS_PARTIAL' || rawStatus === 'NEEDS_FOLLOW_UP' || rawStatus === 'IN_PROGRESS'
-    const alreadyScheduled = hasStrictScheduledFollowUp(entry)
-    return hasOutstanding && isPartialFlow && !alreadyScheduled
   }
   const collectEvidenceUrls = (entry: any, meta: any): string[] => {
     const urlsFromArray = Array.isArray(entry?.damagePhotoUrls) ? entry.damagePhotoUrls : []
@@ -361,7 +341,6 @@ export function WarehouseReplacementsView({
   }
   const replacementsBySource = useMemo(() => {
     const customerRequests: any[] = []
-    const duringDelivery: any[] = []
     const scheduledReplacements: any[] = []
     scopedReplacements.forEach((item) => {
       const meta = parseIssueMeta(item?.notes)
@@ -371,25 +350,10 @@ export function WarehouseReplacementsView({
         scheduledReplacements.push(item)
         return
       }
-      const mode = String(item?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
-      if (mode === 'CUSTOMER_SUBMITTED') {
-        customerRequests.push(item)
-      } else {
-        duringDelivery.push(item)
-      }
+      customerRequests.push(item)
     })
-    return { customerRequests, duringDelivery, scheduledReplacements }
+    return { customerRequests, scheduledReplacements }
   }, [scopedReplacements, parseIssueMeta, hasOutstandingReplacementQty])
-
-  useEffect(() => {
-    if (!selectedReplacement) {
-      setReplacementDeliveryDate('')
-      return
-    }
-    const meta = parseIssueMeta(selectedReplacement.notes)
-    const scheduled = String(selectedReplacement?.scheduledDeliveryDate || '').trim()
-    setReplacementDeliveryDate(scheduled)
-  }, [selectedReplacement])
 
   return (
     <div className="space-y-6">
@@ -400,81 +364,70 @@ export function WarehouseReplacementsView({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <ClipboardList className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Total Cases</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.totalCases}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Total Cases</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.totalCases}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
               <PackageCheck className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Resolved on Delivery</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.resolvedOnDelivery}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Resolved on Delivery</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.resolvedOnDelivery}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-amber-50 p-2.5 text-amber-600">
-              <AlertTriangle className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Needs Follow-up</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.needsFollowUp}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-rose-50 p-2.5 text-rose-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
               <XCircle className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Rejected</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.rejected}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Rejected</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.rejected}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
               <Boxes className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Replaced Bottles</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.replacedBottleQty}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Replaced Bottles</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.replacedBottleQty}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
               <ClipboardList className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Replaced Unit</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementSummary.replacedQty}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Replaced Unit</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.replacedQty}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex h-full items-start gap-3 p-5">
-            <div className="rounded-xl bg-sky-50 p-2.5 text-sky-600">
+          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
               <CalendarDays className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500">Scheduled Replacements</p>
-              <p className="mt-1 text-2xl font-bold leading-none">{replacementsBySource.scheduledReplacements.length}</p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm leading-5 text-gray-500">Scheduled Replacements</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementsBySource.scheduledReplacements.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -525,129 +478,9 @@ export function WarehouseReplacementsView({
                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">{statusLabel}</Badge>
                         </td>
                         <td className="p-4 min-w-[220px]">
-                          <Button size="sm" variant="outline" onClick={() => setSelectedReplacement(ret)}>
+                          <Button size="sm" variant="outline" onClick={() => openReplacementDetails(ret)}>
                             View Details
                           </Button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="border-b px-6 py-4">
-          <h3 className="text-base font-semibold text-slate-900">During Delivery Replacements</h3>
-          <p className="text-sm text-slate-500">Reported and handled while delivery is ongoing</p>
-        </CardContent>
-        <CardContent className="p-0">
-          {loadingReplacements ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
-          ) : replacementsBySource.duringDelivery.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-gray-500">No during-delivery replacement cases found</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Order #</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Reported</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {replacementsBySource.duringDelivery.map((ret) => {
-                    const meta = parseIssueMeta(ret?.notes)
-                    const issueReason = getReplacementDetailsText(ret, meta)
-                    const rawStatus = String(ret?.status || '').trim().toUpperCase()
-                    const outstanding = hasOutstandingReplacementQty(ret, meta)
-                    const evidenceUrls = collectEvidenceUrls(ret, meta)
-                    const evidenceCount = evidenceUrls.length
-                    const hasEvidence = evidenceCount > 0
-                    const statusLabel = getWarehouseStatusLabel(ret, meta)
-                    return (
-                      <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4 font-medium">{ret.replacementNumber}</td>
-                        <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
-                        <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
-                        <td className="p-4">
-                          <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
-                        </td>
-                        <td className="p-4">
-                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
-                            {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
-                          </Badge>
-                        </td>
-                        <td className="p-4">
-                          <Badge
-                            className={
-                              statusLabel === 'Needs Follow-up'
-                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
-                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                            }
-                          >
-                            {statusLabel}
-                          </Badge>
-                        </td>
-                        <td className="p-4 text-gray-500">
-                          {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td className="p-4 min-w-[220px]">
-                          {canScheduleFromDuringDeliveryRow(ret, meta) ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <input
-                                type="date"
-                                className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
-                                value={rowScheduleDates[ret.id] || ''}
-                                onChange={(event) => setRowScheduleDates((prev) => ({ ...prev, [ret.id]: event.target.value }))}
-                              />
-                              <Button
-                                size="sm"
-                                className="bg-blue-600 text-white hover:bg-blue-700"
-                                onClick={() => {
-                                  const selectedDate = String(rowScheduleDates[ret.id] || '').trim()
-                                  if (!selectedDate) return
-                                  void updateIssueStatus(ret.id, 'NEEDS_FOLLOW_UP', {
-                                    notes: `Warehouse scheduled driver partial follow-up delivery on ${selectedDate}`,
-                                    createReplacementOrder: true,
-                                    replacementDeliveryDate: selectedDate,
-                                    manualScheduleConfirmed: true,
-                                  })
-                                }}
-                                disabled={updatingReplacementId === ret.id || !String(rowScheduleDates[ret.id] || '').trim()}
-                              >
-                                Schedule Delivery
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setSelectedReplacement(ret)}
-                              >
-                                View Details
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedReplacement(ret)}
-                            >
-                              View Details
-                            </Button>
-                          )}
                         </td>
                       </tr>
                     )
@@ -726,13 +559,13 @@ export function WarehouseReplacementsView({
                           {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="p-4 min-w-[220px]">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setSelectedReplacement(ret)}
-                          >
-                            View Details
-                          </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openReplacementDetails(ret)}
+                            >
+                              View Details
+                            </Button>
                         </td>
                       </tr>
                     )
@@ -744,7 +577,12 @@ export function WarehouseReplacementsView({
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
+      <Dialog open={!!selectedReplacement} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedReplacement(null)
+          setReplacementDeliveryDate('')
+        }
+      }}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseIssueMeta(selectedReplacement.notes)
@@ -754,19 +592,13 @@ export function WarehouseReplacementsView({
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
             const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
-            const isCustomerRequest = rawMode.trim().toUpperCase() === 'CUSTOMER_SUBMITTED'
             const hasOutstandingReplacementQty =
               totalQtyToReplace > 0 && totalQtyReplaced < totalQtyToReplace
             const isClosedStatus = ['REJECTED', 'CANCELLED'].includes(rawStatus) || (
               ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty
             )
             const statusLabel = getWarehouseStatusLabel(selectedReplacement, meta)
-            const isWaitingForSchedule = statusLabel === 'Waiting for Schedule'
-            const canScheduleWithoutAdminApproval =
-              !isClosedStatus &&
-              hasOutstandingReplacementQty &&
-              (rawMode.trim().toUpperCase() === 'SPARE_PRODUCTS_PARTIAL' || rawStatus === 'NEEDS_FOLLOW_UP' || rawStatus === 'IN_PROGRESS')
-            const canScheduleDelivery = (rawStatus === 'APPROVED' && !isClosedStatus) || canScheduleWithoutAdminApproval
+            const canScheduleDelivery = rawStatus === 'APPROVED' && !isClosedStatus
             const isResolvedReplacement = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty
             const isScheduledReplacement = hasStrictScheduledFollowUp(selectedReplacement)
             const shouldShowSchedulePickerInModal =
@@ -780,11 +612,6 @@ export function WarehouseReplacementsView({
             const effectiveResolution = isResolvedCase
               ? (baseResolution.replace(/;?\s*follow-?up required\.?/i, '').trim() || 'Resolved')
               : (baseResolution || 'N/A')
-            const effectiveMode = hasOutstandingReplacementQty
-              ? (isCustomerRequest ? 'CUSTOMER_SUBMITTED' : 'SPARE_PRODUCTS_PARTIAL')
-              : isResolvedCase && /PARTIAL/i.test(rawMode)
-                ? rawMode.replace(/PARTIAL/ig, 'RESOLVED')
-                : rawMode
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
@@ -793,7 +620,7 @@ export function WarehouseReplacementsView({
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
               ['Resolution', effectiveResolution],
-              ['Replacement Mode', effectiveMode.replace(/_/g, ' ')],
+              ['Replacement Mode', rawMode.replace(/_/g, ' ')],
             ] as Array<[string, string]>
             return (
               <>

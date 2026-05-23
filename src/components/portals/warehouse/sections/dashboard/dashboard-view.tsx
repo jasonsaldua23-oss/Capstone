@@ -9,12 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { ChartContainer } from '@/components/ui/chart'
 import type { WarehouseDashboardViewProps } from '../shared/types'
-import { fetchAllPaginatedCollection, getCollection } from '../../../admin/sections/shared'
 
 export function WarehouseDashboardView({
   assignedWarehouse,
   scopedInventory,
+  dashboardOrderStats,
+  inventoryStatusBreakdown,
   lowStockCount,
+  activeTripCount,
   pendingReplacementCases,
   totalReplacementCases,
   warehouseOrdersChartConfig,
@@ -29,63 +31,43 @@ export function WarehouseDashboardView({
   loadingInventoryTransactions,
   filteredInventoryTransactions,
 }: WarehouseDashboardViewProps) {
-  const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
-  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back!')
-
-  useEffect(() => {
-    async function fetchDashboardData() {
-      try {
-        const ordersResult = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=none',
-          'orders',
-          { cache: 'no-store' },
-          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
-        )
-
-        if (ordersResult.ok) {
-          setDashboardOrders(getCollection<any>(ordersResult.data, ['orders']))
-        }
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error)
-      }
-    }
-    fetchDashboardData()
-  }, [])
-
-  useEffect(() => {
+  const [welcomeMessage] = useState(() => {
+    if (typeof window === 'undefined') return 'Welcome back!'
     try {
       const raw = window.sessionStorage.getItem('warehouse_welcome_state')
-      if (!raw) return
+      if (!raw) return 'Welcome back!'
       const parsed = JSON.parse(raw) as { mode?: string; name?: string }
       const mode = String(parsed?.mode || '').toLowerCase()
       const name = String(parsed?.name || '').trim()
-      if (mode === 'new') {
-        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
-      } else {
-        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
-      }
+      return mode === 'new'
+        ? (name ? `Welcome, ${name}` : 'Welcome!')
+        : (name ? `Welcome back, ${name}` : 'Welcome back!')
+    } catch {
+      return 'Welcome back!'
+    }
+  })
+
+  useEffect(() => {
+    try {
       window.sessionStorage.removeItem('warehouse_welcome_state')
     } catch {}
   }, [])
 
-  const dashboardOrderStats = useMemo(() => {
-    const nonReplacementOrders = dashboardOrders.filter((order) => {
-      const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
-      const status = String(order?.status || '').toUpperCase()
-      return !Boolean(order?.isScheduledReplacement) && 
-             !orderNumber.startsWith('RPL-') &&
-             status !== 'CANCELLED'
-    })
-    const totalOrders = nonReplacementOrders.length || 0
-    const outForDelivery = nonReplacementOrders.filter((o) => o?.status === 'IN_TRANSIT').length
-    const delivered = nonReplacementOrders.filter((o) => o?.status === 'DELIVERED').length
+  const weeklyTrendAxis = useMemo(() => {
+    const rawMax = weeklyTrendData.reduce((max, item) => {
+      const nextMax = Math.max(Number(item?.thisWeek || 0), Number(item?.lastWeek || 0))
+      return Math.max(max, nextMax)
+    }, 0)
+    const weeklyTrendMax = Math.max(1, rawMax)
+    const step = weeklyTrendMax <= 5 ? 1 : Math.ceil(weeklyTrendMax / 5)
+    const axisMax = Math.max(1, Math.ceil(weeklyTrendMax / step) * step)
+    const ticks = Array.from({ length: Math.floor(axisMax / step) + 1 }, (_, index) => index * step)
 
     return {
-      totalOrders,
-      outForDelivery,
-      delivered,
+      axisMax,
+      ticks,
     }
-  }, [dashboardOrders])
+  }, [weeklyTrendData])
   // Calculate transaction type distribution
   const transactionTypeData = useMemo(() => {
     const typeMap = new Map<string, number>()
@@ -116,31 +98,6 @@ export function WarehouseDashboardView({
   const totalTransactionCount = useMemo(() => {
     return filteredInventoryTransactions.length
   }, [filteredInventoryTransactions])
-
-  // Calculate inventory status breakdown
-  const inventoryStatusBreakdown = useMemo(() => {
-    let healthy = 0
-    let lowStock = 0
-    let critical = 0
-    let outOfStock = 0
-
-    for (const item of scopedInventory) {
-      const qty = Number(item?.quantity || 0)
-      const minQty = Number(item?.minimum_required_quantity || 1)
-
-      if (qty === 0) {
-        outOfStock++
-      } else if (qty <= minQty) {
-        critical++
-      } else if (qty <= minQty * 1.5) {
-        lowStock++
-      } else {
-        healthy++
-      }
-    }
-
-    return { healthy, lowStock, critical, outOfStock }
-  }, [scopedInventory])
 
   // Color palette for transaction types
   const transactionColors = [
@@ -209,7 +166,7 @@ export function WarehouseDashboardView({
               <Truck className="h-5 w-5" />
             </div>
             <div className="mt-4">
-              <p className="text-4xl font-extrabold leading-none tracking-tight text-indigo-900">0</p>
+              <p className="text-4xl font-extrabold leading-none tracking-tight text-indigo-900">{activeTripCount.toLocaleString()}</p>
               <p className="mt-2 text-sm leading-tight font-medium text-indigo-900/70">Active Trips</p>
             </div>
           </CardContent>
@@ -226,9 +183,8 @@ export function WarehouseDashboardView({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-blue-900/75">Assigned Warehouse</p>
-              <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-blue-900">{assignedWarehouse ? 1 : 0}</p>
-              <p className="mt-2 text-xs text-blue-900/60 truncate">
-                {assignedWarehouse ? `${assignedWarehouse.name}` : 'No warehouse'}
+              <p className="mt-2 text-2xl font-extrabold leading-tight tracking-tight text-blue-900">
+                {assignedWarehouse?.name ? String(assignedWarehouse.name).trim() : 'No warehouse'}
               </p>
             </div>
           </CardContent>
@@ -446,7 +402,14 @@ export function WarehouseDashboardView({
                   </linearGradient>
                 </defs>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <YAxis axisLine={false} tickLine={false} width={28} domain={[0, 'auto']} />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  width={28}
+                  allowDecimals={false}
+                  domain={[0, weeklyTrendAxis.axisMax]}
+                  ticks={weeklyTrendAxis.ticks}
+                />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} />
                 <Area type="monotone" dataKey="thisWeek" stroke="#3b82f6" strokeWidth={2.5} fill="url(#fillThisWeekWh)" dot={false} />
                 <Area type="monotone" dataKey="lastWeek" stroke="#1d4ed8" strokeWidth={2} fill="url(#fillLastWeekWh)" dot={false} />

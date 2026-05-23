@@ -54,18 +54,6 @@ interface Trip {
   dropPoints: DropPoint[]
 }
 
-// Order item spare-product guidance attached to a drop point order item.
-interface SpareProductsInfo {
-  unit?: string | null
-  minPercent?: number
-  maxPercent?: number
-  recommendedPercent?: number
-  minQuantity?: number
-  recommendedQuantity?: number
-  maxQuantity?: number
-  totalLoadQuantity?: number
-}
-
 // Trip stop with nested order and replacement metadata used by driver flow.
 interface DropPoint {
   id: string
@@ -95,7 +83,6 @@ interface DropPoint {
     checklistItemsVerified?: boolean
     checklistQuantityVerified?: boolean
     checklistPackagingVerified?: boolean
-    checklistSpareProductsVerified?: boolean
     checklistVehicleAssigned?: boolean
     checklistDriverAssigned?: boolean
     isDriverAssigned?: boolean
@@ -109,7 +96,6 @@ interface DropPoint {
         name?: string | null
         unit?: string | null
       } | null
-      spareProducts?: SpareProductsInfo | null
     }>
     replacements?: Array<{
       id: string

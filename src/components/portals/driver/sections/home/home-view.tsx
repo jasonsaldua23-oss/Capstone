@@ -36,13 +36,6 @@ type AssignedOrderRow = {
       product?: {
         name?: string
       }
-      spareProducts?: {
-        recommendedQuantity?: number
-        totalLoadQuantity?: number
-        recommendedPercent?: number
-        minPercent?: number
-        maxPercent?: number
-      } | null
     }>
   }
 }
@@ -157,23 +150,6 @@ export function HomeView({
       return `Qty ${qty} case(s)`
     }
     return `Qty ${qty} unit(s)`
-  }
-  const getSpareProductInfo = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
-    const spareProducts = item.spareProducts
-    if (!spareProducts) return null
-    const recommendedQuantity = Number(spareProducts.recommendedQuantity || 0)
-    const totalLoadQuantity = Number(spareProducts.totalLoadQuantity ?? (Number(item.quantity || 0) + recommendedQuantity))
-    const recommendedPercent = Number(spareProducts.recommendedPercent || 0)
-    const minPercent = Number(spareProducts.minPercent || 0)
-    const maxPercent = Number(spareProducts.maxPercent || 0)
-    const hasLoadMetadata =
-      recommendedQuantity > 0 ||
-      Number.isFinite(totalLoadQuantity) ||
-      recommendedPercent > 0 ||
-      minPercent > 0 ||
-      maxPercent > 0
-    if (!hasLoadMetadata) return null
-    return { recommendedQuantity, totalLoadQuantity, recommendedPercent, minPercent, maxPercent }
   }
   const isWarehouseChecklistComplete = (order: AssignedOrderRow['order']) =>
     Boolean(order?.checklistQuantityVerified)
@@ -383,12 +359,7 @@ export function HomeView({
                 ''
               const pickupWarehouseArea = [pickupWarehouseCity, pickupWarehouseProvince].filter(Boolean).join(', ')
               const defaultChecklist = Object.fromEntries(
-                (order.items || []).flatMap((item) => {
-                  const itemId = String(item.id)
-                  const entries: [string, boolean][] = [[itemId, checklistDone]]
-                  if (!isReplacementOrder && getSpareProductInfo(item)) entries.push([`${itemId}:spare`, checklistDone])
-                  return entries
-                })
+                (order.items || []).map((item) => [String(item.id), checklistDone])
               )
               const checklistState = loadChecklistByOrder[orderId] || defaultChecklist
               const itemChecklistValues = Object.keys(defaultChecklist).map((key) => Boolean(checklistState[key]))
@@ -431,11 +402,9 @@ export function HomeView({
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Assigned Items</p>
                       {(order.items || []).map((item) => {
                         const itemId = String(item.id)
-                        const spareItemId = `${itemId}:spare`
                         const checked = Boolean(checklistState[itemId])
-                        const spareProductInfo = !isReplacementOrder ? getSpareProductInfo(item) : null
                         return (
-                          <div key={itemId} className="space-y-2">
+                          <div key={itemId}>
                           <label className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                             <div>
                               <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
@@ -457,29 +426,6 @@ export function HomeView({
                               }}
                             />
                           </label>
-                          {spareProductInfo ? (
-                            <label className={`ml-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checklistState[spareItemId] ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
-                              <div>
-                                <p className="font-medium text-slate-900">Spare products for {getItemDisplayNameWithSize(item)}</p>
-                                <p className="text-xs text-slate-500">Qty {spareProductInfo.recommendedQuantity} | Total {spareProductInfo.totalLoadQuantity}</p>
-                              </div>
-                              <input
-                                type="checkbox"
-                                checked={Boolean(checklistState[spareItemId])}
-                                disabled={!canMarkLoaded || loadingOrderId === orderId}
-                                onChange={(event) => {
-                                  const nextChecked = event.target.checked
-                                  setLoadChecklistByOrder((prev) => ({
-                                    ...prev,
-                                    [orderId]: {
-                                      ...(prev[orderId] || defaultChecklist),
-                                      [spareItemId]: nextChecked,
-                                    },
-                                  }))
-                                }}
-                              />
-                            </label>
-                          ) : null}
                           </div>
                         )
                       })}

@@ -25,8 +25,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
-import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, ScatterChart, Scatter, ZAxis, LabelList } from 'recharts'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, ScatterChart, Scatter, ZAxis, LabelList, PieChart, Pie } from 'recharts'
 import {
   toArray,
   getCollection,
@@ -43,6 +43,25 @@ import {
   fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
+import {
+  buildOrderReportRows,
+  buildOrderReportStatusBreakdown,
+  buildOrderReportStatusOptions,
+  buildOrderReportVolumeChart,
+  buildInventoryMovementChart,
+  buildInventoryMovementRows,
+  buildInventoryMovementTypeOptions,
+  buildWarehouseCapacityVsUsedChart,
+  formatOrderReportStatus,
+  formatReportProductName,
+  getInventoryAvailableQty,
+  getInventoryQuantity,
+  getInventoryThreshold,
+  summarizeOrderReportRows,
+  summarizeInventoryMovementRows,
+  summarizeInventoryMovementTrend,
+  summarizeStockHealth,
+} from '@/lib/report-metrics'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -97,7 +116,7 @@ export function ReportsView() {
           safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
           safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
           safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/stock-batches?limit=2000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/stock-batches?page=1&pageSize=2000', undefined, { retries: 5, timeoutMs: 20000 }),
         ])
 
         if (!isMounted) return
@@ -111,7 +130,8 @@ export function ReportsView() {
         const fallbackReplacements = ordersRes.ok ? getCollection<any>(ordersRes.data, ['replacements']) : []
         setReplacementsData(replacementsRes.ok ? getCollection<any>(replacementsRes.data, ['replacements']) : fallbackReplacements)
         setFeedback(feedbackRes.ok ? getCollection<any>(feedbackRes.data, ['feedback']) : [])
-        setStockBatches(stockBatchesRes.ok ? getCollection<any>(stockBatchesRes.data, ['batches']) : [])
+        // The stock batches endpoint returns `stockBatches`, not `batches`, so read the real collection key first.
+        setStockBatches(stockBatchesRes.ok ? getCollection<any>(stockBatchesRes.data, ['stockBatches', 'batches']) : [])
       } catch (error) {
         console.error('Failed to load reports pack:', error)
         if (isMounted) {
@@ -160,35 +180,14 @@ export function ReportsView() {
     return start
   }, [rangeDays])
 
+  // The order report uses a single normalized row model so cards, charts, exports, and the table stay in sync.
   const orderRows = useMemo(() => {
-    return orders
-      .filter((order) => withinRange(order.createdAt, rangeStart))
-      .filter((order) => selectedWarehouse === 'all' || getWarehouseIdFromRow(order) === selectedWarehouse)
-      .filter((order) => selectedOrderStatus === 'all' || String(order.status || '').toUpperCase() === selectedOrderStatus)
-      .map((order) => {
-        const checklistComplete = Boolean(
-          order.checklistQuantityVerified
-        )
-        const shortLoadQty = Number(order.exceptionShortLoadQty || 0)
-        const damagedOnLoadingQty = Number(order.exceptionDamagedOnLoadingQty || 0)
-        const holdReason = String(order.exceptionHoldReason || '').trim()
-        return {
-          orderNumber: order.orderNumber,
-          customer: order.customer?.name || 'N/A',
-          status: String(order.status || ''),
-          warehouseStage: String(order.warehouseStage || 'READY_TO_LOAD'),
-          checklistComplete,
-          dispatchSignedOffBy: order.dispatchSignedOffBy || 'N/A',
-          dispatchSignedOffAt: order.dispatchSignedOffAt || null,
-          shortLoadQty,
-          damagedOnLoadingQty,
-          holdReason: holdReason || 'N/A',
-          hasExceptions: shortLoadQty > 0 || damagedOnLoadingQty > 0 || holdReason.length > 0,
-          amount: Number(order.totalAmount || 0),
-          createdAt: order.createdAt,
-          deliveredAt: order.timeline?.deliveredAt || order.deliveredAt,
-        }
-      })
+    return buildOrderReportRows(orders, {
+      rangeStart,
+      selectedWarehouse,
+      selectedOrderStatus,
+      getWarehouseIdFromRow,
+    })
   }, [orders, rangeStart, selectedWarehouse, selectedOrderStatus])
 
   const warehouseDispatchRows = useMemo(() => {
@@ -255,19 +254,12 @@ export function ReportsView() {
   }, [trips, rangeStart, selectedWarehouse, selectedDriver, selectedTripStatus])
 
   const inventoryMovementRows = useMemo(() => {
-    return inventoryTransactions
-      .filter((transaction) => withinRange(transaction.createdAt, rangeStart))
-      .filter((transaction) => selectedWarehouse === 'all' || getWarehouseIdFromRow(transaction) === selectedWarehouse)
-      .filter((transaction) => selectedMovementType === 'all' || String(transaction.type || '').toUpperCase() === selectedMovementType)
-      .map((transaction) => ({
-        createdAt: transaction.createdAt,
-        warehouse: transaction.warehouse?.name || 'N/A',
-        product: transaction.product?.name || 'N/A',
-        type: String(transaction.type || '').toUpperCase(),
-        quantity: Number(transaction.quantity || 0),
-        referenceType: transaction.referenceType || 'N/A',
-        referenceId: transaction.referenceId || 'N/A',
-      }))
+    return buildInventoryMovementRows(inventoryTransactions, {
+      rangeStart,
+      selectedWarehouse,
+      selectedMovementType,
+      getWarehouseIdFromRow,
+    })
   }, [inventoryTransactions, rangeStart, selectedWarehouse, selectedMovementType])
 
   const replacementRows = useMemo(() => {
@@ -406,25 +398,26 @@ export function ReportsView() {
       }))
   }, [feedback, rangeStart, selectedFeedbackStatus])
 
-  // Stock Expiry Report Rows - tracks batches nearing expiration
+  // Batch expiry stays under inventory reporting so stock age is reviewed alongside movement and low-stock risks.
   const stockExpiryRows = useMemo(() => {
     const now = new Date()
     return stockBatches
+      .filter((batch) => selectedWarehouse === 'all' || String(batch.inventory?.warehouse?.id || '') === selectedWarehouse)
       .map((batch) => {
-        const expiryDate = batch.expiryDate ? new Date(batch.expiryDate) : null
-        const receiptDate = batch.receiptDate ? new Date(batch.receiptDate) : null
+        // The backend persists manufactured date in `receipt_date`, so the report exposes it with the correct business label.
+        const manufacturedDateValue = batch.manufacturedDate || batch.manufactured_date || batch.receiptDate || batch.receipt_date || batch.createdAt || null
+        const expiryDateValue = batch.expiryDate || batch.expiry_date || null
+        const expiryDate = expiryDateValue ? new Date(expiryDateValue) : null
+        const manufacturedDate = manufacturedDateValue ? new Date(manufacturedDateValue) : null
         const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null
-        const warehouse = batch.inventory?.warehouse?.name || 'N/A'
-        const product = batch.inventory?.product?.name || 'N/A'
-        const sku = batch.inventory?.product?.sku || 'N/A'
         return {
-          batchNumber: batch.batchNumber || 'N/A',
-          product,
-          sku,
-          warehouse,
+          batchNumber: batch.batchNumber || batch.batch_number || 'N/A',
+          product: formatReportProductName(batch.inventory?.product, 'N/A'),
+          sku: batch.inventory?.product?.sku || 'N/A',
+          warehouse: batch.inventory?.warehouse?.name || 'N/A',
           quantity: Number(batch.quantity || 0),
-          receiptDate: receiptDate ? formatDateTime(batch.receiptDate) : 'N/A',
-          expiryDate: expiryDate ? formatDateTime(batch.expiryDate) : 'N/A',
+          manufacturedDate: manufacturedDate ? formatReportDateOnly(manufacturedDateValue) : 'N/A',
+          expiryDate: expiryDate ? formatReportDateOnly(expiryDateValue) : 'N/A',
           daysUntilExpiry: daysUntilExpiry !== null ? daysUntilExpiry : 'N/A',
           status: daysUntilExpiry !== null
             ? daysUntilExpiry < 0 ? 'EXPIRED'
@@ -440,7 +433,7 @@ export function ReportsView() {
         const bDays = typeof b.daysUntilExpiry === 'number' ? b.daysUntilExpiry : Infinity
         return aDays - bDays
       })
-  }, [stockBatches])
+  }, [selectedWarehouse, stockBatches])
 
   // Driver Performance Report Rows - tracks driver metrics
   const driverPerformanceRows = useMemo(() => {
@@ -492,16 +485,18 @@ export function ReportsView() {
     return inventory
       .filter((item) => selectedWarehouse === 'all' || String(item.warehouse?.id) === selectedWarehouse)
       .map((item) => {
-        const quantity = Number(item.quantity || 0)
-        const minStock = Number(item.minStock || 0)
-        const reorderPoint = Number(item.reorderPoint || 0)
+        // Low-stock reporting needs to use available stock after reservations or the report hides real shortages.
+        const quantity = getInventoryAvailableQty(item)
+        const minStock = getInventoryThreshold(item)
+        const reorderPoint = Math.max(minStock, Number(item.reorderPoint || item.reorder_point || minStock))
         const maxStock = Number(item.maxStock || 100)
         const shortage = Math.max(0, reorderPoint - quantity)
         const stockPercent = maxStock > 0 ? Math.round((quantity / maxStock) * 100) : 0
 
         return {
           warehouse: item.warehouse?.name || 'N/A',
-          product: item.product?.name || 'N/A',
+          // Low-stock labels need the same visible size suffix as orders and movement rows.
+          product: formatReportProductName(item.product, 'N/A'),
           sku: item.product?.sku || 'N/A',
           currentStock: quantity,
           minStock,
@@ -520,19 +515,6 @@ export function ReportsView() {
       .sort((a, b) => a.currentStock - b.currentStock)
   }, [inventory, selectedWarehouse])
 
-  const orderStatusOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        orders
-          .filter((order) => withinRange(order.createdAt, rangeStart))
-          .filter((order) => selectedWarehouse === 'all' || getWarehouseIdFromRow(order) === selectedWarehouse)
-          .map((row) => String(row.status || '').toUpperCase())
-      )
-    )
-      .filter(Boolean)
-      .sort()
-  }, [orders, rangeStart, selectedWarehouse])
-
   const transportStatusOptions = useMemo(() => {
     return Array.from(
       new Set(
@@ -548,16 +530,11 @@ export function ReportsView() {
   }, [trips, rangeStart, selectedWarehouse, selectedDriver])
 
   const inventoryMovementTypeOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        inventoryTransactions
-          .filter((transaction) => withinRange(transaction.createdAt, rangeStart))
-          .filter((transaction) => selectedWarehouse === 'all' || getWarehouseIdFromRow(transaction) === selectedWarehouse)
-          .map((row) => String(row.type || '').toUpperCase())
-      )
-    )
-      .filter(Boolean)
-      .sort()
+    return buildInventoryMovementTypeOptions(inventoryTransactions, {
+      rangeStart,
+      selectedWarehouse,
+      getWarehouseIdFromRow,
+    })
   }, [inventoryTransactions, rangeStart, selectedWarehouse])
 
   const replacementStatusOptions = useMemo(() => {
@@ -591,94 +568,25 @@ export function ReportsView() {
       .sort()
   }, [feedback, rangeStart])
 
-  const orderStatusChart = useMemo(() => {
-    const counts = new Map<string, number>()
-    orderRows.forEach((row) => {
-      const key = String(row.status || 'UNKNOWN')
-      counts.set(key, (counts.get(key) || 0) + 1)
+  const orderStatusOptions = useMemo(() => buildOrderReportStatusOptions(
+    buildOrderReportRows(orders, {
+      rangeStart,
+      selectedWarehouse,
+      selectedOrderStatus: 'all',
+      getWarehouseIdFromRow,
     })
-    return Array.from(counts.entries()).map(([status, count]) => ({ status, count }))
+  ), [orders, rangeStart, selectedWarehouse])
+
+  const orderStatusChart = useMemo(() => {
+    return buildOrderReportStatusBreakdown(orderRows)
   }, [orderRows])
 
   const inventoryMovementChart = useMemo(() => {
-    const grouped = new Map<string, { key: string; label: string; sortDate: Date; inQty: number; outQty: number }>()
-    const granularity: 'day' | 'week' | 'month' = rangeDays === '7' ? 'day' : rangeDays === '30' ? 'week' : 'month'
-    inventoryMovementRows.forEach((row) => {
-      const date = new Date(String(row.createdAt || ''))
-      if (Number.isNaN(date.getTime())) return
-      let key = ''
-      let label = ''
-      let sortDate = new Date(date)
-
-      if (granularity === 'day') {
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        sortDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-      } else if (granularity === 'week') {
-        const weekStart = new Date(date)
-        const diff = (weekStart.getDay() + 6) % 7
-        weekStart.setDate(weekStart.getDate() - diff)
-        weekStart.setHours(0, 0, 0, 0)
-        const yearStart = new Date(weekStart.getFullYear(), 0, 1)
-        const week = Math.ceil((((weekStart.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
-        key = `${weekStart.getFullYear()}-W${String(week).padStart(2, '0')}`
-        label = `W${week} ${weekStart.getFullYear()}`
-        sortDate = weekStart
-      } else {
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        sortDate = new Date(date.getFullYear(), date.getMonth(), 1)
-      }
-
-      const current = grouped.get(key) || { key, label, sortDate, inQty: 0, outQty: 0 }
-      if (String(row.type || '').toUpperCase() === 'IN') current.inQty += Number(row.quantity || 0)
-      if (String(row.type || '').toUpperCase() === 'OUT') current.outQty += Number(row.quantity || 0)
-      grouped.set(key, current)
+    return buildInventoryMovementChart(inventoryMovementRows, {
+      rangeDays,
+      rangeStart,
     })
-
-    const start = new Date(rangeStart)
-    const end = new Date()
-    start.setHours(0, 0, 0, 0)
-    end.setHours(0, 0, 0, 0)
-
-    const points: Array<{ key: string; label: string; sortDate: Date; inQty: number; outQty: number }> = []
-
-    if (granularity === 'day') {
-      const cursor = new Date(start)
-      while (cursor.getTime() <= end.getTime()) {
-        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
-        const label = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        const existing = grouped.get(key)
-        points.push(existing || { key, label, sortDate: new Date(cursor), inQty: 0, outQty: 0 })
-        cursor.setDate(cursor.getDate() + 1)
-      }
-    } else if (granularity === 'week') {
-      const cursor = new Date(start)
-      const startDiff = (cursor.getDay() + 6) % 7
-      cursor.setDate(cursor.getDate() - startDiff)
-      while (cursor.getTime() <= end.getTime()) {
-        const yearStart = new Date(cursor.getFullYear(), 0, 1)
-        const week = Math.ceil((((cursor.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
-        const key = `${cursor.getFullYear()}-W${String(week).padStart(2, '0')}`
-        const label = `W${week} ${cursor.getFullYear()}`
-        const existing = grouped.get(key)
-        points.push(existing || { key, label, sortDate: new Date(cursor), inQty: 0, outQty: 0 })
-        cursor.setDate(cursor.getDate() + 7)
-      }
-    } else {
-      const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
-      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
-      while (cursor.getTime() <= endMonth.getTime()) {
-        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
-        const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        const existing = grouped.get(key)
-        points.push(existing || { key, label, sortDate: new Date(cursor), inQty: 0, outQty: 0 })
-        cursor.setMonth(cursor.getMonth() + 1)
-      }
-    }
-
-    return points
-  }, [inventoryMovementRows, rangeDays])
+  }, [inventoryMovementRows, rangeDays, rangeStart])
 
   const feedbackRatingChart = useMemo(() => {
     const counts = new Map<string, number>()
@@ -695,95 +603,12 @@ export function ReportsView() {
     return feedbackRatingChart.reduce((sum, row) => sum + Number(row.count || 0), 0)
   }, [feedbackRatingChart])
 
+  // This chart intentionally tracks total order intake volume instead of outcome lines to match the report layout.
   const orderOutcomeTrendChart = useMemo(() => {
-    const grouped = new Map<string, { key: string; label: string; sortDate: Date; delivered: number; cancelled: number; rescheduled: number }>()
-    const granularity: 'day' | 'week' | 'month' = rangeDays === '7' ? 'day' : rangeDays === '30' ? 'week' : 'month'
-
-    orderRows.forEach((row) => {
-      const rawStatus = String(row.status || '').toUpperCase()
-      const status =
-        rawStatus === 'FAILED_DELIVERY'
-          ? 'CANCELLED'
-          : ['CANCELED', 'REJECTED', 'SKIPPED', 'FAILED'].includes(rawStatus)
-            ? 'CANCELLED'
-            : rawStatus
-
-      const date = new Date(String(row.createdAt || ''))
-      if (Number.isNaN(date.getTime())) return
-
-      let key = ''
-      let label = ''
-      let sortDate = new Date(date)
-
-      if (granularity === 'day') {
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-        label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        sortDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-      } else if (granularity === 'week') {
-        const weekStart = new Date(date)
-        const diff = (weekStart.getDay() + 6) % 7
-        weekStart.setDate(weekStart.getDate() - diff)
-        weekStart.setHours(0, 0, 0, 0)
-        const yearStart = new Date(weekStart.getFullYear(), 0, 1)
-        const week = Math.ceil((((weekStart.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
-        key = `${weekStart.getFullYear()}-W${String(week).padStart(2, '0')}`
-        label = `W${week} ${weekStart.getFullYear()}`
-        sortDate = weekStart
-      } else {
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        sortDate = new Date(date.getFullYear(), date.getMonth(), 1)
-      }
-
-      const current = grouped.get(key) || { key, label, sortDate, delivered: 0, cancelled: 0, rescheduled: 0 }
-      if (status === 'DELIVERED') current.delivered += 1
-      if (status === 'CANCELLED') current.cancelled += 1
-      if (status === 'RESCHEDULED') current.rescheduled += 1
-      grouped.set(key, current)
+    return buildOrderReportVolumeChart(orderRows, {
+      rangeDays,
+      rangeStart,
     })
-
-    const start = new Date(rangeStart)
-    const end = new Date()
-    start.setHours(0, 0, 0, 0)
-    end.setHours(0, 0, 0, 0)
-
-    const points: Array<{ key: string; label: string; sortDate: Date; delivered: number; cancelled: number; rescheduled: number }> = []
-
-    if (granularity === 'day') {
-      const cursor = new Date(start)
-      while (cursor.getTime() <= end.getTime()) {
-        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
-        const label = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        const existing = grouped.get(key)
-        points.push(existing || { key, label, sortDate: new Date(cursor), delivered: 0, cancelled: 0, rescheduled: 0 })
-        cursor.setDate(cursor.getDate() + 1)
-      }
-    } else if (granularity === 'week') {
-      const cursor = new Date(start)
-      const startDiff = (cursor.getDay() + 6) % 7
-      cursor.setDate(cursor.getDate() - startDiff)
-      while (cursor.getTime() <= end.getTime()) {
-        const yearStart = new Date(cursor.getFullYear(), 0, 1)
-        const week = Math.ceil((((cursor.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
-        const key = `${cursor.getFullYear()}-W${String(week).padStart(2, '0')}`
-        const label = `W${week} ${cursor.getFullYear()}`
-        const existing = grouped.get(key)
-        points.push(existing || { key, label, sortDate: new Date(cursor), delivered: 0, cancelled: 0, rescheduled: 0 })
-        cursor.setDate(cursor.getDate() + 7)
-      }
-    } else {
-      const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
-      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
-      while (cursor.getTime() <= endMonth.getTime()) {
-        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
-        const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        const existing = grouped.get(key)
-        points.push(existing || { key, label, sortDate: new Date(cursor), delivered: 0, cancelled: 0, rescheduled: 0 })
-        cursor.setMonth(cursor.getMonth() + 1)
-      }
-    }
-
-    return points
   }, [orderRows, rangeDays, rangeStart])
 
   const transportTrendChart = useMemo(() => {
@@ -826,38 +651,14 @@ export function ReportsView() {
       .slice(0, 12)
   }, [inventoryMovementRows])
 
-  const stockTrendSummary = useMemo(() => {
-    const totalIn = inventoryMovementChart.reduce((sum, item) => sum + Number(item.inQty || 0), 0)
-    const totalOut = inventoryMovementChart.reduce((sum, item) => sum + Number(item.outQty || 0), 0)
+  const inventoryMovementSummary = useMemo(() => summarizeInventoryMovementRows(inventoryMovementRows), [inventoryMovementRows])
 
-    const previous = inventoryMovementChart.slice(0, 6)
-    const current = inventoryMovementChart.slice(6)
-
-    const prevIn = previous.reduce((sum, item) => sum + Number(item.inQty || 0), 0)
-    const currIn = current.reduce((sum, item) => sum + Number(item.inQty || 0), 0)
-    const prevOut = previous.reduce((sum, item) => sum + Number(item.outQty || 0), 0)
-    const currOut = current.reduce((sum, item) => sum + Number(item.outQty || 0), 0)
-
-    const inChangePercent = prevIn > 0 ? ((currIn - prevIn) / prevIn) * 100 : (currIn > 0 ? 100 : 0)
-    const outChangePercent = prevOut > 0 ? ((currOut - prevOut) / prevOut) * 100 : (currOut > 0 ? 100 : 0)
-
-    return { totalIn, totalOut, inChangePercent, outChangePercent }
-  }, [inventoryMovementChart])
+  const stockTrendSummary = useMemo(() => summarizeInventoryMovementTrend(inventoryMovementChart), [inventoryMovementChart])
 
   const warehouseCapacityVsUsedChart = useMemo(() => {
-    const scopedWarehouses = warehouses.filter((warehouse) => selectedWarehouse === 'all' || String(warehouse?.id || '') === selectedWarehouse)
-    return scopedWarehouses.map((warehouse) => {
-      const warehouseId = String(warehouse?.id || '')
-      const capacity = Number(warehouse?.capacity || 0)
-      const usedUnits = inventory
-        .filter((item) => getWarehouseIdFromRow(item) === warehouseId)
-        .reduce((sum, item) => sum + Number(item?.quantity || 0), 0)
-      const usedPercent = capacity > 0 ? Math.min(100, Math.round((usedUnits / capacity) * 100)) : 0
-      return {
-        name: String(warehouse?.code || warehouse?.name || warehouseId || 'Warehouse'),
-        capacityPercent: 100,
-        usedPercent,
-      }
+    return buildWarehouseCapacityVsUsedChart(warehouses, inventory, {
+      selectedWarehouse,
+      getWarehouseIdFromRow,
     })
   }, [warehouses, selectedWarehouse, inventory])
 
@@ -865,36 +666,9 @@ export function ReportsView() {
     return inventory.filter((item) => selectedWarehouse === 'all' || getWarehouseIdFromRow(item) === selectedWarehouse)
   }, [inventory, selectedWarehouse])
 
-  const orderKpi = useMemo(() => {
-    const delivered = orderRows.filter((row) => row.status === 'DELIVERED').length
-    const total = orderRows.length
-    const deliveredRevenue = orderRows
-      .filter((row) => row.status === 'DELIVERED')
-      .reduce((acc, row) => acc + Number(row.amount || 0), 0)
+  const scopedInventoryHealth = useMemo(() => summarizeStockHealth(scopedInventory), [scopedInventory])
 
-    return {
-      total,
-      delivered,
-      pending: total - delivered,
-      fulfillmentRate: total > 0 ? Math.round((delivered / total) * 100) : 0,
-      deliveredRevenue,
-    }
-  }, [orderRows])
-
-  const fulfillmentReportRows = useMemo(() => {
-    return orderRows
-      .map((row) => {
-        const rawStatus = String(row.status || '').toUpperCase()
-        const normalizedStatus =
-          rawStatus === 'FAILED_DELIVERY'
-            ? 'CANCELLED'
-            : ['CANCELED', 'REJECTED', 'SKIPPED', 'FAILED'].includes(rawStatus)
-              ? 'CANCELLED'
-              : rawStatus
-        return { ...row, status: normalizedStatus }
-      })
-      .filter((row) => ['DELIVERED', 'RESCHEDULED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()))
-  }, [orderRows])
+  const orderKpi = useMemo(() => summarizeOrderReportRows(orderRows), [orderRows])
 
   const transportKpi = useMemo(() => {
     const total = transportRows.length
@@ -908,17 +682,16 @@ export function ReportsView() {
 
   const inventoryKpi = useMemo(() => {
     const totalSkus = scopedInventory.length
-    const lowStock = scopedInventory.filter((item) => Number(item.quantity || 0) <= Number(item.minStock || 0)).length
-    const totalQuantity = scopedInventory.reduce((acc, item) => acc + Number(item.quantity || 0), 0)
-    const stockIn = inventoryMovementRows
-      .filter((row) => row.type === 'IN')
-      .reduce((acc, row) => acc + Number(row.quantity || 0), 0)
-    const stockOut = inventoryMovementRows
-      .filter((row) => row.type === 'OUT')
-      .reduce((acc, row) => acc + Number(row.quantity || 0), 0)
-
-    return { totalSkus, lowStock, totalQuantity, stockIn, stockOut }
-  }, [scopedInventory, inventoryMovementRows])
+    const lowStock = scopedInventoryHealth.belowThreshold
+    const totalQuantity = scopedInventory.reduce((acc, item) => acc + getInventoryQuantity(item), 0)
+    return {
+      totalSkus,
+      lowStock,
+      totalQuantity,
+      stockIn: inventoryMovementSummary.stockIn,
+      stockOut: inventoryMovementSummary.stockOut,
+    }
+  }, [scopedInventory, scopedInventoryHealth, inventoryMovementSummary])
 
   const replacementKpi = useMemo(() => {
     const total = replacementRows.length
@@ -1018,17 +791,6 @@ export function ReportsView() {
     return { total, avgRating, open }
   }, [feedbackRows])
 
-  // KPI calculations for new reports
-  const stockExpiryKpi = useMemo(() => {
-    const critical = stockExpiryRows.filter((row) => row.status === 'CRITICAL').length
-    const warning = stockExpiryRows.filter((row) => row.status === 'WARNING').length
-    const expired = stockExpiryRows.filter((row) => row.status === 'EXPIRED').length
-    const atRiskValue = stockExpiryRows
-      .filter((row) => ['CRITICAL', 'WARNING', 'EXPIRED'].includes(String(row.status)))
-      .reduce((acc, row) => acc + (Number(row.quantity || 0) * 100), 0) // Assuming avg value of 100 per unit
-    return { total: stockExpiryRows.length, critical, warning, expired, atRiskValue }
-  }, [stockExpiryRows])
-
   const driverPerformanceKpi = useMemo(() => {
     const total = driverPerformanceRows.length
     const active = driverPerformanceRows.filter((row) => row.isActive === 'Active').length
@@ -1042,9 +804,76 @@ export function ReportsView() {
   const lowStockKpi = useMemo(() => {
     const critical = lowStockRows.filter((row) => row.status === 'CRITICAL').length
     const outOfStock = lowStockRows.filter((row) => row.status === 'OUT_OF_STOCK').length
-    const totalShortage = lowStockRows.reduce((acc, row) => acc + Number(row.shortage || 0), 0)
-    return { total: lowStockRows.length, critical, outOfStock, totalShortage }
+    return { total: lowStockRows.length, critical, outOfStock }
   }, [lowStockRows])
+
+  const stockExpiryKpi = useMemo(() => {
+    const critical = stockExpiryRows.filter((row) => row.status === 'CRITICAL').length
+    const warning = stockExpiryRows.filter((row) => row.status === 'WARNING').length
+    const expired = stockExpiryRows.filter((row) => row.status === 'EXPIRED').length
+    return { total: stockExpiryRows.length, critical, warning, expired }
+  }, [stockExpiryRows])
+
+  // Keep exported order columns aligned with the redesigned on-screen table instead of leaking internal helper fields.
+  const orderExportRows = useMemo(() => {
+    return orderRows.map((row) => ({
+      orderNumber: row.orderNumber,
+      customer: row.customer,
+      itemSummary: row.itemSummary,
+      totalQuantity: row.totalQuantity,
+      orderDate: row.orderDateLabel,
+      orderStatus: formatOrderReportStatus(row.normalizedReportStatus),
+      totalAmount: formatPeso(Number(row.amount || 0)),
+    }))
+  }, [orderRows])
+
+  const orderSummaryLines = useMemo(() => ([
+    `Total Orders: ${orderKpi.totalOrders}`,
+    `Delivered: ${orderKpi.deliveredOrders}`,
+    `Pending: ${orderKpi.pendingOrders}`,
+    `Cancelled: ${orderKpi.cancelledOrders}`,
+    `Total Quantity: ${orderKpi.totalQuantity}`,
+    `Total Revenue: PHP ${orderKpi.totalRevenue.toLocaleString()} (delivered orders only)`,
+  ]), [orderKpi])
+
+  const transportSummaryLines = useMemo(() => ([
+    `Total Trips: ${transportRows.length}`,
+    `Completed: ${transportRows.filter((row) => row.status === 'COMPLETED').length}`,
+    `In Progress: ${transportRows.filter((row) => row.status === 'IN_PROGRESS').length}`,
+  ]), [transportRows])
+
+  const warehouseSummaryLines = useMemo(() => ([
+    `Total Warehouses: ${warehouses.length}`,
+    `Dispatch Orders: ${warehouseDispatchRows.length}`,
+    `Compliant Dispatches: ${warehouseDispatchRows.filter((row) => row.checklistComplete === 'YES').length}`,
+  ]), [warehouses.length, warehouseDispatchRows])
+
+  const inventorySummaryLines = useMemo(() => ([
+    `Total Movements: ${inventoryMovementSummary.totalMovements}`,
+    `Stock In: ${inventoryMovementSummary.stockIn} units`,
+    `Stock Out: ${inventoryMovementSummary.stockOut} units`,
+    `Low Stock Items: ${lowStockKpi.total} (${lowStockKpi.critical} critical, ${lowStockKpi.outOfStock} out of stock)`,
+    `Expiring Batches: ${stockExpiryKpi.total} (${stockExpiryKpi.critical} critical, ${stockExpiryKpi.expired} expired, ${stockExpiryKpi.warning} warning)`,
+  ]), [inventoryMovementSummary, lowStockKpi, stockExpiryKpi])
+
+  const replacementSummaryLines = useMemo(() => ([
+    `Total Cases: ${replacementKpi.total}`,
+    `Completed: ${replacementKpi.completed}`,
+    `Open Cases: ${replacementKpi.open}`,
+  ]), [replacementKpi])
+
+  const feedbackSummaryLines = useMemo(() => ([
+    `Total Feedback: ${feedbackKpi.total}`,
+    `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
+    `Open Items: ${feedbackKpi.open}`,
+  ]), [feedbackKpi])
+
+  const driverPerformanceSummaryLines = useMemo(() => ([
+    `Total Drivers: ${driverPerformanceKpi.total}`,
+    `Active Drivers: ${driverPerformanceKpi.active}`,
+    `Average Rating: ${driverPerformanceKpi.avgRating}`,
+    `License Issues: ${driverPerformanceKpi.licenseIssues}`,
+  ]), [driverPerformanceKpi])
 
   const chartCardClassName = 'rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden'
   const chartTooltipStyle = {
@@ -1052,6 +881,22 @@ export function ReportsView() {
     border: '1px solid #334155',
     borderRadius: '12px',
     boxShadow: '0 12px 30px rgba(15, 23, 42, 0.22)',
+    color: '#e2e8f0',
+  }
+  const chartTooltipLabelStyle = { color: '#f8fafc', fontWeight: 700 }
+  const chartTooltipItemStyle = { color: '#cbd5e1' }
+  // Keep order-count copy readable and grammatically correct inside the custom-styled report tooltips.
+  const formatOrderCountLabel = (value: unknown) => {
+    const count = Number(value || 0)
+    const safeCount = Number.isFinite(count) ? count : 0
+    return `${safeCount.toLocaleString()} ${safeCount === 1 ? 'order' : 'orders'}`
+  }
+  // Inventory batch aging is easier to scan with calendar dates only, so time-of-day is intentionally suppressed here.
+  function formatReportDateOnly(value: unknown) {
+    if (!value) return 'N/A'
+    const parsed = new Date(String(value))
+    if (Number.isNaN(parsed.getTime())) return 'N/A'
+    return parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
   }
   // Helper to sanitize text for PDF (WinAnsi encoding only supports Latin-1)
   const sanitizeForPdf = (text: string): string => {
@@ -1158,29 +1003,29 @@ export function ReportsView() {
 
   const exportAllPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
-    await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, {
+    await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Report', orderExportRows, {
       ...reportBranding,
-      summaryLines: [`Total Orders: ${orderKpi.total}`, `Delivered: ${orderKpi.delivered}`, `Fulfillment Rate: ${orderKpi.fulfillmentRate}%`, `Delivered Revenue: PHP ${orderKpi.deliveredRevenue.toLocaleString()}`]
+      summaryLines: orderSummaryLines,
     })
     await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, {
       ...reportBranding,
-      summaryLines: [`Total Trips: ${transportRows.length}`, `Completed: ${transportRows.filter(r => r.status === 'COMPLETED').length}`, `In Progress: ${transportRows.filter(r => r.status === 'IN_PROGRESS').length}`]
+      summaryLines: transportSummaryLines,
     })
     await downloadPdf(`warehouse-report-${stamp}.pdf`, 'Warehouse Operations Report', warehouseDispatchRows, {
       ...reportBranding,
-      summaryLines: [`Total Warehouses: ${warehouses.length}`, `Dispatch Orders: ${warehouseDispatchRows.length}`, `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`]
+      summaryLines: warehouseSummaryLines,
     })
     await downloadPdf(`inventory-report-${stamp}.pdf`, 'Inventory Movement Report', inventoryMovementRows, {
       ...reportBranding,
-      summaryLines: [`Total Movements: ${inventoryMovementRows.length}`, `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Low Stock Items: ${lowStockKpi.total}`]
+      summaryLines: inventorySummaryLines,
     })
     await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, {
       ...reportBranding,
-      summaryLines: [`Total Cases: ${replacementKpi.total}`, `Completed: ${replacementKpi.completed}`, `Open Cases: ${replacementKpi.open}`]
+      summaryLines: replacementSummaryLines,
     })
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
       ...reportBranding,
-      summaryLines: [`Total Feedback: ${feedbackKpi.total}`, `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`, `Open Items: ${feedbackKpi.open}`]
+      summaryLines: feedbackSummaryLines,
     })
     toast.success('All PDF reports exported')
   }
@@ -1303,11 +1148,7 @@ export function ReportsView() {
       warehouseDispatchRows,
       {
         ...reportBranding,
-        summaryLines: [
-          `Total Warehouses: ${warehouses.length}`,
-          `Dispatch Orders: ${warehouseDispatchRows.length}`,
-          `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`,
-        ]
+        summaryLines: warehouseSummaryLines,
       }
     )
   }
@@ -1319,12 +1160,7 @@ export function ReportsView() {
       inventoryMovementRows,
       {
         ...reportBranding,
-        summaryLines: [
-          `Total Movements: ${inventoryMovementRows.length}`,
-          `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
-          `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`,
-          `Low Stock Items: ${lowStockKpi.total} (${lowStockKpi.critical} critical, ${lowStockKpi.outOfStock} out of stock)`,
-        ]
+        summaryLines: inventorySummaryLines,
       }
     )
   }
@@ -1332,25 +1168,16 @@ export function ReportsView() {
   const exportCurrentPdf = async () => {
     const stamp = new Date().toISOString().slice(0, 10)
     if (activeReportTab === 'orders') {
-      await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Fulfillment Report', orderRows, {
+      await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Report', orderExportRows, {
         ...reportBranding,
-        summaryLines: [
-          `Total Orders: ${orderKpi.total}`,
-          `Delivered: ${orderKpi.delivered}`,
-          `Fulfillment Rate: ${orderKpi.fulfillmentRate}%`,
-          `Delivered Revenue: PHP ${orderKpi.deliveredRevenue.toLocaleString()}`,
-        ]
+        summaryLines: orderSummaryLines,
       })
       return
     }
     if (activeReportTab === 'transport') {
       await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, {
         ...reportBranding,
-        summaryLines: [
-          `Total Trips: ${transportRows.length}`,
-          `Completed: ${transportRows.filter(r => r.status === 'COMPLETED').length}`,
-          `In Progress: ${transportRows.filter(r => r.status === 'IN_PROGRESS').length}`,
-        ]
+        summaryLines: transportSummaryLines,
       })
       return
     }
@@ -1365,58 +1192,32 @@ export function ReportsView() {
     if (activeReportTab === 'replacement') {
       await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, {
         ...reportBranding,
-        summaryLines: [
-          `Total Cases: ${replacementKpi.total}`,
-          `Completed: ${replacementKpi.completed}`,
-          `Open Cases: ${replacementKpi.open}`,
-        ]
-      })
-      return
-    }
-    if (activeReportTab === 'stock-expiry') {
-      await downloadPdf(`stock-expiry-report-${stamp}.pdf`, 'Stock Batch Expiry Report', stockExpiryRows, {
-        ...reportBranding,
-        summaryLines: [
-          `Total Batches: ${stockExpiryKpi.total}`,
-          `Critical (<30 days): ${stockExpiryKpi.critical}`,
-          `Expired: ${stockExpiryKpi.expired}`,
-          `Warning (30-60 days): ${stockExpiryKpi.warning}`,
-        ]
+        summaryLines: replacementSummaryLines,
       })
       return
     }
     if (activeReportTab === 'drivers') {
       await downloadPdf(`driver-performance-report-${stamp}.pdf`, 'Driver Performance Report', driverPerformanceRows, {
         ...reportBranding,
-        summaryLines: [
-          `Total Drivers: ${driverPerformanceKpi.total}`,
-          `Active Drivers: ${driverPerformanceKpi.active}`,
-          `Average Rating: ${driverPerformanceKpi.avgRating}`,
-          `License Issues: ${driverPerformanceKpi.licenseIssues}`,
-        ]
+        summaryLines: driverPerformanceSummaryLines,
       })
       return
     }
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
       ...reportBranding,
-      summaryLines: [
-        `Total Feedback: ${feedbackKpi.total}`,
-        `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
-        `Open Items: ${feedbackKpi.open}`,
-      ]
+      summaryLines: feedbackSummaryLines,
     })
   }
 
   const printCurrentReport = () => {
     const reportMap: Record<string, { title: string; rows: Array<Record<string, unknown>>; summaryLines: string[] }> = {
-      orders: { title: 'Order Fulfillment Report', rows: orderRows, summaryLines: [`Total Orders: ${orderKpi.total}`, `Delivered: ${orderKpi.delivered}`, `Fulfillment Rate: ${orderKpi.fulfillmentRate}%`, `Delivered Revenue: PHP ${orderKpi.deliveredRevenue.toLocaleString()}`] },
-      transport: { title: 'Transportation & Delivery Status Report', rows: transportRows, summaryLines: [`Total Trips: ${transportRows.length}`, `Completed: ${transportRows.filter(r => r.status === 'COMPLETED').length}`, `In Progress: ${transportRows.filter(r => r.status === 'IN_PROGRESS').length}`] },
-      warehouse: { title: 'Warehouse Operations Report', rows: warehouseDispatchRows, summaryLines: [`Total Warehouses: ${warehouses.length}`, `Dispatch Orders: ${warehouseDispatchRows.length}`, `Compliant Dispatches: ${warehouseDispatchRows.filter(r => r.checklistComplete === 'YES').length}`] },
-      inventory: { title: 'Inventory Movement Report', rows: inventoryMovementRows, summaryLines: [`Total Movements: ${inventoryMovementRows.length}`, `Stock In: ${inventoryMovementRows.filter(r => r.type === 'IN').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Stock Out: ${inventoryMovementRows.filter(r => r.type === 'OUT').reduce((a, r) => a + Number(r.quantity || 0), 0)} units`, `Low Stock Items: ${lowStockKpi.total}`] },
-      replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: [`Total Cases: ${replacementKpi.total}`, `Completed: ${replacementKpi.completed}`, `Open Cases: ${replacementKpi.open}`] },
-      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows, summaryLines: [`Total Feedback: ${feedbackKpi.total}`, `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`, `Open Items: ${feedbackKpi.open}`] },
-      'stock-expiry': { title: 'Stock Batch Expiry Report', rows: stockExpiryRows, summaryLines: [`Total Batches: ${stockExpiryKpi.total}`, `Critical (<30 days): ${stockExpiryKpi.critical}`, `Expired: ${stockExpiryKpi.expired}`, `Warning (30-60 days): ${stockExpiryKpi.warning}`] },
-      drivers: { title: 'Driver Performance Report', rows: driverPerformanceRows, summaryLines: [`Total Drivers: ${driverPerformanceKpi.total}`, `Active Drivers: ${driverPerformanceKpi.active}`, `Average Rating: ${driverPerformanceKpi.avgRating}`, `License Issues: ${driverPerformanceKpi.licenseIssues}`] },
+      orders: { title: 'Order Report', rows: orderExportRows, summaryLines: orderSummaryLines },
+      transport: { title: 'Transportation & Delivery Status Report', rows: transportRows, summaryLines: transportSummaryLines },
+      warehouse: { title: 'Warehouse Operations Report', rows: warehouseDispatchRows, summaryLines: warehouseSummaryLines },
+      inventory: { title: 'Inventory Movement Report', rows: inventoryMovementRows, summaryLines: inventorySummaryLines },
+      replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: replacementSummaryLines },
+      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows, summaryLines: feedbackSummaryLines },
+      drivers: { title: 'Driver Performance Report', rows: driverPerformanceRows, summaryLines: driverPerformanceSummaryLines },
     }
 
     const report = reportMap[activeReportTab]
@@ -1496,11 +1297,10 @@ export function ReportsView() {
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-7">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-6">
               <TabsTrigger value="orders" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Orders</TabsTrigger>
               <TabsTrigger value="transport" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Transport</TabsTrigger>
               <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse/Inventory</TabsTrigger>
-              <TabsTrigger value="stock-expiry" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><AlertTriangle className="h-4 w-4" />Stock Expiry</TabsTrigger>
               <TabsTrigger value="drivers" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Users className="h-4 w-4" />Drivers</TabsTrigger>
               <TabsTrigger value="replacement" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Replacement</TabsTrigger>
               <TabsTrigger value="feedback" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
@@ -1516,71 +1316,174 @@ export function ReportsView() {
               onStatusChange: setSelectedOrderStatus,
               showWarehouse: true,
             })}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Orders</CardDescription><CardTitle className="text-[30px] leading-none">{orderKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Delivered</CardDescription><CardTitle className="text-[30px] leading-none">{orderKpi.delivered}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Fulfillment Rate</CardDescription><CardTitle className="text-[30px] leading-none">{orderKpi.fulfillmentRate}%</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Delivered Revenue</CardDescription><CardTitle className="text-[30px] leading-none">{formatPeso(orderKpi.deliveredRevenue)}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
+            {/* Report-style hero keeps the orders tab feeling like a generated business report instead of a plain list. */}
+            <Card className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-sky-50/40 to-blue-100/50 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
+              <CardContent className="flex flex-col gap-3 px-6 py-7 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-600">Ann Ann&apos;s Beverages Trading</p>
+                  <h2 className="mt-3 text-4xl font-black tracking-tight text-slate-900">Order Report</h2>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Generated on {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm backdrop-blur">
+                  {selectedWarehouse === 'all'
+                    ? 'All warehouses included'
+                    : `Warehouse filter applied: ${warehouses.find((warehouse) => String(warehouse.id) === selectedWarehouse)?.name || selectedWarehouse}`}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* These KPI cards mirror the exported summary so the report headline numbers never drift. */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Card className="rounded-3xl border border-blue-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-blue-500">Total Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-slate-900">{orderKpi.totalOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">100% of filtered orders</p></CardHeader></Card>
+              <Card className="rounded-3xl border border-emerald-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-emerald-500">Delivered Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-emerald-700">{orderKpi.deliveredOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">{orderKpi.totalOrders > 0 ? ((orderKpi.deliveredOrders / orderKpi.totalOrders) * 100).toFixed(1) : '0.0'}% of filtered orders</p></CardHeader></Card>
+              <Card className="rounded-3xl border border-amber-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-amber-500">Pending Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-amber-600">{orderKpi.pendingOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">{orderKpi.totalOrders > 0 ? ((orderKpi.pendingOrders / orderKpi.totalOrders) * 100).toFixed(1) : '0.0'}% of filtered orders</p></CardHeader></Card>
+              <Card className="rounded-3xl border border-rose-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-rose-500">Cancelled Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-rose-600">{orderKpi.cancelledOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">{orderKpi.totalOrders > 0 ? ((orderKpi.cancelledOrders / orderKpi.totalOrders) * 100).toFixed(1) : '0.0'}% of filtered orders</p></CardHeader></Card>
+              <Card className="rounded-3xl border border-cyan-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-cyan-500">Total Revenue</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-cyan-700">{formatPeso(orderKpi.totalRevenue)}</CardTitle><p className="mt-2 text-sm text-slate-500">Revenue from delivered orders only</p></CardHeader></Card>
             </div>
-            <div className="grid grid-cols-1 gap-4">
+
+            {/* The chart row tells the report story at a glance: volume first, outcome mix second. */}
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.5fr_1fr]">
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Delivered vs Cancelled vs Rescheduled (Line)</CardTitle>
-                  <CardDescription>Order outcome trend based on current filters</CardDescription>
+                  <CardTitle className="text-lg text-blue-700">Orders by Day</CardTitle>
+                  <CardDescription>Filtered order volume over time</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-72 w-full">
+                  <div className="h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={orderOutcomeTrendChart} margin={{ top: 12, right: 20, left: 0, bottom: 26 }}>
+                      <BarChart data={orderOutcomeTrendChart} margin={{ top: 16, right: 20, left: 0, bottom: 16 }}>
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
                         <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={chartTooltipStyle} />
-                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
-                        <Line type="monotone" dataKey="delivered" name="Delivered" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                        <Line type="monotone" dataKey="cancelled" name="Cancelled" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                        <Line type="monotone" dataKey="rescheduled" name="Rescheduled" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                      </LineChart>
+                        <Tooltip
+                          contentStyle={chartTooltipStyle}
+                          labelStyle={chartTooltipLabelStyle}
+                          itemStyle={chartTooltipItemStyle}
+                          formatter={(value: any) => [formatOrderCountLabel(value), 'Orders']}
+                        />
+                        <Bar dataKey="orders" name="Orders" fill="#2563eb" radius={[8, 8, 0, 0]}>
+                          <LabelList dataKey="orders" position="top" fill="#0f172a" fontSize={11} />
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </CardContent>
               </Card>
+
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg text-blue-700">Order Status Breakdown</CardTitle>
+                  <CardDescription>Delivered, pending, and cancelled mix</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={orderStatusChart}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={58}
+                          outerRadius={94}
+                          paddingAngle={2}
+                        >
+                          {orderStatusChart.map((entry) => (
+                            <Cell key={entry.key} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={chartTooltipStyle}
+                          labelStyle={chartTooltipLabelStyle}
+                          itemStyle={chartTooltipItemStyle}
+                          formatter={(value: any, _name: any, details: any) => {
+                            const percentage = Number(details?.payload?.percentage || 0)
+                            return [formatOrderCountLabel(value), `${details?.payload?.name} (${percentage.toFixed(1)}%)`]
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                    {orderStatusChart.map((entry) => (
+                      <div key={entry.key} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                          <span className="font-medium text-slate-700">{entry.name}</span>
+                        </div>
+                        <span className="text-slate-600">{entry.value} ({entry.percentage.toFixed(1)}%)</span>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-slate-900">
+                      <span>Total</span>
+                      <span>{orderKpi.totalOrders} (100%)</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
+
+            {/* The table keeps richer order detail visible without introducing payment-specific columns the user excluded. */}
             <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
-                  <CardTitle>Order Fulfillment Report</CardTitle>
-                  <CardDescription>Latest orders within selected date range</CardDescription>
+                  <CardTitle>Order Report</CardTitle>
+                  <CardDescription>Filtered order list with item summaries and normalized status labels</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full min-w-[980px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
-                        <th className="p-3 text-left">Order</th>
+                        <th className="p-3 text-left">Order ID</th>
                         <th className="p-3 text-left">Customer</th>
-                        <th className="p-3 text-left">Status</th>
-                        <th className="p-3 text-left">Amount</th>
-                        <th className="p-3 text-left">Created</th>
+                        <th className="p-3 text-left">Product / Items</th>
+                        <th className="p-3 text-left">Quantity</th>
+                        <th className="p-3 text-left">Order Date</th>
+                        <th className="p-3 text-left">Order Status</th>
+                        <th className="p-3 text-left">Total Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRows(fulfillmentReportRows).map((row, index) => (
+                      {previewRows(orderRows).map((row, index) => (
                         <tr key={`${row.orderNumber}-${index}`} className="border-b last:border-0">
                           <td className="p-3 font-medium">{String(row.orderNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
-                          <td className="p-3">{String(row.status || 'N/A')}</td>
+                          <td className="p-3 text-slate-600">{String(row.itemSummary || 'N/A')}</td>
+                          <td className="p-3">{Number(row.totalQuantity || 0).toLocaleString()}</td>
+                          <td className="p-3">{String(row.orderDateLabel || 'N/A')}</td>
+                          <td className="p-3">
+                            <Badge
+                              className={
+                                row.normalizedReportStatus === 'DELIVERED'
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                                  : row.normalizedReportStatus === 'CANCELLED'
+                                    ? 'bg-rose-100 text-rose-700 hover:bg-rose-100'
+                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+                              }
+                            >
+                              {formatOrderReportStatus(row.normalizedReportStatus)}
+                            </Badge>
+                          </td>
                           <td className="p-3">{formatPeso(Number(row.amount || 0))}</td>
-                          <td className="p-3">{formatDateTime(row.createdAt)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {fulfillmentReportRows.length === 0 ? <p className="py-8 text-center text-gray-500">No matching orders found for this range</p> : null}
+                  {orderRows.length === 0 ? <p className="py-8 text-center text-gray-500">No matching orders found for this range</p> : null}
                 </div>
               </CardContent>
             </Card>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Card className="rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"><CardContent className="flex items-center justify-between p-5"><p className="text-sm font-medium text-slate-600">Total Orders</p><p className="text-2xl font-black text-blue-700">{orderKpi.totalOrders}</p></CardContent></Card>
+              <Card className="rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"><CardContent className="flex items-center justify-between p-5"><p className="text-sm font-medium text-slate-600">Total Quantity</p><p className="text-2xl font-black text-slate-900">{orderKpi.totalQuantity.toLocaleString()}</p></CardContent></Card>
+              <Card className="rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"><CardContent className="flex items-center justify-between p-5"><p className="text-sm font-medium text-slate-600">Total Revenue</p><p className="text-2xl font-black text-cyan-700">{formatPeso(orderKpi.totalRevenue)}</p></CardContent></Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="transport" className="space-y-4">
@@ -1612,7 +1515,7 @@ export function ReportsView() {
                         <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
                         <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={chartTooltipStyle} />
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
                         <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
                         <Area type="monotone" dataKey="completed" stackId="1" stroke="#16a34a" fill="#86efac" />
                         <Area type="monotone" dataKey="inProgress" stackId="1" stroke="#2563eb" fill="#93c5fd" />
@@ -1635,7 +1538,7 @@ export function ReportsView() {
                         <XAxis dataKey="dropPointsTotal" name="Drop Points" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <YAxis dataKey="completionRate" name="Completion %" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                         <ZAxis dataKey="dropPointsCompleted" range={[40, 260]} />
-                        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={chartTooltipStyle} />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
                         <Scatter data={transportBubbleChart} fill="#0ea5e9" />
                       </ScatterChart>
                     </ResponsiveContainer>
@@ -1715,7 +1618,12 @@ export function ReportsView() {
                           <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
                           <Tooltip
                             contentStyle={chartTooltipStyle}
-                            formatter={(value: any, name: any) => [`${Number(value).toLocaleString()}%`, name === 'capacityPercent' ? 'Capacity' : 'Used']}
+                            labelStyle={chartTooltipLabelStyle}
+                            itemStyle={chartTooltipItemStyle}
+                            formatter={(value: any, name: any) => [
+                              `${Number(value).toLocaleString()}%`,
+                              String(name || ''),
+                            ]}
                           />
                           <Legend wrapperStyle={{ paddingTop: '14px', color: '#475569' }} />
                           <Bar dataKey="capacityPercent" name="Capacity" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -1762,6 +1670,8 @@ export function ReportsView() {
                           />
                           <Tooltip
                             contentStyle={chartTooltipStyle}
+                            labelStyle={chartTooltipLabelStyle}
+                            itemStyle={chartTooltipItemStyle}
                             formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
                           />
                           <Bar dataKey="inQty" name="Stock In" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={22}>
@@ -1821,7 +1731,8 @@ export function ReportsView() {
                           <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
                           <Tooltip
                             contentStyle={chartTooltipStyle}
-                            labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                            labelStyle={chartTooltipLabelStyle}
+                            itemStyle={chartTooltipItemStyle}
                             formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
                           />
                           <Legend wrapperStyle={{ paddingTop: '8px', color: '#475569' }} iconType="circle" verticalAlign="top" height={24} />
@@ -1879,7 +1790,6 @@ export function ReportsView() {
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Shortage</CardDescription><CardTitle className="text-[30px] leading-none">{lowStockKpi.totalShortage}</CardTitle><p className="text-[11px] text-slate-400">Units needed</p></CardHeader></Card>
             </div>
 
             <Card className="rounded-2xl border border-slate-200 shadow-sm">
@@ -1900,10 +1810,8 @@ export function ReportsView() {
                         <th className="p-3 text-left">Current Stock</th>
                         <th className="p-3 text-left">Min Stock</th>
                         <th className="p-3 text-left">Reorder Point</th>
-                        <th className="p-3 text-left">Shortage</th>
                         <th className="p-3 text-left">Stock %</th>
                         <th className="p-3 text-left">Status</th>
-                        <th className="p-3 text-left">Suggested Order</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1915,7 +1823,6 @@ export function ReportsView() {
                           <td className="p-3">{String(row.currentStock || 0)}</td>
                           <td className="p-3">{String(row.minStock || 0)}</td>
                           <td className="p-3">{String(row.reorderPoint || 0)}</td>
-                          <td className="p-3 font-semibold text-red-600">{String(row.shortage || 0)}</td>
                           <td className="p-3">{String(row.stockPercent || 0)}%</td>
                           <td className="p-3">
                             <Badge variant={
@@ -1923,12 +1830,68 @@ export function ReportsView() {
                               row.status === 'CRITICAL' ? 'destructive' : 'secondary'
                             }>{String(row.status || 'N/A')}</Badge>
                           </td>
-                          <td className="p-3 text-emerald-600 font-medium">{String(row.suggestedReorder || 0)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   {lowStockRows.length === 0 ? <p className="py-8 text-center text-gray-500">All stock levels are healthy</p> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Tracked Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Inventory batches with expiry dates</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Warning (30-60 days)</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{stockExpiryKpi.warning}</CardTitle><p className="text-[11px] text-amber-600">Plan usage first</p></CardHeader></Card>
+            </div>
+
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div>
+                  <CardTitle>Stock Batch Expiry Report</CardTitle>
+                  <CardDescription>Batches nearing expiration sorted by urgency</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="p-3 text-left">Batch #</th>
+                        <th className="p-3 text-left">Product</th>
+                        <th className="p-3 text-left">SKU</th>
+                        <th className="p-3 text-left">Warehouse</th>
+                        <th className="p-3 text-left">Quantity</th>
+                        <th className="p-3 text-left">Manufacture Date</th>
+                        <th className="p-3 text-left">Expiry Date</th>
+                        <th className="p-3 text-left">Days Left</th>
+                        <th className="p-3 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows(stockExpiryRows).map((row, index) => (
+                        <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
+                          <td className="p-3">{String(row.product || 'N/A')}</td>
+                          <td className="p-3">{String(row.sku || 'N/A')}</td>
+                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                          <td className="p-3">{String(row.quantity || 0)}</td>
+                          <td className="p-3">{String(row.manufacturedDate || 'N/A')}</td>
+                          <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
+                          <td className="p-3">{typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A'}</td>
+                          <td className="p-3">
+                            <Badge variant={
+                              row.status === 'EXPIRED' ? 'destructive' :
+                              row.status === 'CRITICAL' ? 'destructive' :
+                              row.status === 'WARNING' ? 'secondary' : 'default'
+                            }>{String(row.status || 'N/A')}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {stockExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
                 </div>
               </CardContent>
             </Card>
@@ -1973,7 +1936,7 @@ export function ReportsView() {
                           <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                           <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} tickCount={5} />
                           <Legend verticalAlign="top" align="center" wrapperStyle={{ paddingBottom: '8px', color: '#64748b', fontSize: '12px' }} iconType="rect" />
-                          <Tooltip contentStyle={chartTooltipStyle} formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]} />
+                          <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]} />
                           <Bar dataKey="inQty" name="Stock In" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={22}><LabelList dataKey="inQty" position="top" fill="#0f172a" fontSize={11} /></Bar>
                           <Bar dataKey="outQty" name="Stock Out" fill="#fbbf24" radius={[4, 4, 0, 0]} maxBarSize={22}><LabelList dataKey="outQty" position="top" fill="#0f172a" fontSize={11} /></Bar>
                         </BarChart>
@@ -1997,7 +1960,7 @@ export function ReportsView() {
                           <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
                           <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
                           <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={chartTooltipStyle} />
+                          <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
                           <Bar dataKey="currentStock" name="Current" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={30} />
                           <Bar dataKey="reorderPoint" name="Reorder Point" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
                         </BarChart>
@@ -2048,7 +2011,6 @@ export function ReportsView() {
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Shortage</CardDescription><CardTitle className="text-[30px] leading-none">{lowStockKpi.totalShortage}</CardTitle><p className="text-[11px] text-slate-400">Units needed</p></CardHeader></Card>
             </div>
 
             <Card className="rounded-2xl border border-slate-200 shadow-sm">
@@ -2069,10 +2031,8 @@ export function ReportsView() {
                         <th className="p-3 text-left">Current Stock</th>
                         <th className="p-3 text-left">Min Stock</th>
                         <th className="p-3 text-left">Reorder Point</th>
-                        <th className="p-3 text-left">Shortage</th>
                         <th className="p-3 text-left">Stock %</th>
                         <th className="p-3 text-left">Status</th>
-                        <th className="p-3 text-left">Suggested Order</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2084,12 +2044,10 @@ export function ReportsView() {
                           <td className="p-3">{String(row.currentStock || 0)}</td>
                           <td className="p-3">{String(row.minStock || 0)}</td>
                           <td className="p-3">{String(row.reorderPoint || 0)}</td>
-                          <td className="p-3 font-semibold text-red-600">{String(row.shortage || 0)}</td>
                           <td className="p-3">{String(row.stockPercent || 0)}%</td>
                           <td className="p-3">
                             <Badge variant={row.status === 'OUT_OF_STOCK' ? 'destructive' : row.status === 'CRITICAL' ? 'destructive' : 'secondary'}>{String(row.status || 'N/A')}</Badge>
                           </td>
-                          <td className="p-3 text-emerald-600 font-medium">{String(row.suggestedReorder || 0)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2138,7 +2096,8 @@ export function ReportsView() {
                         />
                         <Tooltip
                           contentStyle={chartTooltipStyle}
-                          labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                          labelStyle={chartTooltipLabelStyle}
+                          itemStyle={chartTooltipItemStyle}
                           formatter={(value: any) => [`- ${formatPeso(Number(value || 0))}`, 'Total Loss']}
                         />
                         <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
@@ -2226,7 +2185,8 @@ export function ReportsView() {
                         <Tooltip
                           cursor={false}
                           contentStyle={chartTooltipStyle}
-                          labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                          labelStyle={chartTooltipLabelStyle}
+                          itemStyle={chartTooltipItemStyle}
                           formatter={(value: any) => [`${Number(value).toLocaleString()} ratings`, 'Count']}
                         />
                         <Bar dataKey="count" radius={[8, 8, 0, 0]} animationDuration={800} maxBarSize={42}>
@@ -2283,73 +2243,6 @@ export function ReportsView() {
                     </tbody>
                   </table>
                   {feedbackRows.length === 0 ? <p className="py-8 text-center text-gray-500">No feedback records found for this range</p> : null}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="stock-expiry" className="space-y-4">
-            {reportToolbar({
-              title: 'Stock Expiry',
-              statusLabel: 'Expiry Statuses',
-              statusOptions: ['CRITICAL', 'WARNING', 'EXPIRED', 'GOOD'],
-              statusValue: 'all',
-              onStatusChange: () => {},
-              showWarehouse: true,
-              showStatus: false,
-            })}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">All tracked batches</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Warning (30-60 days)</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{stockExpiryKpi.warning}</CardTitle><p className="text-[11px] text-amber-600">Plan usage/sale</p></CardHeader></Card>
-            </div>
-            <Card className="rounded-2xl border border-slate-200 shadow-sm">
-              <CardHeader>
-                <div>
-                  <CardTitle>Stock Batch Expiry Report</CardTitle>
-                  <CardDescription>Batches nearing expiration sorted by urgency</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-left">Batch #</th>
-                        <th className="p-3 text-left">Product</th>
-                        <th className="p-3 text-left">SKU</th>
-                        <th className="p-3 text-left">Warehouse</th>
-                        <th className="p-3 text-left">Quantity</th>
-                        <th className="p-3 text-left">Receipt Date</th>
-                        <th className="p-3 text-left">Expiry Date</th>
-                        <th className="p-3 text-left">Days Left</th>
-                        <th className="p-3 text-left">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows(stockExpiryRows).map((row, index) => (
-                        <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
-                          <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
-                          <td className="p-3">{String(row.product || 'N/A')}</td>
-                          <td className="p-3">{String(row.sku || 'N/A')}</td>
-                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
-                          <td className="p-3">{String(row.quantity || 0)}</td>
-                          <td className="p-3">{String(row.receiptDate || 'N/A')}</td>
-                          <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
-                          <td className="p-3">{typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A'}</td>
-                          <td className="p-3">
-                            <Badge variant={
-                              row.status === 'EXPIRED' ? 'destructive' :
-                              row.status === 'CRITICAL' ? 'destructive' :
-                              row.status === 'WARNING' ? 'secondary' : 'default'
-                            }>{String(row.status || 'N/A')}</Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {stockExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
                 </div>
               </CardContent>
             </Card>
