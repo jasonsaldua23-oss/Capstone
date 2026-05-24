@@ -103,10 +103,23 @@ The application will be available at `http://localhost:3000`
 
 This project is configured so all frontend `/api/*` calls are routed to Django.
 
+### Switch Database Target
+
+Use the repo-level toggle when you want to switch the live app between local SQLite and Supabase:
+
+```bash
+npm run db:use:lite
+npm run db:use:supa
+npm run db:status
+```
+
+- `APP_DB_TARGET=lite` makes Django use `SQLITE_DB_PATH` (defaults to `backend/db.sqlite3`)
+- `APP_DB_TARGET=supa` makes Django use `DATABASE_URL`
+- The helper also keeps the older `DJANGO_USE_SQLITE` flag in sync for backward compatibility
+
 1. Start Django backend on port `8000`:
 ```bash
 cd backend
-set DJANGO_USE_SQLITE=0
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```

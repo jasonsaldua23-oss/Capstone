@@ -53,7 +53,6 @@ from .models import (
     Vehicle,
     VehicleStatus,
     Warehouse,
-    WarehouseStaffAssignment,
 )
 
 
@@ -241,55 +240,38 @@ def _get_allowed_warehouse_ids_for_staff(user_id: str) -> set[str]:
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
         return set()
-    direct_manager_ids = set(
+    return {
+        str(warehouse_id).strip()
+        for warehouse_id in
         Warehouse.objects.filter(manager_id=normalized_user_id).values_list("id", flat=True)
-    )
-    assigned_ids = set(
-        WarehouseStaffAssignment.objects.filter(user_id=normalized_user_id).values_list("warehouse_id", flat=True)
-    )
-    return {str(warehouse_id).strip() for warehouse_id in (direct_manager_ids | assigned_ids) if str(warehouse_id).strip()}
+        if str(warehouse_id).strip()
+    }
 
 
-def _collect_requested_warehouse_staff_ids(body: dict[str, Any], manager_id_fallback: str = "") -> list[str]:
+def _resolve_requested_warehouse_manager_id(body: dict[str, Any], manager_id_fallback: str = "") -> str:
+    manager_id = str(body.get("managerId") or "").strip()
+    if manager_id:
+        return manager_id
     requested_staff_ids = [
         str(value or "").strip()
         for value in (body.get("staffIds") or [])
         if str(value or "").strip()
     ]
-    manager_id = str(body.get("managerId") or manager_id_fallback or "").strip()
-    if manager_id and manager_id not in requested_staff_ids:
-        requested_staff_ids.append(manager_id)
-    return sorted(set(requested_staff_ids))
+    if requested_staff_ids:
+        return requested_staff_ids[0]
+    return str(manager_id_fallback or "").strip()
 
 
-def _find_staff_already_assigned_elsewhere(staff_ids: list[str], current_warehouse_id: str | None = None) -> dict[str, str]:
-    normalized_ids = [str(staff_id or "").strip() for staff_id in staff_ids if str(staff_id or "").strip()]
-    if not normalized_ids:
-        return {}
-
-    conflicts: dict[str, str] = {}
-    manager_qs = Warehouse.objects.filter(manager_id__in=normalized_ids)
+def _find_staff_already_assigned_elsewhere(staff_id: str, current_warehouse_id: str | None = None) -> str | None:
+    normalized_staff_id = str(staff_id or "").strip()
+    if not normalized_staff_id:
+        return None
+    manager_qs = Warehouse.objects.filter(manager_id=normalized_staff_id)
     if current_warehouse_id:
         manager_qs = manager_qs.exclude(id=current_warehouse_id)
     for warehouse in manager_qs.only("id", "name", "code", "manager_id"):
-        staff_id = str(warehouse.manager_id or "").strip()
-        if not staff_id:
-            continue
-        conflicts.setdefault(staff_id, f"{warehouse.name} ({warehouse.code})")
-
-    assignment_qs = WarehouseStaffAssignment.objects.filter(user_id__in=normalized_ids)
-    if current_warehouse_id:
-        assignment_qs = assignment_qs.exclude(warehouse_id=current_warehouse_id)
-    for assignment in assignment_qs.select_related("warehouse"):
-        staff_id = str(assignment.user_id or "").strip()
-        if not staff_id:
-            continue
-        warehouse = getattr(assignment, "warehouse", None)
-        if warehouse is None:
-            continue
-        conflicts.setdefault(staff_id, f"{warehouse.name} ({warehouse.code})")
-
-    return conflicts
+        return f"{warehouse.name} ({warehouse.code})"
+    return None
 
 
 def _int(v: Any, default: int) -> int:
@@ -629,6 +611,218 @@ def _append_replacement_note_line(notes: Any, line: str) -> str:
     return f"{updated_prefix}\nMeta: {json.dumps(meta)}"
 
 
+def _get_structured_replacement_lines(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_lines = meta.get("replacementLines")
+    if isinstance(raw_lines, list) and raw_lines:
+        return [line for line in raw_lines if isinstance(line, dict)]
+    raw_items = meta.get("replacementItems")
+    if isinstance(raw_items, list) and raw_items:
+        return [line for line in raw_items if isinstance(line, dict)]
+    return []
+
+
+def _normalize_serialized_replacement_lines(
+    entry: Replacement,
+    order: Order | None,
+    meta: dict[str, Any],
+    *,
+    normalized_status: str,
+    delivered_linked_replacement_order: bool,
+) -> list[dict[str, Any]]:
+    source_lines = _get_structured_replacement_lines(meta)
+    if not source_lines:
+        return []
+
+    order_items_by_id: dict[str, OrderItem] = {}
+    order_items_by_product_id: dict[str, OrderItem] = {}
+    if order is not None:
+        for item in OrderItem.objects.select_related("product").filter(order_id=order.id):
+            item_id = str(getattr(item, "id", "") or "").strip()
+            if item_id:
+                order_items_by_id[item_id] = item
+            product_id = str(getattr(item, "product_id", "") or "").strip()
+            if product_id and product_id not in order_items_by_product_id:
+                order_items_by_product_id[product_id] = item
+
+    product_cache: dict[str, Product | None] = {}
+    replacement_mode = str(getattr(entry, "replacement_mode", "") or meta.get("replacementMode") or "").strip().upper()
+    hide_replaced_quantity = (
+        replacement_mode == "CUSTOMER_SUBMITTED"
+        and normalized_status not in {ReplacementStatus.COMPLETED, ReplacementStatus.RESOLVED_ON_DELIVERY}
+    )
+
+    normalized_lines: list[dict[str, Any]] = []
+    for source_line in source_lines:
+        original_order_item_id = str(
+            source_line.get("originalOrderItemId")
+            or source_line.get("orderItemId")
+            or ""
+        ).strip()
+        original_item = order_items_by_id.get(original_order_item_id) if original_order_item_id else None
+
+        original_product_id = str(
+            source_line.get("originalProductId")
+            or getattr(original_item, "product_id", "")
+            or ""
+        ).strip()
+        if original_item is None and original_product_id:
+            original_item = order_items_by_product_id.get(original_product_id)
+
+        original_product = getattr(original_item, "product", None)
+
+        replacement_product_id = str(
+            source_line.get("replacementProductId")
+            or original_product_id
+            or getattr(original_item, "product_id", "")
+            or ""
+        ).strip()
+        replacement_product = None
+        if replacement_product_id:
+            if replacement_product_id not in product_cache:
+                product_cache[replacement_product_id] = Product.objects.filter(id=replacement_product_id).first()
+            replacement_product = product_cache[replacement_product_id]
+
+        quantity_to_replace = max(
+            0,
+            _int(source_line.get("quantityToReplace"), _int(source_line.get("damagedQuantity"), 0)),
+        )
+        quantity_replaced = max(
+            0,
+            _int(source_line.get("quantityReplaced"), _int(source_line.get("replacedQuantity"), 0)),
+        )
+        if hide_replaced_quantity:
+            quantity_replaced = 0
+        if delivered_linked_replacement_order and quantity_to_replace > quantity_replaced:
+            quantity_replaced = quantity_to_replace
+        remaining_quantity = max(quantity_to_replace - quantity_replaced, 0)
+
+        quantity_per_case = max(
+            1,
+            _int(
+                source_line.get("quantityPerCase"),
+                _int(
+                    source_line.get("qtyPerUnit"),
+                    _int(getattr(replacement_product or original_product, "quantity_per_unit", 0), 1),
+                ),
+            ),
+        )
+        quantity_to_replace_cases = max(
+            0,
+            _int(
+                source_line.get("quantityToReplaceCases"),
+                _int(source_line.get("quantityToReplaceUnits"), 0),
+            ),
+        )
+        quantity_to_replace_bottles = max(0, _int(source_line.get("quantityToReplaceBottles"), 0))
+        quantity_replaced_cases = max(
+            0,
+            _int(
+                source_line.get("quantityReplacedCases"),
+                _int(source_line.get("quantityReplacedUnits"), 0),
+            ),
+        )
+        quantity_replaced_bottles = max(0, _int(source_line.get("quantityReplacedBottles"), 0))
+        line_input_mode = str(
+            source_line.get("lineInputMode")
+            or source_line.get("replacementInputMode")
+            or ""
+        ).strip().lower()
+
+        if line_input_mode == "bottle":
+            if quantity_to_replace_bottles <= 0 and quantity_to_replace > 0:
+                quantity_to_replace_bottles = quantity_to_replace
+            if quantity_replaced_bottles <= 0 and quantity_replaced > 0:
+                quantity_replaced_bottles = quantity_replaced
+        else:
+            if (
+                quantity_to_replace_cases <= 0
+                and quantity_to_replace > 0
+                and quantity_per_case > 0
+                and quantity_to_replace % quantity_per_case == 0
+            ):
+                quantity_to_replace_cases = quantity_to_replace // quantity_per_case
+            if (
+                quantity_replaced_cases <= 0
+                and quantity_replaced > 0
+                and quantity_per_case > 0
+                and quantity_replaced % quantity_per_case == 0
+            ):
+                quantity_replaced_cases = quantity_replaced // quantity_per_case
+
+        original_product_name = str(
+            source_line.get("originalProductName")
+            or source_line.get("productName")
+            or getattr(original_product, "name", "")
+            or getattr(original_item, "product_name", "")
+            or ""
+        ).strip() or None
+        original_product_sku = str(
+            source_line.get("originalProductSku")
+            or getattr(original_product, "sku", "")
+            or getattr(original_item, "product_sku", "")
+            or ""
+        ).strip() or None
+        original_product_size = str(
+            source_line.get("originalProductSize")
+            or _get_product_size_label(original_product)
+            or ""
+        ).strip() or None
+        replacement_product_name = str(
+            source_line.get("replacementProductName")
+            or getattr(replacement_product, "name", "")
+            or original_product_name
+            or ""
+        ).strip() or None
+        replacement_product_sku = str(
+            source_line.get("replacementProductSku")
+            or getattr(replacement_product, "sku", "")
+            or original_product_sku
+            or ""
+        ).strip() or None
+        replacement_product_size = str(
+            source_line.get("replacementProductSize")
+            or _get_product_size_label(replacement_product)
+            or original_product_size
+            or ""
+        ).strip() or None
+
+        normalized_line = dict(source_line)
+        normalized_line.update(
+            {
+                "originalOrderItemId": str(getattr(original_item, "id", "") or original_order_item_id or "").strip() or None,
+                "originalProductId": original_product_id or None,
+                "originalProductName": original_product_name,
+                "originalProductSku": original_product_sku,
+                "originalProductSize": original_product_size,
+                "replacementProductId": replacement_product_id or None,
+                "replacementProductName": replacement_product_name,
+                "replacementProductSku": replacement_product_sku,
+                "replacementProductSize": replacement_product_size,
+                "quantityToReplace": quantity_to_replace,
+                "quantityReplaced": quantity_replaced,
+                "remainingQuantity": remaining_quantity,
+                "quantityPerCase": quantity_per_case,
+                "qtyPerUnit": quantity_per_case,
+            }
+        )
+        if line_input_mode:
+            normalized_line["lineInputMode"] = line_input_mode
+            normalized_line["replacementInputMode"] = line_input_mode
+        if quantity_to_replace_cases > 0:
+            normalized_line["quantityToReplaceCases"] = quantity_to_replace_cases
+            normalized_line["quantityToReplaceUnits"] = quantity_to_replace_cases
+        if quantity_to_replace_bottles > 0:
+            normalized_line["quantityToReplaceBottles"] = quantity_to_replace_bottles
+        if quantity_replaced_cases > 0:
+            normalized_line["quantityReplacedCases"] = quantity_replaced_cases
+            normalized_line["quantityReplacedUnits"] = quantity_replaced_cases
+        if quantity_replaced_bottles > 0:
+            normalized_line["quantityReplacedBottles"] = quantity_replaced_bottles
+        normalized_lines.append(normalized_line)
+
+    return normalized_lines
+
+
 def _replacement_has_outstanding_quantity(replacement: Replacement) -> bool:
     serialized = _serialize_replacement(replacement)
     lines_raw = serialized.get("replacementLines") or serialized.get("replacementItems") or []
@@ -747,7 +941,11 @@ def _create_scheduled_replacement_order(
     notes_lower = notes_text.lower()
 
     for line in source_lines:
-        raw_qty = _int(line.get("quantityReplaced"), _int(line.get("quantityToReplace"), _int(line.get("quantity"), 0)))
+        raw_qty_to_replace = _int(line.get("quantityToReplace"), _int(line.get("quantity"), 0))
+        raw_qty_replaced = _int(line.get("quantityReplaced"), 0)
+        remaining_qty_bottles = max(raw_qty_to_replace - raw_qty_replaced, 0)
+        use_remaining_only = raw_qty_to_replace > 0 and raw_qty_replaced > 0 and remaining_qty_bottles > 0
+        raw_qty = remaining_qty_bottles if use_remaining_only else _int(line.get("quantity"), raw_qty_to_replace or raw_qty_replaced)
         qty_bottles = max(raw_qty, 0)
         replacement_cases = max(0, _int(line.get("replacementCases"), 0))
         replacement_bottles = max(0, _int(line.get("replacementBottles"), 0))
@@ -1407,6 +1605,7 @@ def _serialize_order(
 ) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
+    normalized_order_status = str(data.get("status") or "").strip().upper()
     checklist_quantity_verified = bool(getattr(order, "checklist_quantity_verified", False))
     data["checklistQuantityVerified"] = checklist_quantity_verified
     # Backward-compatible fields kept for older clients; all mirror quantity checklist.
@@ -1491,8 +1690,13 @@ def _serialize_order(
 
     data["scheduledReplacement"] = _get_scheduled_replacement_payload(order)
 
+    # Once an order is rescheduled, the previous failed trip should no longer appear
+    # as its active assignment/progress until it is planned again.
+    if normalized_order_status == OrderStatus.RESCHEDULED:
+        assigned_trip = None
+
     if assigned_trip is None:
-        assigned_trip = _select_trip_for_order(order.id, require_driver=True)
+        assigned_trip = None if normalized_order_status == OrderStatus.RESCHEDULED else _select_trip_for_order(order.id, require_driver=True)
     assigned_driver = getattr(assigned_trip, "driver", None)
     assigned_driver_name = ""
     if assigned_driver:
@@ -1506,7 +1710,7 @@ def _serialize_order(
         "submittedAt": order.pod_submitted_at.isoformat() if getattr(order, "pod_submitted_at", None) else None,
     }
     if include_progress:
-        progress_trip = _select_trip_for_order(order.id, require_driver=False)
+        progress_trip = None if normalized_order_status == OrderStatus.RESCHEDULED else _select_trip_for_order(order.id, require_driver=False)
         if progress_trip:
             progress_trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").filter(id=progress_trip.id).first()
         progress_drop_point = None
@@ -2029,7 +2233,60 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     if delivered_linked_replacement_order and quantity_to_replace > quantity_replaced:
         quantity_replaced = quantity_to_replace
     remaining_quantity = max(quantity_to_replace - quantity_replaced, 0)
-    if original_item:
+    structured_replacement_lines = _normalize_serialized_replacement_lines(
+        entry,
+        order,
+        meta,
+        normalized_status=normalized_status,
+        delivered_linked_replacement_order=delivered_linked_replacement_order,
+    )
+    if structured_replacement_lines:
+        total_qty_to_replace = sum(max(0, _int(line.get("quantityToReplace"), 0)) for line in structured_replacement_lines)
+        total_qty_replaced = sum(max(0, _int(line.get("quantityReplaced"), 0)) for line in structured_replacement_lines)
+        total_remaining = max(total_qty_to_replace - total_qty_replaced, 0)
+        data["quantityToReplace"] = total_qty_to_replace
+        data["quantityReplaced"] = total_qty_replaced
+        data["remainingQuantity"] = total_remaining
+        data["replacementLines"] = structured_replacement_lines
+        data["replacementItems"] = structured_replacement_lines
+
+        first_line = structured_replacement_lines[0]
+        original_names: list[str] = []
+        replacement_names: list[str] = []
+        for line in structured_replacement_lines:
+            original_name = str(line.get("originalProductName") or "").strip()
+            replacement_name = str(line.get("replacementProductName") or "").strip()
+            if original_name and original_name not in original_names:
+                original_names.append(original_name)
+            if replacement_name and replacement_name not in replacement_names:
+                replacement_names.append(replacement_name)
+
+        def _format_product_summary(values: list[str]) -> str | None:
+            if not values:
+                return None
+            if len(values) <= 3:
+                return ", ".join(values)
+            return f"{', '.join(values[:3])} +{len(values) - 3} more"
+
+        data["originalProductName"] = _format_product_summary(original_names)
+        data["replacementProductName"] = _format_product_summary(replacement_names or original_names)
+        data["originalProductSku"] = first_line.get("originalProductSku") or None
+        data["replacementProductSku"] = first_line.get("replacementProductSku") or None
+        data["originalProductSize"] = first_line.get("originalProductSize") or None
+        data["replacementProductSize"] = first_line.get("replacementProductSize") or None
+
+        first_original_order_item_id = str(first_line.get("originalOrderItemId") or "").strip()
+        first_original_item = None
+        if first_original_order_item_id:
+            first_original_item = OrderItem.objects.select_related("product").filter(id=first_original_order_item_id).first()
+        if first_original_item:
+            data["originalOrderItem"] = {
+                "id": first_original_item.id,
+                "quantity": first_original_item.quantity,
+                "product": _serialize_model(first_original_item.product) if first_original_item.product_id else None,
+            }
+            data["originalQuantity"] = first_original_item.quantity
+    elif original_item:
         data["originalOrderItem"] = {
             "id": original_item.id,
             "quantity": original_item.quantity,
@@ -2074,10 +2331,11 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         data["remainingQuantity"] = remaining_quantity
     if replacement_product:
         data["replacementProduct"] = _serialize_model(replacement_product)
-        data["replacementProductName"] = replacement_product.name
-        data["replacementProductSku"] = replacement_product.sku
-        replacement_sizes = getattr(replacement_product, "sizes", None)
-        data["replacementProductSize"] = ", ".join([str(x).strip() for x in (replacement_sizes or []) if str(x).strip()]) if isinstance(replacement_sizes, list) else None
+        if not structured_replacement_lines:
+            data["replacementProductName"] = replacement_product.name
+            data["replacementProductSku"] = replacement_product.sku
+            replacement_sizes = getattr(replacement_product, "sizes", None)
+            data["replacementProductSize"] = ", ".join([str(x).strip() for x in (replacement_sizes or []) if str(x).strip()]) if isinstance(replacement_sizes, list) else None
     elif data.get("originalProductName") and not data.get("replacementProductName"):
         data["replacementProductName"] = data.get("originalProductName")
         data["replacementProductSku"] = data.get("originalProductSku")
@@ -4185,25 +4443,11 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
             qs = qs.filter(id__in=list(_get_allowed_warehouse_ids_for_staff(user_id)))
         total = qs.count()
         rows = list(qs[off : off + size])
-        assignment_rows = WarehouseStaffAssignment.objects.filter(
-            warehouse_id__in=[str(row.id) for row in rows]
-        ).values_list("warehouse_id", "user_id")
-        staff_ids_by_warehouse: dict[str, list[str]] = {}
-        for warehouse_id_value, user_id_value in assignment_rows:
-            warehouse_key = str(warehouse_id_value or "").strip()
-            user_key = str(user_id_value or "").strip()
-            if not warehouse_key or not user_key:
-                continue
-            staff_ids_by_warehouse.setdefault(warehouse_key, []).append(user_key)
         payload_rows = []
         for row in rows:
             serialized = _serialize_model(row)
-            staff_ids = sorted(set(staff_ids_by_warehouse.get(str(row.id), [])))
             manager_id = str(getattr(row, "manager_id", "") or "").strip()
-            if manager_id and manager_id not in staff_ids:
-                staff_ids.append(manager_id)
-                staff_ids.sort()
-            serialized["staffIds"] = staff_ids
+            serialized["staffIds"] = [manager_id] if manager_id else []
             payload_rows.append(serialized)
         return _ok({"success": True, "warehouses": payload_rows, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
@@ -4223,6 +4467,12 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
     )
     if address_error:
         return _err(address_error, 400)
+    requested_manager_id = _resolve_requested_warehouse_manager_id(body)
+    warehouse_label = _find_staff_already_assigned_elsewhere(requested_manager_id)
+    if warehouse_label:
+        staff_user = User.objects.filter(id=requested_manager_id).only("name", "email").first()
+        staff_name = str(getattr(staff_user, "name", "") or getattr(staff_user, "email", "") or requested_manager_id)
+        return _err(f"{staff_name} is already assigned to {warehouse_label}. One warehouse staff can only belong to one warehouse.", 400)
     w = Warehouse.objects.create(
         name=body["name"],
         code=body["code"],
@@ -4234,18 +4484,9 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
         capacity=capacity_value,
-        manager_id=body.get("managerId"),
+        manager_id=requested_manager_id or None,
         is_active=bool(body.get("isActive", True)),
     )
-    requested_staff_ids = _collect_requested_warehouse_staff_ids(body)
-    staff_conflicts = _find_staff_already_assigned_elsewhere(requested_staff_ids)
-    if staff_conflicts:
-        first_staff_id, warehouse_label = next(iter(staff_conflicts.items()))
-        staff_user = User.objects.filter(id=first_staff_id).only("name", "email").first()
-        staff_name = str(getattr(staff_user, "name", "") or getattr(staff_user, "email", "") or first_staff_id)
-        return _err(f"{staff_name} is already assigned to {warehouse_label}. One warehouse staff can only belong to one warehouse.", 400)
-    for staff_id in sorted(set(requested_staff_ids)):
-        WarehouseStaffAssignment.objects.get_or_create(warehouse_id=w.id, user_id=staff_id)
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
         title="Warehouse added",
@@ -4254,7 +4495,9 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
         reference_type="warehouse",
         reference_id=w.id,
     )
-    return _ok({"success": True, "warehouse": _serialize_model(w)}, 201)
+    warehouse_data = _serialize_model(w)
+    warehouse_data["staffIds"] = [requested_manager_id] if requested_manager_id else []
+    return _ok({"success": True, "warehouse": warehouse_data}, 201)
 
 
 @csrf_exempt
@@ -4269,15 +4512,8 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         return _err("Warehouse not found", 404)
     if request.method == "GET":
         warehouse_data = _serialize_model(w)
-        staff_ids = list(
-            WarehouseStaffAssignment.objects.filter(warehouse_id=w.id).values_list("user_id", flat=True)
-        )
         manager_id = str(getattr(w, "manager_id", "") or "").strip()
-        normalized_staff_ids = sorted({str(staff_id or "").strip() for staff_id in staff_ids if str(staff_id or "").strip()})
-        if manager_id and manager_id not in normalized_staff_ids:
-            normalized_staff_ids.append(manager_id)
-            normalized_staff_ids.sort()
-        warehouse_data["staffIds"] = normalized_staff_ids
+        warehouse_data["staffIds"] = [manager_id] if manager_id else []
         return _ok({"success": True, "warehouse": warehouse_data})
     if request.method == "DELETE":
         w.is_active = False
@@ -4320,31 +4556,18 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
             return _err(address_error, 400)
     if "isActive" in body:
         w.is_active = bool(body.get("isActive"))
-    w.save()
     if "staffIds" in body or "managerId" in body:
-        requested_staff_ids = _collect_requested_warehouse_staff_ids(body, manager_id_fallback=str(getattr(w, "manager_id", "") or ""))
-        staff_conflicts = _find_staff_already_assigned_elsewhere(requested_staff_ids, current_warehouse_id=str(w.id))
-        if staff_conflicts:
-            first_staff_id, warehouse_label = next(iter(staff_conflicts.items()))
-            staff_user = User.objects.filter(id=first_staff_id).only("name", "email").first()
-            staff_name = str(getattr(staff_user, "name", "") or getattr(staff_user, "email", "") or first_staff_id)
+        requested_manager_id = _resolve_requested_warehouse_manager_id(body, manager_id_fallback=str(getattr(w, "manager_id", "") or ""))
+        warehouse_label = _find_staff_already_assigned_elsewhere(requested_manager_id, current_warehouse_id=str(w.id))
+        if warehouse_label:
+            staff_user = User.objects.filter(id=requested_manager_id).only("name", "email").first()
+            staff_name = str(getattr(staff_user, "name", "") or getattr(staff_user, "email", "") or requested_manager_id)
             return _err(f"{staff_name} is already assigned to {warehouse_label}. One warehouse staff can only belong to one warehouse.", 400)
-        requested_staff_set = set(requested_staff_ids)
-        existing_assignments = list(WarehouseStaffAssignment.objects.filter(warehouse_id=w.id))
-        existing_user_ids = {str(entry.user_id or "").strip() for entry in existing_assignments if str(entry.user_id or "").strip()}
-        for assignment in existing_assignments:
-            if str(assignment.user_id or "").strip() not in requested_staff_set:
-                assignment.delete()
-        for user_id_value in sorted(requested_staff_set - existing_user_ids):
-            WarehouseStaffAssignment.objects.create(warehouse_id=w.id, user_id=user_id_value)
+        w.manager_id = requested_manager_id or None
+    w.save()
     warehouse_data = _serialize_model(w)
-    warehouse_data["staffIds"] = sorted(
-        {
-            str(user_id or "").strip()
-            for user_id in WarehouseStaffAssignment.objects.filter(warehouse_id=w.id).values_list("user_id", flat=True)
-            if str(user_id or "").strip()
-        }
-    )
+    manager_id = str(getattr(w, "manager_id", "") or "").strip()
+    warehouse_data["staffIds"] = [manager_id] if manager_id else []
     return _ok({"success": True, "warehouse": warehouse_data})
 
 
@@ -5638,11 +5861,17 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         r.processed_at = timezone.now()
         r.processed_by = staff.get("userId")
     if create_replacement_order and replacement_delivery_date:
-        replacement_order = _create_scheduled_replacement_order(
-            r,
-            scheduled_date=replacement_delivery_date,
-            staff_user_id=str(staff.get("userId") or "").strip() or None,
-        )
+        try:
+            replacement_order = _create_scheduled_replacement_order(
+                r,
+                scheduled_date=replacement_delivery_date,
+                staff_user_id=str(staff.get("userId") or "").strip() or None,
+            )
+        except ValueError as e:
+            return _err(str(e), 400)
+        except Exception:
+            logger.exception("Failed to schedule replacement delivery for %s", r.id)
+            return _err("Unable to schedule replacement delivery right now", 500)
         r.status = ReplacementStatus.IN_PROGRESS
         if normalized_status == ReplacementStatus.APPROVED and not status_notes:
             status_notes = "Replacement approved and scheduled for delivery"
@@ -6153,9 +6382,11 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             "Order(s) are not allocated to the selected warehouse: " + ", ".join(incompatible_orders),
             400,
         )
+    active_assignment_statuses = ["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"]
     already_assigned_order_ids = set(
         TripDropPoint.objects.filter(
             order_id__in=requested_order_ids,
+            status__in=active_assignment_statuses,
         ).values_list("order_id", flat=True)
     )
     if already_assigned_order_ids:
@@ -6344,9 +6575,11 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                     return _err("Some orders are already in this trip", 409)
                 add_order_ids = [oid for oid in add_order_ids if oid not in existing_order_ids_on_trip]
 
+                active_assignment_statuses = ["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"]
                 already_assigned_order_ids = set(
                     TripDropPoint.objects.filter(
                         order_id__in=add_order_ids,
+                        status__in=active_assignment_statuses,
                     )
                     .exclude(trip_id=trip.id)
                     .values_list("order_id", flat=True)
@@ -6821,10 +7054,156 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     if normalized_order_status != OrderStatus.DELIVERED:
         return _err("Replacement request is only allowed for delivered orders", 400)
 
-    number_damaged_items = max(0, _int(body.get("numberDamagedItems"), 0))
+    order_items = list(order.items.select_related("product").all())
+    order_items_by_id = {
+        str(getattr(item, "id", "") or "").strip(): item
+        for item in order_items
+        if str(getattr(item, "id", "") or "").strip()
+    }
+
+    replacement_lines_input = body.get("replacementLines") if isinstance(body.get("replacementLines"), list) else []
+    replacement_lines: list[dict[str, Any]] = []
+    if replacement_lines_input:
+        merged_lines_by_item_id: dict[str, dict[str, Any]] = {}
+        for raw_line in replacement_lines_input:
+            if not isinstance(raw_line, dict):
+                continue
+            original_order_item_id = str(
+                raw_line.get("originalOrderItemId")
+                or raw_line.get("productId")
+                or raw_line.get("orderItemId")
+                or ""
+            ).strip()
+            source_item = order_items_by_id.get(original_order_item_id)
+            if not source_item:
+                return _err("Each replacement line must reference a valid product from the order", 400)
+
+            product = getattr(source_item, "product", None)
+            quantity_per_case = max(
+                1,
+                _int(
+                    raw_line.get("quantityPerCase"),
+                    _int(
+                        raw_line.get("qtyPerUnit"),
+                        _int(getattr(product, "quantity_per_unit", 0), 1),
+                    ),
+                ),
+            )
+            input_mode = str(raw_line.get("inputMode") or raw_line.get("lineInputMode") or "").strip().lower()
+            quantity_to_replace = max(0, _int(raw_line.get("quantityToReplace"), 0))
+            quantity_to_replace_cases = max(
+                0,
+                _int(
+                    raw_line.get("quantityToReplaceCases"),
+                    _int(raw_line.get("quantityToReplaceUnits"), 0),
+                ),
+            )
+            quantity_to_replace_bottles = max(0, _int(raw_line.get("quantityToReplaceBottles"), 0))
+
+            if input_mode == "case":
+                if quantity_to_replace_cases <= 0 and quantity_to_replace > 0 and quantity_per_case > 0:
+                    quantity_to_replace_cases = max(1, quantity_to_replace // quantity_per_case)
+                if quantity_to_replace <= 0 and quantity_to_replace_cases > 0:
+                    quantity_to_replace = quantity_to_replace_cases * quantity_per_case
+            else:
+                input_mode = "bottle"
+                if quantity_to_replace_bottles <= 0 and quantity_to_replace > 0:
+                    quantity_to_replace_bottles = quantity_to_replace
+                if quantity_to_replace <= 0 and quantity_to_replace_bottles > 0:
+                    quantity_to_replace = quantity_to_replace_bottles
+
+            if quantity_to_replace <= 0:
+                return _err("Each replacement line must have quantity greater than zero", 400)
+
+            reason = str(raw_line.get("reason") or body.get("damageType") or body.get("reason") or "").strip()
+            if not reason:
+                return _err("Each replacement line must include a reason", 400)
+            description = str(raw_line.get("description") or "").strip()
+            original_product_name = str(
+                getattr(product, "name", "")
+                or getattr(source_item, "product_name", "")
+                or raw_line.get("originalProductName")
+                or ""
+            ).strip() or "Product"
+            original_product_sku = str(
+                getattr(product, "sku", "")
+                or getattr(source_item, "product_sku", "")
+                or raw_line.get("originalProductSku")
+                or ""
+            ).strip() or None
+            original_product_size = _get_product_size_label(product) or str(raw_line.get("originalProductSize") or "").strip() or None
+            replacement_product_id = str(
+                raw_line.get("replacementProductId")
+                or getattr(source_item, "product_id", "")
+                or ""
+            ).strip() or None
+
+            next_line = {
+                "originalOrderItemId": source_item.id,
+                "originalProductId": str(getattr(source_item, "product_id", "") or "").strip() or None,
+                "originalProductName": original_product_name,
+                "originalProductSku": original_product_sku,
+                "originalProductSize": original_product_size,
+                "replacementProductId": replacement_product_id,
+                "replacementProductName": original_product_name,
+                "replacementProductSku": original_product_sku,
+                "replacementProductSize": original_product_size,
+                "replacementProductUnit": str(getattr(product, "unit", "") or "").strip() or None,
+                "lineInputMode": input_mode,
+                "replacementInputMode": input_mode,
+                "quantityPerCase": quantity_per_case,
+                "qtyPerUnit": quantity_per_case,
+                "quantityToReplace": quantity_to_replace,
+                "quantityReplaced": 0,
+                "remainingQuantity": quantity_to_replace,
+                "reason": reason,
+                "description": description or None,
+            }
+            if input_mode == "case":
+                next_line["quantityToReplaceCases"] = quantity_to_replace_cases
+                next_line["quantityToReplaceUnits"] = quantity_to_replace_cases
+            else:
+                next_line["quantityToReplaceBottles"] = quantity_to_replace_bottles
+
+            existing_line = merged_lines_by_item_id.get(source_item.id)
+            if existing_line:
+                existing_line["quantityToReplace"] = max(0, _int(existing_line.get("quantityToReplace"), 0)) + quantity_to_replace
+                existing_line["remainingQuantity"] = existing_line["quantityToReplace"]
+                if input_mode == "case":
+                    existing_line["quantityToReplaceCases"] = max(0, _int(existing_line.get("quantityToReplaceCases"), 0)) + quantity_to_replace_cases
+                    existing_line["quantityToReplaceUnits"] = existing_line["quantityToReplaceCases"]
+                else:
+                    existing_line["quantityToReplaceBottles"] = max(0, _int(existing_line.get("quantityToReplaceBottles"), 0)) + quantity_to_replace_bottles
+                if reason and reason not in str(existing_line.get("reason") or ""):
+                    existing_line["reason"] = f"{existing_line['reason']}; {reason}"
+                if description:
+                    previous_description = str(existing_line.get("description") or "").strip()
+                    if description not in previous_description:
+                        existing_line["description"] = f"{previous_description}; {description}".strip("; ")
+            else:
+                merged_lines_by_item_id[source_item.id] = next_line
+
+        replacement_lines = list(merged_lines_by_item_id.values())
+        if not replacement_lines:
+            return _err("At least one valid replacement line is required", 400)
+
+    number_damaged_items = max(
+        0,
+        _int(
+            body.get("numberDamagedItems"),
+            sum(max(0, _int(line.get("quantityToReplace"), 0)) for line in replacement_lines),
+        ),
+    )
     if number_damaged_items <= 0:
         return _err("numberDamagedItems must be greater than zero", 400)
     damage_type = str(body.get("damageType") or body.get("reason") or "").strip()
+    if not damage_type and replacement_lines:
+        unique_reasons = [str(line.get("reason") or "").strip() for line in replacement_lines if str(line.get("reason") or "").strip()]
+        unique_reasons = list(dict.fromkeys(unique_reasons))
+        if len(unique_reasons) == 1:
+            damage_type = unique_reasons[0]
+        elif len(unique_reasons) > 1:
+            damage_type = "Multiple issues"
     if not damage_type:
         return _err("reason/type of damage is required", 400)
     evidence_list_raw = body.get("evidence") if isinstance(body.get("evidence"), list) else []
@@ -6837,33 +7216,68 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
 
     count = Replacement.objects.count() + 1
     now = timezone.now()
+    if replacement_lines:
+        product_summaries = []
+        for line in replacement_lines:
+            product_name = str(line.get("originalProductName") or "Product").strip()
+            quantity_text = str(line.get("quantityToReplace") or "0").strip()
+            reason_text = str(line.get("reason") or damage_type).strip()
+            line_detail = str(line.get("description") or "").strip()
+            summary = f"[{product_name}] qty {quantity_text}. Reason: {reason_text}"
+            if line_detail:
+                summary = f"{summary}. {line_detail}"
+            product_summaries.append(summary)
+        description_text = str(body.get("description") or "").strip() or "; ".join(product_summaries)
+    else:
+        description_text = str(body.get("description") or "Customer replacement request").strip() or "Customer replacement request"
+
     meta = {
         "submittedBy": "CUSTOMER",
         "submittedAt": now.isoformat(),
         "numberDamagedItems": number_damaged_items,
         "damageType": damage_type,
         "evidence": evidence_list,
+        "damagePhotos": evidence_list,
+        "quantityToReplace": number_damaged_items,
+        "quantityReplaced": 0,
         "statusTimeline": [
             {"status": ReplacementStatus.PENDING, "at": now.isoformat(), "by": str(order.customer_id)},
         ],
     }
+    if replacement_lines:
+        meta["replacementLines"] = replacement_lines
+        meta["replacementItems"] = replacement_lines
     replacement = Replacement.objects.create(
         replacement_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}",
         order=order,
         customer_id=order.customer_id,
         reason=damage_type,
-        description=str(body.get("description") or "Customer replacement request").strip() or "Customer replacement request",
+        description=description_text,
         status=ReplacementStatus.PENDING,
         requested_by="CUSTOMER",
         replacement_mode="CUSTOMER_SUBMITTED",
         replacement_quantity=number_damaged_items,
+        original_order_item_id=str(replacement_lines[0].get("originalOrderItemId") or "").strip() or None if replacement_lines else None,
+        replacement_product_id=str(replacement_lines[0].get("replacementProductId") or "").strip() or None if replacement_lines else None,
         damage_photo_url=evidence_list[0],
         damage_photo_urls=json.dumps(evidence_list),
         notes=f"Customer-submitted replacement request\nMeta: {json.dumps(meta)}",
     )
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-    product_name_match = re.search(r"\[([^\]]+)\]", str(replacement.description or ""))
-    product_hint = str(product_name_match.group(1) if product_name_match else "").strip() or "N/A"
+    if replacement_lines:
+        product_names = list(
+            dict.fromkeys(
+                str(line.get("originalProductName") or "").strip()
+                for line in replacement_lines
+                if str(line.get("originalProductName") or "").strip()
+            )
+        )
+        product_hint = ", ".join(product_names[:3]) if product_names else "N/A"
+        if len(product_names) > 3:
+            product_hint = f"{product_hint} +{len(product_names) - 3} more"
+    else:
+        product_name_match = re.search(r"\[([^\]]+)\]", str(replacement.description or ""))
+        product_hint = str(product_name_match.group(1) if product_name_match else "").strip() or "N/A"
     description_hint = str(replacement.description or "").strip() or "N/A"
     _create_staff_notifications(
         title="New replacement request",
@@ -7190,12 +7604,21 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
             except ValueError:
                 return _err("Invalid date. Expected YYYY-MM-DD", 400)
 
-        # Do not over-restrict by global order status here; split-warehouse orders can have
-        # one leg already moving while another leg still needs trip planning.
+        # Do not over-restrict by later global order statuses here; split-warehouse orders can have
+        # one leg already moving while another leg still needs trip planning. Still exclude
+        # orders that are not yet approved / confirmed for delivery planning.
         oqs = _real_orders(
             Order.objects.select_related("customer", "timeline")
             .prefetch_related("items__product")
-            .exclude(status__in=[OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED])
+            .exclude(
+                status__in=[
+                    OrderStatus.PENDING,
+                    OrderStatus.DELIVERED,
+                    OrderStatus.CANCELLED,
+                    OrderStatus.REJECTED,
+                    "UNAPPROVED",
+                ]
+            )
         ).order_by("created_at")
 
         active_drop_points_qs = TripDropPoint.objects.filter(
@@ -7284,11 +7707,32 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                         "totalQty": max(_int(getattr(item, "quantity", 0), 0), 0),
                     }
                 )
+            scheduled_replacement = _get_scheduled_replacement_payload(o)
+            order_items = list(o.items.select_related("product").all())
+
+            def _format_route_plan_qty_label(item: OrderItem) -> str:
+                raw_qty = max(_int(getattr(item, "quantity", 0), 0), 0)
+                item_unit = _normalize_product_unit(getattr(item, "product_unit", None))
+                if scheduled_replacement and len(order_items) == 1:
+                    exact_qty = max(
+                        _int(scheduled_replacement.get("quantityRemaining"), 0),
+                        _int(scheduled_replacement.get("quantityToReplace"), 0),
+                    )
+                    if exact_qty > 0:
+                        if str(scheduled_replacement.get("unitMode") or "").strip().upper() == "BOTTLE":
+                            return f"{exact_qty} bottle(s)"
+                        if item_unit == PRODUCT_UNIT_PACK_BUNDLE:
+                            return f"{exact_qty} pack(s)"
+                        return f"{exact_qty} case(s)"
+                if item_unit == PRODUCT_UNIT_PACK_BUNDLE:
+                    return f"{raw_qty} pack(s)"
+                return f"{raw_qty} case(s)"
+
             products_preview = ", ".join(
                 [
-                    f"{item.product.name} x{item.quantity}"
-                    for item in o.items.select_related("product").all()[:3]
-                    if item.product
+                    f"{str(getattr(item.product, 'name', '') or getattr(item, 'product_name', '') or 'Product').strip()} {_format_route_plan_qty_label(item)}"
+                    for item in order_items[:3]
+                    if getattr(item, "product", None) or str(getattr(item, "product_name", "") or "").strip()
                 ]
             )
 

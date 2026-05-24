@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -887,11 +888,39 @@ export function WarehousePortal() {
     () => savedRoutes.find((route) => route.id === selectedSavedRouteId) || null,
     [savedRoutes, selectedSavedRouteId]
   )
+  const availableVehicleIdSet = useMemo(
+    () => new Set(vehicles.map((vehicle) => String(vehicle?.id || '').trim()).filter(Boolean)),
+    [vehicles]
+  )
+  const getDriverAssignedVehicle = (driver: DriverOption | undefined, options?: { allowVehicleId?: string | null }) => {
+    const assigned = (driver?.vehicles || []).find((item) => item?.vehicle?.id)?.vehicle
+    if (!assigned?.id) return undefined
+    const assignedId = String(assigned.id).trim()
+    if (options?.allowVehicleId && assignedId === String(options.allowVehicleId).trim()) {
+      return assigned
+    }
+    return availableVehicleIdSet.has(assignedId) ? assigned : undefined
+  }
+  const isDriverSelectableForTrip = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
+    if (!driver || driver?.isActive === false) return false
+    if (options?.allowDriverId && String(driver.id || '').trim() === String(options.allowDriverId).trim()) {
+      return Boolean(getDriverAssignedVehicle(driver, { allowVehicleId: options.allowVehicleId })?.id)
+    }
+    return Boolean(getDriverAssignedVehicle(driver)?.id)
+  }
+  const getDriverTripEligibilityLabel = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
+    if (driver?.isActive === false) return 'Inactive'
+    const assignedVehicle = (driver?.vehicles || []).find((item) => item?.vehicle?.id)?.vehicle
+    if (!assignedVehicle?.id) return 'No assigned vehicle'
+    if (!isDriverSelectableForTrip(driver, options)) return 'Assigned vehicle unavailable'
+    return ''
+  }
   const selectedDriverAssignedVehicle = useMemo(() => {
     const driver = drivers.find((d) => d.id === selectedRouteDriverId)
-    const assigned = (driver?.vehicles || []).find((item) => item?.vehicle?.id)?.vehicle
-    return assigned
-  }, [drivers, selectedRouteDriverId])
+    return getDriverAssignedVehicle(driver, {
+      allowVehicleId: editingTripState?.originalVehicleId,
+    })
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
 
   const deleteSavedRouteDraft = async (routeId: string) => {
     const response = await fetch('/api/trips/saved-routes', {
@@ -2248,10 +2277,7 @@ export function WarehousePortal() {
       }
       const list = getCollection<DriverOption>(result.data, ['drivers'])
       setDrivers(list)
-      const preferredDriver =
-        list.find((driver) => driver?.isActive !== false && (driver.vehicles || []).some((entry) => entry?.vehicle?.id)) ||
-        list.find((driver) => driver?.isActive !== false) ||
-        list[0]
+      const preferredDriver = list.find((driver) => isDriverSelectableForTrip(driver))
 
       if (preferredDriver?.id && !selectedRouteDriverId) {
         setSelectedRouteDriverId(preferredDriver.id)
@@ -2295,6 +2321,25 @@ export function WarehousePortal() {
       console.warn('Failed to load saved routes:', error)
     }
   }
+
+  useEffect(() => {
+    if (!selectedRouteDriverId) return
+    const selectedDriver = drivers.find((driver) => String(driver?.id || '') === String(selectedRouteDriverId))
+    if (!selectedDriver) return
+    const allowDriverId = editingTripState?.originalDriverId || ''
+    const allowVehicleId = editingTripState?.originalVehicleId || ''
+    if (!isDriverSelectableForTrip(selectedDriver, { allowDriverId, allowVehicleId })) {
+      setSelectedRouteDriverId(allowDriverId && drivers.some((driver) => String(driver?.id || '') === String(allowDriverId)) ? allowDriverId : '')
+    }
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
+
+  useEffect(() => {
+    if (selectedRouteDriverId || drivers.length === 0 || editingTripState) return
+    const preferredDriver = drivers.find((driver) => isDriverSelectableForTrip(driver))
+    if (preferredDriver?.id) {
+      setSelectedRouteDriverId(preferredDriver.id)
+    }
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
 
   const getEditingTripSnapshot = (tripId?: string | null) => {
     const normalizedTripId = String(tripId || editingTripState?.tripId || '').trim()
@@ -2417,7 +2462,10 @@ export function WarehousePortal() {
         .map((group: any) => ({
           ...group,
           orders: (Array.isArray(group?.orders) ? group.orders : []).filter(
-            (order: any) => Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0
+            (order: any) =>
+              Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0 ||
+              Boolean((order as any)?.isScheduledReplacement) ||
+              String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
           ),
         }))
         .filter((group: any) => (Array.isArray(group?.orders) ? group.orders.length : 0) > 0)
@@ -2890,7 +2938,29 @@ export function WarehousePortal() {
   }, [activeView, trackingDate])
 
   const openOrderDetail = async (order: WarehouseOrderItem) => {
-    setSelectedOrder(order)
+    const normalizedStatus = String(order?.status || '').trim().toUpperCase()
+    setSelectedOrder(
+      normalizedStatus === 'RESCHEDULED'
+        ? ({
+            ...order,
+            assignedTripId: undefined,
+            tripId: undefined,
+            progress: {
+              trip: null,
+              dropPoint: null,
+              pod: {
+                recipientName: null,
+                deliveryPhoto: null,
+                actualArrival: null,
+                actualDeparture: null,
+                failureReason: null,
+                failureNotes: null,
+                notes: null,
+              },
+            },
+          } as WarehouseOrderItem)
+        : order
+    )
     const hasItems = Array.isArray(order.items) && order.items.length > 0
     setLoadingOrderDetail(!hasItems)
     try {
@@ -3386,7 +3456,7 @@ export function WarehousePortal() {
   const deriveOrderFulfillmentSummary = (order: any) => {
     const legs = extractFulfillmentLegs(order)
     // Filter out legs for trips that don't exist (were deleted)
-    const validLegs = legs.filter((leg: any) => {
+    let validLegs = legs.filter((leg: any) => {
       const legTripId = String(leg?.tripId || '').trim()
       const legTripNumber = String(leg?.tripNumber || '').trim()
       if (!legTripId && !legTripNumber) return true // Keep unassigned legs
@@ -3396,6 +3466,31 @@ export function WarehousePortal() {
         String(t?.tripNumber || '').trim() === legTripNumber
       )
     })
+    const getWarehouseLegKey = (leg: any) =>
+      String(leg?.warehouseId || '').trim() || String(leg?.warehouseName || '').trim().toLowerCase()
+    const legsByWarehouse = new Map<string, any[]>()
+    validLegs.forEach((leg: any) => {
+      const key = getWarehouseLegKey(leg)
+      if (!key) return
+      const current = legsByWarehouse.get(key) || []
+      current.push(leg)
+      legsByWarehouse.set(key, current)
+    })
+    if (legsByWarehouse.size > 0) {
+      const prioritizedLegs: any[] = []
+      const consumedKeys = new Set<string>()
+      validLegs.forEach((leg: any) => {
+        const key = getWarehouseLegKey(leg)
+        if (!key || consumedKeys.has(key)) return
+        consumedKeys.add(key)
+        const group = legsByWarehouse.get(key) || []
+        const nonTerminalGroup = group.filter(
+          (entry: any) => !['FAILED', 'CANCELLED'].includes(String(entry?.status || '').trim().toUpperCase())
+        )
+        prioritizedLegs.push(...(nonTerminalGroup.length > 0 ? nonTerminalGroup : group))
+      })
+      validLegs = prioritizedLegs
+    }
     const deliveredCount = validLegs.filter((leg: any) => leg.status === 'DELIVERED').length
     const failedCount = validLegs.filter((leg: any) => leg.status === 'FAILED' || leg.status === 'CANCELLED').length
     const unassignedTripCount = validLegs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length
@@ -3515,6 +3610,7 @@ export function WarehousePortal() {
     }
     return formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
   }
+  const isWarehouseRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
 
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
@@ -3701,6 +3797,15 @@ export function WarehousePortal() {
   const buildReplacementLines = (replacement: any, meta: any) => {
     const rawStatus = String(replacement?.status || '').trim().toUpperCase()
     const isReplacementCompleted = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const formatProductNameWithSize = (baseName: any, sizeValue: any) => {
+      const normalizedBaseName = String(baseName || 'N/A').trim()
+      const normalizedSize = String(sizeValue || '').trim().replace(/^\((.*)\)$/, '$1').trim()
+      if (!normalizedSize) return normalizedBaseName
+      const trailingSizePattern = new RegExp(`\\s*\\(?${escapeRegex(normalizedSize)}\\)?\\s*$`, 'i')
+      const baseWithoutTrailingSize = normalizedBaseName.replace(trailingSizePattern, '').trim()
+      return `${baseWithoutTrailingSize || normalizedBaseName} (${normalizedSize})`
+    }
     const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
       const unitHint = String(
         line?.productUnit ||
@@ -3812,8 +3917,8 @@ export function WarehousePortal() {
       const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
       const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
       return {
-        originalProductName: originalSize ? `${originalBaseName} (${originalSize})` : originalBaseName,
-        replacementProductName: replacementSize ? `${replacementBaseName} (${replacementSize})` : replacementBaseName,
+        originalProductName: formatProductNameWithSize(originalBaseName, originalSize),
+        replacementProductName: formatProductNameWithSize(replacementBaseName, replacementSize),
         quantityToReplace,
         quantityReplaced,
         quantityToReplaceDisplay: toDisplayQty(line, quantityToReplace, 'toReplace'),
@@ -3895,9 +4000,20 @@ export function WarehousePortal() {
           manualScheduleConfirmed: options?.manualScheduleConfirmed,
         }),
       })
-      const payload = await response.json().catch(() => ({}))
+      const rawResponse = await response.text()
+      let payload: any = {}
+      try {
+        payload = rawResponse ? JSON.parse(rawResponse) : {}
+      } catch {
+        payload = {}
+      }
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to update replacement')
+        throw new Error(
+          payload?.error ||
+          payload?.message ||
+          rawResponse.trim() ||
+          'Failed to update replacement'
+        )
       }
       const nextReplacement = payload?.replacement || {}
       const nextStatus = String(nextReplacement?.status || status || '').toUpperCase()
@@ -4196,13 +4312,36 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'settings' && (
-            <div className="mx-auto w-full max-w-4xl space-y-4 px-1">
+            <div className="w-full max-w-5xl space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+                <p className="text-gray-500">Manage your warehouse account and security settings</p>
+              </div>
               <Card>
                 <CardHeader>
                   <CardTitle>Profile Settings</CardTitle>
                   <CardDescription>Edit your warehouse account information.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                    <Avatar className="h-16 w-16 border border-slate-200 shadow-sm">
+                      {String((user as any)?.avatar || '').trim() ? (
+                        <AvatarImage src={String((user as any)?.avatar || '').trim()} alt={`${profileName || user?.name || 'User'} avatar`} className="object-cover" />
+                      ) : null}
+                      <AvatarFallback className="bg-linear-to-br from-cyan-600 to-emerald-600 text-lg font-semibold text-white">
+                        {(String(profileName || user?.name || 'U')
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part.charAt(0).toUpperCase())
+                          .join('')) || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">{profileName || user?.name || 'User'}</p>
+                      <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <Label htmlFor="warehouse-profile-name">Full Name</Label>
                     <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
@@ -4412,24 +4551,33 @@ export function WarehousePortal() {
                                   {(order as any)?.currentTripOrder ? (
                                     <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
                                   ) : null}
+                                  {isWarehouseRescheduledOrder(order) ? (
+                                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Rescheduled Order</span>
+                                  ) : null}
                                   {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
                                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
                                   ) : null}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
-                                {Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0 ? (
-                                  <div className="mt-0.5 space-y-0.5">
-                                    {(order as any).productAllocations.map((line: any, index: number) => (
-                                      <div
-                                        key={`${String(line?.itemId || index)}`}
-                                        className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
-                                      >
-                                        {String(line?.productName || 'Product')}
-                                        {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {formatAllocatedQtyLabel(order, Number(line?.allocatedQtyForSelectedWarehouse || 0), Number(line?.totalQty || 0))}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
+                                {(() => {
+                                  const summary = deriveOrderFulfillmentSummary(order)
+                                  const isMultiWarehouse = summary.totalLegs > 1
+                                  if (!isMultiWarehouse) return null
+                                  if (!Array.isArray((order as any)?.productAllocations) || (order as any).productAllocations.length === 0) return null
+                                  return (
+                                    <div className="mt-0.5 space-y-0.5">
+                                      {(order as any).productAllocations.map((line: any, index: number) => (
+                                        <div
+                                          key={`${String(line?.itemId || index)}`}
+                                          className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                        >
+                                          {String(line?.productName || 'Product')}
+                                          {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {formatAllocatedQtyLabel(order, Number(line?.allocatedQtyForSelectedWarehouse || 0), Number(line?.totalQty || 0))}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                })()}
                               </button>
                             ))}
                           </div>
@@ -4451,8 +4599,15 @@ export function WarehousePortal() {
                     >
                       <option value="">Select driver</option>
                       {drivers.map((driver) => (
-                        <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
-                          {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                        <option
+                          key={driver.id}
+                          value={driver.id}
+                          disabled={!isDriverSelectableForTrip(driver, { allowDriverId: editingTripState.originalDriverId, allowVehicleId: editingTripState.originalVehicleId })}
+                        >
+                          {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                            const issue = getDriverTripEligibilityLabel(driver, { allowDriverId: editingTripState.originalDriverId, allowVehicleId: editingTripState.originalVehicleId })
+                            return issue ? ` (${issue})` : ''
+                          })()}
                         </option>
                       ))}
                     </select>
@@ -4477,8 +4632,11 @@ export function WarehousePortal() {
                     >
                       <option value="">Select driver</option>
                       {drivers.map((driver) => (
-                        <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
-                          {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                        <option key={driver.id} value={driver.id} disabled={!isDriverSelectableForTrip(driver)}>
+                          {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                            const issue = getDriverTripEligibilityLabel(driver)
+                            return issue ? ` (${issue})` : ''
+                          })()}
                         </option>
                       ))}
                     </select>
@@ -4570,6 +4728,9 @@ export function WarehousePortal() {
                                 <span>{order.customerName || order.orderNumber}</span>
                                 {(order as any)?.currentTripOrder ? (
                                   <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
+                                ) : null}
+                                {isWarehouseRescheduledOrder(order) ? (
+                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Rescheduled Order</span>
                                 ) : null}
                                 {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
                                   <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
@@ -4663,8 +4824,11 @@ export function WarehousePortal() {
               >
                 <option value="">Select driver</option>
                 {drivers.map((driver) => (
-                  <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
-                    {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                  <option key={driver.id} value={driver.id} disabled={!isDriverSelectableForTrip(driver)}>
+                    {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                      const issue = getDriverTripEligibilityLabel(driver)
+                      return issue ? ` (${issue})` : ''
+                    })()}
                   </option>
                 ))}
               </select>
@@ -4704,6 +4868,7 @@ export function WarehousePortal() {
                 const isReplacementOrderInDetails =
                   Boolean((selectedOrder as any)?.isScheduledReplacement) ||
                   String((selectedOrder as any)?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
+                const isRescheduledOrderInDetails = isWarehouseRescheduledOrder(selectedOrder)
                 return (
                   <>
               <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 sm:px-7">
@@ -4711,7 +4876,12 @@ export function WarehousePortal() {
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:h-11 sm:w-11">
                     <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
                   </span>
-                  <span>Order Details - {selectedOrder.orderNumber}</span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span>Order Details - {selectedOrder.orderNumber}</span>
+                    {isRescheduledOrderInDetails ? (
+                      <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Rescheduled Order</span>
+                    ) : null}
+                  </span>
                 </DialogTitle>
                 <DialogDescription>{loadingOrderDetail ? 'Loading latest order details...' : undefined}</DialogDescription>
               </DialogHeader>
@@ -4840,7 +5010,18 @@ export function WarehousePortal() {
                                     Allocated for this warehouse: {getItemAllocatedForWarehouse(item)}
                                   </p>
                                 )}
-                                <CompactDiscountLine value={formatPeso(Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
+                                <CompactDiscountLine
+                                  value={formatPeso(Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0))}
+                                  percent={(() => {
+                                    const explicitPercent = Number((selectedOrder as any)?.discountDetails?.percent)
+                                    if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
+                                    const subtotal = Number((selectedOrder as any)?.subtotal || 0)
+                                    const discount = Number((selectedOrder as any)?.discountDetails?.totalDiscount || (selectedOrder as any)?.discount || 0)
+                                    if (subtotal > 0 && discount > 0) return (discount / subtotal) * 100
+                                    return 0
+                                  })()}
+                                  className="mt-1 text-sm font-semibold text-[#2b4f83]"
+                                />
                               </div>
                             </div>
                             <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
@@ -4887,7 +5068,9 @@ export function WarehousePortal() {
                   </div>
                 </div>
                 {(() => {
-                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  const hasTrip =
+                    String(selectedOrder.status || '').trim().toUpperCase() !== 'RESCHEDULED' &&
+                    Boolean(selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId)
                   if (!hasTrip) return null
                   return (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
@@ -4952,6 +5135,9 @@ export function WarehousePortal() {
                                     <div key={String(order.id)} className="flex items-center justify-between text-sm text-slate-700">
                                       <span className="inline-flex items-center gap-2">
                                         <span>{String(order.orderNumber || order.id || 'Order')}</span>
+                                        {isWarehouseRescheduledOrder(order) ? (
+                                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Rescheduled Order</span>
+                                        ) : null}
                                         {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
                                           <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
                                         ) : null}
@@ -4972,7 +5158,9 @@ export function WarehousePortal() {
                   )
                 })()}
                 {(() => {
-                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  const hasTrip =
+                    String(selectedOrder.status || '').trim().toUpperCase() !== 'RESCHEDULED' &&
+                    Boolean(selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId)
                   if (!hasTrip) return null
                   return (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">

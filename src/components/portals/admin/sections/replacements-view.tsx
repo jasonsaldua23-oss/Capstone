@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -149,6 +149,15 @@ export function ReplacementsView() {
   }
 
   const buildReplacementLines = (replacement: any, meta: any) => {
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const formatProductNameWithSize = (baseName: any, sizeValue: any) => {
+      const normalizedBaseName = String(baseName || 'N/A').trim()
+      const normalizedSize = String(sizeValue || '').trim().replace(/^\((.*)\)$/, '$1').trim()
+      if (!normalizedSize) return normalizedBaseName
+      const trailingSizePattern = new RegExp(`\\s*\\(?${escapeRegex(normalizedSize)}\\)?\\s*$`, 'i')
+      const baseWithoutTrailingSize = normalizedBaseName.replace(trailingSizePattern, '').trim()
+      return `${baseWithoutTrailingSize || normalizedBaseName} (${normalizedSize})`
+    }
     const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
       const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
       const byBottleText = /\bby\s*bottle\b/.test(contextText)
@@ -252,8 +261,8 @@ export function ReplacementsView() {
       const quantityReplaced = Math.max(0, rawQuantityReplaced)
       const quantityRemaining = Math.max(0, quantityToReplace - quantityReplaced)
       return {
-        originalProductName: originalSize ? `${originalBaseName} (${originalSize})` : originalBaseName,
-        replacementProductName: replacementSize ? `${replacementBaseName} (${replacementSize})` : replacementBaseName,
+        originalProductName: formatProductNameWithSize(originalBaseName, originalSize),
+        replacementProductName: formatProductNameWithSize(replacementBaseName, replacementSize),
         quantityToReplace,
         quantityReplaced,
         quantityRemaining,
@@ -738,22 +747,6 @@ export function ReplacementsView() {
     return sum
   }, { bottles: 0, cases: 0 })
   const scheduledReplacementsCount = filteredReplacements.filter((item) => hasStrictScheduledFollowUp(item)).length
-  const resolvedOnDelivery = filteredReplacements.filter((item) => {
-    const meta = parseMeta(item?.notes)
-    const rawStatus = String(item?.status || '').toUpperCase()
-    if (hasOutstandingReplacementQty(item, meta)) return false
-    const normalizedStatus =
-      rawStatus === 'REQUESTED'
-        ? 'REPORTED'
-        : ['APPROVED', 'PICKED_UP', 'IN_TRANSIT', 'RECEIVED'].includes(rawStatus)
-          ? 'IN_PROGRESS'
-          : rawStatus === 'REJECTED'
-            ? 'NEEDS_FOLLOW_UP'
-            : rawStatus === 'PROCESSED'
-              ? 'COMPLETED'
-              : rawStatus
-    return normalizedStatus === 'RESOLVED_ON_DELIVERY'
-  }).length
   const rejectedCount = filteredReplacements.filter((item) => {
     const rawStatus = String(item?.status || '').toUpperCase()
     return rawStatus === 'REJECTED'
@@ -800,7 +793,7 @@ export function ReplacementsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -809,17 +802,6 @@ export function ReplacementsView() {
             <div className="min-w-0 space-y-1">
               <p className="text-sm leading-5 text-gray-500">Total Cases</p>
               <p className="text-2xl font-bold leading-none text-gray-900">{totalIssues}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <CheckCircle className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm leading-5 text-gray-500">Resolved on Delivery</p>
-              <p className="text-2xl font-bold leading-none text-gray-900">{resolvedOnDelivery}</p>
             </div>
           </CardContent>
         </Card>
@@ -1157,13 +1139,13 @@ export function ReplacementsView() {
                               <p className="font-semibold text-slate-900">{line.quantityToReplaceDisplay ?? line.quantityToReplace}</p>
                             </td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{line.quantityReplacedDisplay ?? line.quantityReplaced}</td>
-                            <td className="px-3 py-2 font-semibold text-red-600">{lineLoss > 0 ? `- ${formatPeso(lineLoss)}` : 'â€”'}</td>
+                            <td className="px-3 py-2 font-semibold text-red-600">{lineLoss > 0 ? `- ${formatPeso(lineLoss)}` : '--'}</td>
                           </tr>
                           )
                         })}
                         <tr className="border-t bg-slate-50">
                           <td className="px-3 py-2 font-semibold text-slate-700" colSpan={4}>Total Loss</td>
-                          <td className="px-3 py-2 font-bold text-red-600">{totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : 'â€”'}</td>
+                          <td className="px-3 py-2 font-bold text-red-600">{totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : '--'}</td>
                         </tr>
                       </tbody>
                     </table>

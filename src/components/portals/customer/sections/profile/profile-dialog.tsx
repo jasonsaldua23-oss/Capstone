@@ -1,12 +1,15 @@
 'use client'
 
+import type { MutableRefObject } from 'react'
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, MapPin } from 'lucide-react'
+import { Camera, Loader2, MapPin } from 'lucide-react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { resolveClientImageUrl } from '@/lib/client-image'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 export function CustomerProfileDialog(props: any) {
@@ -26,8 +29,13 @@ export function CustomerProfileDialog(props: any) {
     setIsAddressDialogOpen,
     saveProfile,
     isSavingProfile,
+    avatarPreviewUrl,
+    user,
+    avatarInputRef,
+    openAvatarCropDialog,
   } = props
 
+  const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
   const phoneError = useMemo(() => {
     if (!profilePhone || profilePhone.length === 0) return null
     if (!isValidPhilippinePhone(profilePhone)) {
@@ -53,6 +61,42 @@ export function CustomerProfileDialog(props: any) {
             <DialogDescription className="text-slate-500">Update your account details and profile picture.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+              <div className="relative">
+                <Avatar className="h-16 w-16 border border-white shadow-sm">
+                  {resolvedAvatarPreviewUrl ? <AvatarImage src={resolvedAvatarPreviewUrl} alt={profileName || user?.name || 'Profile'} className="object-cover" /> : null}
+                  <AvatarFallback className="bg-teal-700 text-white">{(profileName || user?.name || 'C').charAt(0).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <input
+                  ref={avatarInputRef as MutableRefObject<HTMLInputElement | null>}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  aria-label="Upload profile photo"
+                  title="Upload profile photo"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    if (avatarInputRef?.current) {
+                      avatarInputRef.current.value = ''
+                    }
+                    void openAvatarCropDialog(file)
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-teal-700 p-0 text-white hover:bg-teal-800"
+                  onClick={() => avatarInputRef?.current?.click()}
+                  disabled={isSavingProfile}
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-900">{profileName || user?.name || 'Customer'}</p>
+                <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="customer-profile-name" className="text-slate-800">Full Name</Label>
               <Input

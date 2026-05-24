@@ -3678,6 +3678,125 @@ class PasswordPolicyContractTests(TestCase):
         self.assertIn("Password must be at least 8 characters", payload["error"])
 
 
+class CustomerReplacementRequestContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.customer = Customer.objects.create(
+            email="replacement.customer@gmail.com",
+            password="hashed",
+            name="Replacement Customer",
+            is_active=True,
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+        self.order = Order.objects.create(
+            order_number="ORD-REPL-CUSTOMER-001",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=100,
+            total_amount=110,
+        )
+        self.product_a = Product.objects.create(
+            sku="SKU-REPL-A",
+            name="Return Product A",
+            price=10,
+            quantity_per_unit=6,
+            sizes=["500ml"],
+        )
+        self.product_b = Product.objects.create(
+            sku="SKU-REPL-B",
+            name="Return Product B",
+            price=20,
+            quantity_per_unit=12,
+            sizes=["1L"],
+        )
+        self.order_item_a = OrderItem.objects.create(
+            order=self.order,
+            product=self.product_a,
+            product_name=self.product_a.name,
+            product_sku=self.product_a.sku,
+            quantity=2,
+            unit_price=10,
+            total_price=20,
+        )
+        self.order_item_b = OrderItem.objects.create(
+            order=self.order,
+            product=self.product_b,
+            product_name=self.product_b.name,
+            product_sku=self.product_b.sku,
+            quantity=1,
+            unit_price=20,
+            total_price=20,
+        )
+
+    def test_customer_replacement_request_combines_multiple_order_lines_into_one_case(self) -> None:
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Multiple issues",
+                "description": "Combined replacement request",
+                "evidence": ["https://example.com/repl-proof-1.jpg"],
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        "replacementProductId": self.product_a.id,
+                        "inputMode": "case",
+                        "quantityPerCase": 6,
+                        "quantityToReplace": 12,
+                        "quantityToReplaceCases": 2,
+                        "reason": "Broken seal",
+                        "description": "Two units damaged",
+                    },
+                    {
+                        "originalOrderItemId": self.order_item_b.id,
+                        "replacementProductId": self.product_b.id,
+                        "inputMode": "bottle",
+                        "quantityPerCase": 12,
+                        "quantityToReplace": 3,
+                        "quantityToReplaceBottles": 3,
+                        "reason": "Leaking",
+                        "description": "Three bottles damaged",
+                    },
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(Replacement.objects.count(), 1)
+
+        replacement = Replacement.objects.get()
+        self.assertEqual(replacement.order_id, self.order.id)
+        self.assertEqual(replacement.replacement_quantity, 15)
+
+        notes = str(replacement.notes or "")
+        meta_marker = notes.rfind("Meta:")
+        self.assertGreaterEqual(meta_marker, 0)
+        meta = json.loads(notes[meta_marker + 5 :].strip())
+        self.assertEqual(len(meta.get("replacementLines", [])), 2)
+        self.assertEqual(meta["replacementLines"][0]["quantityToReplaceCases"], 2)
+        self.assertEqual(meta["replacementLines"][1]["quantityToReplaceBottles"], 3)
+
+        serialized = payload["replacement"]
+        self.assertEqual(serialized["quantityToReplace"], 15)
+        self.assertEqual(serialized["quantityReplaced"], 0)
+        self.assertEqual(len(serialized["replacementLines"]), 2)
+        self.assertEqual(serialized["replacementLines"][0]["originalProductName"], "Return Product A")
+        self.assertEqual(serialized["replacementLines"][1]["originalProductName"], "Return Product B")
+        self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
+        self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
+
+
 class CustomerCreationPermissionContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()

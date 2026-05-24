@@ -598,6 +598,27 @@ export function CustomerPortal() {
     damageType: string,
     description: string,
     files: File[],
+    replacementLines?: Array<{
+      originalOrderItemId: string
+      originalProductId?: string
+      replacementProductId?: string
+      originalProductName?: string
+      originalProductSku?: string
+      originalProductSize?: string
+      replacementProductName?: string
+      replacementProductSku?: string
+      replacementProductSize?: string
+      inputMode?: 'case' | 'bottle'
+      lineInputMode?: 'case' | 'bottle'
+      quantityPerCase?: number
+      qtyPerUnit?: number
+      quantityToReplace: number
+      quantityToReplaceCases?: number
+      quantityToReplaceUnits?: number
+      quantityToReplaceBottles?: number
+      reason: string
+      description?: string
+    }>,
   ) => {
     if (!orderId) throw new Error('Order reference is missing')
     if (!Number.isFinite(numberDamagedItems) || numberDamagedItems <= 0) {
@@ -619,6 +640,7 @@ export function CustomerPortal() {
       damageType: damageType.trim(),
       description: description.trim(),
       evidence: uploaded,
+      replacementLines,
     })
     if (!response.ok || data?.success === false) {
       throw new Error(data?.error || 'Failed to submit replacement request')
@@ -2224,6 +2246,10 @@ export function CustomerPortal() {
         setIsAddressDialogOpen={setIsAddressDialogOpen}
         saveProfile={saveProfile}
         isSavingProfile={isSavingProfile}
+        avatarPreviewUrl={avatarPreviewUrl}
+        user={user}
+        avatarInputRef={avatarInputRef}
+        openAvatarCropDialog={openAvatarCropDialog}
       />
 
       <CustomerAvatarCropDialog

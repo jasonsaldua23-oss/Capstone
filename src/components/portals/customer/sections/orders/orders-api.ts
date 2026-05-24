@@ -73,6 +73,27 @@ export async function submitCustomerReplacementRequest(body: {
   damageType: string
   description?: string
   evidence: string[]
+  replacementLines?: Array<{
+    originalOrderItemId: string
+    originalProductId?: string
+    replacementProductId?: string
+    originalProductName?: string
+    originalProductSku?: string
+    originalProductSize?: string
+    replacementProductName?: string
+    replacementProductSku?: string
+    replacementProductSize?: string
+    inputMode?: 'case' | 'bottle'
+    lineInputMode?: 'case' | 'bottle'
+    quantityPerCase?: number
+    qtyPerUnit?: number
+    quantityToReplace: number
+    quantityToReplaceCases?: number
+    quantityToReplaceUnits?: number
+    quantityToReplaceBottles?: number
+    reason: string
+    description?: string
+  }>
 }) {
   const response = await fetch('/api/customer/replacements', {
     method: 'POST',

@@ -31,6 +31,15 @@ def _bool(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _normalize_db_target(value: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"lite", "sqlite", "local", "local_sqlite"}:
+        return "lite"
+    if raw in {"supa", "supabase", "postgres", "postgresql"}:
+        return "supa"
+    return ""
+
+
 def _parse_database_url(url: str) -> dict:
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
@@ -103,13 +112,21 @@ FORCE_SQLITE = _bool("DJANGO_USE_SQLITE", False)
 SHOW_SAMPLE_DATA = _bool("SHOW_SAMPLE_DATA", False)
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "").strip()
+APP_DB_TARGET = _normalize_db_target(os.getenv("APP_DB_TARGET", ""))
 LOCAL_SQLITE_DB = {
     "ENGINE": "django.db.backends.sqlite3",
     "NAME": SQLITE_DB_PATH or (BASE_DIR / "db.sqlite3"),
 }
 REMOTE_POSTGRES_DB = _parse_database_url(DATABASE_URL) if DATABASE_URL else None
 
-if FORCE_SQLITE or not REMOTE_POSTGRES_DB:
+if APP_DB_TARGET:
+    USE_SQLITE_DB = APP_DB_TARGET == "lite"
+else:
+    USE_SQLITE_DB = FORCE_SQLITE or not REMOTE_POSTGRES_DB
+
+ACTIVE_DB_ALIAS = "local_sqlite" if USE_SQLITE_DB else "supabase"
+
+if USE_SQLITE_DB or not REMOTE_POSTGRES_DB:
     DATABASES = {
         "default": LOCAL_SQLITE_DB,
         "local_sqlite": LOCAL_SQLITE_DB,

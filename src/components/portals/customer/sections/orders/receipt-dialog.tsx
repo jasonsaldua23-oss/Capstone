@@ -45,6 +45,24 @@ export function CustomerReceiptDialog(props: any) {
     selectedOrder?.warehousePhone ||
     '+63 9460056944'
   ).trim()
+  const orderSubtotal = Number(
+    selectedOrder?.subtotal ??
+    (Array.isArray(selectedOrder?.items)
+      ? selectedOrder.items.reduce((sum: number, item: any) => sum + Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)), 0)
+      : 0)
+  )
+  const orderDiscount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
+  const orderTotal = Number(selectedOrder?.totalAmount || 0)
+  const orderDiscountPercent = (() => {
+    const explicitPercent = Number(selectedOrder?.discountDetails?.percent)
+    if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
+    if (orderSubtotal > 0 && orderDiscount > 0) return (orderDiscount / orderSubtotal) * 100
+    return 0
+  })()
+  const orderDiscountPercentLabel =
+    Number.isInteger(orderDiscountPercent)
+      ? `${orderDiscountPercent}%`
+      : `${orderDiscountPercent.toFixed(2).replace(/\.?0+$/, '')}%`
 
   return (
     <Dialog open={Boolean(selectedOrder) && isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
@@ -126,9 +144,19 @@ export function CustomerReceiptDialog(props: any) {
                 </div>
 
                 <div className="mt-5 ml-auto w-full max-w-[220px] space-y-1 text-[10px] text-slate-700 md:text-xs">
+                  <p className="flex justify-between">
+                    <span>Subtotal</span>
+                    <span>{formatPeso(orderSubtotal)}</span>
+                  </p>
+                  {orderDiscount > 0 ? (
+                    <p className="flex justify-between text-[#2b4f83]">
+                      <span>Discount{orderDiscountPercent > 0 ? ` (${orderDiscountPercentLabel})` : ''}</span>
+                      <span>-{formatPeso(orderDiscount)}</span>
+                    </p>
+                  ) : null}
                   <p className="flex justify-between border-t border-emerald-100 pt-1 font-semibold text-slate-900">
                     <span>Total Price</span>
-                    <span>{formatPeso(Number(selectedOrder.totalAmount || 0))}</span>
+                    <span>{formatPeso(orderTotal)}</span>
                   </p>
                 </div>
 

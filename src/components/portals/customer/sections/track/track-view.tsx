@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { isRescheduledOrder } from '../orders/order-status'
 
 const DriverRouteMap = dynamic(
   () => import('@/components/maps/DriverRouteMap').then((mod) => mod.DriverRouteMap),
@@ -57,6 +58,7 @@ export function CustomerTrackView(props: any) {
   const mapLat = hasDriverCoordinates ? (tracking.latitude as number) : null
   const mapLng = hasDriverCoordinates ? (tracking.longitude as number) : null
   const isDelivered = String(normalizeDeliveryStatus(order.status, order.paymentStatus)) === 'DELIVERED'
+  const isRescheduled = isRescheduledOrder(order.status)
   const currentIndex = getOrderStageIndex(order.status, order.paymentStatus)
   const statusText = formatOrderStatus(order.status, order.paymentStatus)
 
@@ -92,6 +94,9 @@ export function CustomerTrackView(props: any) {
               <p className="text-xs text-white/80">Order ID</p>
               <p className="text-sm font-semibold md:text-lg md:mb-2">{order.orderNumber}</p>
               <Badge className="inline-block bg-emerald-200/20 text-emerald-100 hover:bg-emerald-200/20 text-xs">{statusText.toUpperCase()}</Badge>
+              {isRescheduled ? (
+                <Badge className="mt-1 inline-block bg-amber-200/20 text-amber-50 hover:bg-amber-200/20 text-xs">RESCHEDULED ORDER</Badge>
+              ) : null}
             </div>
             <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:bg-transparent md:pl-3 md:py-0">
               <p className="text-xs text-white/80">Delivered on</p>

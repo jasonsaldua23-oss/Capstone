@@ -19,6 +19,9 @@ type WarehouseSidebarProps = {
 }
 
 export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout }: WarehouseSidebarProps) {
+  const primaryNavItems = navItems.filter((navItem) => navItem.id !== 'settings')
+  const settingsItem = navItems.find((navItem) => navItem.id === 'settings')
+
   return (
     <div className="flex flex-col h-full">
       <div className="border-b border-white/20 bg-white/10 p-4 backdrop-blur-xl">
@@ -37,7 +40,7 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
 
       <ScrollArea className="flex-1 p-2">
         <nav className="space-y-1">
-          {navItems.map((navItem) => {
+          {primaryNavItems.map((navItem) => {
             const isActive = activeView === navItem.id
             return (
               <motion.div key={navItem.id} layout transition={{ type: 'spring', stiffness: 440, damping: 32 }}>
@@ -66,7 +69,28 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
         </nav>
       </ScrollArea>
 
-      <div className="border-t border-white/25 p-3">
+      <div className="space-y-2 border-t border-white/25 p-3">
+        {settingsItem ? (
+          <Button
+            variant="ghost"
+            className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${
+              activeView === settingsItem.id
+                ? 'text-white'
+                : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
+            }`}
+            onClick={() => onSelectView(settingsItem.id)}
+          >
+            {activeView === settingsItem.id ? (
+              <motion.span
+                layoutId="warehouse-sidebar-active-pill"
+                className="absolute inset-0 rounded-md border border-white/50 bg-linear-to-r from-cyan-600/95 via-sky-600/95 to-emerald-500/90 text-white shadow-[0_14px_30px_rgba(8,145,178,0.26)]"
+                transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+              />
+            ) : null}
+            <settingsItem.icon className="relative z-[1] h-4 w-4" />
+            <span className="relative z-[1]">{settingsItem.label}</span>
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           className="w-full justify-start gap-3 text-slate-700 hover:bg-white/45 hover:text-red-600"

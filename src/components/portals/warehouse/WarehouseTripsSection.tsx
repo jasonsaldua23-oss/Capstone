@@ -515,7 +515,8 @@ export function WarehouseTripsSection({
               {scopedTrips.map((trip) => (
                 (() => {
                   const statusKey = getEffectiveTripStatus(trip)
-                  const deleteAllowed = canDeleteTrip(trip)
+                  const editAllowed = canDeleteTrip(trip)
+                  const deleteAllowed = editAllowed
                   const isMultiWarehouseTrip = hasMultiWarehouseDropPoint(trip)
                   return (
                 <div
@@ -562,11 +563,13 @@ export function WarehouseTripsSection({
                         variant="outline"
                         size="sm"
                         className="h-8 px-2 text-xs"
+                        disabled={!editAllowed}
                         onClick={(event) => {
                           event.stopPropagation()
+                          if (!editAllowed) return
                           onEditTrip(trip)
                         }}
-                        title="Edit trip"
+                        title={editAllowed ? 'Edit trip' : 'Only planned trips can be edited'}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>

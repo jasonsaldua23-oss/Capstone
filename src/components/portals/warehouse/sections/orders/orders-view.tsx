@@ -29,6 +29,8 @@ export function WarehouseOrdersView({
   updatingOrderId,
   openRejectDialog,
 }: WarehouseOrdersViewProps) {
+  const isRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
+
   return (
     <Card>
       <CardHeader>
@@ -131,7 +133,14 @@ export function WarehouseOrdersView({
                   <tbody>
                     {filteredOrders.map((order) => (
                       <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4 font-medium">{order.orderNumber}</td>
+                        <td className="p-4">
+                          <div className="space-y-1">
+                            <p className="font-medium">{order.orderNumber}</p>
+                            {isRescheduledOrder(order) ? (
+                              <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Rescheduled Order</Badge>
+                            ) : null}
+                          </div>
+                        </td>
                         <td className="p-4">{order.customer?.name || 'N/A'}</td>
                         <td className="p-4">
                           {new Date(order.deliveryDate || order.createdAt).toLocaleDateString()}
@@ -140,6 +149,9 @@ export function WarehouseOrdersView({
                         <td className="p-4">
                           <div className="space-y-1">
                             <Badge>{String((order as any)?._displayStatus || formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))}</Badge>
+                            {isRescheduledOrder(order) ? (
+                              <p className="text-[11px] font-medium text-amber-700">Rescheduled Order</p>
+                            ) : null}
                             {(() => {
                               const summary = (order as any)?._fulfillmentSummary
                               // Only show for multi-warehouse orders (more than 1 leg)

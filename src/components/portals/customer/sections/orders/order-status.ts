@@ -7,11 +7,14 @@ export const normalizeDeliveryStatus = (status: string, paymentStatus?: string |
   const raw = String(status || '').toUpperCase()
   if (raw === 'PENDING') return 'PENDING'
   if (raw === 'CONFIRMED') return 'PREPARING'
-  if (raw === 'PROCESSING' || raw === 'PACKED' || raw === 'READY_FOR_PICKUP' || raw === 'RESCHEDULED') return 'PREPARING'
+  if (raw === 'RESCHEDULED') return 'PENDING'
+  if (raw === 'PROCESSING' || raw === 'PACKED' || raw === 'READY_FOR_PICKUP') return 'PREPARING'
   if (raw === 'IN_TRANSIT' || raw === 'DISPATCHED') return 'OUT_FOR_DELIVERY'
   if (raw === 'COMPLETED' || raw === 'DELIVERY_COMPLETED' || raw === 'FULFILLED') return 'DELIVERED'
   return raw
 }
+
+export const isRescheduledOrder = (status: string) => String(status || '').trim().toUpperCase() === 'RESCHEDULED'
 
 export const getOrderStageIndex = (status: string, paymentStatus?: string | null) => {
   const normalized = normalizeDeliveryStatus(status, paymentStatus)

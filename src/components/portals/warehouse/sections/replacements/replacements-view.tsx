@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Boxes, CalendarDays, ClipboardList, Loader2, PackageCheck, XCircle } from 'lucide-react'
+import { Boxes, CalendarDays, ClipboardList, Loader2, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -364,7 +364,7 @@ export function WarehouseReplacementsView({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -373,17 +373,6 @@ export function WarehouseReplacementsView({
             <div className="min-w-0 space-y-1">
               <p className="text-sm leading-5 text-gray-500">Total Cases</p>
               <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.totalCases}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-          <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <PackageCheck className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm leading-5 text-gray-500">Resolved on Delivery</p>
-              <p className="text-2xl font-bold leading-none text-gray-900">{replacementSummary.resolvedOnDelivery}</p>
             </div>
           </CardContent>
         </Card>
@@ -688,13 +677,13 @@ export function WarehouseReplacementsView({
                         <>
                           <input
                             type="date"
-                            className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+                            className="h-9 w-[170px] shrink-0 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
                             value={replacementDeliveryDate}
                             onChange={(event) => setReplacementDeliveryDate(event.target.value)}
                           />
                           <Button
                             size="sm"
-                            className="bg-blue-600 text-white hover:bg-blue-700"
+                            className="h-9 shrink-0 whitespace-nowrap px-4 bg-blue-600 text-white hover:bg-blue-700"
                             onClick={() => {
                               if (!replacementDeliveryDate) return
                               const nextStatus = rawStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_FOLLOW_UP'

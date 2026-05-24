@@ -90,7 +90,13 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
     const name = String(item?.product?.name || item?.productName || 'Product').trim()
     const size = getItemSizeLabel(item)
     const qty = Number(item?.quantity || 0)
-    return `${name}${size ? ` (${size})` : ''} x${qty}`
+    const normalizedSize = size.trim()
+    const sizeSuffix = !normalizedSize
+      ? ''
+      : /[()]/.test(normalizedSize)
+        ? ` ${normalizedSize}`
+        : ` (${normalizedSize})`
+    return `${name}${sizeSuffix} x${qty}`
   }
 
   const isReplacementOrder = (order: any): boolean => {
@@ -1093,7 +1099,18 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
                               {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
                               {' '}x{item.quantity}
                             </p>
-                            <CompactDiscountLine value={formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))} className="mt-1 text-sm font-semibold text-[#2b4f83]" />
+                            <CompactDiscountLine
+                              value={formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))}
+                              percent={(() => {
+                                const explicitPercent = Number(selectedOrder?.discountDetails?.percent)
+                                if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
+                                const subtotal = Number(selectedOrder?.subtotal || 0)
+                                const discount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
+                                if (subtotal > 0 && discount > 0) return (discount / subtotal) * 100
+                                return 0
+                              })()}
+                              className="mt-1 text-sm font-semibold text-[#2b4f83]"
+                            />
                           </div>
                         </div>
                         <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>

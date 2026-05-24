@@ -234,7 +234,32 @@ export function extractFulfillmentLegs(order: any) {
 }
 
 export function deriveOrderFulfillmentSummary(order: any) {
-  const legs = extractFulfillmentLegs(order)
+  let legs = extractFulfillmentLegs(order)
+  const getWarehouseLegKey = (leg: any) =>
+    String(leg?.warehouseId || '').trim() || String(leg?.warehouseName || '').trim().toLowerCase()
+  const legsByWarehouse = new Map<string, any[]>()
+  legs.forEach((leg: any) => {
+    const key = getWarehouseLegKey(leg)
+    if (!key) return
+    const current = legsByWarehouse.get(key) || []
+    current.push(leg)
+    legsByWarehouse.set(key, current)
+  })
+  if (legsByWarehouse.size > 0) {
+    const prioritizedLegs: any[] = []
+    const consumedKeys = new Set<string>()
+    legs.forEach((leg: any) => {
+      const key = getWarehouseLegKey(leg)
+      if (!key || consumedKeys.has(key)) return
+      consumedKeys.add(key)
+      const group = legsByWarehouse.get(key) || []
+      const nonTerminalGroup = group.filter(
+        (entry: any) => !['FAILED', 'CANCELLED'].includes(String(entry?.status || '').trim().toUpperCase())
+      )
+      prioritizedLegs.push(...(nonTerminalGroup.length > 0 ? nonTerminalGroup : group))
+    })
+    legs = prioritizedLegs
+  }
   const deliveredCount = legs.filter((leg: any) => leg.status === 'DELIVERED').length
   const failedCount = legs.filter((leg: any) => leg.status === 'FAILED' || leg.status === 'CANCELLED').length
   const unassignedTripCount = legs.filter((leg: any) => !leg.tripId && !leg.tripNumber).length

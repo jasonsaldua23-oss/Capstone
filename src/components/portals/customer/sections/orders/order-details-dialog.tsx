@@ -6,6 +6,8 @@ import { CalendarDays, CheckCircle2, Download, Loader2, MapPin, Package, Upload,
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { isRescheduledOrder } from './order-status'
 
 const DAMAGE_REASON_OPTIONS = ['Broken seal', 'Cracked bottle', 'Leaking', 'Expired', 'Crushed case', 'Other']
 const MAX_EVIDENCE_PHOTOS = 2
@@ -60,15 +62,20 @@ export function CustomerOrderDetailsDialog(props: any) {
     })
   }, [selectedOrderReplacementRecords])
 
-  const getReplacementQty = (record: any): { qty: number; label: 'unit' | 'bottle' } => {
+  const parseReplacementMeta = (record: any) => {
+    const rawNotes = String(record?.notes || '')
+    const marker = rawNotes.lastIndexOf('Meta:')
+    if (marker < 0) return {}
+    try {
+      return JSON.parse(rawNotes.slice(marker + 5).trim())
+    } catch {
+      return {}
+    }
+  }
+
+  const getLegacyReplacementQty = (record: any): { qty: number; label: 'unit' | 'bottle' } => {
     const meta = typeof record?.notes === 'string' && record.notes.includes('Meta:')
-      ? (() => {
-          try {
-            return JSON.parse(String(record.notes).slice(String(record.notes).lastIndexOf('Meta:') + 5).trim())
-          } catch {
-            return {}
-          }
-        })()
+      ? parseReplacementMeta(record)
       : {}
     const descriptionText = String(record?.description || '')
     const byUnitMatch = descriptionText.match(/By\s*Unit:\s*(\d+)/i)
@@ -106,6 +113,47 @@ export function CustomerOrderDetailsDialog(props: any) {
     }
   }
 
+  const getReplacementDisplayLines = (record: any) => {
+    const meta = parseReplacementMeta(record)
+    const rawLines =
+      (Array.isArray(record?.replacementLines) && record.replacementLines.length ? record.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(record?.replacementItems) && record.replacementItems.length ? record.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+
+    if (!rawLines.length) {
+      const fallbackQty = getLegacyReplacementQty(record)
+      return [{
+        name: record?.replacementProductName || record?.originalProductName || 'Product replacement',
+        qty: fallbackQty.qty,
+        label: fallbackQty.label,
+      }]
+    }
+
+    return rawLines.map((line: any, index: number) => {
+      const inputMode = String(line?.lineInputMode || line?.replacementInputMode || '').trim().toLowerCase()
+      const unitQty = Number(line?.quantityToReplaceCases ?? line?.quantityToReplaceUnits ?? 0)
+      const bottleQty = Number(line?.quantityToReplaceBottles ?? 0)
+      const fallbackQty = Number(line?.quantityToReplace ?? 0)
+      const qty =
+        inputMode === 'bottle'
+          ? (Number.isFinite(bottleQty) && bottleQty > 0 ? Math.floor(bottleQty) : Math.floor(fallbackQty))
+          : (Number.isFinite(unitQty) && unitQty > 0 ? Math.floor(unitQty) : Math.floor(fallbackQty))
+      const label: 'unit' | 'bottle' = inputMode === 'bottle' ? 'bottle' : 'unit'
+      return {
+        name:
+          line?.replacementProductName ||
+          line?.originalProductName ||
+          record?.replacementProductName ||
+          record?.originalProductName ||
+          `Product ${index + 1}`,
+        qty: Number.isFinite(qty) && qty > 0 ? qty : 0,
+        label,
+      }
+    })
+  }
+
   const getPodUrl = (order: any) =>
     String(
       order?.pod?.deliveryPhoto ||
@@ -116,6 +164,21 @@ export function CustomerOrderDetailsDialog(props: any) {
       ''
     ).trim()
   const selectedOrderIsDelivered = Boolean(selectedOrder && isOrderDelivered(selectedOrder))
+  const selectedOrderIsRescheduled = isRescheduledOrder(String(selectedOrder?.status || ''))
+  const orderSubtotal = Number(
+    selectedOrder?.subtotal ??
+    (Array.isArray(selectedOrder?.items)
+      ? selectedOrder.items.reduce((sum: number, item: any) => sum + Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)), 0)
+      : 0)
+  )
+  const orderDiscount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
+  const orderTotal = Number(selectedOrder?.totalAmount || 0)
+  const orderDiscountPercent = (() => {
+    const explicitPercent = Number(selectedOrder?.discountDetails?.percent)
+    if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
+    if (orderSubtotal > 0 && orderDiscount > 0) return (orderDiscount / orderSubtotal) * 100
+    return 0
+  })()
   const getOrderDisplayDateTime = (order: any) => {
     const deliveredAt = String(order?.deliveredAt || '').trim()
     if (deliveredAt) {
@@ -221,9 +284,16 @@ export function CustomerOrderDetailsDialog(props: any) {
                 </div>
                 <div>
                   <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900 md:text-[28px]">{selectedOrder.orderNumber}</p>
-                  <Badge className="mt-1 text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-100 md:text-xs">
-                    {formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}
-                  </Badge>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <Badge className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-100 md:text-xs">
+                      {formatOrderStatus(selectedOrder.status, selectedOrder.paymentStatus)}
+                    </Badge>
+                    {selectedOrderIsRescheduled ? (
+                      <Badge className="text-[10px] bg-amber-100 text-amber-700 hover:bg-amber-100 md:text-xs">
+                        Rescheduled Order
+                      </Badge>
+                    ) : null}
+                  </div>
                   <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-600 md:mt-2 md:text-sm">
                     <CalendarDays className="h-3.5 w-3.5 text-slate-500 md:h-4 md:w-4" />
                     {selectedOrderIsDelivered ? 'Delivered on ' : 'Ordered on '}
@@ -286,7 +356,10 @@ export function CustomerOrderDetailsDialog(props: any) {
                   <Wallet className="h-4 w-4" />
                   Total Amount
                 </p>
-                <p className="mt-1 text-2xl font-extrabold text-emerald-700 md:text-3xl">{formatPeso(selectedOrder.totalAmount)}</p>
+                <p className="mt-1 text-2xl font-extrabold text-emerald-700 md:text-3xl">{formatPeso(orderTotal)}</p>
+                {orderDiscount > 0 ? (
+                  <CompactDiscountLine value={formatPeso(orderDiscount)} percent={orderDiscountPercent} className="mt-1 text-xs font-semibold text-[#2b4f83] md:text-sm" />
+                ) : null}
               </div>
             </div>
 
@@ -317,6 +390,24 @@ export function CustomerOrderDetailsDialog(props: any) {
                   </div>
                 ))}
               </div>
+              <div className="border-t border-slate-200 bg-slate-50/70 px-2.5 py-2.5 text-xs md:px-3 md:text-sm">
+                <div className="ml-auto w-full max-w-[220px] space-y-1">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Subtotal</span>
+                    <span>{formatPeso(orderSubtotal)}</span>
+                  </div>
+                  {orderDiscount > 0 ? (
+                    <div className="flex items-center justify-between text-[#2b4f83]">
+                      <span>Discount{orderDiscountPercent > 0 ? ` (${Number.isInteger(orderDiscountPercent) ? orderDiscountPercent : orderDiscountPercent.toFixed(2).replace(/\.?0+$/, '')}%)` : ''}</span>
+                      <span>-{formatPeso(orderDiscount)}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-1 font-semibold text-slate-900">
+                    <span>Total</span>
+                    <span>{formatPeso(orderTotal)}</span>
+                  </div>
+                </div>
+              </div>
 
               {selectedOrderReplacementRecords.length ? (
                 <div className="border-t border-slate-200 px-3 py-3">
@@ -328,16 +419,22 @@ export function CustomerOrderDetailsDialog(props: any) {
                   ) : null}
                   {selectedOrderReplacementRecords.map((record: any) => {
                       const label = getReplacementStatusLabel(record.status)
-                      const qtyReplaced = getReplacementQty(record)
                       const isCompletedReplacement = label === 'Completed' || label === 'Resolved on Delivery'
                       const qtyVerb = isCompletedReplacement ? 'replaced' : 'requested'
+                      const replacementDisplayLines = getReplacementDisplayLines(record)
                       return (
-                        <div key={record.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs">
-                          <span className="text-slate-700">
-                            {record.replacementProductName || record.originalProductName || 'Product replacement'}
-                            {qtyReplaced.qty > 0 ? ` x${qtyReplaced.qty} ${qtyReplaced.label}${qtyReplaced.qty > 1 ? 's' : ''} ${qtyVerb}` : ''}
-                          </span>
-                          <Badge className={getReplacementBadgeClass(label)}>{label}</Badge>
+                        <div key={record.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1 text-slate-700">
+                              {replacementDisplayLines.map((line: any, lineIndex: number) => (
+                                <p key={`${record.id}-line-${lineIndex}`}>
+                                  {line.name}
+                                  {line.qty > 0 ? ` x${line.qty} ${line.label}${line.qty > 1 ? 's' : ''} ${qtyVerb}` : ''}
+                                </p>
+                              ))}
+                            </div>
+                            <Badge className={getReplacementBadgeClass(label)}>{label}</Badge>
+                          </div>
                         </div>
                       )
                     })}
@@ -488,25 +585,61 @@ export function CustomerOrderDetailsDialog(props: any) {
               if (validLines.length === 0) return alert('Add at least one valid damaged product line')
               setIsSubmittingReplacement(true)
               try {
-                for (const line of validLines) {
+                const submittedLines = validLines.map((line) => {
                   const selectedItem = selectableOrderItems.find((item: any) => item.id === line.productId)
-                  const productName = selectedItem?.product?.name || 'Product'
+                  const product = selectedItem?.product || {}
+                  const productName = product?.name || selectedItem?.productName || 'Product'
                   const quantityPerCase = getQuantityPerCaseForItem(selectedItem)
                   const inputQty = Math.max(Number(line.quantity || 0), 0)
-                  const submittedBottleQty = line.inputMode === 'case'
+                  const quantityToReplace = line.inputMode === 'case'
                     ? inputQty * quantityPerCase
                     : inputQty
-                  const modeNotes = line.inputMode === 'case'
-                    ? `By Unit: ${inputQty} unit(s), Qty/Unit ${quantityPerCase}`
-                    : `By Bottle: ${inputQty} bottle(s), Qty/Unit ${quantityPerCase}`
-                  await submitReplacementRequest(
-                    selectedOrder.id,
-                    submittedBottleQty,
-                    line.reason,
-                    `[${productName}] ${modeNotes}. ${line.description || line.reason}`,
-                    evidenceFiles,
-                  )
-                }
+                  const sizeLabel = Array.isArray(product?.sizes) && product.sizes.length
+                    ? product.sizes.map((size: any) => String(size).trim()).filter(Boolean).join(', ')
+                    : String(product?.size || '').trim()
+
+                  return {
+                    originalOrderItemId: String(selectedItem?.id || line.productId),
+                    originalProductId: String(product?.id || selectedItem?.productId || '').trim() || undefined,
+                    replacementProductId: String(product?.id || selectedItem?.productId || '').trim() || undefined,
+                    originalProductName: productName,
+                    originalProductSku: String(product?.sku || selectedItem?.productSku || '').trim() || undefined,
+                    originalProductSize: sizeLabel || undefined,
+                    replacementProductName: productName,
+                    replacementProductSku: String(product?.sku || selectedItem?.productSku || '').trim() || undefined,
+                    replacementProductSize: sizeLabel || undefined,
+                    inputMode: line.inputMode,
+                    lineInputMode: line.inputMode,
+                    quantityPerCase,
+                    qtyPerUnit: quantityPerCase,
+                    quantityToReplace,
+                    quantityToReplaceCases: line.inputMode === 'case' ? inputQty : undefined,
+                    quantityToReplaceUnits: line.inputMode === 'case' ? inputQty : undefined,
+                    quantityToReplaceBottles: line.inputMode === 'bottle' ? inputQty : undefined,
+                    reason: line.reason,
+                    description: line.description || undefined,
+                  }
+                })
+                const totalDamagedItems = submittedLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
+                const distinctReasons = Array.from(new Set(submittedLines.map((line) => String(line.reason || '').trim()).filter(Boolean)))
+                const combinedReason = distinctReasons.length === 1 ? distinctReasons[0] : 'Multiple issues'
+                const combinedDescription = submittedLines
+                  .map((line) => {
+                    const modeText = line.lineInputMode === 'case'
+                      ? `By Unit: ${line.quantityToReplaceCases || 0} unit(s), Qty/Unit ${line.quantityPerCase || 1}`
+                      : `By Bottle: ${line.quantityToReplaceBottles || 0} bottle(s), Qty/Unit ${line.quantityPerCase || 1}`
+                    const lineDetail = line.description ? `. ${line.description}` : ''
+                    return `[${line.originalProductName || 'Product'}] ${modeText}. Reason: ${line.reason}${lineDetail}`
+                  })
+                  .join('; ')
+                await submitReplacementRequest(
+                  selectedOrder.id,
+                  totalDamagedItems,
+                  combinedReason,
+                  combinedDescription,
+                  evidenceFiles,
+                  submittedLines,
+                )
                 setReplacementLines([{ key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' }])
                 setEvidenceFiles([])
                 setIsReplacementRequestOpen(false)

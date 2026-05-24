@@ -294,10 +294,12 @@ export function ReportsView() {
             ? item.replacementItems
             : []
         const orderItems = Array.isArray(relatedOrder?.items) ? relatedOrder.items : []
+        const replacementContextText = `${String(item?.description || '')} ${String(item?.notes || '')}`.toLowerCase()
+        const replacementByBottle = /\bby\s*bottle\b/.test(replacementContextText) || /\bbottle(?:s)?\b/.test(replacementContextText)
         const totalLossFromLines = sourceLines.reduce((sum: number, line: any) => {
           const qty = Math.max(Number(line?.quantityReplaced ?? line?.replacedQuantity ?? line?.quantity ?? item?.replacementQuantity ?? 0), 0)
           const matchedOrderItem = orderItems.find((orderItem: any) => {
-            const srcOrderItemId = String(line?.orderItemId ?? '').trim()
+            const srcOrderItemId = String(line?.orderItemId ?? line?.originalOrderItemId ?? '').trim()
             const oiId = String(orderItem?.id ?? '').trim()
             if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
             const srcProductId = String(line?.productId ?? line?.originalProductId ?? line?.replacementProductId ?? '').trim()
@@ -336,7 +338,7 @@ export function ReportsView() {
             matchedOrderItem?.unit ??
             ''
           ).trim().toLowerCase()
-          const isBottleUnit = effectiveUnit.includes('bottle')
+          const isBottleUnit = effectiveUnit.includes('bottle') || (!effectiveUnit && replacementByBottle)
           const replacedQtyInBillingUnit = isBottleUnit ? qty : (qty / qtyPerCase)
           return sum + (replacedQtyInBillingUnit * basePrice)
         }, 0)
@@ -345,10 +347,19 @@ export function ReportsView() {
           .map((orderItem: any) => Number(orderItem?.unitPrice ?? orderItem?.price ?? orderItem?.product?.price ?? 0))
           .filter((price: number) => Number.isFinite(price) && price > 0)
         const fallbackUnitPrice = orderItemPrices.length > 0 ? (orderItemPrices.reduce((a, b) => a + b, 0) / orderItemPrices.length) : 0
+        const fallbackQtyPerCase = Math.max(
+          1,
+          Number(
+            orderItems[0]?.product?.quantityPerCase ??
+            orderItems[0]?.product?.quantityPerUnit ??
+            1
+          )
+        )
+        const fallbackQtyInBillingUnit = replacementByBottle ? (fallbackQty / fallbackQtyPerCase) : fallbackQty
         const totalLoss = totalLossFromLines > 0
           ? totalLossFromLines
-          : fallbackQty > 0 && fallbackUnitPrice > 0
-            ? fallbackQty * fallbackUnitPrice
+          : fallbackQtyInBillingUnit > 0 && fallbackUnitPrice > 0
+            ? fallbackQtyInBillingUnit * fallbackUnitPrice
             : 0
 
         const rawStatus = String(item.status || '').toUpperCase()
@@ -2098,7 +2109,7 @@ export function ReportsView() {
                           contentStyle={chartTooltipStyle}
                           labelStyle={chartTooltipLabelStyle}
                           itemStyle={chartTooltipItemStyle}
-                          formatter={(value: any) => [`- ${formatPeso(Number(value || 0))}`, 'Total Loss']}
+                          formatter={(value: any) => [formatPeso(Number(value || 0)), 'Total Loss']}
                         />
                         <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
                         <Line type="monotone" dataKey="loss" name="Total Loss" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 4, fill: '#ef4444' }} activeDot={{ r: 6 }} />

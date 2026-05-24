@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/app/page'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,13 @@ export function SettingsView() {
   const userId = (user as any)?.userId || (user as any)?.id
   const accountEmail = String((user as any)?.email || '').trim().toLowerCase()
   const accountRoleId = String((user as any)?.role || '').trim().toUpperCase()
+  const avatarUrl = String((user as any)?.avatar || '').trim()
+  const nameInitials = String(name || user?.name || 'U')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || 'U'
   const normalizedEmail = email.trim().toLowerCase()
   const isEmailChanged = normalizedEmail !== accountEmail
 
@@ -227,7 +235,7 @@ export function SettingsView() {
         <p className="text-gray-500">Manage your account and preferences</p>
       </div>
 
-      <div className="mx-auto w-full max-w-4xl space-y-6 px-1">
+      <div className="w-full max-w-5xl space-y-6">
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -235,6 +243,18 @@ export function SettingsView() {
               <CardDescription>Update your personal details</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <Avatar className="h-16 w-16 border border-slate-200 shadow-sm">
+                  {avatarUrl ? <AvatarImage src={avatarUrl} alt={`${name || user?.name || 'User'} avatar`} className="object-cover" /> : null}
+                  <AvatarFallback className="bg-linear-to-br from-sky-600 to-blue-700 text-lg font-semibold text-white">
+                    {nameInitials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">{name || user?.name || 'User'}</p>
+                  <p className="text-sm text-slate-500">{email || user?.email || 'No email provided'}</p>
+                </div>
+              </div>
               <div className="space-y-2">
                 <label htmlFor="name" className="text-sm font-medium text-gray-700">Full Name</label>
                 <Input

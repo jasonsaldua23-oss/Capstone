@@ -111,9 +111,32 @@ export function TripsView() {
       .filter((order: any) => Boolean(order?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-'))
       .map((order: any) => String(order.id))
   const selectedSavedRoute = savedRoutes.find((route) => route.id === selectedSavedRouteId) || null
-  const selectedDriverAssignedVehicle = toArray<any>(drivers.find((d) => d.id === selectedRouteDriverId)?.vehicles)
-    .map((entry) => entry?.vehicle)
-    .find((vehicle) => vehicle?.id)
+  const availableVehicleIdSet = useMemo(
+    () => new Set(toArray<any>(vehicles).map((vehicle) => String(vehicle?.id || '').trim()).filter(Boolean)),
+    [vehicles]
+  )
+  const getDriverAssignedVehicle = (driver: any) =>
+    toArray<any>(driver?.vehicles)
+      .map((entry) => entry?.vehicle)
+      .find((vehicle) => vehicle?.id)
+  const isDriverSelectableForTrip = (driver: any) => {
+    if (!driver || driver?.isActive === false) return false
+    const assignedVehicle = getDriverAssignedVehicle(driver)
+    if (!assignedVehicle?.id) return false
+    return availableVehicleIdSet.has(String(assignedVehicle.id).trim())
+  }
+  const getDriverTripEligibilityLabel = (driver: any) => {
+    if (driver?.isActive === false) return 'Inactive'
+    const assignedVehicle = getDriverAssignedVehicle(driver)
+    if (!assignedVehicle?.id) return 'No assigned vehicle'
+    if (!availableVehicleIdSet.has(String(assignedVehicle.id).trim())) return 'Assigned vehicle unavailable'
+    return ''
+  }
+  const selectedDriverAssignedVehicle = useMemo(() => {
+    const selectedDriver = drivers.find((driver) => driver.id === selectedRouteDriverId)
+    if (!selectedDriver) return undefined
+    return isDriverSelectableForTrip(selectedDriver) ? getDriverAssignedVehicle(selectedDriver) : undefined
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet])
 
   const fetchSavedRoutes = async () => {
     if (savedRoutesGetUnsupportedRef.current) return
@@ -178,10 +201,17 @@ export function TripsView() {
         if (driversResult.ok) {
           const list = getCollection<any>(driversResult.data, ['drivers'])
           setDrivers(list)
+          const availableVehicleIds = new Set(
+            (vehiclesResult.ok ? getCollection<any>(vehiclesResult.data, ['vehicles']) : [])
+              .map((vehicle: any) => String(vehicle?.id || '').trim())
+              .filter(Boolean)
+          )
           const preferredDriver =
-            list.find((driver: any) => driver?.isActive !== false && toArray<any>(driver?.vehicles).some((entry: any) => entry?.vehicle?.id)) ||
-            list.find((driver: any) => driver?.isActive !== false) ||
-            list[0]
+            list.find((driver: any) => {
+              if (driver?.isActive === false) return false
+              const assignedVehicle = toArray<any>(driver?.vehicles).map((entry: any) => entry?.vehicle).find((vehicle: any) => vehicle?.id)
+              return Boolean(assignedVehicle?.id && availableVehicleIds.has(String(assignedVehicle.id).trim()))
+            })
 
           if (preferredDriver?.id) {
             setSelectedRouteDriverId((prev) => prev || preferredDriver.id)
@@ -210,6 +240,23 @@ export function TripsView() {
     }
     fetchTripsAndMeta()
   }, [])
+
+  useEffect(() => {
+    if (!selectedRouteDriverId) return
+    const selectedDriver = drivers.find((driver) => String(driver?.id || '') === String(selectedRouteDriverId))
+    if (!selectedDriver) return
+    if (!isDriverSelectableForTrip(selectedDriver)) {
+      setSelectedRouteDriverId('')
+    }
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet])
+
+  useEffect(() => {
+    if (selectedRouteDriverId || drivers.length === 0) return
+    const preferredDriver = drivers.find((driver: any) => isDriverSelectableForTrip(driver))
+    if (preferredDriver?.id) {
+      setSelectedRouteDriverId(preferredDriver.id)
+    }
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet])
 
   const refreshTrips = async (options?: { showLoading?: boolean }) => {
     const showLoading = options?.showLoading !== false
@@ -892,8 +939,11 @@ export function TripsView() {
                 >
                   <option value="">Select driver</option>
                   {drivers.map((driver: any) => (
-                    <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
-                      {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                    <option key={driver.id} value={driver.id} disabled={!isDriverSelectableForTrip(driver)}>
+                      {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                        const issue = getDriverTripEligibilityLabel(driver)
+                        return issue ? ` (${issue})` : ''
+                      })()}
                     </option>
                   ))}
                 </select>
@@ -1041,8 +1091,11 @@ export function TripsView() {
               >
                 <option value="">Select driver</option>
                 {drivers.map((driver: any) => (
-                  <option key={driver.id} value={driver.id} disabled={driver?.isActive === false}>
-                    {(driver.user?.name || driver.name || driver.email || driver.id) + (driver?.isActive === false ? ' (Inactive)' : '')}
+                  <option key={driver.id} value={driver.id} disabled={!isDriverSelectableForTrip(driver)}>
+                    {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                      const issue = getDriverTripEligibilityLabel(driver)
+                      return issue ? ` (${issue})` : ''
+                    })()}
                   </option>
                 ))}
               </select>

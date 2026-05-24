@@ -17,6 +17,8 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: APP_DB_TARGET
+        value: supa
       - key: DJANGO_USE_SQLITE
         value: "0"
       - key: JWT_SECRET

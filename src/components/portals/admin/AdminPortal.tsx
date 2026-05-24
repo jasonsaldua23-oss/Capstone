@@ -578,6 +578,8 @@ export function AdminPortal() {
       { id: 'users', label: 'Users', icon: Users },
       { id: 'settings', label: 'Settings', icon: Settings },
     ]
+    const primaryNavItems = navItems.filter((item) => item.id !== 'settings')
+    const settingsItem = navItems.find((item) => item.id === 'settings')
 
     return (
       <div className="flex flex-col h-full">
@@ -597,7 +599,7 @@ export function AdminPortal() {
 
         {/* Navigation Menu */}
         <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const IconComponent = item.icon
             const isActive = activeView === item.id
             return (
@@ -630,8 +632,31 @@ export function AdminPortal() {
           })}
         </nav>
 
-        {/* Logout Button */}
-        <div className="p-4 border-t">
+        <div className="space-y-2 border-t p-4">
+          {settingsItem ? (
+            <Button
+              variant="ghost"
+              className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${
+                activeView === settingsItem.id
+                  ? 'text-white'
+                  : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
+              }`}
+              onClick={() => {
+                setActiveView(settingsItem.id)
+                setSidebarOpen(false)
+              }}
+            >
+              {activeView === settingsItem.id ? (
+                <motion.span
+                  layoutId="admin-sidebar-active-pill"
+                  className="absolute inset-0 rounded-md border border-white/50 bg-linear-to-r from-sky-600/95 via-blue-600/95 to-cyan-500/95 shadow-[0_14px_30px_rgba(37,99,235,0.28)]"
+                  transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                />
+              ) : null}
+              <settingsItem.icon className="relative z-[1] h-4 w-4" />
+              <span className="relative z-[1]">{settingsItem.label}</span>
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-slate-700 hover:bg-white/45 hover:text-red-600"
