@@ -1855,6 +1855,7 @@ export function WarehousePortal() {
       capacitySummary.usedUnits,
       capacitySummary.totalCapacity,
       scopedBatches,
+      scopedInventoryTransactions,
     )
 
     const latestBatch = scopedBatches
@@ -1940,7 +1941,7 @@ export function WarehousePortal() {
       utilizationTrend,
       recentActivities,
     }
-  }, [activeTripCount, assignedWarehouse, scopedInventory, scopedOrders, scopedReplacements, stockBatches, stockHealthSummary])
+  }, [activeTripCount, assignedWarehouse, scopedInventory, scopedInventoryTransactions, scopedOrders, scopedReplacements, stockBatches, stockHealthSummary])
 
   const tripStatusColors: Record<string, string> = {
     PLANNED: 'bg-blue-100 text-blue-800',

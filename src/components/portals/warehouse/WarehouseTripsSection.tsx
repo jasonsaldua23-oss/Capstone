@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
 
 type TripDropPointItem = {
@@ -505,9 +506,7 @@ export function WarehouseTripsSection({
         </CardHeader>
         <CardContent>
           {loadingTrips ? (
-            <div className="h-40 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-            </div>
+            <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
           ) : scopedTrips.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No trips found</div>
           ) : (

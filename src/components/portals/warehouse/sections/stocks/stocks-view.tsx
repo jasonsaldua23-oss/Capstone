@@ -3,6 +3,7 @@
 import { Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseStocksViewProps } from '../shared/types'
 
 export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft }: WarehouseStocksViewProps) {
@@ -31,9 +32,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft 
       </CardHeader>
       <CardContent className="p-0">
         {loadingBatches ? (
-          <div className="h-40 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-          </div>
+          <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
         ) : stockBatches.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (

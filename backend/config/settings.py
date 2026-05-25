@@ -1,6 +1,6 @@
 ﻿import os
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 try:
     import certifi
@@ -43,6 +43,13 @@ def _normalize_db_target(value: str) -> str:
 def _parse_database_url(url: str) -> dict:
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
+    options = {
+        "sslmode": query.get("sslmode", ["require"])[0],
+        "connect_timeout": int(query.get("connect_timeout", ["10"])[0]),
+        "gssencmode": query.get("gssencmode", ["disable"])[0],
+    }
+    if certifi is not None:
+        options["sslrootcert"] = certifi.where()
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": (parsed.path or "").lstrip("/") or "postgres",
@@ -52,11 +59,31 @@ def _parse_database_url(url: str) -> dict:
         "PORT": str(parsed.port or "5432"),
         "CONN_MAX_AGE": int(query.get("conn_max_age", ["0"])[0]),
         "CONN_HEALTH_CHECKS": False,
-        "OPTIONS": {
-            "sslmode": query.get("sslmode", ["require"])[0],
-            "connect_timeout": int(query.get("connect_timeout", ["10"])[0]),
-        },
+        "OPTIONS": options,
     }
+
+
+def _normalize_runtime_database_url(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+
+    parsed = urlparse(raw)
+    hostname = str(parsed.hostname or "").strip().lower()
+    port = parsed.port or 0
+
+    # Supabase pooler URLs on 6543 have been intermittently timing out in local
+    # Django runs. Normalize them to the working Postgres runtime port.
+    if hostname.endswith(".pooler.supabase.com") and port == 6543:
+        auth = parsed.username or ""
+        if parsed.password:
+            auth = f"{auth}:{parsed.password}"
+        if auth:
+            auth = f"{auth}@"
+        netloc = f"{auth}{parsed.hostname}:5432"
+        return urlunparse(parsed._replace(netloc=netloc))
+
+    return raw
 
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-logistics-dev-key")
@@ -110,7 +137,7 @@ ASGI_APPLICATION = "config.asgi.application"
 
 FORCE_SQLITE = _bool("DJANGO_USE_SQLITE", False)
 SHOW_SAMPLE_DATA = _bool("SHOW_SAMPLE_DATA", False)
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = _normalize_runtime_database_url(os.getenv("DATABASE_URL", ""))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "").strip()
 APP_DB_TARGET = _normalize_db_target(os.getenv("APP_DB_TARGET", ""))
 LOCAL_SQLITE_DB = {

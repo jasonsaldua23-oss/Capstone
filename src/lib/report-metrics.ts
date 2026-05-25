@@ -284,8 +284,20 @@ export function buildUtilizationTrend(
   usedUnits: number,
   totalCapacity: number,
   batches: any[],
+  inventoryTransactions: any[] = [],
   days = 7,
 ) {
+  const relevantTransactions = inventoryTransactions
+    .map((transaction) => ({
+      quantity: Math.max(0, asNumber(transaction?.quantity)),
+      date: toDate(transaction?.createdAt ?? transaction?.created_at),
+      type: String(transaction?.type || '').trim().toUpperCase(),
+    }))
+    .filter(
+      (entry): entry is { quantity: number; date: Date; type: string } =>
+        Boolean(entry.date) && (entry.type === 'IN' || entry.type === 'OUT')
+    )
+
   const relevantBatches = batches
     .map((batch) => ({
       quantity: Math.max(0, asNumber(batch?.quantity)),
@@ -301,11 +313,16 @@ export function buildUtilizationTrend(
     const endOfDay = new Date(pointDate)
     endOfDay.setHours(23, 59, 59, 999)
 
-    const additionsAfterDay = relevantBatches
-      .filter((entry) => entry.date.getTime() > endOfDay.getTime())
-      .reduce((sum, entry) => sum + entry.quantity, 0)
+    const hasTransactionHistory = relevantTransactions.length > 0
+    const netChangeAfterDay = hasTransactionHistory
+      ? relevantTransactions
+          .filter((entry) => entry.date.getTime() > endOfDay.getTime())
+          .reduce((sum, entry) => sum + (entry.type === 'IN' ? entry.quantity : -entry.quantity), 0)
+      : relevantBatches
+          .filter((entry) => entry.date.getTime() > endOfDay.getTime())
+          .reduce((sum, entry) => sum + entry.quantity, 0)
 
-    const estimatedUsedAtDay = Math.max(0, usedUnits - additionsAfterDay)
+    const estimatedUsedAtDay = Math.max(0, usedUnits - netChangeAfterDay)
     const utilization = totalCapacity > 0
       ? Math.min(100, Number(((estimatedUsedAtDay / totalCapacity) * 100).toFixed(1)))
       : 0

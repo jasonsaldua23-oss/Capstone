@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -318,9 +319,7 @@ export function UsersView() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
+            <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
           ) : users.length === 0 ? (
             <div className="text-center py-12">
               {/* <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" /> */}

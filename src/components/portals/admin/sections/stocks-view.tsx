@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Loader2 } from 'lucide-react'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 
 function getCollection<T>(payload: unknown, keys: string[]): T[] {
   if (Array.isArray(payload)) return payload as T[]
@@ -111,9 +112,7 @@ export function StocksView() {
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
-          <div className="h-40 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
+          <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
         ) : filteredStockBatches.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (

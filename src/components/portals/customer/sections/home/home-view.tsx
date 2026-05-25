@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { Heart, Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
@@ -134,9 +135,7 @@ export function CustomerHomeView({
           </div>
 
           {isProductsLoading ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
-            </div>
+            <PortalProductGridSkeleton cards={6} />
           ) : (
             <div className="grid grid-cols-2 gap-2 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
               {sortedProducts.map((p, index) => {

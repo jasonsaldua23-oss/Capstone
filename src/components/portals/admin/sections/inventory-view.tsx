@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -389,9 +390,7 @@ export function InventoryView() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="h-64 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
+            <PortalTableSkeleton rows={6} columns={7} className="border-0 shadow-none" />
           ) : filteredInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (

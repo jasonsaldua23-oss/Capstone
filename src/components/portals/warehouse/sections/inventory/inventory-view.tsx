@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseInventoryViewProps } from '../shared/types'
 
 export function WarehouseInventoryView({
@@ -45,11 +46,9 @@ export function WarehouseInventoryView({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {loadingInventory ? (
-            <div className="h-64 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-            </div>
-          ) : scopedInventory.length === 0 ? (
+        {loadingInventory ? (
+          <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
+        ) : scopedInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
             <div className="overflow-x-auto">
@@ -185,11 +184,9 @@ export function WarehouseInventoryView({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {loadingInventoryTransactions ? (
-            <div className="h-40 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-            </div>
-          ) : filteredInventoryTransactions.length === 0 ? (
+        {loadingInventoryTransactions ? (
+          <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
+        ) : filteredInventoryTransactions.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory transactions found</div>
           ) : (
             <div className="max-h-[420px] overflow-auto">

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { ChevronRight, Clock, Loader2, Search } from 'lucide-react'
 
 type Trip = any
@@ -91,12 +92,7 @@ export function HistoryView({
       </div>
 
       {isLoading ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-600 mx-auto mb-3" />
-            <p className="text-sm text-slate-600">Loading delivery history...</p>
-          </CardContent>
-        </Card>
+        <PortalCardsSkeleton cards={4} />
       ) : visibleTrips.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">

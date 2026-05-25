@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
 import { Loader2 } from 'lucide-react'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseWarehousesViewProps } from '../shared/types'
 
 export function WarehouseWarehousesView({
@@ -22,9 +23,7 @@ export function WarehouseWarehousesView({
         </CardHeader>
         <CardContent>
           {loadingWarehouses ? (
-            <div className="h-40 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-            </div>
+            <PortalCardsSkeleton cards={2} compact />
           ) : !assignedWarehouse ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No assigned warehouse found</div>
           ) : (

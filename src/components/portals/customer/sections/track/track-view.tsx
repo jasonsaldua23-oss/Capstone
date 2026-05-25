@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { PortalTimelineSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { isRescheduledOrder } from '../orders/order-status'
 
 const DriverRouteMap = dynamic(
@@ -139,27 +140,28 @@ export function CustomerTrackView(props: any) {
                 <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Live updates</Badge>
               </div>
               {isTrackingLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
-              ) : null}
-              <div className="space-y-3">
-                {timelineRows.map((row, idx) => (
-                  <div key={row.key} className="grid grid-cols-[20px_1fr_auto] gap-2">
-                    <div className="relative pt-0.5">
-                      <span className={`inline-block h-4 w-4 rounded-full ${row.active ? 'bg-emerald-600' : 'bg-slate-300'}`} />
-                      {idx < timelineRows.length - 1 ? <span className={`absolute left-[7px] top-4 h-8 w-[2px] ${row.active ? 'bg-emerald-400' : 'bg-slate-200'}`} /> : null}
+                <PortalTimelineSkeleton rows={4} />
+              ) : (
+                <div className="space-y-3">
+                  {timelineRows.map((row, idx) => (
+                    <div key={row.key} className="grid grid-cols-[20px_1fr_auto] gap-2">
+                      <div className="relative pt-0.5">
+                        <span className={`inline-block h-4 w-4 rounded-full ${row.active ? 'bg-emerald-600' : 'bg-slate-300'}`} />
+                        {idx < timelineRows.length - 1 ? <span className={`absolute left-[7px] top-4 h-8 w-[2px] ${row.active ? 'bg-emerald-400' : 'bg-slate-200'}`} /> : null}
+                      </div>
+                      <div>
+                        <p className={`text-sm ${row.active ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>{row.label}</p>
+                        <p className="text-xs text-slate-500">{row.description}</p>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {row.active
+                          ? new Date(tracking?.updatedAt || order.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                          : '--'}
+                      </p>
                     </div>
-                    <div>
-                      <p className={`text-sm ${row.active ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>{row.label}</p>
-                      <p className="text-xs text-slate-500">{row.description}</p>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {row.active
-                        ? new Date(tracking?.updatedAt || order.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                        : '--'}
-                    </p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

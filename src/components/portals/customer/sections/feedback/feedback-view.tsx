@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { fetchFeedbackMeta } from './feedback-api'
 
 interface FeedbackItem {
@@ -46,11 +47,7 @@ export function CustomerFeedbackView() {
       </Card>
 
       {isLoading ? (
-        <Card>
-          <CardContent className="py-8">
-            <p className="text-center text-sm text-gray-500">Loading feedback...</p>
-          </CardContent>
-        </Card>
+        <PortalCardsSkeleton cards={3} />
       ) : feedbackItems.length === 0 ? (
         <Card>
           <CardContent className="py-8">
@@ -103,4 +100,3 @@ export function CustomerFeedbackView() {
     </div>
   )
 }
-

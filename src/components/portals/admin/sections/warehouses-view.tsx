@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -84,6 +85,7 @@ export function WarehousesView() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<any | null>(null)
   const [warehouseInventoryItems, setWarehouseInventoryItems] = useState<any[]>([])
   const [insightStockBatches, setInsightStockBatches] = useState<any[]>([])
+  const [insightInventoryTransactions, setInsightInventoryTransactions] = useState<any[]>([])
   const getNextWarehouseCode = () => {
     const maxSequence = warehouses.reduce((max, warehouse) => {
       const sequence = parseWarehouseCodeSequence(String(warehouse?.code || ''))
@@ -402,9 +404,10 @@ export function WarehousesView() {
 
   const openInsights = async (warehouse: any) => {
     try {
-      const [warehouseResponse, stockBatchesResponse] = await Promise.all([
+      const [warehouseResponse, stockBatchesResponse, inventoryTransactionsResponse] = await Promise.all([
         fetch(`/api/warehouses/${warehouse.id}`),
         fetch('/api/stock-batches?page=1&pageSize=500'),
+        fetch('/api/inventory-transactions?limit=1000'),
       ])
 
       const warehousePayload = await warehouseResponse.json().catch(() => ({}))
@@ -422,10 +425,28 @@ export function WarehousesView() {
         const code = String(warehouseData?.code || warehouse?.code || '').toLowerCase()
         return batchWarehouseName === name || batchWarehouseCode === code
       })
+      const transactionsPayload = await inventoryTransactionsResponse.json().catch(() => ({}))
+      const allInventoryTransactions = inventoryTransactionsResponse.ok
+        ? getCollection<any>(transactionsPayload, ['transactions'])
+        : []
+      const filteredTransactions = allInventoryTransactions.filter((entry: any) => {
+        const entryWarehouseId = String(entry?.warehouse?.id || '').trim()
+        const entryWarehouseName = String(entry?.warehouse?.name || '').toLowerCase()
+        const entryWarehouseCode = String(entry?.warehouse?.code || '').toLowerCase()
+        const warehouseId = String(warehouseData?.id || warehouse?.id || '').trim()
+        const warehouseName = String(warehouseData?.name || warehouse?.name || '').toLowerCase()
+        const warehouseCode = String(warehouseData?.code || warehouse?.code || '').toLowerCase()
+        return (
+          (warehouseId && entryWarehouseId === warehouseId) ||
+          (warehouseName && entryWarehouseName === warehouseName) ||
+          (warehouseCode && entryWarehouseCode === warehouseCode)
+        )
+      })
 
       setSelectedWarehouse(warehouseData)
       setWarehouseInventoryItems(toArray<any>(warehouseData?.inventory ?? []))
       setInsightStockBatches(filteredBatches)
+      setInsightInventoryTransactions(filteredTransactions)
       setInsightsOpen(true)
     } catch (error: any) {
       console.warn('Failed to load warehouse insights:', error)
@@ -458,7 +479,12 @@ export function WarehousesView() {
     },
   ]
   const utilizationStatus = capacitySummary.utilizationStatus
-  const usageTrend = buildUtilizationTrend(estimatedUsage, totalCapacity, insightStockBatches)
+  const usageTrend = buildUtilizationTrend(
+    estimatedUsage,
+    totalCapacity,
+    insightStockBatches,
+    insightInventoryTransactions,
+  )
   const capacityBreakdown = capacitySummary.capacityBreakdown
   const recentActivities = [
     {
@@ -562,8 +588,8 @@ export function WarehousesView() {
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
-          <div className="col-span-full flex items-center justify-center h-64">
-            {/* Loader2 icon removed */}
+          <div className="col-span-full">
+            <PortalCardsSkeleton cards={6} className="lg:grid-cols-3" />
           </div>
         ) : warehouses.length === 0 ? (
           <div className="col-span-full text-center py-12">

@@ -356,11 +356,67 @@ export function TransportationView() {
     setSelectedDriver(null)
   }
 
+  const TransportationSkeleton = () => (
+    <div className="space-y-6 animate-pulse">
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-2">
+          <div className="h-8 w-72 rounded-xl bg-slate-200/80" />
+          <div className="h-4 w-56 rounded-lg bg-slate-200/70" />
+        </div>
+        <div className="h-10 w-32 rounded-xl bg-sky-200/70" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Card key={`transport-skeleton-stat-${index}`}>
+            <CardContent className="pt-5">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-slate-200/80" />
+                <div className="space-y-2">
+                  <div className="h-4 w-24 rounded-lg bg-slate-200/70" />
+                  <div className="h-7 w-14 rounded-lg bg-slate-300/80" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={`transport-skeleton-tab-${index}`} className="h-11 rounded-xl bg-slate-200/80" />
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Card key={`transport-skeleton-row-${index}`}>
+            <CardContent className="pt-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-3">
+                  <div className="h-5 w-40 rounded-lg bg-slate-300/80" />
+                  <div className="h-4 w-56 rounded-lg bg-slate-200/70" />
+                  <div className="h-4 w-32 rounded-lg bg-slate-200/70" />
+                </div>
+                <div className="flex gap-2">
+                  <div className="h-9 w-20 rounded-lg bg-slate-200/80" />
+                  <div className="h-9 w-20 rounded-lg bg-slate-200/80" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+
   const openTripDetails = (trip: any) => {
     setSelectedTrip(trip)
   }
 
-  if (isLoading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+  if (isLoading) return <TransportationSkeleton />
 
   return (
     <div className="space-y-6">

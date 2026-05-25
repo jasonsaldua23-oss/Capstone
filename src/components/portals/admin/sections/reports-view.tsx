@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalDashboardSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -1300,11 +1301,7 @@ export function ReportsView() {
       </div>
 
       {isLoading ? (
-        <Card>
-          <CardContent className="h-52 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </CardContent>
-        </Card>
+        <PortalDashboardSkeleton />
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">

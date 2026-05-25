@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -587,9 +588,7 @@ export function TripsView() {
       <Card>
         <CardContent>
           {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
+            <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
           ) : trips.length === 0 ? (
             <div className="text-center py-12">
               <Truck className="h-12 w-12 text-gray-300 mx-auto mb-4" />

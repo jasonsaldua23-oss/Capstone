@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseOrdersViewProps } from '../shared/types'
 
 export function WarehouseOrdersView({
@@ -39,9 +40,7 @@ export function WarehouseOrdersView({
       </CardHeader>
       <CardContent className="p-0">
         {loadingOrders ? (
-          <div className="h-40 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-          </div>
+          <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
         ) : scopedOrders.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-gray-500">No orders found</div>
         ) : (

@@ -6,6 +6,7 @@ import type { DashboardStats } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
+import { PortalDashboardSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts'
 import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shared'
 
@@ -195,11 +196,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     'Rescheduled': '#f59e0b',
   }
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    )
+    return <PortalDashboardSkeleton />
   }
 
   return (

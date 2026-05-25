@@ -442,6 +442,7 @@ export function CustomerLoginPage() {
                 </Button>
                 <ForgotPasswordDialog
                   accountType="customer"
+                  portal="customer"
                   initialEmail={email}
                   triggerClassName="w-full text-center text-[12px] text-slate-500 transition-colors hover:text-slate-700 sm:text-sm"
                 />

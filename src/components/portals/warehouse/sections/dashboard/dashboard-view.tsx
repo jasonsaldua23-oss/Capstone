@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ChartContainer } from '@/components/ui/chart'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseDashboardViewProps } from '../shared/types'
 
 export function WarehouseDashboardView({
@@ -533,9 +534,7 @@ export function WarehouseDashboardView({
         </CardHeader>
         <CardContent className="p-0">
           {loadingInventoryTransactions ? (
-            <div className="h-40 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-            </div>
+            <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
           ) : filteredInventoryTransactions.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory transactions found</div>
           ) : (

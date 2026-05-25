@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { PortalProfileSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
@@ -197,9 +198,7 @@ export function ProfileView({ user }: { user: any }) {
       <Card>
         <CardContent className="pt-6">
           {isLoading ? (
-            <div className="h-36 flex items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-            </div>
+            <PortalProfileSkeleton />
           ) : (
             <div className="space-y-4">
               <div className="flex flex-col items-center text-center">

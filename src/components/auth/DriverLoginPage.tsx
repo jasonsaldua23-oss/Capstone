@@ -418,6 +418,7 @@ export function DriverLoginPage() {
                 <div className="flex justify-center pt-1">
                   <ForgotPasswordDialog
                     accountType="staff"
+                    portal="driver"
                     initialEmail={email}
                     triggerClassName="inline-flex items-center gap-2.5 text-[0.9rem] font-medium text-[#16984e] transition hover:text-[#107e41]"
                     triggerContent={

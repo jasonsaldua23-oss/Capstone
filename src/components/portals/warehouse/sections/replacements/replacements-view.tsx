@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseReplacementsViewProps } from '../shared/types'
 
 export function WarehouseReplacementsView({
@@ -429,9 +430,7 @@ export function WarehouseReplacementsView({
         </CardContent>
         <CardContent className="p-0">
           {loadingReplacements ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
+            <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
           ) : replacementsBySource.scheduledReplacements.length === 0 ? (
             <div className="py-12 text-center">
               <p className="text-gray-500">No scheduled replacements found</p>
@@ -488,9 +487,7 @@ export function WarehouseReplacementsView({
         </CardContent>
         <CardContent className="p-0">
           {loadingReplacements ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
+            <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
           ) : replacementsBySource.customerRequests.length === 0 ? (
             <div className="py-12 text-center">
               <p className="text-gray-500">No customer replacement requests found</p>

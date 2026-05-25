@@ -177,6 +177,7 @@ export function AdminLoginPage() {
             </Button>
             <ForgotPasswordDialog
               accountType="staff"
+              portal="admin"
               initialEmail={email}
               triggerClassName="w-full text-center text-sm text-slate-600 hover:text-slate-900 transition-colors"
             />

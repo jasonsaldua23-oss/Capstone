@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseLiveTrackingViewProps } from '../shared/types'
 
 export function WarehouseLiveTrackingView({
@@ -78,9 +79,7 @@ export function WarehouseLiveTrackingView({
             </CardHeader>
             <CardContent>
               {loadingTrips ? (
-                <div className="flex h-24 items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-                </div>
+                <PortalCardsSkeleton cards={2} compact />
               ) : liveTrackingActiveTrips.length === 0 ? (
                 <p className="text-sm text-gray-500">No active trips right now</p>
               ) : (

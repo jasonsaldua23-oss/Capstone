@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { isRescheduledOrder } from './order-status'
 
 const PAGE_SIZE = 10
@@ -322,9 +323,7 @@ export function CustomerOrdersView(props: any) {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-14">
-          <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
-        </div>
+        <PortalCardsSkeleton cards={4} />
       ) : ordersTab === 'REPLACEMENT' ? (
         replacementTabOrders.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-500">No replacement requests found.</div>

@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import {
@@ -311,9 +312,7 @@ export function FeedbackView() {
       <Card className="overflow-hidden rounded-[1.25rem] border border-slate-200/80 bg-white/95 shadow-[0_12px_28px_rgba(148,163,184,0.12)]">
         <CardContent className="space-y-2.5 p-2.5 md:p-3">
           {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
+            <PortalCardsSkeleton cards={4} />
           ) : filteredFeedbacks.length === 0 ? (
             <div className="py-12 text-center">
               <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
