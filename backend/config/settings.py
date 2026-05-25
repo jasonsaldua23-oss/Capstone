@@ -40,16 +40,30 @@ def _normalize_db_target(value: str) -> str:
     return ""
 
 
+def _resolve_postgres_sslrootcert(query: dict, sslmode: str) -> str:
+    explicit_sslrootcert = unquote(str(query.get("sslrootcert", [""])[0]).strip())
+    if explicit_sslrootcert:
+        return explicit_sslrootcert
+
+    # Only opt into certificate verification when the connection URL asks for it.
+    if sslmode in {"verify-ca", "verify-full"} and certifi is not None:
+        return certifi.where()
+
+    return ""
+
+
 def _parse_database_url(url: str) -> dict:
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
+    sslmode = str(query.get("sslmode", ["require"])[0]).strip().lower() or "require"
     options = {
-        "sslmode": query.get("sslmode", ["require"])[0],
+        "sslmode": sslmode,
         "connect_timeout": int(query.get("connect_timeout", ["10"])[0]),
         "gssencmode": query.get("gssencmode", ["disable"])[0],
     }
-    if certifi is not None:
-        options["sslrootcert"] = certifi.where()
+    sslrootcert = _resolve_postgres_sslrootcert(query, sslmode)
+    if sslrootcert:
+        options["sslrootcert"] = sslrootcert
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": (parsed.path or "").lstrip("/") or "postgres",
