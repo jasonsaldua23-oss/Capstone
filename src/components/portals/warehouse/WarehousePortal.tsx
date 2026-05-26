@@ -2884,33 +2884,13 @@ export function WarehousePortal() {
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const intervalId = window.setInterval(() => { void refreshAllData() }, 30000)
 
     return () => {
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(intervalId)
     }
   }, [])
-
-  useEffect(() => {
-    const refreshOrdersQuick = () => {
-      const shouldRefresh =
-        activeView === 'orders' || activeView === 'dashboard' || activeView === 'trips'
-      if (!shouldRefresh) return
-      if (document.visibilityState !== 'visible') return
-      if (isRefreshingAllRef.current) return
-      void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
-    }
-
-    refreshOrdersQuick()
-    const intervalId = window.setInterval(refreshOrdersQuick, 5000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [activeView])
 
   useEffect(() => {
     if (activeView === 'liveTracking') {
@@ -2934,8 +2914,29 @@ export function WarehousePortal() {
         fetchOrdersData({ showLoading: false, silent: true }),
       ])
     }
-    const intervalId = window.setInterval(refreshLiveTracking, 7000)
-    return () => window.clearInterval(intervalId)
+
+    const unsubscribe = subscribeDataSync((message) => {
+      const scopes = message.scopes || []
+      if (scopes.includes('trips') || scopes.includes('orders')) {
+        refreshLiveTracking()
+      }
+    })
+
+    const onFocus = () => refreshLiveTracking()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshLiveTracking()
+      }
+    }
+
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      unsubscribe()
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [activeView, trackingDate])
 
   const openOrderDetail = async (order: WarehouseOrderItem) => {

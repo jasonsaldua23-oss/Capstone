@@ -400,17 +400,11 @@ export function useDriverPortalState() {
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void fetchTrips(true)
-      }
-    }, 15000)
 
     return () => {
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(intervalId)
     }
   }, [fetchTrips])
 

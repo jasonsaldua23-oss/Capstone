@@ -81,6 +81,8 @@ export function ReportsView() {
   const [selectedDriver, setSelectedDriver] = useState('all')
   const [selectedOrderStatus, setSelectedOrderStatus] = useState('all')
   const [selectedTripStatus, setSelectedTripStatus] = useState('all')
+  const [selectedDriverRating, setSelectedDriverRating] = useState<'all' | '4_up' | '3_up' | 'below_3'>('all')
+  const [selectedDriverTripVolume, setSelectedDriverTripVolume] = useState<'all' | 'with_trips' | '10_plus'>('all')
   const [selectedMovementType, setSelectedMovementType] = useState('all')
   const [selectedReplacementStatus, setSelectedReplacementStatus] = useState('all')
   const [selectedFeedbackStatus, setSelectedFeedbackStatus] = useState('all')
@@ -449,48 +451,68 @@ export function ReportsView() {
 
   // Driver Performance Report Rows - tracks driver metrics
   const driverPerformanceRows = useMemo(() => {
-    const tripStats = new Map<string, { total: number; completed: number; onTime: number }>()
+    const tripStats = new Map<string, { total: number; completed: number; dropPointsTotal: number; deliveredDropPoints: number }>()
     trips.forEach((trip) => {
       const driverId = trip.driver?.id
       if (!driverId) return
-      const stats = tripStats.get(driverId) || { total: 0, completed: 0, onTime: 0 }
+      const stats = tripStats.get(driverId) || { total: 0, completed: 0, dropPointsTotal: 0, deliveredDropPoints: 0 }
+      const dropPoints = toArray<any>(trip.dropPoints)
+      const dropPointsTotal = Number(trip.totalDropPoints || dropPoints.length || 0)
+      const deliveredDropPoints = Number(
+        trip.completedDropPoints ??
+        dropPoints.filter((point) => ['DELIVERED', 'COMPLETED'].includes(String(point?.status || '').toUpperCase())).length ??
+        0
+      )
       stats.total++
       if (normalizeTripStatus(trip.status) === 'COMPLETED') stats.completed++
-      if (trip.actualEndAt && trip.plannedEndAt) {
-        const actual = new Date(trip.actualEndAt).getTime()
-        const planned = new Date(trip.plannedEndAt).getTime()
-        if (actual <= planned) stats.onTime++
-      }
+      stats.dropPointsTotal += dropPointsTotal
+      stats.deliveredDropPoints += deliveredDropPoints
       tripStats.set(driverId, stats)
     })
 
     return drivers.map((driver) => {
-      const stats = tripStats.get(driver.id) || { total: 0, completed: 0, onTime: 0 }
-      const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0
-      const onTimeRate = stats.total > 0 ? Math.round((stats.onTime / stats.total) * 100) : 0
-      const licenseExpiry = driver.licenseExpiry ? new Date(driver.licenseExpiry) : null
-      const daysUntilExpiry = licenseExpiry ? Math.ceil((licenseExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
+      const stats = tripStats.get(driver.id) || { total: 0, completed: 0, dropPointsTotal: 0, deliveredDropPoints: 0 }
+      const completionRate = stats.dropPointsTotal > 0 ? Math.round((stats.deliveredDropPoints / stats.dropPointsTotal) * 100) : 0
 
       return {
+        driverId: String(driver.id || ''),
         driverName: driver.user?.name || driver.name || 'N/A',
-        licenseNumber: driver.licenseNumber || 'N/A',
-        licenseType: driver.licenseType || 'N/A',
-        licenseStatus: daysUntilExpiry !== null
-          ? daysUntilExpiry < 0 ? 'EXPIRED'
-            : daysUntilExpiry <= 30 ? 'EXPIRING_SOON'
-              : 'VALID'
-          : 'N/A',
-        licenseExpiry: licenseExpiry ? formatDateTime(driver.licenseExpiry) : 'N/A',
         rating: Number(driver.rating || 0).toFixed(1),
         totalDeliveries: Number(driver.totalDeliveries || 0),
         totalTrips: stats.total,
         completedTrips: stats.completed,
+        dropPointsTotal: stats.dropPointsTotal,
+        deliveredDropPoints: stats.deliveredDropPoints,
         completionRate: `${completionRate}%`,
-        onTimeRate: `${onTimeRate}%`,
         isActive: driver.isActive ? 'Active' : 'Inactive',
       }
     }).sort((a, b) => Number(b.totalTrips) - Number(a.totalTrips))
   }, [drivers, trips])
+
+  const driverPerformanceStatusOptions = useMemo(() => {
+    return Array.from(new Set(driverPerformanceRows.map((row) => String(row.isActive || '').trim())))
+      .filter(Boolean)
+      .sort()
+  }, [driverPerformanceRows])
+
+  const transportDriverRows = useMemo(() => {
+    return driverPerformanceRows
+      .filter((row) => selectedDriver === 'all' || String(row.driverId || '') === selectedDriver)
+      .filter((row) => selectedTripStatus === 'all' || String(row.isActive || '') === selectedTripStatus)
+      .filter((row) => {
+        const rating = Number(row.rating || 0)
+        if (selectedDriverRating === '4_up') return rating >= 4
+        if (selectedDriverRating === '3_up') return rating >= 3
+        if (selectedDriverRating === 'below_3') return rating < 3
+        return true
+      })
+      .filter((row) => {
+        const totalTrips = Number(row.totalTrips || 0)
+        if (selectedDriverTripVolume === 'with_trips') return totalTrips > 0
+        if (selectedDriverTripVolume === '10_plus') return totalTrips >= 10
+        return true
+      })
+  }, [driverPerformanceRows, selectedDriver, selectedTripStatus, selectedDriverRating, selectedDriverTripVolume])
 
   // Low Stock Alert Rows - tracks products below minimum stock levels
   const lowStockRows = useMemo(() => {
@@ -804,14 +826,57 @@ export function ReportsView() {
   }, [feedbackRows])
 
   const driverPerformanceKpi = useMemo(() => {
-    const total = driverPerformanceRows.length
-    const active = driverPerformanceRows.filter((row) => row.isActive === 'Active').length
-    const avgRating = driverPerformanceRows.length > 0
-      ? driverPerformanceRows.reduce((acc, row) => acc + Number(row.rating), 0) / driverPerformanceRows.length
+    const total = transportDriverRows.length
+    const active = transportDriverRows.filter((row) => row.isActive === 'Active').length
+    const avgRating = transportDriverRows.length > 0
+      ? transportDriverRows.reduce((acc, row) => acc + Number(row.rating), 0) / transportDriverRows.length
       : 0
-    const licenseIssues = driverPerformanceRows.filter((row) => ['EXPIRED', 'EXPIRING_SOON'].includes(String(row.licenseStatus))).length
-    return { total, active, avgRating: avgRating.toFixed(1), licenseIssues }
-  }, [driverPerformanceRows])
+    const totalTrips = transportDriverRows.reduce((acc, row) => acc + Number(row.totalTrips || 0), 0)
+    return { total, active, avgRating: avgRating.toFixed(1), totalTrips }
+  }, [transportDriverRows])
+
+  const transportCompletionBandChart = useMemo(() => {
+    const bands = [
+      { name: '0-39%', key: '0_39', count: 0, color: '#ef4444' },
+      { name: '40-69%', key: '40_69', count: 0, color: '#f59e0b' },
+      { name: '70-89%', key: '70_89', count: 0, color: '#3b82f6' },
+      { name: '90-100%', key: '90_100', count: 0, color: '#22c55e' },
+    ]
+
+    transportDriverRows.forEach((row) => {
+      const rate = Number(String(row.completionRate || '0').replace('%', ''))
+      if (rate >= 90) bands[3].count += 1
+      else if (rate >= 70) bands[2].count += 1
+      else if (rate >= 40) bands[1].count += 1
+      else bands[0].count += 1
+    })
+
+    return bands
+  }, [transportDriverRows])
+
+  const transportTopDrivers = useMemo(() => {
+    return [...transportDriverRows]
+      .sort((a, b) => {
+        const completionDelta = Number(String(b.completionRate || '0').replace('%', '')) - Number(String(a.completionRate || '0').replace('%', ''))
+        if (completionDelta !== 0) return completionDelta
+        return Number(b.totalTrips || 0) - Number(a.totalTrips || 0)
+      })
+      .slice(0, 8)
+      .map((row) => ({
+        name: String(row.driverName || 'N/A'),
+        completionRate: Number(String(row.completionRate || '0').replace('%', '')),
+        totalTrips: Number(row.totalTrips || 0),
+      }))
+  }, [transportDriverRows])
+
+  const transportRatingVsTripsScatter = useMemo(() => {
+    return transportDriverRows.map((row) => ({
+      name: String(row.driverName || 'N/A'),
+      rating: Number(row.rating || 0),
+      trips: Number(row.totalTrips || 0),
+      completionRate: Number(String(row.completionRate || '0').replace('%', '')),
+    }))
+  }, [transportDriverRows])
 
   const lowStockKpi = useMemo(() => {
     const critical = lowStockRows.filter((row) => row.status === 'CRITICAL').length
@@ -839,6 +904,18 @@ export function ReportsView() {
     }))
   }, [orderRows])
 
+  const transportExportRows = useMemo(() => {
+    return transportDriverRows.map((row) => ({
+      driverName: row.driverName,
+      rating: row.rating,
+      totalDeliveries: row.totalDeliveries,
+      totalTrips: row.totalTrips,
+      deliveredDropPoints: `${row.deliveredDropPoints || 0}/${row.dropPointsTotal || 0}`,
+      completionRate: row.completionRate,
+      status: row.isActive,
+    }))
+  }, [transportDriverRows])
+
   const orderSummaryLines = useMemo(() => ([
     `Total Orders: ${orderKpi.totalOrders}`,
     `Delivered: ${orderKpi.deliveredOrders}`,
@@ -849,10 +926,12 @@ export function ReportsView() {
   ]), [orderKpi])
 
   const transportSummaryLines = useMemo(() => ([
-    `Total Trips: ${transportRows.length}`,
-    `Completed: ${transportRows.filter((row) => row.status === 'COMPLETED').length}`,
-    `In Progress: ${transportRows.filter((row) => row.status === 'IN_PROGRESS').length}`,
-  ]), [transportRows])
+    `Total Drivers: ${driverPerformanceKpi.total}`,
+    `Active Drivers: ${driverPerformanceKpi.active}`,
+    `Average Rating: ${driverPerformanceKpi.avgRating}`,
+    `Total Trips: ${driverPerformanceKpi.totalTrips}`,
+    `Delivered Drop Points: ${transportDriverRows.reduce((acc, row) => acc + Number(row.deliveredDropPoints || 0), 0)}/${transportDriverRows.reduce((acc, row) => acc + Number(row.dropPointsTotal || 0), 0)}`,
+  ]), [driverPerformanceKpi, transportDriverRows])
 
   const warehouseSummaryLines = useMemo(() => ([
     `Total Warehouses: ${warehouses.length}`,
@@ -884,7 +963,7 @@ export function ReportsView() {
     `Total Drivers: ${driverPerformanceKpi.total}`,
     `Active Drivers: ${driverPerformanceKpi.active}`,
     `Average Rating: ${driverPerformanceKpi.avgRating}`,
-    `License Issues: ${driverPerformanceKpi.licenseIssues}`,
+    `Total Trips: ${driverPerformanceKpi.totalTrips}`,
   ]), [driverPerformanceKpi])
 
   const chartCardClassName = 'rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden'
@@ -1019,7 +1098,7 @@ export function ReportsView() {
       ...reportBranding,
       summaryLines: orderSummaryLines,
     })
-    await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, {
+    await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation Driver Performance Report', transportExportRows, {
       ...reportBranding,
       summaryLines: transportSummaryLines,
     })
@@ -1048,6 +1127,8 @@ export function ReportsView() {
     setSelectedDriver('all')
     setSelectedOrderStatus('all')
     setSelectedTripStatus('all')
+    setSelectedDriverRating('all')
+    setSelectedDriverTripVolume('all')
     setSelectedMovementType('all')
     setSelectedReplacementStatus('all')
     setSelectedFeedbackStatus('all')
@@ -1187,7 +1268,7 @@ export function ReportsView() {
       return
     }
     if (activeReportTab === 'transport') {
-      await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation & Delivery Status Report', transportRows, {
+      await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation Driver Performance Report', transportExportRows, {
         ...reportBranding,
         summaryLines: transportSummaryLines,
       })
@@ -1208,13 +1289,6 @@ export function ReportsView() {
       })
       return
     }
-    if (activeReportTab === 'drivers') {
-      await downloadPdf(`driver-performance-report-${stamp}.pdf`, 'Driver Performance Report', driverPerformanceRows, {
-        ...reportBranding,
-        summaryLines: driverPerformanceSummaryLines,
-      })
-      return
-    }
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
@@ -1224,12 +1298,11 @@ export function ReportsView() {
   const printCurrentReport = () => {
     const reportMap: Record<string, { title: string; rows: Array<Record<string, unknown>>; summaryLines: string[] }> = {
       orders: { title: 'Order Report', rows: orderExportRows, summaryLines: orderSummaryLines },
-      transport: { title: 'Transportation & Delivery Status Report', rows: transportRows, summaryLines: transportSummaryLines },
+      transport: { title: 'Transportation Driver Performance Report', rows: transportExportRows, summaryLines: transportSummaryLines },
       warehouse: { title: 'Warehouse Operations Report', rows: warehouseDispatchRows, summaryLines: warehouseSummaryLines },
       inventory: { title: 'Inventory Movement Report', rows: inventoryMovementRows, summaryLines: inventorySummaryLines },
       replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: replacementSummaryLines },
       feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows, summaryLines: feedbackSummaryLines },
-      drivers: { title: 'Driver Performance Report', rows: driverPerformanceRows, summaryLines: driverPerformanceSummaryLines },
     }
 
     const report = reportMap[activeReportTab]
@@ -1305,11 +1378,10 @@ export function ReportsView() {
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-6">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-5">
               <TabsTrigger value="orders" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Orders</TabsTrigger>
               <TabsTrigger value="transport" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Transport</TabsTrigger>
               <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse/Inventory</TabsTrigger>
-              <TabsTrigger value="drivers" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Users className="h-4 w-4" />Drivers</TabsTrigger>
               <TabsTrigger value="replacement" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Replacement</TabsTrigger>
               <TabsTrigger value="feedback" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
             </TabsList>
@@ -1496,60 +1568,144 @@ export function ReportsView() {
 
           <TabsContent value="transport" className="space-y-4">
             {reportToolbar({
-              title: 'Transport',
-              statusLabel: 'Trip Statuses',
-              statusOptions: transportStatusOptions,
+              title: 'Transport Driver Performance',
+              statusLabel: 'Driver Status',
+              statusOptions: driverPerformanceStatusOptions,
               statusValue: selectedTripStatus,
               onStatusChange: setSelectedTripStatus,
-              showWarehouse: true,
+              showWarehouse: false,
               showDriver: true,
+              showStatus: true,
             })}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Trips</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Completed Trips</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.completed}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">In Progress</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.inProgress}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Completion</CardDescription><CardTitle className="text-[30px] leading-none">{transportKpi.averageCompletion}%</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                  value={selectedDriverRating}
+                  onChange={(event) => setSelectedDriverRating(event.target.value as 'all' | '4_up' | '3_up' | 'below_3')}
+                  title="Filter by driver rating"
+                >
+                  <option value="all">All Ratings</option>
+                  <option value="4_up">4.0 and above</option>
+                  <option value="3_up">3.0 and above</option>
+                  <option value="below_3">Below 3.0</option>
+                </select>
+                <select
+                  className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                  value={selectedDriverTripVolume}
+                  onChange={(event) => setSelectedDriverTripVolume(event.target.value as 'all' | 'with_trips' | '10_plus')}
+                  title="Filter by total trips"
+                >
+                  <option value="all">All Trip Volumes</option>
+                  <option value="with_trips">With trips only</option>
+                  <option value="10_plus">10+ trips</option>
+                </select>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Drivers</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Registered drivers</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Active Drivers</CardDescription><CardTitle className="text-[30px] leading-none text-emerald-600">{driverPerformanceKpi.active}</CardTitle><p className="text-[11px] text-emerald-600">Currently active</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Avg Rating</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.avgRating}</CardTitle><p className="text-[11px] text-slate-400">Out of 5.0</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Trips</CardDescription><CardTitle className="text-[30px] leading-none text-blue-700">{driverPerformanceKpi.totalTrips}</CardTitle><p className="text-[11px] text-slate-400">Trips assigned to listed drivers</p></CardHeader></Card>
+            </div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Trip Status Trend (Area)</CardTitle>
-                  <CardDescription>Completion and in-progress movement over time</CardDescription>
+                  <CardTitle className="text-lg">Completion Band Distribution</CardTitle>
+                  <CardDescription>How drivers are spread by completion performance</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-72 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={transportTrendChart} margin={{ top: 12, right: 20, left: 0, bottom: 26 }}>
-                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                        <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
-                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
-                        <Area type="monotone" dataKey="completed" stackId="1" stroke="#16a34a" fill="#86efac" />
-                        <Area type="monotone" dataKey="inProgress" stackId="1" stroke="#2563eb" fill="#93c5fd" />
-                        <Area type="monotone" dataKey="cancelled" stackId="1" stroke="#ef4444" fill="#fca5a5" />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    {transportCompletionBandChart.every((band) => Number(band.count) === 0) ? (
+                      <p className="py-8 text-center text-gray-500">No completion data for selected filters</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={transportCompletionBandChart}
+                            dataKey="count"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={56}
+                            outerRadius={94}
+                            paddingAngle={2}
+                          >
+                            {transportCompletionBandChart.map((entry) => (
+                              <Cell key={entry.key} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={chartTooltipLabelStyle}
+                            itemStyle={chartTooltipItemStyle}
+                            formatter={(value: any) => [`${Number(value || 0)} drivers`, 'Count']}
+                          />
+                          <Legend verticalAlign="bottom" wrapperStyle={{ color: '#64748b', fontSize: '12px' }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
                 </CardContent>
               </Card>
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Completion vs Load (Bubble)</CardTitle>
-                  <CardDescription>Relationship: drop points vs completion rate</CardDescription>
+                  <CardTitle className="text-lg">Top Drivers by Completion</CardTitle>
+                  <CardDescription>Ranking by completion rate, tie-broken by trip volume</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-72 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ScatterChart margin={{ top: 12, right: 20, left: 8, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
-                        <XAxis dataKey="dropPointsTotal" name="Drop Points" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <YAxis dataKey="completionRate" name="Completion %" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <ZAxis dataKey="dropPointsCompleted" range={[40, 260]} />
-                        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
-                        <Scatter data={transportBubbleChart} fill="#0ea5e9" />
-                      </ScatterChart>
-                    </ResponsiveContainer>
+                    {transportTopDrivers.length === 0 ? (
+                      <p className="py-8 text-center text-gray-500">No ranked driver data for selected filters</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={transportTopDrivers} margin={{ top: 12, right: 20, left: 0, bottom: 36 }}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <Tooltip
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={chartTooltipLabelStyle}
+                            itemStyle={chartTooltipItemStyle}
+                            formatter={(value: any, key: any) => [key === 'completionRate' ? `${Number(value || 0)}%` : Number(value || 0).toLocaleString(), key === 'completionRate' ? 'Completion' : 'Trips']}
+                          />
+                          <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
+                          <Bar dataKey="completionRate" name="Completion %" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                          <Bar dataKey="totalTrips" name="Trips" fill="#22c55e" radius={[6, 6, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className={chartCardClassName}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Rating vs Trip Productivity</CardTitle>
+                  <CardDescription>Bubble size represents completion rate</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72 w-full">
+                    {transportRatingVsTripsScatter.length === 0 ? (
+                      <p className="py-8 text-center text-gray-500">No productivity data for selected filters</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 12, right: 20, left: 8, bottom: 20 }}>
+                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
+                          <XAxis type="number" dataKey="rating" name="Rating" domain={[0, 5]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis type="number" dataKey="trips" name="Trips" allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <ZAxis type="number" dataKey="completionRate" name="Completion %" range={[40, 260]} />
+                          <Tooltip
+                            cursor={{ strokeDasharray: '3 3' }}
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={chartTooltipLabelStyle}
+                            itemStyle={chartTooltipItemStyle}
+                            formatter={(value: any, key: any) => [key === 'completionRate' ? `${Number(value || 0)}%` : Number(value || 0).toLocaleString(), String(key)]}
+                            labelFormatter={(_label: any, payload: any) => payload?.[0]?.payload?.name || 'Driver'}
+                          />
+                          <Scatter data={transportRatingVsTripsScatter} fill="#0ea5e9" />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1557,8 +1713,8 @@ export function ReportsView() {
             <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
-                  <CardTitle>Transportation & Delivery Status Report</CardTitle>
-                  <CardDescription>Trip assignment and completion details</CardDescription>
+                  <CardTitle>Transportation Driver Performance Report</CardTitle>
+                  <CardDescription>Driver metrics and performance indicators</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1566,26 +1722,30 @@ export function ReportsView() {
                   <table className="w-full text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
-                        <th className="p-3 text-left">Trip</th>
-                        <th className="p-3 text-left">Driver</th>
-                        <th className="p-3 text-left">Vehicle</th>
+                        <th className="p-3 text-left">Driver Name</th>
+                        <th className="p-3 text-left">Rating</th>
+                        <th className="p-3 text-left">Total Deliveries</th>
+                        <th className="p-3 text-left">Total Trips</th>
+                        <th className="p-3 text-left">Delivered Drop Points</th>
+                        <th className="p-3 text-left">Completion %</th>
                         <th className="p-3 text-left">Status</th>
-                        <th className="p-3 text-left">Completion</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRows(transportRows).map((row, index) => (
-                        <tr key={`${row.tripNumber}-${index}`} className="border-b last:border-0">
-                          <td className="p-3 font-medium">{String(row.tripNumber || 'N/A')}</td>
-                          <td className="p-3">{String(row.driver || 'N/A')}</td>
-                          <td className="p-3">{String(row.vehicle || 'N/A')}</td>
-                          <td className="p-3">{String(row.status || 'N/A')}</td>
-                          <td className="p-3">{String(row.dropPointsCompleted || 0)}/{String(row.dropPointsTotal || 0)} ({String(row.completionRate || 0)}%)</td>
+                      {previewRows(transportDriverRows).map((row, index) => (
+                        <tr key={`${row.driverName}-${index}`} className="border-b last:border-0">
+                          <td className="p-3 font-medium">{String(row.driverName || 'N/A')}</td>
+                          <td className="p-3">{String(row.rating || 'N/A')}</td>
+                          <td className="p-3">{String(row.totalDeliveries || 0)}</td>
+                          <td className="p-3">{String(row.totalTrips || 0)}</td>
+                          <td className="p-3">{String(row.deliveredDropPoints || 0)}/{String(row.dropPointsTotal || 0)}</td>
+                          <td className="p-3">{String(row.completionRate || '0%')}</td>
+                          <td className="p-3">{String(row.isActive || 'N/A')}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {transportRows.length === 0 ? <p className="py-8 text-center text-gray-500">No trips found for this range</p> : null}
+                  {transportDriverRows.length === 0 ? <p className="py-8 text-center text-gray-500">No driver performance data available for the selected filters</p> : null}
                 </div>
               </CardContent>
             </Card>
@@ -2256,74 +2416,6 @@ export function ReportsView() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="drivers" className="space-y-4">
-            {reportToolbar({
-              title: 'Driver Performance',
-              statusLabel: 'Driver Status',
-              statusOptions: ['Active', 'Inactive'],
-              statusValue: 'all',
-              onStatusChange: () => {},
-              showStatus: false,
-            })}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Drivers</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Registered drivers</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Active Drivers</CardDescription><CardTitle className="text-[30px] leading-none text-emerald-600">{driverPerformanceKpi.active}</CardTitle><p className="text-[11px] text-emerald-600">Currently active</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Avg Rating</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.avgRating}</CardTitle><p className="text-[11px] text-slate-400">Out of 5.0</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">License Issues</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{driverPerformanceKpi.licenseIssues}</CardTitle><p className="text-[11px] text-red-600">Expired/Expiring soon</p></CardHeader></Card>
-            </div>
-            <Card className="rounded-2xl border border-slate-200 shadow-sm">
-              <CardHeader>
-                <div>
-                  <CardTitle>Driver Performance Report</CardTitle>
-                  <CardDescription>Driver metrics and performance indicators</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-left">Driver Name</th>
-                        <th className="p-3 text-left">License #</th>
-                        <th className="p-3 text-left">Type</th>
-                        <th className="p-3 text-left">License Status</th>
-                        <th className="p-3 text-left">Rating</th>
-                        <th className="p-3 text-left">Total Deliveries</th>
-                        <th className="p-3 text-left">Total Trips</th>
-                        <th className="p-3 text-left">Completed</th>
-                        <th className="p-3 text-left">Completion %</th>
-                        <th className="p-3 text-left">On-Time %</th>
-                        <th className="p-3 text-left">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows(driverPerformanceRows).map((row, index) => (
-                        <tr key={`${row.driverName}-${index}`} className="border-b last:border-0">
-                          <td className="p-3 font-medium">{String(row.driverName || 'N/A')}</td>
-                          <td className="p-3">{String(row.licenseNumber || 'N/A')}</td>
-                          <td className="p-3">{String(row.licenseType || 'N/A')}</td>
-                          <td className="p-3">
-                            <Badge variant={
-                              row.licenseStatus === 'EXPIRED' ? 'destructive' :
-                              row.licenseStatus === 'EXPIRING_SOON' ? 'secondary' : 'default'
-                            }>{String(row.licenseStatus || 'N/A')}</Badge>
-                          </td>
-                          <td className="p-3">{String(row.rating || 'N/A')}</td>
-                          <td className="p-3">{String(row.totalDeliveries || 0)}</td>
-                          <td className="p-3">{String(row.totalTrips || 0)}</td>
-                          <td className="p-3">{String(row.completedTrips || 0)}</td>
-                          <td className="p-3">{String(row.completionRate || '0%')}</td>
-                          <td className="p-3">{String(row.onTimeRate || '0%')}</td>
-                          <td className="p-3">{String(row.isActive || 'N/A')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {driverPerformanceRows.length === 0 ? <p className="py-8 text-center text-gray-500">No driver performance data available</p> : null}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       )}
     </div>

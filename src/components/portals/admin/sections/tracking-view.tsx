@@ -153,8 +153,29 @@ export function TrackingView() {
       if (document.visibilityState !== 'visible') return
       void fetchTrackingTrips()
     }
-    const intervalId = window.setInterval(refreshLive, 7000)
-    return () => window.clearInterval(intervalId)
+
+    const unsubscribe = subscribeDataSync((message) => {
+      const scopes = message.scopes || []
+      if (scopes.includes('trips') || scopes.includes('orders')) {
+        refreshLive()
+      }
+    })
+
+    const onFocus = () => refreshLive()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshLive()
+      }
+    }
+
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      unsubscribe()
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [trackingDate])
 
   const activeTrips = useMemo(

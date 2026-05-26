@@ -1,6 +1,6 @@
 ﻿import os
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse, urlunparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 try:
     import certifi
@@ -81,22 +81,6 @@ def _normalize_runtime_database_url(url: str) -> str:
     raw = str(url or "").strip()
     if not raw:
         return ""
-
-    parsed = urlparse(raw)
-    hostname = str(parsed.hostname or "").strip().lower()
-    port = parsed.port or 0
-
-    # Supabase pooler URLs on 6543 have been intermittently timing out in local
-    # Django runs. Normalize them to the working Postgres runtime port.
-    if hostname.endswith(".pooler.supabase.com") and port == 6543:
-        auth = parsed.username or ""
-        if parsed.password:
-            auth = f"{auth}:{parsed.password}"
-        if auth:
-            auth = f"{auth}@"
-        netloc = f"{auth}{parsed.hostname}:5432"
-        return urlunparse(parsed._replace(netloc=netloc))
-
     return raw
 
 
@@ -164,6 +148,10 @@ if APP_DB_TARGET:
     USE_SQLITE_DB = APP_DB_TARGET == "lite"
 else:
     USE_SQLITE_DB = FORCE_SQLITE or not REMOTE_POSTGRES_DB
+
+# Respect explicit user intent to use Supabase even when connectivity is flaky.
+if APP_DB_TARGET == "supa":
+    USE_SQLITE_DB = False
 
 ACTIVE_DB_ALIAS = "local_sqlite" if USE_SQLITE_DB else "supabase"
 

@@ -57,7 +57,7 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
-export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: () => void } = {}) {
+export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { onOpenTransportation?: () => void; globalSearchQuery?: string } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
   const [warehouseDirectory, setWarehouseDirectory] = useState<any[]>([])
@@ -77,8 +77,13 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
   const [orderCustomDateFilter, setOrderCustomDateFilter] = useState('')
   const [orderMinPriceFilter, setOrderMinPriceFilter] = useState('')
   const [orderMaxPriceFilter, setOrderMaxPriceFilter] = useState('')
+  const [orderSearchQuery, setOrderSearchQuery] = useState('')
   const latestOrderMarkerRef = useRef('')
   const latestOrderUpdatedAtRef = useRef('')
+
+  useEffect(() => {
+    setOrderSearchQuery(String(globalSearchQuery || ''))
+  }, [globalSearchQuery])
 
   const getItemSizeLabel = (item: any): string => {
     const fromProductSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes.filter(Boolean) : []
@@ -313,24 +318,11 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const quickIntervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void fetchOrdersDeltaIfChanged(true)
-      }
-    }, 5000)
-    const fullIntervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void fetchOrdersFull(true)
-      }
-    }, 30000)
-
     return () => {
       isMounted = false
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(quickIntervalId)
-      window.clearInterval(fullIntervalId)
     }
   }, [])
 
@@ -527,6 +519,22 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
     return orders.filter((order) => {
       if (isReplacementOrder(order)) return false
 
+      const search = orderSearchQuery.trim().toLowerCase()
+      if (search) {
+        const haystack = [
+          order?.orderNumber,
+          order?.customer?.name,
+          order?.customer?.email,
+          order?.shippingName,
+          order?.shippingCity,
+          order?.shippingProvince,
+          order?.shippingPhone,
+        ]
+          .map((value) => String(value || '').toLowerCase())
+          .join(' ')
+        if (!haystack.includes(search)) return false
+      }
+
       if (warehouseFilterId !== 'all') {
         const warehouseIds = getOrderWarehouseIds(order)
         if (!warehouseIds.includes(warehouseFilterId)) return false
@@ -551,7 +559,7 @@ export function OrdersView({ onOpenTransportation }: { onOpenTransportation?: ()
 
       return true
     })
-  }, [orders, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter])
+  }, [orders, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery])
 
   const fulfillmentAlerts = useMemo(() => {
     let unallocated = 0

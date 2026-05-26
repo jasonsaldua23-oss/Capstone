@@ -98,11 +98,6 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
 
   useEffect(() => {
     void fetchNotifications()
-    const interval = window.setInterval(() => {
-      void fetchNotifications()
-    }, 60000)
-
-    return () => window.clearInterval(interval)
   }, [fetchNotifications])
 
   return {

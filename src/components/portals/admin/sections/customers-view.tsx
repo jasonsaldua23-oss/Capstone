@@ -9,7 +9,6 @@ import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
@@ -57,7 +56,7 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
-export function CustomersView() {
+export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: string } = {}) {
   const { user } = useAuth()
   const [customers, setCustomers] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
@@ -72,6 +71,10 @@ export function CustomersView() {
   const [discountOption, setDiscountOption] = useState('NO_DISCOUNT')
   const [discountStatus, setDiscountStatus] = useState('ACTIVE')
   const [discountPercent, setDiscountPercent] = useState('')
+
+  useEffect(() => {
+    setSearch(String(globalSearchQuery || ''))
+  }, [globalSearchQuery])
 
   const fetchCustomers = async () => {
     setIsLoading(true)
@@ -174,6 +177,9 @@ export function CustomersView() {
 
   const filteredRows = useMemo(() => {
     return customerRows.filter((row) => {
+      const isClientOnline = Boolean(
+        row?.isOnline ?? row?.online ?? row?.is_online
+      )
       const matchesSearch = !search.trim()
         || row.name?.toLowerCase().includes(search.toLowerCase())
         || row.email?.toLowerCase().includes(search.toLowerCase())
@@ -182,9 +188,9 @@ export function CustomersView() {
       const matchesStatus =
         statusFilter === 'all'
           ? true
-          : statusFilter === 'active'
-            ? row.isActive
-            : !row.isActive
+          : statusFilter === 'online'
+            ? isClientOnline
+            : !isClientOnline
 
       const matchesRating =
         ratingFilter === 'all'
@@ -196,7 +202,9 @@ export function CustomersView() {
   }, [customerRows, search, statusFilter, ratingFilter])
 
   const totalClients = customerRows.length
-  const activeClients = customerRows.filter((row) => row.isActive).length
+  const onlineClients = customerRows.filter((row) => Boolean(
+    row?.isOnline ?? row?.online ?? row?.is_online
+  )).length
   const currentMonth = new Date().getMonth()
   const currentYear = new Date().getFullYear()
   const newClients = customerRows.filter((row) => {
@@ -215,7 +223,7 @@ export function CustomersView() {
       row.email || '',
       row.phone || '',
       [row.address, row.city, row.province, row.zipCode].filter(Boolean).join(', '),
-      row.isActive ? 'Active' : 'Inactive',
+      Boolean(row?.isOnline ?? row?.online ?? row?.is_online) ? 'Online' : 'Offline',
       row.orderCount,
       row.totalSpend,
       row.lastOrderNumber || '',
@@ -338,8 +346,8 @@ export function CustomersView() {
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-emerald-50 p-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-600" /></div>
               <div>
-                <p className="text-xs text-gray-500">Active Clients</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{activeClients}</p>
+                <p className="text-xs text-gray-500">Online Clients</p>
+                <p className="text-2xl leading-tight font-bold text-gray-900">{onlineClients}</p>
               </div>
             </div>
           </CardContent>
@@ -384,8 +392,8 @@ export function CustomersView() {
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
             </select>
             <select
               title="Customer rating filter"
@@ -423,7 +431,6 @@ export function CustomersView() {
                     <th className="text-left p-4 font-medium text-gray-600">Successful Deliveries</th>
                     <th className="text-left p-4 font-medium text-gray-600">Last Order</th>
                     <th className="text-left p-4 font-medium text-gray-600">Satisfaction</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
                     <th className="text-left p-4 font-medium text-gray-600">Discount</th>
                   </tr>
                 </thead>
@@ -483,11 +490,6 @@ export function CustomersView() {
                             <span className="font-semibold text-emerald-600">{Number(row.rating).toFixed(1)}</span>
                           )}
                         </div>
-                      </td>
-                      <td className="p-4">
-                        <Badge className={row.isActive ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-gray-100 text-gray-700 hover:bg-gray-100'}>
-                          {row.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
                       </td>
                       <td className="p-4">
                         <div className="space-y-1">

@@ -408,6 +408,10 @@ function formatRoleLabel(role: string | null | undefined) {
 export function AdminPortal() {
   const { user, logout } = useAuth()
   const [activeView, setActiveView] = useState('dashboard')
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false)
+  const [globalSearchResults, setGlobalSearchResults] = useState<Array<{ view: string; label: string; sublabel: string }>>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('inventory')
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -453,6 +457,184 @@ export function AdminPortal() {
     () => filteredNotifications.filter((item) => !item.isRead).length,
     [filteredNotifications]
   )
+
+  const runGlobalKeywordSearch = async () => {
+    const keyword = globalSearchQuery.trim().toLowerCase()
+    if (!keyword) return
+    setGlobalSearchLoading(true)
+    setGlobalSearchOpen(true)
+    try {
+      const endpoints = [
+        '/api/orders?page=1&pageSize=200&includeItems=preview',
+        '/api/customers?page=1&pageSize=200',
+        '/api/trips?page=1&pageSize=200',
+        '/api/warehouses?page=1&pageSize=200',
+        '/api/inventory?page=1&pageSize=200',
+        '/api/products?page=1&pageSize=200',
+        '/api/drivers?page=1&pageSize=200',
+        '/api/vehicles?page=1&pageSize=200',
+        '/api/replacements?page=1&pageSize=200',
+        '/api/feedback?page=1&pageSize=200',
+        '/api/users?page=1&pageSize=200',
+      ]
+      const responses = await Promise.all(endpoints.map((url) => safeFetchJson(url, { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })))
+      const [
+        ordersRes,
+        customersRes,
+        tripsRes,
+        warehousesRes,
+        inventoryRes,
+        productsRes,
+        driversRes,
+        vehiclesRes,
+        replacementsRes,
+        feedbackRes,
+        usersRes,
+      ] = responses
+
+      const include = (parts: unknown[]) => parts.map((part) => String(part || '').toLowerCase()).join(' ').includes(keyword)
+      const nextResults: Array<{ view: string; label: string; sublabel: string }> = []
+
+      if (ordersRes.ok) {
+        const rows = getCollection<any>(ordersRes.data, ['orders'])
+        rows.forEach((row) => {
+          if (!include([row?.orderNumber, row?.customer?.name, row?.customer?.email, row?.shippingName, row?.shippingCity, row?.status])) return
+          nextResults.push({
+            view: 'orders',
+            label: `Order ${String(row?.orderNumber || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.customer?.name || row?.shippingName || 'N/A')} | ${String(row?.status || 'N/A')}`,
+          })
+        })
+      }
+
+      if (customersRes.ok) {
+        const rows = getCollection<any>(customersRes.data, ['customers'])
+        rows.forEach((row) => {
+          if (!include([row?.name, row?.email, row?.phone, row?.city, row?.province])) return
+          nextResults.push({
+            view: 'customers',
+            label: `Client ${String(row?.name || row?.email || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.email || 'N/A')} | ${String(row?.city || '')} ${String(row?.province || '')}`.trim(),
+          })
+        })
+      }
+
+      if (tripsRes.ok) {
+        const rows = getCollection<any>(tripsRes.data, ['trips'])
+        rows.forEach((row) => {
+          if (!include([row?.tripNumber, row?.driver?.name, row?.status, row?.warehouse?.name])) return
+          nextResults.push({
+            view: 'trips',
+            label: `Trip ${String(row?.tripNumber || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.driver?.name || 'No driver')} | ${String(row?.status || 'N/A')}`,
+          })
+        })
+      }
+
+      if (warehousesRes.ok) {
+        const rows = getCollection<any>(warehousesRes.data, ['warehouses'])
+        rows.forEach((row) => {
+          if (!include([row?.name, row?.code, row?.city, row?.province])) return
+          nextResults.push({
+            view: 'warehouses',
+            label: `Warehouse ${String(row?.name || row?.code || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.code || 'N/A')} | ${String(row?.city || '')} ${String(row?.province || '')}`.trim(),
+          })
+        })
+      }
+
+      if (inventoryRes.ok) {
+        const rows = getCollection<any>(inventoryRes.data, ['inventory'])
+        rows.forEach((row) => {
+          if (!include([row?.productName, row?.sku, row?.warehouse?.name, row?.status])) return
+          nextResults.push({
+            view: 'inventory',
+            label: `Inventory ${String(row?.productName || row?.sku || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.sku || 'N/A')} | ${String(row?.status || 'N/A')}`,
+          })
+        })
+      }
+
+      if (productsRes.ok) {
+        const rows = getCollection<any>(productsRes.data, ['products'])
+        rows.forEach((row) => {
+          if (!include([row?.name, row?.sku, row?.category, row?.description])) return
+          nextResults.push({
+            view: 'inventory',
+            label: `Product ${String(row?.name || row?.sku || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.sku || 'N/A')} | ${String(row?.category || 'N/A')}`,
+          })
+        })
+      }
+
+      if (driversRes.ok) {
+        const rows = getCollection<any>(driversRes.data, ['drivers'])
+        rows.forEach((row) => {
+          if (!include([row?.name, row?.email, row?.phone, row?.licenseNumber])) return
+          nextResults.push({
+            view: 'transportation',
+            label: `Driver ${String(row?.name || row?.email || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.email || 'N/A')} | ${String(row?.licenseNumber || 'No license')}`,
+          })
+        })
+      }
+
+      if (vehiclesRes.ok) {
+        const rows = getCollection<any>(vehiclesRes.data, ['vehicles'])
+        rows.forEach((row) => {
+          if (!include([row?.plateNumber, row?.model, row?.type, row?.status])) return
+          nextResults.push({
+            view: 'transportation',
+            label: `Vehicle ${String(row?.plateNumber || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.model || 'N/A')} | ${String(row?.status || 'N/A')}`,
+          })
+        })
+      }
+
+      if (replacementsRes.ok) {
+        const rows = getCollection<any>(replacementsRes.data, ['replacements'])
+        rows.forEach((row) => {
+          if (!include([row?.replacementNumber, row?.orderNumber, row?.status, row?.customerName])) return
+          nextResults.push({
+            view: 'replacements',
+            label: `Replacement ${String(row?.replacementNumber || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.orderNumber || 'N/A')} | ${String(row?.status || 'N/A')}`,
+          })
+        })
+      }
+
+      if (feedbackRes.ok) {
+        const rows = getCollection<any>(feedbackRes.data, ['feedbacks'])
+        rows.forEach((row) => {
+          if (!include([row?.subject, row?.message, row?.customer?.name, row?.rating])) return
+          nextResults.push({
+            view: 'feedback',
+            label: `Feedback ${String(row?.subject || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.customer?.name || 'N/A')} | Rating ${String(row?.rating || 'N/A')}`,
+          })
+        })
+      }
+
+      if (usersRes.ok) {
+        const rows = getCollection<any>(usersRes.data, ['users'])
+        rows.forEach((row) => {
+          if (!include([row?.name, row?.email, row?.role, row?.phone])) return
+          nextResults.push({
+            view: 'users',
+            label: `User ${String(row?.name || row?.email || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.role || 'N/A')} | ${String(row?.email || 'N/A')}`,
+          })
+        })
+      }
+
+      setGlobalSearchResults(nextResults.slice(0, 120))
+    } catch {
+      setGlobalSearchResults([])
+      toast.error('Global search failed')
+    } finally {
+      setGlobalSearchLoading(false)
+    }
+  }
 
   useEffect(() => {
     async function fetchDashboardStats() {
@@ -538,11 +720,6 @@ export function AdminPortal() {
 
   useEffect(() => {
     void fetchNotifications({ silent: true })
-    const interval = setInterval(() => {
-      void fetchNotifications({ silent: true })
-    }, 60000)
-
-    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -675,7 +852,7 @@ export function AdminPortal() {
       case 'dashboard':
         return <DashboardView stats={stats} isLoading={isLoading} />
       case 'orders':
-        return <OrdersView onOpenTransportation={() => setActiveView('transportation')} />
+        return <OrdersView onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
       case 'trips':
         return <TripsView />
       case 'transportation':
@@ -718,7 +895,7 @@ export function AdminPortal() {
       case 'reports':
         return <ReportsView />
       case 'customers':
-        return <CustomersView />
+        return <CustomersView globalSearchQuery={globalSearchQuery} />
       case 'users':
         return <UsersView />
       case 'settings':
@@ -765,7 +942,13 @@ export function AdminPortal() {
                 <label className="sr-only" htmlFor="global-admin-search">Search orders and customers</label>
                 <Input
                   id="global-admin-search"
-                  placeholder="Search orders, customers..."
+                  placeholder="Search all by keyword..."
+                  value={globalSearchQuery}
+                  onChange={(event) => setGlobalSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    void runGlobalKeywordSearch()
+                  }}
                   className="w-64 border-white/40 bg-white/50 pl-10 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-md"
                 />
               </div>
@@ -863,6 +1046,41 @@ export function AdminPortal() {
           </AnimatePresence>
         </main>
       </div>
+      <Dialog open={globalSearchOpen} onOpenChange={setGlobalSearchOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Global Search</DialogTitle>
+            <DialogDescription>
+              Keyword: {globalSearchQuery.trim() || 'N/A'}
+            </DialogDescription>
+          </DialogHeader>
+          {globalSearchLoading ? (
+            <div className="flex items-center gap-2 py-3 text-sm text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Searching across all sections...
+            </div>
+          ) : globalSearchResults.length === 0 ? (
+            <p className="py-2 text-sm text-gray-500">No matches found.</p>
+          ) : (
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+              {globalSearchResults.map((item, index) => (
+                <button
+                  key={`${item.view}-${item.label}-${index}`}
+                  type="button"
+                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-left hover:bg-gray-50"
+                  onClick={() => {
+                    setActiveView(item.view)
+                    setGlobalSearchOpen(false)
+                  }}
+                >
+                  <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                  <p className="text-xs text-gray-500">{item.sublabel}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

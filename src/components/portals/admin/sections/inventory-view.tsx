@@ -179,13 +179,10 @@ export function InventoryView() {
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    const intervalId = window.setInterval(refreshSharedData, 30000)
-
     return () => {
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(intervalId)
     }
   }, [])
 

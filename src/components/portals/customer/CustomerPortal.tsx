@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Home, Package, User } from 'lucide-react'
 import { Poppins } from 'next/font/google'
@@ -105,6 +105,8 @@ export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
   const [pendingCancelOrder, setPendingCancelOrder] = useState<{ id: string; orderNumber: string } | null>(null)
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
+  const [isOrderConfirmationOpen, setIsOrderConfirmationOpen] = useState(false)
+  const [lastPlacedOrderNumber, setLastPlacedOrderNumber] = useState('')
   const [reviewByOrderId, setReviewByOrderId] = useState<Record<string, any>>({})
   const [customerDiscountOption, setCustomerDiscountOption] = useState('NO_DISCOUNT')
   const [customerDiscountStatus, setCustomerDiscountStatus] = useState('REMOVED')
@@ -115,6 +117,9 @@ export function CustomerPortal() {
   const [orderFilterStatus, setOrderFilterStatus] = useState('ALL')
   const [orderFilterDateFrom, setOrderFilterDateFrom] = useState('')
   const [orderFilterDateTo, setOrderFilterDateTo] = useState('')
+  const manualAddressPinDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manualAddressPinAbortRef = useRef<AbortController | null>(null)
+  const lastManualAddressQueryRef = useRef('')
   const {
     activeView,
     setActiveView,
@@ -563,32 +568,11 @@ export function CustomerPortal() {
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    // Fast polling for order status changes so customer UI updates near-instantly.
-    const statusIntervalId = window.setInterval(() => {
-      if (
-        document.visibilityState === 'visible' &&
-        (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
-      ) {
-        void refreshOrders(false)
-      }
-    }, 2500)
-
-    // Less frequent metadata sync (feedback/replacements) to avoid heavy refetches.
-    const metaIntervalId = window.setInterval(() => {
-      if (
-        document.visibilityState === 'visible' &&
-        (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
-      ) {
-        void refreshOrders(true)
-      }
-    }, 10000)
 
     return () => {
       unsubscribe()
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.clearInterval(statusIntervalId)
-      window.clearInterval(metaIntervalId)
     }
   }, [activeView, fetchOrderMeta, fetchOrders, isSelectedTrackingOrderDelivered])
 
@@ -728,17 +712,40 @@ export function CustomerPortal() {
       }
     }
 
+    const refreshTrackingIfVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      void fetchTracking()
+    }
+
     fetchTracking()
     if (isSelectedTrackingOrderDelivered) {
       return () => {
         mounted = false
       }
     }
-    const interval = setInterval(fetchTracking, 2500)
+
+    const unsubscribe = subscribeDataSync((message) => {
+      const scopes = message.scopes || []
+      if (scopes.includes('orders') || scopes.includes('trips')) {
+        refreshTrackingIfVisible()
+      }
+    })
+
+    const onFocus = () => refreshTrackingIfVisible()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshTrackingIfVisible()
+      }
+    }
+
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       mounted = false
-      clearInterval(interval)
+      unsubscribe()
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [activeView, orders, isSelectedTrackingOrderDelivered])
 
@@ -1253,7 +1260,8 @@ export function CustomerPortal() {
         const errorMessage = String(data?.error || data?.message || '').trim()
         throw new Error(errorMessage || `Failed to place order (HTTP ${response.status})`)
       }
-      toast.success('Order placed successfully')
+      setLastPlacedOrderNumber(String(data?.order?.orderNumber || data?.order?.id || '').trim())
+      setIsOrderConfirmationOpen(true)
       if (data?.order) {
         setOrders((prev) => [data.order, ...prev])
       }
@@ -1768,6 +1776,101 @@ export function CustomerPortal() {
       setIsResolvingPinnedAddress(false)
     }
   }
+
+  useEffect(() => {
+    if (!isAddressDialogOpen) return
+    if (isResolvingPinnedAddress) return
+
+    const street = String(shippingStreetName || '').trim()
+    const barangay = String(shippingBarangay || '').trim()
+    const city = String(shippingCity || '').trim()
+    const province = String(shippingProvince || '').trim()
+    const zip = String(shippingZipCode || '').trim()
+    const country = String(shippingCountry || 'Philippines').trim()
+    const house = String(shippingHouseNumber || '').trim()
+    const subdivision = String(shippingSubdivision || '').trim()
+
+    if (!street || !city || !province) return
+
+    const addressParts = [house, street, subdivision, barangay, city, province, zip, country]
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+    const query = addressParts.join(', ')
+    if (!query || query === lastManualAddressQueryRef.current) return
+
+    if (manualAddressPinDebounceRef.current) {
+      clearTimeout(manualAddressPinDebounceRef.current)
+    }
+
+    manualAddressPinDebounceRef.current = setTimeout(async () => {
+      try {
+        if (manualAddressPinAbortRef.current) {
+          manualAddressPinAbortRef.current.abort()
+        }
+        const controller = new AbortController()
+        manualAddressPinAbortRef.current = controller
+
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ph&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
+        )
+        if (!response.ok) return
+
+        const data = await response.json()
+        const top = Array.isArray(data) ? data[0] : null
+        const lat = Number(top?.lat)
+        const lng = Number(top?.lon)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+        if (!isWithinNegrosOccidental(lat, lng)) return
+
+        const sameLat = shippingLatitude !== null && Math.abs(shippingLatitude - lat) < 0.00001
+        const sameLng = shippingLongitude !== null && Math.abs(shippingLongitude - lng) < 0.00001
+        if (sameLat && sameLng) {
+          lastManualAddressQueryRef.current = query
+          return
+        }
+
+        setShippingLatitude(lat)
+        setShippingLongitude(lng)
+        lastManualAddressQueryRef.current = query
+      } catch {
+        // Keep manual typing flow uninterrupted when geocoding fails.
+      }
+    }, 700)
+
+    return () => {
+      if (manualAddressPinDebounceRef.current) {
+        clearTimeout(manualAddressPinDebounceRef.current)
+        manualAddressPinDebounceRef.current = null
+      }
+    }
+  }, [
+    isAddressDialogOpen,
+    isResolvingPinnedAddress,
+    shippingHouseNumber,
+    shippingStreetName,
+    shippingSubdivision,
+    shippingBarangay,
+    shippingCity,
+    shippingProvince,
+    shippingZipCode,
+    shippingCountry,
+    shippingLatitude,
+    shippingLongitude,
+    setShippingLatitude,
+    setShippingLongitude,
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (manualAddressPinDebounceRef.current) {
+        clearTimeout(manualAddressPinDebounceRef.current)
+      }
+      if (manualAddressPinAbortRef.current) {
+        manualAddressPinAbortRef.current.abort()
+      }
+    }
+  }, [])
 
   const searchAddressInNegrosOccidental = async () => {
     const query = addressSearch.trim()
@@ -2413,6 +2516,33 @@ export function CustomerPortal() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isOrderConfirmationOpen} onOpenChange={setIsOrderConfirmationOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Order Placed Successfully</DialogTitle>
+            <DialogDescription>
+              {lastPlacedOrderNumber
+                ? `Your order ${lastPlacedOrderNumber} has been submitted and is now being processed.`
+                : 'Your order has been submitted and is now being processed.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsOrderConfirmationOpen(false)
+                setActiveView('orders')
+              }}
+            >
+              View Orders
+            </Button>
+            <Button onClick={() => setIsOrderConfirmationOpen(false)}>
+              OK
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isFilterDialogOpen} onOpenChange={setIsFilterDialogOpen}>
         <DialogContent>
