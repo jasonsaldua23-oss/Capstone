@@ -303,7 +303,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
 
     const unsubscribe = subscribeDataSync((message) => {
       if (message.scopes.includes('orders') || message.scopes.includes('trips')) {
-        void fetchOrdersDeltaIfChanged(true)
+        void fetchOrdersFull(true)
       }
     })
 

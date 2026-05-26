@@ -121,8 +121,7 @@ export function WarehouseDashboardView({
 
       {/* Order Status Cards */}
       <div className="grid grid-cols-4 gap-5">
-        <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-100 shadow-[0_18px_40px_rgba(37,99,235,0.16)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(37,99,235,0.22)]">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-blue-300/25 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-blue-50 shadow-[0_18px_40px_rgba(37,99,235,0.16)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(37,99,235,0.22)]">
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
             <div className="inline-flex w-fit rounded-2xl border border-blue-200/60 bg-white/70 p-2.5 text-blue-700 backdrop-blur">
               <ShoppingCart className="h-5 w-5" />
@@ -134,8 +133,7 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
 
-        <Card className="group relative overflow-hidden rounded-3xl border border-rose-100/70 bg-gradient-to-br from-rose-50 via-pink-50 to-red-100 shadow-[0_18px_40px_rgba(225,29,72,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(225,29,72,0.2)]">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-rose-300/25 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-rose-100/70 bg-rose-50 shadow-[0_18px_40px_rgba(225,29,72,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(225,29,72,0.2)]">
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
             <div className="inline-flex w-fit rounded-2xl border border-rose-200/60 bg-white/70 p-2.5 text-rose-700 backdrop-blur">
               <Package className="h-5 w-5" />
@@ -147,8 +145,7 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
 
-        <Card className="group relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-100 shadow-[0_18px_40px_rgba(5,150,105,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(5,150,105,0.2)]">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-emerald-300/25 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-emerald-50 shadow-[0_18px_40px_rgba(5,150,105,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(5,150,105,0.2)]">
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
             <div className="inline-flex w-fit rounded-2xl border border-emerald-200/60 bg-white/70 p-2.5 text-emerald-700 backdrop-blur">
               <CircleCheck className="h-5 w-5" />
@@ -160,8 +157,7 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
 
-        <Card className="group relative overflow-hidden rounded-3xl border border-indigo-100/70 bg-gradient-to-br from-indigo-50 via-blue-50 to-violet-100 shadow-[0_18px_40px_rgba(79,70,229,0.15)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(79,70,229,0.22)]">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-indigo-300/25 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-indigo-100/70 bg-indigo-50 shadow-[0_18px_40px_rgba(79,70,229,0.15)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(79,70,229,0.22)]">
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
             <div className="inline-flex w-fit rounded-2xl border border-indigo-200/60 bg-white/70 p-2.5 text-indigo-700 backdrop-blur">
               <Truck className="h-5 w-5" />
@@ -176,8 +172,7 @@ export function WarehouseDashboardView({
 
       {/* Enhanced Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-gradient-to-br from-white via-blue-50/70 to-indigo-100/60 shadow-[0_14px_32px_rgba(37,99,235,0.12)] transition-all duration-300 hover:-translate-y-0.5">
-          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-blue-300/20 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-blue-50 shadow-[0_14px_32px_rgba(37,99,235,0.12)] transition-all duration-300 hover:-translate-y-0.5">
           <CardContent className="relative flex h-full items-start gap-3 p-6">
             <div className="rounded-2xl border border-blue-200/60 bg-white/80 p-2.5 text-blue-700 backdrop-blur">
               <Warehouse className="h-5 w-5" />
@@ -191,8 +186,7 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
 
-        <Card className="group relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-gradient-to-br from-white via-emerald-50/70 to-teal-100/60 shadow-[0_14px_32px_rgba(5,150,105,0.11)] transition-all duration-300 hover:-translate-y-0.5">
-          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-emerald-300/20 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-emerald-50 shadow-[0_14px_32px_rgba(5,150,105,0.11)] transition-all duration-300 hover:-translate-y-0.5">
           <CardContent className="relative flex h-full items-start gap-3 p-6">
             <div className="rounded-2xl border border-emerald-200/60 bg-white/80 p-2.5 text-emerald-700 backdrop-blur">
               <Boxes className="h-5 w-5" />
@@ -205,8 +199,7 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
 
-        <Card className="group relative overflow-hidden rounded-3xl border border-rose-100/70 bg-gradient-to-br from-white via-rose-50/70 to-pink-100/60 shadow-[0_14px_32px_rgba(225,29,72,0.12)] transition-all duration-300 hover:-translate-y-0.5">
-          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-rose-300/20 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-rose-100/70 bg-rose-50 shadow-[0_14px_32px_rgba(225,29,72,0.12)] transition-all duration-300 hover:-translate-y-0.5">
           <CardContent className="relative flex h-full items-start gap-3 p-6">
             <div className="rounded-2xl border border-rose-200/60 bg-white/80 p-2.5 text-rose-700 backdrop-blur">
               <AlertTriangle className="h-5 w-5" />
@@ -218,8 +211,7 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
 
-        <Card className="group relative overflow-hidden rounded-3xl border border-amber-100/70 bg-gradient-to-br from-white via-amber-50/70 to-orange-100/60 shadow-[0_14px_32px_rgba(217,119,6,0.12)] transition-all duration-300 hover:-translate-y-0.5">
-          <div className="pointer-events-none absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-amber-300/20 blur-2xl" />
+        <Card className="group relative overflow-hidden rounded-3xl border border-amber-100/70 bg-amber-50 shadow-[0_14px_32px_rgba(217,119,6,0.12)] transition-all duration-300 hover:-translate-y-0.5">
           <CardContent className="relative flex h-full items-start gap-3 p-6">
             <div className="rounded-2xl border border-amber-200/60 bg-white/80 p-2.5 text-amber-700 backdrop-blur">
               <Package className="h-5 w-5" />

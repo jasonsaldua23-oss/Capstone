@@ -65,15 +65,15 @@ export function PortalCardsSkeleton({
       {Array.from({ length: cards }).map((_, index) => (
         <Card key={`card-skeleton-${index}`}>
           <CardContent className={cn('pt-6', compact ? 'space-y-3' : 'space-y-4')}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-3">
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-4 w-56" />
-                <Skeleton className="h-4 w-28" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <div className="min-w-0 flex-1 space-y-3">
+                <Skeleton className="h-5 w-40 max-w-full" />
+                <Skeleton className="h-4 w-56 max-w-full" />
+                <Skeleton className="h-4 w-28 max-w-full" />
               </div>
-              <div className="flex gap-2">
-                <Skeleton className="h-9 w-20 rounded-lg" />
-                <Skeleton className="h-9 w-20 rounded-lg" />
+              <div className="flex w-full gap-2 sm:w-auto">
+                <Skeleton className="h-9 w-full rounded-lg sm:w-20" />
+                <Skeleton className="h-9 w-full rounded-lg sm:w-20" />
               </div>
             </div>
           </CardContent>

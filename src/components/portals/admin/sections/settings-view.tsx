@@ -7,13 +7,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
-import { Eye, EyeOff } from 'lucide-react'
+import { validatePasswordPolicy } from '@/lib/password-policy'
+import { CheckCircle2, Eye, EyeOff, XCircle } from 'lucide-react'
 
 export function SettingsView() {
   const { user, setUser } = useAuth()
   const [name, setName] = useState(user?.name || '')
   const [email, setEmail] = useState(user?.email || '')
+  const [phone, setPhone] = useState(String((user as any)?.phone || ''))
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
@@ -32,6 +33,15 @@ export function SettingsView() {
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
   const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
   const [isVerifyingPasswordOtp, setIsVerifyingPasswordOtp] = useState(false)
+  const hasNewPassword = newPassword.length > 0
+  const passwordRequirements = [
+    { id: 'length', label: 'At least 8 characters', met: newPassword.length >= 8 },
+    { id: 'upper', label: 'At least 1 uppercase letter', met: hasNewPassword && /[A-Z]/.test(newPassword) },
+    { id: 'lower', label: 'At least 1 lowercase letter', met: hasNewPassword && /[a-z]/.test(newPassword) },
+    { id: 'number', label: 'At least 1 number', met: hasNewPassword && /\d/.test(newPassword) },
+    { id: 'special', label: 'At least 1 special character', met: hasNewPassword && /[^A-Za-z0-9\s]/.test(newPassword) },
+    { id: 'no-spaces', label: 'No spaces', met: hasNewPassword && !/\s/.test(newPassword) },
+  ]
 
   const userId = (user as any)?.userId || (user as any)?.id
   const accountEmail = String((user as any)?.email || '').trim().toLowerCase()
@@ -49,6 +59,7 @@ export function SettingsView() {
   useEffect(() => {
     setName(String((user as any)?.name || ''))
     setEmail(String((user as any)?.email || ''))
+    setPhone(String((user as any)?.phone || ''))
   }, [user])
 
   const requestOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
@@ -148,6 +159,7 @@ export function SettingsView() {
         body: JSON.stringify({
           name,
           email,
+          phone,
           emailVerificationToken: isEmailChanged ? profileOtpToken : undefined,
         }),
       })
@@ -160,9 +172,11 @@ export function SettingsView() {
         ...(prev || {}),
         name: nextUser.name ?? name,
         email: nextUser.email ?? email,
+        phone: nextUser.phone ?? phone,
       }))
       setName(String(nextUser.name ?? name))
       setEmail(String(nextUser.email ?? email))
+      setPhone(String(nextUser.phone ?? phone))
       toast.success('Profile updated successfully')
       if (isEmailChanged) {
         setProfileOtpSent(false)
@@ -278,6 +292,15 @@ export function SettingsView() {
                   }}
                 />
               </div>
+              <div className="space-y-2">
+                <label htmlFor="phone" className="text-sm font-medium text-gray-700">Phone</label>
+                <Input
+                  id="phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="09XX XXX XXXX"
+                />
+              </div>
               {isEmailChanged ? (
                 <div className="space-y-2 rounded-md border p-3">
                   <p className="text-xs text-gray-600">OTP is required to change email.</p>
@@ -318,7 +341,18 @@ export function SettingsView() {
                     {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
+                <div className="space-y-1">
+                  {passwordRequirements.map((rule) => (
+                    <div key={rule.id} className="flex items-start gap-2 text-xs">
+                      {rule.met ? (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
+                      ) : (
+                        <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
+                      )}
+                      <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div className="space-y-2">
                 <label htmlFor="confirm-password" className="text-sm font-medium text-gray-700">Confirm Password</label>

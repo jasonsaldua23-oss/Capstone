@@ -21,6 +21,7 @@ interface DataSyncMessage {
 
 const CHANNEL_NAME = 'logistics-data-sync'
 const STORAGE_KEY = 'logistics-data-sync-event'
+const WINDOW_EVENT_NAME = 'logistics-data-sync-event'
 
 function normalizeScopes(scopes: DataSyncScope[]): DataSyncScope[] {
   return Array.from(new Set(scopes))
@@ -32,6 +33,9 @@ export function emitDataSync(scopes: DataSyncScope[]) {
     scopes: normalizeScopes(scopes),
     timestamp: Date.now(),
   }
+
+  // Immediate same-tab delivery so UI updates without waiting on cross-context channels.
+  window.dispatchEvent(new CustomEvent<DataSyncMessage>(WINDOW_EVENT_NAME, { detail: message }))
 
   if (typeof BroadcastChannel !== 'undefined') {
     const channel = new BroadcastChannel(CHANNEL_NAME)
@@ -71,10 +75,19 @@ export function subscribeDataSync(handler: (message: DataSyncMessage) => void) {
     }
   }
 
+  const onWindowEvent = (event: Event) => {
+    const customEvent = event as CustomEvent<DataSyncMessage>
+    const message = customEvent.detail
+    if (!message?.scopes?.length) return
+    handler(message)
+  }
+
   window.addEventListener('storage', onStorage)
+  window.addEventListener(WINDOW_EVENT_NAME, onWindowEvent as EventListener)
 
   return () => {
     window.removeEventListener('storage', onStorage)
+    window.removeEventListener(WINDOW_EVENT_NAME, onWindowEvent as EventListener)
     if (channel) {
       channel.close()
     }

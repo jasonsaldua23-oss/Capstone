@@ -790,7 +790,6 @@ export function AdminPortal() {
                   }`}
                   onClick={() => {
                     setActiveView(item.id)
-                    if (item.id === 'inventory') setInventorySubView('stocks')
                     setSidebarOpen(false)
                   }}
                 >

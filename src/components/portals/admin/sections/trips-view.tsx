@@ -140,17 +140,7 @@ export function TripsView() {
   }, [drivers, selectedRouteDriverId, availableVehicleIdSet])
 
   const fetchSavedRoutes = async () => {
-    if (savedRoutesGetUnsupportedRef.current) return
-    const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 0, timeoutMs: 8000 })
-    if (!result.ok) {
-      if (Number(result.status || 0) === 405) {
-        savedRoutesGetUnsupportedRef.current = true
-      }
-      console.error('Failed to fetch saved routes:', result.error || 'Request failed')
-      setSavedRoutes([])
-      return
-    }
-    setSavedRoutes(getCollection<any>(result.data, ['savedRoutes']))
+    setSavedRoutes([])
   }
 
   const deleteSavedRouteDraft = async (routeId: string) => {
@@ -184,9 +174,7 @@ export function TripsView() {
           safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/drivers', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/vehicles?status=AVAILABLE', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
-          savedRoutesGetUnsupportedRef.current
-            ? Promise.resolve({ ok: false as const, data: null, status: 405, error: 'Method Not Allowed' })
-            : safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 0, timeoutMs: 8000 }),
+          Promise.resolve({ ok: true as const, data: { savedRoutes: [] } }),
         ])
 
         setTrips(tripsResult.ok ? getCollection<any>(tripsResult.data, ['trips']) : [])

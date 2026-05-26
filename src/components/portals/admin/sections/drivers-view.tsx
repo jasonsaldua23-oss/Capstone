@@ -29,7 +29,7 @@ import {
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
-import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
+import { validatePasswordPolicy } from '@/lib/password-policy'
 import {
   toArray,
   getCollection,
@@ -82,6 +82,15 @@ export function DriversView() {
     address: '',
     zipCode: '',
   })
+  const hasDriverPassword = driverForm.password.length > 0
+  const driverPasswordRequirements = [
+    { id: 'length', label: 'At least 8 characters', met: driverForm.password.length >= 8 },
+    { id: 'upper', label: 'At least 1 uppercase letter', met: hasDriverPassword && /[A-Z]/.test(driverForm.password) },
+    { id: 'lower', label: 'At least 1 lowercase letter', met: hasDriverPassword && /[a-z]/.test(driverForm.password) },
+    { id: 'number', label: 'At least 1 number', met: hasDriverPassword && /\d/.test(driverForm.password) },
+    { id: 'special', label: 'At least 1 special character', met: hasDriverPassword && /[^A-Za-z0-9\s]/.test(driverForm.password) },
+    { id: 'no-spaces', label: 'No spaces', met: hasDriverPassword && !/\s/.test(driverForm.password) },
+  ]
 
   const isDriverAssignable = (driver: any) => {
     const status = String(driver?.status || '').toUpperCase()
@@ -412,7 +421,18 @@ export function DriversView() {
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Password</label>
                   <Input type="password" value={driverForm.password} onChange={(e) => setDriverForm((f) => ({ ...f, password: e.target.value }))} />
-                  <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
+                  <div className="space-y-1">
+                    {driverPasswordRequirements.map((rule) => (
+                      <div key={rule.id} className="flex items-start gap-2 text-xs">
+                        {rule.met ? (
+                          <CircleCheck className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
+                        ) : (
+                          <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
+                        )}
+                        <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-sm font-medium text-gray-700">Role</label>

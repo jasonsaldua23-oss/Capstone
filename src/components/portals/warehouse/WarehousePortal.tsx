@@ -39,7 +39,7 @@ import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
-import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
+import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
 import {
   Boxes,
@@ -649,6 +649,15 @@ export function WarehousePortal() {
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
   const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
   const [isVerifyingPasswordOtp, setIsVerifyingPasswordOtp] = useState(false)
+  const hasNewPassword = newPassword.length > 0
+  const passwordRequirements = [
+    { id: 'length', label: 'At least 8 characters', met: newPassword.length >= 8 },
+    { id: 'upper', label: 'At least 1 uppercase letter', met: hasNewPassword && /[A-Z]/.test(newPassword) },
+    { id: 'lower', label: 'At least 1 lowercase letter', met: hasNewPassword && /[a-z]/.test(newPassword) },
+    { id: 'number', label: 'At least 1 number', met: hasNewPassword && /\d/.test(newPassword) },
+    { id: 'special', label: 'At least 1 special character', met: hasNewPassword && /[^A-Za-z0-9\s]/.test(newPassword) },
+    { id: 'no-spaces', label: 'No spaces', met: hasNewPassword && !/\s/.test(newPassword) },
+  ]
 
   useEffect(() => {
     if (!trackingDate) {
@@ -2305,22 +2314,7 @@ export function WarehousePortal() {
   }
 
   const fetchSavedRoutesData = async () => {
-    if (savedRoutesGetUnsupportedRef.current) return
-    try {
-      const result = await safeFetchJson('/api/trips/saved-routes?limit=200', { cache: 'no-store' }, { retries: 0, timeoutMs: 8000 })
-      if (!result.ok) {
-        if (Number(result.status || 0) === 405) {
-          savedRoutesGetUnsupportedRef.current = true
-        }
-        return
-      }
-      if ((result.data as any)?.success === false) {
-        return
-      }
-      setSavedRoutes(getCollection<SavedRouteDraft>(result.data, ['savedRoutes']))
-    } catch (error) {
-      console.warn('Failed to load saved routes:', error)
-    }
+    setSavedRoutes([])
   }
 
   useEffect(() => {
@@ -2832,7 +2826,7 @@ export function WarehousePortal() {
         await fetchInventoryTransactionsData()
         await (initial
           ? fetchOrdersData({ showLoading: true })
-          : fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true }))
+          : fetchOrdersData({ showLoading: false, silent: true }))
         await fetchTripsData()
         await fetchReplacementsData()
         await fetchDriversData()
@@ -2859,7 +2853,7 @@ export function WarehousePortal() {
         })()
       }
       if (scopes.includes('orders')) {
-        void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
+        void fetchOrdersData({ showLoading: false, silent: true })
       }
       if (scopes.includes('trips')) {
         void fetchTripsData()
@@ -4062,7 +4056,6 @@ export function WarehousePortal() {
           activeView={activeView}
           onSelectView={(viewId) => {
             setActiveView(viewId as WarehouseView)
-            if (viewId === 'inventory') setInventorySubView('stocks')
             setSidebarOpen(false)
           }}
           onLogout={handleLogout}
@@ -4076,7 +4069,6 @@ export function WarehousePortal() {
             activeView={activeView}
             onSelectView={(viewId) => {
               setActiveView(viewId as WarehouseView)
-              if (viewId === 'inventory') setInventorySubView('stocks')
               setSidebarOpen(false)
             }}
             onLogout={handleLogout}
@@ -4409,7 +4401,18 @@ export function WarehousePortal() {
                         {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500">{PASSWORD_POLICY_MESSAGE}</p>
+                    <div className="space-y-1">
+                      {passwordRequirements.map((rule) => (
+                        <div key={rule.id} className="flex items-start gap-2 text-xs">
+                          {rule.met ? (
+                            <CircleCheck className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
+                          ) : (
+                            <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
+                          )}
+                          <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="warehouse-profile-confirm-password">Confirm New Password</Label>

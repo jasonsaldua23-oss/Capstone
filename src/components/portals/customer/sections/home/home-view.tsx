@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'
-import { Heart, Loader2, Package, Search, ShoppingCart } from 'lucide-react'
+import { Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
   customerName: string
@@ -36,7 +36,6 @@ export function CustomerHomeView({
 }: CustomerHomeViewProps) {
   const [welcomeMessage, setWelcomeMessage] = useState('Welcome back!')
   const [cardQtyByProductId, setCardQtyByProductId] = useState<Record<string, number>>({})
-  const [favoriteProductIds, setFavoriteProductIds] = useState<Record<string, true>>({})
   const totalUnits = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
   const estimatedTotal = cart.reduce(
     (sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0),
@@ -57,25 +56,7 @@ export function CustomerHomeView({
     setCardQtyByProductId((prev) => ({ ...prev, [productId]: clamped }))
   }
 
-  const sortedProducts = useMemo(() => {
-    return [...filteredProducts].sort((a, b) => {
-      const aFav = Boolean(a?.id && favoriteProductIds[a.id])
-      const bFav = Boolean(b?.id && favoriteProductIds[b.id])
-      if (aFav === bFav) return 0
-      return aFav ? -1 : 1
-    })
-  }, [filteredProducts, favoriteProductIds])
-
-  const toggleFavorite = (productId: string) => {
-    setFavoriteProductIds((prev) => {
-      if (prev[productId]) {
-        const next = { ...prev }
-        delete next[productId]
-        return next
-      }
-      return { ...prev, [productId]: true }
-    })
-  }
+  const sortedProducts = useMemo(() => [...filteredProducts], [filteredProducts])
 
   useEffect(() => {
     const normalizedName = String(customerName || '').trim()
@@ -153,38 +134,22 @@ export function CustomerHomeView({
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
                   : 0
                 const currentQty = p ? getCardQty(p.id, availableQty) : 24
-                const isFavorite = Boolean(p?.id && favoriteProductIds[p.id])
-
                 return (
                   <Card
                     key={p?.id || `placeholder-${index}`}
                     className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_8px_20px_rgba(16,24,40,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(16,24,40,0.12)] md:rounded-2xl"
                   >
-                    <CardContent className="p-1 md:p-6">
-                      <div className="mb-1 flex justify-end md:mb-2">
-                        <button
-                          type="button"
-                          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                          onClick={() => p?.id && toggleFavorite(p.id)}
-                          className={`rounded-full p-1 transition-colors ${
-                            isFavorite
-                              ? 'text-rose-500 hover:text-rose-600'
-                              : 'text-slate-400 hover:text-emerald-600'
-                          }`}
-                        >
-                          <Heart className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />
-                        </button>
-                      </div>
+                    <CardContent className="relative p-1.5 md:p-6">
                       <div className="flex gap-1.5 md:gap-5">
-                        <div className="relative w-[42%] shrink-0 rounded-lg bg-[#f3f8f3] p-0.5 md:rounded-xl md:p-3">
+                        <div className="relative w-[48%] shrink-0 overflow-hidden rounded-lg bg-[#f3f8f3] p-0 md:w-[46%] md:rounded-xl md:p-1.5">
                           {p?.imageUrl ? (
                             <img
                               src={getProductImage(p.imageUrl)}
                               alt={p.name}
-                              className="h-[88px] w-full rounded-md object-contain md:h-[160px] md:rounded-lg md:object-contain"
+                              className="h-[92px] w-full rounded-md object-cover md:h-[160px] md:rounded-lg md:object-cover"
                             />
                           ) : (
-                            <div className="grid h-[88px] w-full place-items-center rounded-md bg-[#edf7ef] md:h-[160px] md:rounded-lg">
+                            <div className="grid h-[92px] w-full place-items-center rounded-md bg-[#edf7ef] md:h-[160px] md:rounded-lg">
                               <Package className="h-8 w-8 text-slate-400/60 md:h-12 md:w-12" />
                             </div>
                           )}
@@ -207,7 +172,7 @@ export function CustomerHomeView({
                         </div>
                       </div>
 
-                      <div className="mt-0.5 pt-0">
+                      <div className="mt-0.5 pt-0.5">
                         <p className="mb-1 text-[11px] font-semibold text-slate-700 md:text-xs">Quantity</p>
                         <div className="mb-0.5 flex items-center justify-between rounded-md border border-emerald-100 bg-white px-1 py-0.5">
                           <button

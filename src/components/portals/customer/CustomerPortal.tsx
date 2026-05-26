@@ -35,6 +35,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import {
   cancelCustomerOrder,
   createCustomerOrder,
@@ -2518,26 +2519,17 @@ export function CustomerPortal() {
       </AlertDialog>
 
       <Dialog open={isOrderConfirmationOpen} onOpenChange={setIsOrderConfirmationOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[92vw] max-w-[360px] rounded-2xl border border-emerald-100 bg-white p-4 shadow-xl md:max-w-sm md:p-6">
           <DialogHeader>
-            <DialogTitle>Order Placed Successfully</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-lg font-bold text-emerald-700">Order Placed Successfully</DialogTitle>
+            <DialogDescription className="text-sm text-slate-600">
               {lastPlacedOrderNumber
                 ? `Your order ${lastPlacedOrderNumber} has been submitted and is now being processed.`
                 : 'Your order has been submitted and is now being processed.'}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsOrderConfirmationOpen(false)
-                setActiveView('orders')
-              }}
-            >
-              View Orders
-            </Button>
-            <Button onClick={() => setIsOrderConfirmationOpen(false)}>
+            <Button className="h-9 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => setIsOrderConfirmationOpen(false)}>
               OK
             </Button>
           </div>

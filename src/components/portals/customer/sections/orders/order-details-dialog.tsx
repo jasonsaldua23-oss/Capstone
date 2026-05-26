@@ -382,7 +382,12 @@ export function CustomerOrderDetailsDialog(props: any) {
                         alt={item.product?.name || 'Product'}
                         className="h-6 w-6 rounded border border-slate-200 object-cover bg-white md:h-8 md:w-8"
                       />
-                      <span className="truncate text-slate-800">{item.product?.name || 'Item'}</span>
+                      <div className="min-w-0">
+                        <p className="truncate text-slate-800">{item.product?.name || 'Item'}</p>
+                        <p className="truncate text-[10px] text-slate-500 md:text-xs">
+                          Size: {String(item.product?.sizeLabel || item.product?.size || item.product?.unit || '').trim() || 'N/A'}
+                        </p>
+                      </div>
                     </div>
                     <span className="text-right text-slate-700">{item.quantity}</span>
                     <span className="text-right text-slate-700">{formatPeso(item.unitPrice || 0)}</span>
