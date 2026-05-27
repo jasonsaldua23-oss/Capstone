@@ -7,33 +7,50 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="order",
-            name="dispatch_signed_off_by",
-        ),
-        migrations.RemoveField(
-            model_name="order",
-            name="dispatch_signed_off_user_id",
-        ),
-        migrations.RemoveField(
-            model_name="order",
-            name="dispatch_signed_off_at",
-        ),
-        migrations.RemoveField(
-            model_name="order",
-            name="exception_short_load_qty",
-        ),
-        migrations.RemoveField(
-            model_name="order",
-            name="exception_damaged_on_loading_qty",
-        ),
-        migrations.RemoveField(
-            model_name="order",
-            name="exception_hold_reason",
-        ),
-        migrations.RemoveField(
-            model_name="order",
-            name="exception_notes",
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "dispatch_signed_off_by";
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "dispatch_signed_off_user_id";
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "dispatch_signed_off_at";
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_short_load_qty";
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_damaged_on_loading_qty";
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_hold_reason";
+                    ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_notes";
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="order",
+                    name="dispatch_signed_off_by",
+                ),
+                migrations.RemoveField(
+                    model_name="order",
+                    name="dispatch_signed_off_user_id",
+                ),
+                migrations.RemoveField(
+                    model_name="order",
+                    name="dispatch_signed_off_at",
+                ),
+                migrations.RemoveField(
+                    model_name="order",
+                    name="exception_short_load_qty",
+                ),
+                migrations.RemoveField(
+                    model_name="order",
+                    name="exception_damaged_on_loading_qty",
+                ),
+                migrations.RemoveField(
+                    model_name="order",
+                    name="exception_hold_reason",
+                ),
+                migrations.RemoveField(
+                    model_name="order",
+                    name="exception_notes",
+                ),
+            ],
         ),
     ]
-
