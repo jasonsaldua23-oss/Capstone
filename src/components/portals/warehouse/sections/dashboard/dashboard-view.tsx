@@ -2,13 +2,14 @@
 
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
 import { AlertTriangle, Boxes, Loader2, Warehouse, TrendingUp, Package, ShoppingCart, CircleCheck, Truck } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ChartContainer } from '@/components/ui/chart'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import type { WarehouseDashboardViewProps } from '../shared/types'
 
 export function WarehouseDashboardView({
@@ -32,27 +33,25 @@ export function WarehouseDashboardView({
   loadingInventoryTransactions,
   filteredInventoryTransactions,
 }: WarehouseDashboardViewProps) {
-  const [welcomeMessage] = useState(() => {
-    if (typeof window === 'undefined') return 'Welcome back!'
+  const [welcomeState] = useState(() => {
+    if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
     try {
       const raw = window.sessionStorage.getItem('warehouse_welcome_state')
-      if (!raw) return 'Welcome back!'
+      if (!raw) return { open: false, message: 'Welcome back!' }
       const parsed = JSON.parse(raw) as { mode?: string; name?: string }
       const mode = String(parsed?.mode || '').toLowerCase()
       const name = String(parsed?.name || '').trim()
-      return mode === 'new'
+      const message = mode === 'new'
         ? (name ? `Welcome, ${name}` : 'Welcome!')
         : (name ? `Welcome back, ${name}` : 'Welcome back!')
+      window.sessionStorage.removeItem('warehouse_welcome_state')
+      return { open: true, message }
     } catch {
-      return 'Welcome back!'
+      return { open: false, message: 'Welcome back!' }
     }
   })
-
-  useEffect(() => {
-    try {
-      window.sessionStorage.removeItem('warehouse_welcome_state')
-    } catch {}
-  }, [])
+  const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
+  const welcomeMessage = welcomeState.message
 
   const weeklyTrendAxis = useMemo(() => {
     const rawMax = weeklyTrendData.reduce((max, item) => {
@@ -114,9 +113,20 @@ export function WarehouseDashboardView({
 
   return (
     <div className="space-y-6">
+      <WelcomePopup
+        open={showWelcomePopup}
+        message={welcomeMessage}
+        subtitle="Warehouse operations and stock health overview."
+        onClose={() => setShowWelcomePopup(false)}
+        overlayClassName="bg-black/70"
+        panelClassName="border-indigo-200 bg-gradient-to-br from-white to-indigo-50"
+        titleClassName="text-slate-900"
+        subtitleClassName="text-slate-600"
+        buttonClassName="bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+      />
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Warehouse Dashboard</h1>
-        <p className="text-gray-500">{welcomeMessage} Warehouse operations and stock health overview.</p>
+        <p className="text-gray-500">Warehouse operations and stock health overview.</p>
       </div>
 
       {/* Order Status Cards */}

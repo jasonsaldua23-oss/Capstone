@@ -40,6 +40,7 @@ export function CustomerLoginPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [name, setName] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
@@ -119,10 +120,6 @@ export function CustomerLoginPage() {
       }
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
-      {
-        const displayName = String(data?.user?.name || '').trim()
-        toast.success(displayName ? `Welcome back, ${displayName}` : 'Welcome back!')
-      }
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -206,6 +203,7 @@ export function CustomerLoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoginError('')
     setIsLoading(true)
 
     try {
@@ -224,6 +222,17 @@ export function CustomerLoginPage() {
 
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
+        const normalizedApiError = apiError.toLowerCase()
+        const isCredentialError =
+          response.status === 401 ||
+          response.status === 403 ||
+          normalizedApiError.includes('invalid') ||
+          normalizedApiError.includes('credential') ||
+          normalizedApiError.includes('password')
+        if (isCredentialError) {
+          setLoginError('Invalid email or password.')
+          return
+        }
         const fallbackError = response.status >= 500
           ? 'Login service is temporarily unavailable. Please try again shortly.'
           : 'Login failed'
@@ -232,10 +241,6 @@ export function CustomerLoginPage() {
       }
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
-      {
-        const displayName = String(data?.user?.name || '').trim()
-        toast.success(displayName ? `Welcome back, ${displayName}` : 'Welcome back!')
-      }
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -294,10 +299,6 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState('new', String(data?.user?.name || name || '').trim())
       if (data.token) setTabAuthToken(data.token)
-      {
-        const displayName = String(data?.user?.name || name || '').trim()
-        toast.success(displayName ? `Welcome, ${displayName}` : 'Welcome!')
-      }
       setConfirmPassword('')
       router.replace('/')
     } catch {
@@ -379,10 +380,7 @@ export function CustomerLoginPage() {
   if (isCheckingSession) {
     return (
       <div className={`${poppins.className} min-h-screen bg-[#eaf6ff] flex items-center justify-center px-4`}>
-        <div className="flex items-center gap-3 rounded-2xl bg-white/90 px-5 py-3 shadow-lg ring-1 ring-sky-200/80">
-          <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
-          <span className="text-sm font-medium text-slate-700">Opening your workspace...</span>
-        </div>
+        <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
       </div>
     )
   }
@@ -417,16 +415,17 @@ export function CustomerLoginPage() {
               <form onSubmit={handleLogin} autoComplete="off" className="space-y-2.5 sm:space-y-4">
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="customer-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email</Label>
-                  <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-10 rounded-xl border-sky-100 bg-sky-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500 sm:h-12 sm:text-base" />
+                  <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className={`h-10 rounded-xl px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] sm:h-12 sm:text-base ${loginError ? 'border-rose-300 bg-rose-50/40 focus-visible:ring-rose-500' : 'border-sky-100 bg-sky-50/50 focus-visible:ring-sky-500'}`} />
                 </div>
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="customer-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
                   <div className="relative">
-                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-10 rounded-xl border-sky-100 bg-sky-50/50 pr-10 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-sky-500 sm:h-12 sm:pr-11 sm:text-base" />
+                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className={`h-10 rounded-xl pr-10 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] sm:h-12 sm:pr-11 sm:text-base ${loginError ? 'border-rose-300 bg-rose-50/40 focus-visible:ring-rose-500' : 'border-sky-100 bg-sky-50/50 focus-visible:ring-sky-500'}`} />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {loginError ? <p className="text-[12px] text-rose-600 sm:text-sm">{loginError}</p> : null}
                 </div>
                 <label className="flex items-center gap-2 text-[12px] text-slate-600 sm:text-sm">
                   <input
@@ -451,7 +450,10 @@ export function CustomerLoginPage() {
                   Don&apos;t have an account?{' '}
                   <button
                     type="button"
-                    onClick={() => setAuthMode('register')}
+                    onClick={() => {
+                      setLoginError('')
+                      setAuthMode('register')
+                    }}
                     className="font-medium text-sky-700 hover:text-sky-600"
                   >
                     Register
@@ -561,6 +563,7 @@ export function CustomerLoginPage() {
                   <button
                     type="button"
                     onClick={() => {
+                      setLoginError('')
                       setAuthMode('login')
                       setConfirmPassword('')
                     }}

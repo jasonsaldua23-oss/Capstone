@@ -1122,12 +1122,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
         self.assertEqual(payload["error"], "status is required")
 
     def test_dispatched_status_is_automatic_when_trip_starts(self) -> None:
-        order = self._create_order(
-            warehouse_stage=WarehouseStage.READY_TO_LOAD,
-            checklist_quantity_verified=True,
-            dispatch_signed_off_by="Warehouse Lead",
-            dispatch_signed_off_at=timezone.now(),
-        )
+        order = self._create_order(warehouse_stage=WarehouseStage.READY_TO_LOAD)
 
         response = self._patch_status(order.id, {"status": "DISPATCHED"})
         self.assertEqual(response.status_code, 400)
@@ -1261,7 +1256,7 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Warehouse stage cannot move backward")
 
-    def test_loaded_requires_completed_checklist(self) -> None:
+    def test_loaded_requires_driver_assignment_without_extra_payload(self) -> None:
         order = self._create_order()
         response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
 
@@ -1274,16 +1269,7 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         order = self._create_order()
         response = self._patch_stage(
             order.id,
-            {
-                "warehouseStage": "LOADED",
-                "checklist": {
-                    "itemsVerified": True,
-                    "quantityVerified": True,
-                    "packagingVerified": True,
-                    "vehicleAssigned": True,
-                    "driverAssigned": True,
-                },
-            },
+            {"warehouseStage": "LOADED"},
         )
 
         self.assertEqual(response.status_code, 400)
@@ -1291,31 +1277,22 @@ class OrderWarehouseStageTransitionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Order must be assigned to a driver before LOADED")
 
-    def test_loaded_requires_completed_checklist_when_driver_is_assigned(self) -> None:
+    def test_loaded_succeeds_when_driver_is_assigned(self) -> None:
         order = self._create_order()
         self._assign_order_to_driver(order)
         response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Quantity checklist must be completed before LOADED")
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.LOADED)
 
     def test_loaded_stage_keeps_order_status_preparing(self) -> None:
         order = self._create_order(status=OrderStatus.PREPARING)
         self._assign_order_to_driver(order)
         response = self._patch_stage(
             order.id,
-            {
-                "warehouseStage": "LOADED",
-                "checklist": {
-                    "itemsVerified": True,
-                    "quantityVerified": True,
-                    "packagingVerified": True,
-                    "vehicleAssigned": True,
-                    "driverAssigned": True,
-                },
-            },
+            {"warehouseStage": "LOADED"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1553,7 +1530,6 @@ class TripExecutionApiContractTests(TestCase):
             warehouse_stage=WarehouseStage.LOADED,
             subtotal=100,
             total_amount=110,
-            checklist_quantity_verified=True,
         )
         self.dp_1.order = order
         self.dp_1.save(update_fields=["order", "updated_at"])
@@ -3212,16 +3188,7 @@ class DeliveryLifecycleFlowContractTests(TestCase):
     def test_delivery_lifecycle_end_to_end(self) -> None:
         loaded = self.client.patch(
             f"/api/orders/{self.order.id}/warehouse-stage",
-            data={
-                "warehouseStage": "LOADED",
-                "checklist": {
-                    "itemsVerified": True,
-                    "quantityVerified": True,
-                    "packagingVerified": True,
-                    "vehicleAssigned": True,
-                    "driverAssigned": True,
-                },
-            },
+            data={"warehouseStage": "LOADED"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
         )

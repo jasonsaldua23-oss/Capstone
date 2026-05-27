@@ -25,6 +25,7 @@ export function WarehouseLoginPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -82,6 +83,7 @@ export function WarehouseLoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoginError('')
     setIsLoading(true)
 
     try {
@@ -100,6 +102,17 @@ export function WarehouseLoginPage() {
 
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
+        const normalizedApiError = apiError.toLowerCase()
+        const isCredentialError =
+          response.status === 401 ||
+          response.status === 403 ||
+          normalizedApiError.includes('invalid') ||
+          normalizedApiError.includes('credential') ||
+          normalizedApiError.includes('password')
+        if (isCredentialError) {
+          setLoginError('Invalid email or password.')
+          return
+        }
         const fallbackError = response.status >= 500
           ? 'Login service is temporarily unavailable. Please try again shortly.'
           : 'Login failed'
@@ -110,14 +123,11 @@ export function WarehouseLoginPage() {
       if (resolvePortalFromUser(data.user) !== 'warehouse') {
         if (data.token) clearTabAuthToken()
         await fetch('/api/auth/logout', { method: 'POST' })
-        toast.error('Invalid credentials')
+        setLoginError('Invalid email or password.')
         return
       }
 
       persistWarehouseWelcomeState(data.user)
-      const isNewUser = Boolean(data?.user?.isNewUser ?? data?.user?.isNew ?? data?.user?.isFirstLogin ?? data?.user?.firstLogin)
-      const displayName = String(data?.user?.name || '').trim()
-      toast.success(isNewUser ? (displayName ? `Welcome, ${displayName}` : 'Welcome!') : (displayName ? `Welcome back, ${displayName}` : 'Welcome back!'))
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -154,16 +164,17 @@ export function WarehouseLoginPage() {
           <form onSubmit={handleLogin} autoComplete="off" className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="warehouse-email" className="text-slate-700">Email</Label>
-              <Input id="warehouse-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter email" required className="h-11 border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500" />
+              <Input id="warehouse-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className={`h-11 bg-white text-slate-900 placeholder:text-slate-400 ${loginError ? 'border-rose-300 focus-visible:ring-rose-500' : 'border-slate-300 focus-visible:ring-indigo-500'}`} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="warehouse-password" className="text-slate-700">Password</Label>
               <div className="relative">
-                <Input id="warehouse-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-11 border-slate-300 bg-white pr-11 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500" />
+                <Input id="warehouse-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className={`h-11 bg-white pr-11 text-slate-900 placeholder:text-slate-400 ${loginError ? 'border-rose-300 focus-visible:ring-rose-500' : 'border-slate-300 focus-visible:ring-indigo-500'}`} />
                 <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {loginError ? <p className="text-sm text-rose-600">{loginError}</p> : null}
             </div>
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <input

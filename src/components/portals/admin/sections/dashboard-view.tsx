@@ -7,12 +7,29 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
 import { PortalDashboardSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts'
 import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shared'
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
-  const [welcomeMessage, setWelcomeMessage] = useState("Welcome back!")
+  const [welcomeMessage] = useState(() => {
+    if (typeof window === 'undefined') return 'Welcome back!'
+    try {
+      const raw = window.sessionStorage.getItem('admin_welcome_state')
+      if (!raw) return 'Welcome back!'
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const name = String(parsed?.name || '').trim()
+      window.sessionStorage.removeItem('admin_welcome_state')
+      return mode === 'new'
+        ? (name ? `Welcome, ${name}` : 'Welcome!')
+        : (name ? `Welcome back, ${name}` : 'Welcome back!')
+    } catch {
+      return 'Welcome back!'
+    }
+  })
+  const [showWelcomePopup, setShowWelcomePopup] = useState(true)
   const [warehouseCount, setWarehouseCount] = useState(0)
 
   useEffect(() => {
@@ -51,22 +68,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       }
     }
     fetchWarehouseCount()
-  }, [])
-
-  useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem('admin_welcome_state')
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
-      const mode = String(parsed?.mode || '').toLowerCase()
-      const name = String(parsed?.name || '').trim()
-      if (mode === 'new') {
-        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
-      } else {
-        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
-      }
-      window.sessionStorage.removeItem('admin_welcome_state')
-    } catch {}
   }, [])
 
   const dashboardOrderStats = useMemo(() => {
@@ -195,19 +196,30 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     'Cancelled': '#ef4444',
     'Rescheduled': '#f59e0b',
   }
-  if (isLoading) {
-    return <PortalDashboardSkeleton />
-  }
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500">{welcomeMessage} Here&apos;s your logistics overview.</p>
-      </div>
+    <>
+      <WelcomePopup
+        open={showWelcomePopup}
+        message={welcomeMessage}
+        subtitle="Here is your logistics overview."
+        onClose={() => setShowWelcomePopup(false)}
+        overlayClassName="bg-black/70"
+        panelClassName="border-blue-200 bg-gradient-to-br from-white to-blue-50"
+        titleClassName="text-slate-900"
+        subtitleClassName="text-slate-600"
+        buttonClassName="bg-blue-100 text-blue-700 hover:bg-blue-200"
+      />
+      {isLoading ? (
+        <PortalDashboardSkeleton />
+      ) : (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-500">Here&apos;s your logistics overview.</p>
+          </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-4 gap-4">
+          {/* Stats Grid */}
+          <div className="grid grid-cols-4 gap-4">
         {statCards.map((stat, i) => {
           const gradients: { [key: string]: string } = {
             blue: 'from-blue-50 to-indigo-50',
@@ -233,10 +245,10 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </Card>
           )
         })}
-      </div>
+          </div>
 
       {/* Quick Stats Row */}
-      <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-4">
 
         <Card className="bg-gradient-to-br from-green-600 to-green-700 text-white">
           <CardContent className="pt-6">
@@ -277,7 +289,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </div>
           </CardContent>
         </Card>
-      </div>
+          </div>
 
       <div className="grid grid-cols-3 gap-4">
         <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
@@ -332,7 +344,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       </div>
 
       {/* Alerts Section */}
-      <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -355,7 +367,9 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </div>
           </CardContent>
         </Card>
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

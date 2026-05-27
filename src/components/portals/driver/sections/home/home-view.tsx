@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +20,6 @@ type AssignedOrderRow = {
     warehouseCity?: string
     warehouseProvince?: string
     loadedAt?: string | null
-    checklistQuantityVerified?: boolean
     scheduledReplacement?: {
       replacementId?: string
       replacementNumber?: string
@@ -41,7 +40,7 @@ type AssignedOrderRow = {
 }
 
 export function HomeView({
-  user,
+  user: _user,
   trips,
   isLoading,
   isTracking,
@@ -66,7 +65,6 @@ export function HomeView({
   onMarkOrderLoaded: (orderId: string) => Promise<boolean>
 }) {
   const [loadChecklistByOrder, setLoadChecklistByOrder] = useState<Record<string, Record<string, boolean>>>({})
-  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back, Driver')
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
   const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
@@ -152,7 +150,7 @@ export function HomeView({
     return `Qty ${qty} unit(s)`
   }
   const isWarehouseChecklistComplete = (order: AssignedOrderRow['order']) =>
-    Boolean(order?.checklistQuantityVerified)
+    ['LOADED', 'DISPATCHED'].includes(String(order?.warehouseStage || '').toUpperCase())
   const stageBadgeStyles: Record<string, string> = {
     READY_TO_LOAD: 'bg-amber-100 text-amber-800 border border-amber-200',
     LOADED: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
@@ -181,35 +179,6 @@ export function HomeView({
   const activeTrip = prioritizedTrips.find((trip) => isInProgressTrip(trip.status)) || null
   const plannedTrips = tripsForToday.filter((trip) => isPlannedTrip(trip.status)).length
   const completedTrips = tripsForToday.filter((trip) => isCompletedTrip(trip.status)).length
-  const driverDisplayName = [
-    user?.name,
-    user?.fullName,
-    activeTrip?.driver?.user?.name,
-    activeTrip?.driver?.name,
-  ]
-    .map((value) => String(value || '').trim())
-    .find((value) => value.length > 0) || 'Driver'
-  useEffect(() => {
-    const fallbackBack = driverDisplayName ? `Welcome back, ${driverDisplayName}` : 'Welcome back!'
-    try {
-      const raw = window.sessionStorage.getItem('driver_welcome_state')
-      if (!raw) {
-        setWelcomeMessage(fallbackBack)
-        return
-      }
-      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
-      const mode = String(parsed?.mode || '').toLowerCase()
-      const name = String(parsed?.name || '').trim() || driverDisplayName
-      if (mode === 'new') {
-        setWelcomeMessage(name ? `Welcome, ${name}` : 'Welcome!')
-      } else {
-        setWelcomeMessage(name ? `Welcome back, ${name}` : 'Welcome back!')
-      }
-      window.sessionStorage.removeItem('driver_welcome_state')
-    } catch {
-      setWelcomeMessage(fallbackBack)
-    }
-  }, [driverDisplayName])
   const terminalStopStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
   const pendingStops = activeTrip
     ? (activeTrip.dropPoints || []).filter((point) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
@@ -228,23 +197,21 @@ export function HomeView({
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    )
-  }
-
   return (
-    <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
-        <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">{welcomeMessage}</h2>
-        <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
-      </div>
+    <>
+      {isLoading ? (
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      ) : (
+        <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
+            <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Driver Dashboard</h2>
+            <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
+          </div>
 
-      <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
         <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
           <CardContent className="min-h-[106px] pt-4">
             <div className="flex items-center justify-between">
@@ -326,7 +293,7 @@ export function HomeView({
             Assigned Orders
           </CardTitle>
           <CardDescription className="text-[#46617f]">
-            Drivers complete the checklist and mark orders as loaded here.
+            Drivers complete the item quantity checklist and mark orders as loaded here.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -390,7 +357,7 @@ export function HomeView({
                       <p className="text-sm text-slate-600">Drop-off {dropPoint.locationName}, {dropPoint.city}</p>
                     </div>
                     <div className="rounded-xl bg-slate-50 px-2.5 py-1.5 text-right">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Checklist</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Quantity Checklist</p>
                       <p className={`text-sm font-semibold ${checklistDone ? 'text-emerald-700' : 'text-amber-700'}`}>
                         {checklistDone ? 'Completed' : 'Pending'}
                       </p>
@@ -448,7 +415,7 @@ export function HomeView({
                       onClick={async () => {
                         if (!orderId) return
                         if (!allItemsChecked) {
-                          toast.error('Complete the checklist first.')
+                          toast.error('Complete the item quantity checklist first.')
                           return
                         }
                         const done = await onMarkOrderLoaded(orderId)
@@ -470,7 +437,9 @@ export function HomeView({
           )}
         </CardContent>
       </Card>
-    </div>
+        </div>
+      )}
+    </>
   )
 }
 

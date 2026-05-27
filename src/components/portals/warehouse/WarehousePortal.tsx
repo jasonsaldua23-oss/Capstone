@@ -67,7 +67,8 @@ import {
   Route,
   Car,
   CalendarClock,
-  Camera
+  Camera,
+  XCircle
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
@@ -202,14 +203,6 @@ interface WarehouseOrderItem {
   warehouseStage?: string | null
   isDriverAssigned?: boolean
   assignedDriverName?: string | null
-  checklistItemsVerified?: boolean
-  checklistQuantityVerified?: boolean
-  checklistPackagingVerified?: boolean
-  checklistVehicleAssigned?: boolean
-  checklistDriverAssigned?: boolean
-  exceptionShortLoadQty?: number | null
-  exceptionDamagedOnLoadingQty?: number | null
-  exceptionHoldReason?: string | null
   createdAt: string
   totalAmount: number
   notes?: string | null

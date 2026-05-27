@@ -61,6 +61,28 @@ export function CustomerOrdersView(props: any) {
   } = props
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedReplacementRecord, setSelectedReplacementRecord] = useState<any | null>(null)
+  const formatOrderDateTime = (order: any, normalizedStatus: string): { date: string; time: string | null } => {
+    const delivered = normalizedStatus === 'DELIVERED'
+    const raw = String(
+      delivered
+        ? (order?.deliveredAt || order?.updatedAt || order?.deliveryDate || order?.createdAt || '')
+        : (order?.createdAt || order?.updatedAt || order?.deliveryDate || '')
+    ).trim()
+    if (!raw) return { date: 'N/A', time: null }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const parsedDateOnly = new Date(`${raw}T00:00:00`)
+      if (Number.isNaN(parsedDateOnly.getTime())) return { date: raw, time: null }
+      return { date: parsedDateOnly.toLocaleDateString(), time: null }
+    }
+
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return { date: raw, time: null }
+    return {
+      date: parsed.toLocaleDateString(),
+      time: parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }
+  }
   const isReplacementOrder = (order: any): boolean =>
     String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
   const hasActiveReplacementCase = (order: any): boolean => {
@@ -331,6 +353,7 @@ export function CustomerOrdersView(props: any) {
           <div className="space-y-2.5 px-2.5 pt-2.5 md:px-4">
             {replacementTabOrders.map((o: any) => {
               const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
+              const dateTime = formatOrderDateTime(o, normalizedStatus)
               const isRescheduled = isRescheduledOrder(o.status)
               const orderItems = Array.isArray(o.items) ? o.items : []
               const replacementRequestDisplay = getReplacementRequestDisplay(o)
@@ -353,8 +376,8 @@ export function CustomerOrdersView(props: any) {
                       <p className="flex items-center gap-1.5 text-xs text-emerald-700">
                         <CalendarDays className="h-4 w-4" />
                         {normalizedStatus === 'DELIVERED' ? 'Delivered on ' : ''}
-                        {new Date(o.deliveredAt || o.deliveryDate || o.createdAt).toLocaleDateString()} ·{' '}
-                        {new Date(o.deliveredAt || o.deliveryDate || o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {dateTime.date}
+                        {dateTime.time ? ` · ${dateTime.time}` : ''}
                       </p>
                       <div className="flex items-start gap-1.5 text-xs text-slate-700">
                         <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
@@ -452,6 +475,7 @@ export function CustomerOrdersView(props: any) {
         <div className="space-y-2.5 px-2.5 pt-2.5 md:px-4">
           {pagedOrders.map((o: any) => {
             const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
+              const dateTime = formatOrderDateTime(o, normalizedStatus)
             const isRescheduled = isRescheduledOrder(o.status)
             const orderItems = Array.isArray(o.items) ? o.items : []
             const replacementRequestDisplay = getReplacementRequestDisplay(o)
@@ -481,8 +505,8 @@ export function CustomerOrdersView(props: any) {
                     <p className="flex items-center gap-1.5 text-xs text-emerald-700">
                       <CalendarDays className="h-4 w-4" />
                       {normalizedStatus === 'DELIVERED' ? 'Delivered on ' : ''}
-                      {new Date(o.deliveredAt || o.deliveryDate || o.createdAt).toLocaleDateString()} ·{' '}
-                      {new Date(o.deliveredAt || o.deliveryDate || o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {dateTime.date}
+                        {dateTime.time ? ` · ${dateTime.time}` : ''}
                     </p>
                     <div className="flex items-start gap-1.5 text-xs text-slate-700">
                       <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
@@ -549,7 +573,7 @@ export function CustomerOrdersView(props: any) {
                     </p>
                     {hasSubmittedRating ? (
                       <p className="mt-2 text-xs text-amber-700">
-                        Rated: {'★'.repeat(submittedRating)}{'☆'.repeat(5 - submittedRating)}
+                        Rated: {'â˜…'.repeat(submittedRating)}{'â˜†'.repeat(5 - submittedRating)}
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs text-slate-500">{formatOrderStatus(o.status, o.paymentStatus)}</p>
@@ -832,3 +856,5 @@ export function CustomerOrdersView(props: any) {
     </section>
   )
 }
+
+

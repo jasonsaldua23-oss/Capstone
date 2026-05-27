@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import { Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
@@ -34,7 +35,25 @@ export function CustomerHomeView({
   cart,
   onOpenCart,
 }: CustomerHomeViewProps) {
-  const [welcomeMessage, setWelcomeMessage] = useState('Welcome back!')
+  const [welcomeMessage] = useState(() => {
+    const normalizedName = String(customerName || '').trim()
+    const fallbackBack = normalizedName ? `Welcome back, ${normalizedName}` : 'Welcome back!'
+    if (typeof window === 'undefined') return fallbackBack
+    try {
+      const raw = window.sessionStorage.getItem('customer_welcome_state')
+      if (!raw) return fallbackBack
+      const parsed = JSON.parse(raw) as { mode?: string; name?: string; ts?: number }
+      const mode = String(parsed?.mode || '').toLowerCase()
+      const storedName = String(parsed?.name || '').trim() || normalizedName
+      window.sessionStorage.removeItem('customer_welcome_state')
+      return mode === 'new'
+        ? (storedName ? `Welcome, ${storedName}` : 'Welcome!')
+        : (storedName ? `Welcome back, ${storedName}` : 'Welcome back!')
+    } catch {
+      return fallbackBack
+    }
+  })
+  const [showWelcomePopup, setShowWelcomePopup] = useState(true)
   const [cardQtyByProductId, setCardQtyByProductId] = useState<Record<string, number>>({})
   const totalUnits = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
   const estimatedTotal = cart.reduce(
@@ -58,37 +77,19 @@ export function CustomerHomeView({
 
   const sortedProducts = useMemo(() => [...filteredProducts], [filteredProducts])
 
-  useEffect(() => {
-    const normalizedName = String(customerName || '').trim()
-    const fallbackBack = normalizedName ? `Welcome back, ${normalizedName}` : 'Welcome back!'
-    if (typeof window === 'undefined') {
-      setWelcomeMessage(fallbackBack)
-      return
-    }
-
-    try {
-      const raw = window.sessionStorage.getItem('customer_welcome_state')
-      if (!raw) {
-        setWelcomeMessage(fallbackBack)
-        return
-      }
-
-      const parsed = JSON.parse(raw) as { mode?: string; name?: string; ts?: number }
-      const mode = String(parsed?.mode || '').toLowerCase()
-      const storedName = String(parsed?.name || '').trim() || normalizedName
-      if (mode === 'new') {
-        setWelcomeMessage(storedName ? `Welcome, ${storedName}` : 'Welcome!')
-      } else {
-        setWelcomeMessage(storedName ? `Welcome back, ${storedName}` : 'Welcome back!')
-      }
-      window.sessionStorage.removeItem('customer_welcome_state')
-    } catch {
-      setWelcomeMessage(fallbackBack)
-    }
-  }, [customerName])
-
   return (
     <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f5f8f6] pb-5 md:mx-0 md:min-h-[calc(100dvh-9rem)] md:pb-4">
+      <WelcomePopup
+        open={showWelcomePopup}
+        message={welcomeMessage}
+        subtitle="Place your order and we will deliver it to your store."
+        onClose={() => setShowWelcomePopup(false)}
+        overlayClassName="bg-black/70"
+        panelClassName="border-emerald-200 bg-gradient-to-br from-white to-emerald-50"
+        titleClassName="text-slate-900"
+        subtitleClassName="text-slate-600"
+        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+      />
       <div className="grid gap-4 px-3 pt-3 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-3">
           <div className="rounded-2xl border border-emerald-100 bg-white p-3">

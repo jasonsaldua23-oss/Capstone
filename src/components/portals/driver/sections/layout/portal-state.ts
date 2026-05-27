@@ -80,11 +80,6 @@ interface DropPoint {
     totalAmount?: number | null
     warehouseStage?: string | null
     loadedAt?: string | null
-    checklistItemsVerified?: boolean
-    checklistQuantityVerified?: boolean
-    checklistPackagingVerified?: boolean
-    checklistVehicleAssigned?: boolean
-    checklistDriverAssigned?: boolean
     isDriverAssigned?: boolean
     assignedDriverName?: string | null
     items?: Array<{
@@ -417,9 +412,6 @@ export function useDriverPortalState() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           warehouseStage: 'LOADED',
-          checklist: {
-            quantityVerified: true,
-          },
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -440,7 +432,6 @@ export function useDriverPortalState() {
                     ...updatedOrder,
                     warehouseStage: updatedOrder.warehouseStage || 'LOADED',
                     loadedAt: updatedOrder.loadedAt || new Date().toISOString(),
-                    checklistQuantityVerified: true,
                   }
                 : point.order,
             }

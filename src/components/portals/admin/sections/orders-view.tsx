@@ -615,7 +615,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
   }, [warehouseFilterId, warehouseFilterOptions])
 
   const isWarehouseChecklistComplete = (order: any) =>
-    Boolean(order?.checklistQuantityVerified)
+    ['LOADED', 'DISPATCHED'].includes(String(order?.warehouseStage || '').toUpperCase())
 
   const mergeOrderState = (orderId: string, updatedOrder: any, fallbackStatus?: string) => {
     setOrders((prev) =>
@@ -719,10 +719,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
 
   const updateWarehouseStage = async (
     orderId: string,
-    stage: 'READY_TO_LOAD' | 'LOADED' | 'DISPATCHED',
-    payload: {
-      quantityVerified?: boolean
-    } = {}
+    stage: 'READY_TO_LOAD' | 'LOADED' | 'DISPATCHED'
   ) => {
     setUpdatingOrderId(orderId)
     try {
@@ -731,9 +728,6 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           warehouseStage: stage,
-          checklist: {
-            quantityVerified: payload.quantityVerified,
-          },
         }),
       })
 
@@ -1264,9 +1258,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                     toast.error('Complete the checklist first.')
                     return
                   }
-                  const done = await updateWarehouseStage(selectedOrder.id, 'LOADED', {
-                    quantityVerified: true,
-                  })
+                  const done = await updateWarehouseStage(selectedOrder.id, 'LOADED')
                   if (done) {
                     setLoadChecklistOpen(false)
                   }

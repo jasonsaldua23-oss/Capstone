@@ -29,7 +29,7 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
           <img
             src="/ann-anns-logo.png"
             alt="Ann Ann's Beverages Trading logo"
-            className="h-11 w-11 rounded-xl border border-white/40 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.14)]"
+            className="h-16 w-16 rounded-xl border border-white/40 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.14)]"
           />
           <div>
             <h2 className="font-bold text-slate-950">Ann Ann's Beverages Trading</h2>

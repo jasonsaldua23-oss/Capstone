@@ -32,8 +32,6 @@ export type InventoryMovementRow = {
   product: string
   type: 'IN' | 'OUT'
   quantity: number
-  referenceType: string
-  referenceId: string
 }
 
 export type InventoryMovementPoint = {
@@ -66,13 +64,6 @@ export type OrderReportRow = {
   status: string
   normalizedReportStatus: OrderReportStatus
   warehouseStage: string
-  checklistComplete: boolean
-  dispatchSignedOffBy: string
-  dispatchSignedOffAt: unknown
-  shortLoadQty: number
-  damagedOnLoadingQty: number
-  holdReason: string
-  hasExceptions: boolean
   amount: number
   createdAt: unknown
   deliveredAt: unknown
@@ -488,10 +479,6 @@ export function buildOrderReportRows(
     .filter((order) => selectedWarehouse === 'all' || options.getWarehouseIdFromRow(order) === selectedWarehouse)
     .map((order) => {
       const normalizedReportStatus = normalizeOrderReportStatus(order?.status)
-      const checklistComplete = Boolean(order?.checklistQuantityVerified)
-      const shortLoadQty = Math.max(0, asNumber(order?.exceptionShortLoadQty))
-      const damagedOnLoadingQty = Math.max(0, asNumber(order?.exceptionDamagedOnLoadingQty))
-      const holdReason = String(order?.exceptionHoldReason || '').trim()
       const createdAt = order?.createdAt
       const orderDate = toDate(createdAt)
       const totalQuantity = Array.isArray(order?.items)
@@ -506,13 +493,6 @@ export function buildOrderReportRows(
         status: String(order?.status || ''),
         normalizedReportStatus,
         warehouseStage: String(order?.warehouseStage || 'READY_TO_LOAD'),
-        checklistComplete,
-        dispatchSignedOffBy: String(order?.dispatchSignedOffBy || 'N/A'),
-        dispatchSignedOffAt: order?.dispatchSignedOffAt || null,
-        shortLoadQty,
-        damagedOnLoadingQty,
-        holdReason: holdReason || 'N/A',
-        hasExceptions: shortLoadQty > 0 || damagedOnLoadingQty > 0 || holdReason.length > 0,
         amount: Math.max(0, asNumber(order?.totalAmount)),
         createdAt,
         deliveredAt: order?.timeline?.deliveredAt || order?.deliveredAt,
@@ -650,8 +630,6 @@ export function buildInventoryMovementRows(
       product: formatReportProductName(transaction?.product, 'N/A'),
       type: String(transaction?.type || '').toUpperCase() as 'IN' | 'OUT',
       quantity: Math.max(0, asNumber(transaction?.quantity)),
-      referenceType: String(transaction?.referenceType || 'N/A'),
-      referenceId: String(transaction?.referenceId || 'N/A'),
     }))
 }
 

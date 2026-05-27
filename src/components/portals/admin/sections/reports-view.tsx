@@ -73,8 +73,21 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+const formatReportRangeDate = (value: Date) =>
+  value.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+const formatReportDateRangeLabel = (start: Date, end: Date) => `${formatReportRangeDate(start)} - ${formatReportRangeDate(end)}`
+const buildReportStamp = () => new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
+
 export function ReportsView() {
   const { user } = useAuth()
+  type WarehouseDatePreset =
+    | 'past_7_days'
+    | 'past_14_days'
+    | 'past_1_month'
+    | 'past_3_months'
+    | 'past_6_months'
+    | 'past_1_year'
+    | 'custom'
   const [activeReportTab, setActiveReportTab] = useState('orders')
   const [rangeDays, setRangeDays] = useState<'7' | '30' | '90'>('30')
   const [selectedWarehouse, setSelectedWarehouse] = useState('all')
@@ -86,6 +99,9 @@ export function ReportsView() {
   const [selectedMovementType, setSelectedMovementType] = useState('all')
   const [selectedReplacementStatus, setSelectedReplacementStatus] = useState('all')
   const [selectedFeedbackStatus, setSelectedFeedbackStatus] = useState('all')
+  const [warehouseDatePreset, setWarehouseDatePreset] = useState<WarehouseDatePreset>('past_7_days')
+  const [warehouseDateFrom, setWarehouseDateFrom] = useState('')
+  const [warehouseDateTo, setWarehouseDateTo] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [orders, setOrders] = useState<any[]>([])
   const [trips, setTrips] = useState<any[]>([])
@@ -182,6 +198,64 @@ export function ReportsView() {
     start.setDate(start.getDate() - days)
     return start
   }, [rangeDays])
+  const standardDateRangeLabel = useMemo(() => {
+    const start = new Date(rangeStart)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date()
+    end.setHours(23, 59, 59, 999)
+    return formatReportDateRangeLabel(start, end)
+  }, [rangeStart])
+
+  const warehouseDateWindow = useMemo(() => {
+    const today = new Date()
+    const end = new Date(today)
+    end.setHours(23, 59, 59, 999)
+
+    const start = new Date(today)
+    start.setHours(0, 0, 0, 0)
+
+    const startFromPreset = (daysBack: number) => {
+      const value = new Date(start)
+      value.setDate(value.getDate() - daysBack)
+      return value
+    }
+
+    if (warehouseDatePreset === 'past_14_days') {
+      const presetStart = startFromPreset(13)
+      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
+    }
+    if (warehouseDatePreset === 'past_1_month') {
+      const presetStart = startFromPreset(29)
+      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
+    }
+    if (warehouseDatePreset === 'past_3_months') {
+      const presetStart = startFromPreset(89)
+      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
+    }
+    if (warehouseDatePreset === 'past_6_months') {
+      const presetStart = startFromPreset(179)
+      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
+    }
+    if (warehouseDatePreset === 'past_1_year') {
+      const presetStart = startFromPreset(364)
+      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
+    }
+    if (warehouseDatePreset === 'custom') {
+      const customStart = warehouseDateFrom ? new Date(`${warehouseDateFrom}T00:00:00`) : startFromPreset(6)
+      const customEnd = warehouseDateTo ? new Date(`${warehouseDateTo}T23:59:59.999`) : end
+      if (Number.isNaN(customStart.getTime()) || Number.isNaN(customEnd.getTime()) || customEnd.getTime() < customStart.getTime()) {
+        const fallbackStart = startFromPreset(6)
+        return { start: fallbackStart, end, label: formatReportDateRangeLabel(fallbackStart, end) }
+      }
+      return {
+        start: customStart,
+        end: customEnd,
+        label: formatReportDateRangeLabel(customStart, customEnd),
+      }
+    }
+    const defaultStart = startFromPreset(6)
+    return { start: defaultStart, end, label: formatReportDateRangeLabel(defaultStart, end) }
+  }, [warehouseDatePreset, warehouseDateFrom, warehouseDateTo])
 
   // The order report uses a single normalized row model so cards, charts, exports, and the table stay in sync.
   const orderRows = useMemo(() => {
@@ -192,44 +266,6 @@ export function ReportsView() {
       getWarehouseIdFromRow,
     })
   }, [orders, rangeStart, selectedWarehouse, selectedOrderStatus])
-
-  const warehouseDispatchRows = useMemo(() => {
-    return orderRows
-      .map((row) => {
-        const rawStatus = String(row.status || '').toUpperCase()
-        const normalizedOrderStatus =
-          ['PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(rawStatus)
-            ? 'PREPARING'
-            : ['DISPATCHED', 'IN_TRANSIT'].includes(rawStatus)
-              ? 'OUT_FOR_DELIVERY'
-              : rawStatus === 'FAILED_DELIVERY'
-                ? 'CANCELLED'
-                : rawStatus
-        return {
-          ...row,
-          normalizedOrderStatus,
-        }
-      })
-      .filter(
-        (row) =>
-          ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(String(row.normalizedOrderStatus || '')) ||
-          ['LOADED', 'DISPATCHED'].includes(String(row.warehouseStage || '').toUpperCase())
-      )
-      .map((row) => ({
-        orderNumber: row.orderNumber,
-        customer: row.customer,
-        createdAt: row.createdAt,
-        warehouseStage: row.warehouseStage,
-        orderStatus: row.normalizedOrderStatus,
-        checklistComplete: row.checklistComplete ? 'YES' : 'NO',
-        dispatchSignedOffBy: row.dispatchSignedOffBy,
-        dispatchSignedOffAt: row.dispatchSignedOffAt ? formatDateTime(row.dispatchSignedOffAt) : 'N/A',
-        shortLoadQty: row.shortLoadQty,
-        damagedOnLoadingQty: row.damagedOnLoadingQty,
-        holdReason: row.holdReason,
-        hasExceptions: row.hasExceptions ? 'YES' : 'NO',
-      }))
-  }, [orderRows])
 
   const transportRows = useMemo(() => {
     return trips
@@ -696,6 +732,82 @@ export function ReportsView() {
     })
   }, [warehouses, selectedWarehouse, inventory])
 
+  const warehouseCapacityTrendPoints = useMemo(() => {
+    const scopedWarehouses = warehouses.filter((warehouse) =>
+      selectedWarehouse === 'all' || String(warehouse?.id || '') === selectedWarehouse
+    )
+    const scopedWarehouseIds = new Set(scopedWarehouses.map((warehouse) => String(warehouse?.id || '')).filter(Boolean))
+    const scopedInventoryItems = inventory.filter((item) => scopedWarehouseIds.has(String(item?.warehouse?.id || item?.warehouseId || '')))
+    const currentUsedUnits = scopedInventoryItems.reduce((sum, item) => sum + Math.max(0, Number(getInventoryQuantity(item) || 0)), 0)
+    const configuredCapacity = scopedWarehouses.reduce((sum, warehouse) => sum + Math.max(0, Number(warehouse?.capacity || 0)), 0)
+    const totalCapacity = configuredCapacity > 0 ? configuredCapacity : Math.max(1000, currentUsedUnits + 250)
+
+    const movements = inventoryTransactions
+      .map((transaction) => {
+        const warehouseId = String(transaction?.warehouse?.id || transaction?.warehouseId || '').trim()
+        const movementType = String(transaction?.type || '').toUpperCase()
+        const quantity = Math.max(0, Number(transaction?.quantity || 0))
+        const createdAt = new Date(String(transaction?.createdAt || transaction?.created_at || ''))
+        if (!warehouseId || !scopedWarehouseIds.has(warehouseId)) return null
+        if (!['IN', 'OUT'].includes(movementType)) return null
+        if (Number.isNaN(createdAt.getTime()) || quantity <= 0) return null
+        return { createdAt, quantity, movementType }
+      })
+      .filter((entry): entry is { createdAt: Date; quantity: number; movementType: string } => Boolean(entry))
+
+    const points: Array<{ date: string; usedUnits: number; totalCapacity: number; utilizationPercent: number }> = []
+    const cursor = new Date(warehouseDateWindow.start)
+    cursor.setHours(0, 0, 0, 0)
+    const endDate = new Date(warehouseDateWindow.end)
+    endDate.setHours(23, 59, 59, 999)
+
+    while (cursor.getTime() <= endDate.getTime()) {
+      const endOfDay = new Date(cursor)
+      endOfDay.setHours(23, 59, 59, 999)
+      const netChangeAfterDay = movements.reduce((sum, movement) => {
+        if (movement.createdAt.getTime() <= endOfDay.getTime()) return sum
+        return sum + (movement.movementType === 'IN' ? movement.quantity : -movement.quantity)
+      }, 0)
+      const usedUnits = Math.max(0, currentUsedUnits - netChangeAfterDay)
+      const utilizationPercent = totalCapacity > 0
+        ? Math.min(100, Number(((usedUnits / totalCapacity) * 100).toFixed(1)))
+        : 0
+      points.push({
+        date: cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        usedUnits,
+        totalCapacity,
+        utilizationPercent,
+      })
+      cursor.setDate(cursor.getDate() + 1)
+    }
+
+    return points
+  }, [warehouses, inventory, inventoryTransactions, selectedWarehouse, warehouseDateWindow])
+
+  const warehouseCapacityTrendSummaryLines = useMemo(() => {
+    if (warehouseCapacityTrendPoints.length === 0) {
+      return [
+        `Capacity Range: ${warehouseDateWindow.label}`,
+        'No capacity trend data available for the selected filters.',
+      ]
+    }
+    const first = warehouseCapacityTrendPoints[0]
+    const last = warehouseCapacityTrendPoints[warehouseCapacityTrendPoints.length - 1]
+    const peak = warehouseCapacityTrendPoints.reduce((max, point) => point.utilizationPercent > max.utilizationPercent ? point : max, warehouseCapacityTrendPoints[0])
+    const lowest = warehouseCapacityTrendPoints.reduce((min, point) => point.utilizationPercent < min.utilizationPercent ? point : min, warehouseCapacityTrendPoints[0])
+    const average = warehouseCapacityTrendPoints.reduce((sum, point) => sum + point.utilizationPercent, 0) / Math.max(1, warehouseCapacityTrendPoints.length)
+    const delta = Number((last.utilizationPercent - first.utilizationPercent).toFixed(1))
+
+    return [
+      `Capacity Range: ${warehouseDateWindow.label}`,
+      `Current Capacity Usage: ${last.usedUnits.toLocaleString()} / ${last.totalCapacity.toLocaleString()} (${last.utilizationPercent.toFixed(1)}%)`,
+      `Average Utilization: ${average.toFixed(1)}%`,
+      `Peak Utilization: ${peak.utilizationPercent.toFixed(1)}% on ${peak.date}`,
+      `Lowest Utilization: ${lowest.utilizationPercent.toFixed(1)}% on ${lowest.date}`,
+      `Trend Change: ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} percentage points`,
+    ]
+  }, [warehouseCapacityTrendPoints, warehouseDateWindow])
+
   const scopedInventory = useMemo(() => {
     return inventory.filter((item) => selectedWarehouse === 'all' || getWarehouseIdFromRow(item) === selectedWarehouse)
   }, [inventory, selectedWarehouse])
@@ -916,6 +1028,16 @@ export function ReportsView() {
     }))
   }, [transportDriverRows])
 
+  const inventoryExportRows = useMemo(() => {
+    return inventoryMovementRows.map((row) => ({
+      createdAt: row.createdAt,
+      warehouse: row.warehouse,
+      product: row.product,
+      type: row.type,
+      quantity: row.quantity,
+    }))
+  }, [inventoryMovementRows])
+
   const orderSummaryLines = useMemo(() => ([
     `Total Orders: ${orderKpi.totalOrders}`,
     `Delivered: ${orderKpi.deliveredOrders}`,
@@ -933,11 +1055,48 @@ export function ReportsView() {
     `Delivered Drop Points: ${transportDriverRows.reduce((acc, row) => acc + Number(row.deliveredDropPoints || 0), 0)}/${transportDriverRows.reduce((acc, row) => acc + Number(row.dropPointsTotal || 0), 0)}`,
   ]), [driverPerformanceKpi, transportDriverRows])
 
-  const warehouseSummaryLines = useMemo(() => ([
-    `Total Warehouses: ${warehouses.length}`,
-    `Dispatch Orders: ${warehouseDispatchRows.length}`,
-    `Compliant Dispatches: ${warehouseDispatchRows.filter((row) => row.checklistComplete === 'YES').length}`,
-  ]), [warehouses.length, warehouseDispatchRows])
+  const warehouseSummaryLines = useMemo(() => {
+    const warehousesInScope = selectedWarehouse === 'all'
+      ? warehouses.length
+      : warehouses.filter((warehouse) => String(warehouse?.id || '') === selectedWarehouse).length
+
+    return [
+      `Total Warehouses: ${warehouses.length}`,
+      `Warehouses In Scope: ${warehousesInScope}`,
+      `Utilization Data Points: ${warehouseCapacityTrendPoints.length}`,
+      ...warehouseCapacityTrendSummaryLines,
+    ]
+  }, [warehouses, selectedWarehouse, warehouseCapacityTrendPoints.length, warehouseCapacityTrendSummaryLines])
+
+  const warehouseCapacityTrendExportRows = useMemo(() => {
+    if (warehouseCapacityTrendPoints.length === 0) return []
+    if (warehouseCapacityTrendPoints.length <= 24) {
+      return warehouseCapacityTrendPoints.map((point) => ({
+        date: point.date,
+        usedUnits: point.usedUnits.toLocaleString(),
+        totalCapacity: point.totalCapacity.toLocaleString(),
+        remainingCapacity: Math.max(0, point.totalCapacity - point.usedUnits).toLocaleString(),
+        utilizationPercent: `${point.utilizationPercent.toFixed(1)}%`,
+      }))
+    }
+    const step = Math.max(1, Math.floor(warehouseCapacityTrendPoints.length / 24))
+    return warehouseCapacityTrendPoints
+      .filter((_, index) => index % step === 0)
+      .slice(0, 24)
+      .map((point) => ({
+        date: point.date,
+        usedUnits: point.usedUnits.toLocaleString(),
+        totalCapacity: point.totalCapacity.toLocaleString(),
+        remainingCapacity: Math.max(0, point.totalCapacity - point.usedUnits).toLocaleString(),
+        utilizationPercent: `${point.utilizationPercent.toFixed(1)}%`,
+      }))
+  }, [warehouseCapacityTrendPoints])
+
+  const warehouseUtilizationRowsForExport = useMemo(() => (
+    warehouseCapacityTrendExportRows.length > 0
+      ? warehouseCapacityTrendExportRows
+      : [{ note: `No warehouse utilization rows for ${warehouseDateWindow.label}.` }]
+  ), [warehouseCapacityTrendExportRows, warehouseDateWindow])
 
   const inventorySummaryLines = useMemo(() => ([
     `Total Movements: ${inventoryMovementSummary.totalMovements}`,
@@ -992,44 +1151,85 @@ export function ReportsView() {
   // Helper to sanitize text for PDF (WinAnsi encoding only supports Latin-1)
   const sanitizeForPdf = (text: string): string => {
     return text
-      .replace(/₱/g, 'PHP ')
-      .replace(/[€£¥]/g, '')
+      .replace(/\u20B1/g, 'PHP ')
+      .replace(/[\u20AC\u00A3\u00A5]/g, '')
   }
 
   const downloadPdf = async (
     filename: string,
     title: string,
     rows: Array<Record<string, unknown>>,
-    options?: { companyName?: string; summaryLines?: string[] }
+    options?: {
+      companyName?: string
+      summaryLines?: string[]
+      rangeLabel?: string
+      extraSections?: Array<{
+        title: string
+        lines?: string[]
+        rows?: Array<Record<string, unknown>>
+      }>
+    }
   ) => {
     if (!rows.length) {
       toast.error(`No data to export for ${filename}`)
       return
     }
+
     const pdfDoc = await PDFDocument.create()
-    const page = pdfDoc.addPage([842, 595])
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+    let page = pdfDoc.addPage([842, 595])
+    const font = await pdfDoc.embedFont(StandardFonts.TimesRoman)
+    const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold)
     const companyName = options?.companyName || "Ann Ann's Beverages Trading"
     const margin = 28
     const usableWidth = 842 - margin * 2
-    const lineHeight = 14
-    const maxRows = Math.min(rows.length, 180)
-    const headers = Object.keys(rows[0]).slice(0, 10)
+    const sanitizedRows = title === 'Inventory Movement Report'
+      ? rows.map((row) => {
+          const record = row as Record<string, unknown>
+          return Object.fromEntries(
+            Object.entries(record).filter(([key]) => !/reference/i.test(key))
+          )
+        })
+      : rows
+    const lineHeight = 18
+    const maxRows = Math.min(sanitizedRows.length, 120)
+    const headers = (
+      title === 'Inventory Movement Report'
+        ? Object.keys(sanitizedRows[0]).filter((header) => !/reference/i.test(header))
+        : Object.keys(sanitizedRows[0])
+    ).slice(0, 8)
     const colWidth = usableWidth / Math.max(1, headers.length)
+    const compactTable = headers.length > 6
+    const tableHeaderFontSize = compactTable ? 9 : 10
+    const tableBodyFontSize = compactTable ? 8 : 9
+    const sectionBodyFontSize = 9
+    const summaryFontSize = 10
     const ellipsize = (value: string, maxChars: number) => {
-      // Replace Peso symbol with PHP for PDF compatibility (WinAnsi encoding)
-      const sanitized = String(value ?? '').replace(/₱/g, 'PHP ').replace(/\s+/g, ' ').trim()
+      const sanitized = String(value ?? '').replace(/\u20B1/g, 'PHP ').replace(/\s+/g, ' ').trim()
       if (sanitized.length <= maxChars) return sanitized
       return `${sanitized.slice(0, Math.max(0, maxChars - 3))}...`
     }
-    let y = 550
-    // Add logo on left side
+
+    let logoImage: any = null
     try {
       const logoResponse = await fetch('/ann-anns-logo.png')
       if (logoResponse.ok) {
         const logoBytes = await logoResponse.arrayBuffer()
-        const logoImage = await pdfDoc.embedPng(logoBytes)
+        logoImage = await pdfDoc.embedPng(logoBytes)
+      }
+    } catch {
+      logoImage = null
+    }
+
+    const formatHeader = (header: string): string => {
+      return header
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim()
+        .replace(/_/g, ' ')
+    }
+
+    const drawHeader = (heading: string) => {
+      if (logoImage) {
         const logoWidth = 45
         const logoHeight = (logoImage.height / logoImage.width) * logoWidth
         page.drawImage(logoImage, {
@@ -1039,47 +1239,94 @@ export function ReportsView() {
           height: logoHeight,
         })
       }
-    } catch {
-      // Logo failed to load, continue without it
+      page.drawText(companyName, { x: margin + 55, y: 550, size: 18, font: boldFont, color: rgb(0.08, 0.08, 0.08) })
+      page.drawText(heading, { x: margin, y: 520, size: 16, font: boldFont, color: rgb(0.1, 0.1, 0.1) })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, {
+        x: margin, y: 500, size: summaryFontSize, font, color: rgb(0.3, 0.3, 0.3),
+      })
+      if (options?.rangeLabel) {
+        page.drawText(`Date Range: ${options.rangeLabel}`, {
+          x: margin, y: 487, size: summaryFontSize, font, color: rgb(0.3, 0.3, 0.3),
+        })
+      }
     }
 
-    page.drawText(companyName, { x: margin + 55, y: 550, size: 16, font: boldFont, color: rgb(0.08, 0.08, 0.08) })
-    page.drawText(title, { x: margin, y: 520, size: 14, font: boldFont, color: rgb(0.1, 0.1, 0.1) })
-    page.drawText(`Generated: ${new Date().toLocaleString()}`, {
-      x: margin, y: 500, size: 9, font, color: rgb(0.35, 0.35, 0.35),
-    })
-    y = 480
-    // Format headers to be human-readable
-    const formatHeader = (header: string): string => {
-      return header
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/^./, (str) => str.toUpperCase())
-        .trim()
-        .replace(/_/g, ' ')
-    }
+    drawHeader(title)
+    let y = 468
     headers.forEach((header, index) => {
-      page.drawText(formatHeader(header), { x: margin + index * colWidth, y, size: 9, font: boldFont, color: rgb(0.15, 0.15, 0.15), maxWidth: colWidth - 8 })
+      page.drawText(formatHeader(header), { x: margin + index * colWidth, y, size: tableHeaderFontSize, font: boldFont, color: rgb(0.1, 0.1, 0.1), maxWidth: colWidth - 10 })
     })
     y -= lineHeight
+
     for (let i = 0; i < maxRows; i += 1) {
-      const row = rows[i]
+      const row = sanitizedRows[i]
       headers.forEach((header, index) => {
         const rawValue = String(row[header] ?? '')
-        const value = ellipsize(rawValue, Math.max(10, Math.floor((colWidth - 10) / 4.7)))
-        page.drawText(value, { x: margin + index * colWidth, y, size: 7, font, color: rgb(0.25, 0.25, 0.25), maxWidth: colWidth - 6 })
+        const approxCharWidth = tableBodyFontSize <= 8 ? 4.5 : 5.1
+        const value = ellipsize(rawValue, Math.max(8, Math.floor((colWidth - 12) / approxCharWidth)))
+        page.drawText(value, { x: margin + index * colWidth, y, size: tableBodyFontSize, font, color: rgb(0.18, 0.18, 0.18), maxWidth: colWidth - 8 })
       })
       y -= lineHeight
-      if (y < 50) break
+      if (y < 95) break
     }
-    // Summary at bottom
-    y -= 8
+
+    y -= 10
     const summaryLines = options?.summaryLines && options.summaryLines.length > 0
       ? options.summaryLines
-      : [`Total records: ${rows.length}`]
+      : [`Total records: ${sanitizedRows.length}`]
     summaryLines.forEach((line) => {
-      page.drawText(sanitizeForPdf(line), { x: margin, y, size: 9, font, color: rgb(0.35, 0.35, 0.35) })
-      y -= 12
+      page.drawText(sanitizeForPdf(line), { x: margin, y, size: summaryFontSize, font, color: rgb(0.3, 0.3, 0.3) })
+      y -= 14
     })
+
+    const extraSections = options?.extraSections || []
+    for (const section of extraSections) {
+      page = pdfDoc.addPage([842, 595])
+      drawHeader(`${title} - ${section.title}`)
+      let sectionY = 470
+
+      const sectionLines = section.lines || []
+      sectionLines.forEach((line) => {
+        page.drawText(sanitizeForPdf(line), { x: margin, y: sectionY, size: summaryFontSize, font, color: rgb(0.22, 0.22, 0.22) })
+        sectionY -= 14
+      })
+
+      const sectionRows = section.rows || []
+      if (sectionRows.length > 0) {
+        sectionY -= 8
+        const sectionHeaders = Object.keys(sectionRows[0]).slice(0, 6)
+        const sectionColWidth = usableWidth / Math.max(1, sectionHeaders.length)
+        sectionHeaders.forEach((header, index) => {
+          page.drawText(formatHeader(header), {
+            x: margin + index * sectionColWidth,
+            y: sectionY,
+            size: tableHeaderFontSize,
+            font: boldFont,
+            color: rgb(0.1, 0.1, 0.1),
+            maxWidth: sectionColWidth - 10,
+          })
+        })
+        sectionY -= lineHeight
+        for (let rowIndex = 0; rowIndex < Math.min(sectionRows.length, 24); rowIndex += 1) {
+          const row = sectionRows[rowIndex]
+          sectionHeaders.forEach((header, index) => {
+            const rawValue = String(row[header] ?? '')
+            const value = ellipsize(rawValue, Math.max(8, Math.floor((sectionColWidth - 12) / 5)))
+            page.drawText(value, {
+              x: margin + index * sectionColWidth,
+              y: sectionY,
+              size: sectionBodyFontSize,
+              font,
+              color: rgb(0.18, 0.18, 0.18),
+              maxWidth: sectionColWidth - 8,
+            })
+          })
+          sectionY -= lineHeight
+          if (sectionY < 60) break
+        }
+      }
+    }
+
     const bytes = await pdfDoc.save()
     const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
@@ -1091,38 +1338,52 @@ export function ReportsView() {
     anchor.remove()
     URL.revokeObjectURL(url)
   }
-
   const exportAllPdf = async () => {
-    const stamp = new Date().toISOString().slice(0, 10)
+    const stamp = buildReportStamp()
     await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Report', orderExportRows, {
       ...reportBranding,
       summaryLines: orderSummaryLines,
+      rangeLabel: standardDateRangeLabel,
     })
     await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation Driver Performance Report', transportExportRows, {
       ...reportBranding,
       summaryLines: transportSummaryLines,
+      rangeLabel: standardDateRangeLabel,
     })
-    await downloadPdf(`warehouse-report-${stamp}.pdf`, 'Warehouse Operations Report', warehouseDispatchRows, {
+    await downloadPdf(`warehouse-report-${stamp}.pdf`, 'Warehouse Utilization Report', warehouseUtilizationRowsForExport, {
       ...reportBranding,
       summaryLines: warehouseSummaryLines,
+      rangeLabel: warehouseDateWindow.label,
+      extraSections: [
+        {
+          title: 'Utilization Highlights',
+          lines: warehouseCapacityTrendSummaryLines,
+        },
+      ],
     })
-    await downloadPdf(`inventory-report-${stamp}.pdf`, 'Inventory Movement Report', inventoryMovementRows, {
+    await downloadPdf(`inventory-report-${stamp}.pdf`, 'Inventory Movement Report', inventoryExportRows, {
       ...reportBranding,
       summaryLines: inventorySummaryLines,
+      rangeLabel: standardDateRangeLabel,
     })
     await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, {
       ...reportBranding,
       summaryLines: replacementSummaryLines,
+      rangeLabel: standardDateRangeLabel,
     })
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
+      rangeLabel: standardDateRangeLabel,
     })
     toast.success('All PDF reports exported')
   }
 
   const resetFilters = () => {
     setRangeDays('30')
+    setWarehouseDatePreset('past_7_days')
+    setWarehouseDateFrom('')
+    setWarehouseDateTo('')
     setSelectedWarehouse('all')
     setSelectedDriver('all')
     setSelectedOrderStatus('all')
@@ -1155,16 +1416,52 @@ export function ReportsView() {
   }) => (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-          value={rangeDays}
-          onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
-          title="Select report date range"
-        >
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="90">Last 90 days</option>
-        </select>
+        {title !== 'Warehouse' ? (
+          <select
+            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+            value={rangeDays}
+            onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
+            title="Select report date range"
+          >
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        ) : null}
+        {title === 'Warehouse' ? (
+          <>
+            <select
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+              value={warehouseDatePreset}
+              onChange={(event) => setWarehouseDatePreset(event.target.value as WarehouseDatePreset)}
+              title="Select warehouse report date range"
+            >
+              <option value="past_7_days">Past 7 days</option>
+              <option value="past_14_days">Past 14 days</option>
+              <option value="past_1_month">Past 1 month</option>
+              <option value="past_3_months">Past 3 months</option>
+              <option value="past_6_months">Past 6 months</option>
+              <option value="past_1_year">Past 1 year</option>
+              <option value="custom">Custom range</option>
+            </select>
+            <Input
+              type="date"
+              value={warehouseDateFrom}
+              onChange={(event) => setWarehouseDateFrom(event.target.value)}
+              disabled={warehouseDatePreset !== 'custom'}
+              className="h-10 w-[170px]"
+              title="Warehouse report date from"
+            />
+            <Input
+              type="date"
+              value={warehouseDateTo}
+              onChange={(event) => setWarehouseDateTo(event.target.value)}
+              disabled={warehouseDatePreset !== 'custom'}
+              className="h-10 w-[170px]"
+              title="Warehouse report date to"
+            />
+          </>
+        ) : null}
         {showWarehouse ? (
           <select
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
@@ -1215,11 +1512,11 @@ export function ReportsView() {
         </Button>
         {title === 'Warehouse' ? (
           <>
-            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportWarehousePdf(new Date().toISOString().slice(0, 10))} disabled={isLoading}>
+            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportWarehousePdf(buildReportStamp())} disabled={isLoading}>
               <Download className="h-4 w-4" />
               Export Warehouse PDF
             </Button>
-            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportInventoryPdf(new Date().toISOString().slice(0, 10))} disabled={isLoading}>
+            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportInventoryPdf(buildReportStamp())} disabled={isLoading}>
               <Download className="h-4 w-4" />
               Export Inventory PDF
             </Button>
@@ -1237,11 +1534,18 @@ export function ReportsView() {
   const exportWarehousePdf = async (stamp: string) => {
     await downloadPdf(
       `warehouse-report-${stamp}.pdf`,
-      'Warehouse Operations Report',
-      warehouseDispatchRows,
+      'Warehouse Utilization Report',
+      warehouseUtilizationRowsForExport,
       {
         ...reportBranding,
         summaryLines: warehouseSummaryLines,
+        rangeLabel: warehouseDateWindow.label,
+        extraSections: [
+          {
+            title: 'Utilization Highlights',
+            lines: warehouseCapacityTrendSummaryLines,
+          },
+        ],
       }
     )
   }
@@ -1250,20 +1554,22 @@ export function ReportsView() {
     await downloadPdf(
       `inventory-report-${stamp}.pdf`,
       'Inventory Movement Report',
-      inventoryMovementRows,
+      inventoryExportRows,
       {
         ...reportBranding,
         summaryLines: inventorySummaryLines,
+        rangeLabel: standardDateRangeLabel,
       }
     )
   }
 
   const exportCurrentPdf = async () => {
-    const stamp = new Date().toISOString().slice(0, 10)
+    const stamp = buildReportStamp()
     if (activeReportTab === 'orders') {
       await downloadPdf(`orders-report-${stamp}.pdf`, 'Order Report', orderExportRows, {
         ...reportBranding,
         summaryLines: orderSummaryLines,
+        rangeLabel: standardDateRangeLabel,
       })
       return
     }
@@ -1271,6 +1577,7 @@ export function ReportsView() {
       await downloadPdf(`transport-report-${stamp}.pdf`, 'Transportation Driver Performance Report', transportExportRows, {
         ...reportBranding,
         summaryLines: transportSummaryLines,
+        rangeLabel: standardDateRangeLabel,
       })
       return
     }
@@ -1286,12 +1593,14 @@ export function ReportsView() {
       await downloadPdf(`replacement-report-${stamp}.pdf`, 'Replacement Handling Report', replacementRows, {
         ...reportBranding,
         summaryLines: replacementSummaryLines,
+        rangeLabel: standardDateRangeLabel,
       })
       return
     }
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
+      rangeLabel: standardDateRangeLabel,
     })
   }
 
@@ -1299,8 +1608,8 @@ export function ReportsView() {
     const reportMap: Record<string, { title: string; rows: Array<Record<string, unknown>>; summaryLines: string[] }> = {
       orders: { title: 'Order Report', rows: orderExportRows, summaryLines: orderSummaryLines },
       transport: { title: 'Transportation Driver Performance Report', rows: transportExportRows, summaryLines: transportSummaryLines },
-      warehouse: { title: 'Warehouse Operations Report', rows: warehouseDispatchRows, summaryLines: warehouseSummaryLines },
-      inventory: { title: 'Inventory Movement Report', rows: inventoryMovementRows, summaryLines: inventorySummaryLines },
+      warehouse: { title: 'Warehouse Utilization Report', rows: warehouseUtilizationRowsForExport, summaryLines: warehouseSummaryLines },
+      inventory: { title: 'Inventory Movement Report', rows: inventoryExportRows, summaryLines: inventorySummaryLines },
       replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: replacementSummaryLines },
       feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows, summaryLines: feedbackSummaryLines },
     }
@@ -1313,6 +1622,9 @@ export function ReportsView() {
 
     const columns = Object.keys(report.rows[0])
     const summaryLines = report.summaryLines
+    const reportDateLabel = activeReportTab === 'warehouse'
+      ? warehouseDateWindow.label
+      : standardDateRangeLabel
     const bodyRows = report.rows
       .slice(0, 300)
       .map((row) => `<tr>${columns.map((column) => `<td>${String(row[column] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`)
@@ -1323,20 +1635,21 @@ export function ReportsView() {
         <head>
           <title>${report.title}</title>
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 24px; color: #111; }
-            h1 { margin: 0 0 2px 0; font-size: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-            p { margin: 0 0 12px 0; color: #444; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-            table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-            th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
-            th { background: #f5f5f5; font-weight: 600; }
+            body { font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; margin: 24px; color: #111; font-size: 13px; line-height: 1.45; }
+            h1 { margin: 0 0 4px 0; font-size: 24px; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; }
+            p { margin: 0 0 12px 0; color: #333; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; }
+            table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; table-layout: fixed; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; }
+            th { background: #eef2ff; font-weight: 700; color: #0f172a; }
+            tbody tr:nth-child(even) { background: #f8fafc; }
             .summary { margin: 16px 0 0 0; }
-            .summary-line { font-size: 12px; color: #444; margin: 0 0 4px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+            .summary-line { font-size: 13px; color: #334155; margin: 0 0 4px 0; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; }
           </style>
         </head>
         <body>
           <h1>${reportBranding.companyName}</h1>
           <p><strong>${report.title}</strong></p>
-          <p>Generated at ${new Date().toLocaleString()} | Date range: last ${rangeDays} days</p>
+          <p>Generated at ${new Date().toLocaleString()} | Date range: ${reportDateLabel}</p>
           <table>
             <thead>
               <tr>${columns.map((column) => `<th>${column.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()).trim()}</th>`).join('')}</tr>
@@ -2421,6 +2734,7 @@ export function ReportsView() {
     </div>
   )
 }
+
 
 
 

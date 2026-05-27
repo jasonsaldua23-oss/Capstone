@@ -102,6 +102,7 @@ export function DriverLoginPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
   const [rememberMe, setRememberMe] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
@@ -109,26 +110,6 @@ export function DriverLoginPage() {
   const [frameWidth, setFrameWidth] = useState(DRIVER_CARD_FALLBACK_WIDTH)
   const [frameHeight, setFrameHeight] = useState(DRIVER_CARD_FALLBACK_HEIGHT)
   const cardRef = useRef<HTMLDivElement | null>(null)
-
-  const persistDriverWelcomeState = (userData: any) => {
-    if (typeof window === 'undefined') return
-    try {
-      const isNewUser = Boolean(
-        userData?.isNewUser ??
-          userData?.isNew ??
-          userData?.isFirstLogin ??
-          userData?.firstLogin
-      )
-      window.sessionStorage.setItem(
-        'driver_welcome_state',
-        JSON.stringify({
-          mode: isNewUser ? 'new' : 'existing',
-          name: String(userData?.name || '').trim(),
-          ts: Date.now(),
-        })
-      )
-    } catch {}
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -195,6 +176,7 @@ export function DriverLoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoginError('')
     setIsLoading(true)
 
     try {
@@ -213,6 +195,17 @@ export function DriverLoginPage() {
 
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
+        const normalizedApiError = apiError.toLowerCase()
+        const isCredentialError =
+          response.status === 401 ||
+          response.status === 403 ||
+          normalizedApiError.includes('invalid') ||
+          normalizedApiError.includes('credential') ||
+          normalizedApiError.includes('password')
+        if (isCredentialError) {
+          setLoginError('Invalid email or password.')
+          return
+        }
         const fallbackError =
           response.status >= 500
             ? 'Login service is temporarily unavailable. Please try again shortly.'
@@ -224,27 +217,10 @@ export function DriverLoginPage() {
       if (resolvePortalFromUser(data.user) !== 'driver') {
         if (data.token) clearTabAuthToken()
         await fetch('/api/auth/logout', { method: 'POST' })
-        toast.error('Invalid credentials')
+        setLoginError('Invalid email or password.')
         return
       }
 
-      persistDriverWelcomeState(data.user)
-      const isNewUser = Boolean(
-        data?.user?.isNewUser ??
-          data?.user?.isNew ??
-          data?.user?.isFirstLogin ??
-          data?.user?.firstLogin
-      )
-      const displayName = String(data?.user?.name || '').trim()
-      toast.success(
-        isNewUser
-          ? displayName
-            ? `Welcome, ${displayName}`
-            : 'Welcome!'
-          : displayName
-            ? `Welcome back, ${displayName}`
-            : 'Welcome back!'
-      )
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -257,10 +233,7 @@ export function DriverLoginPage() {
   if (isCheckingSession) {
     return (
       <div className={`${poppins.className} flex min-h-screen items-center justify-center bg-[#eefaf5] px-4`}>
-        <div className="flex items-center gap-3 rounded-[1.6rem] border border-white/80 bg-white/92 px-5 py-4 shadow-[0_18px_40px_rgba(110,174,155,0.18)]">
-          <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
-          <span className="text-sm font-medium text-slate-700">Preparing driver dashboard...</span>
-        </div>
+        <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
       </div>
     )
   }
@@ -327,7 +300,7 @@ export function DriverLoginPage() {
               <form onSubmit={handleLogin} autoComplete="off" className="space-y-3.5">
                 <div className="space-y-2.5">
                   <div className="px-1 text-[0.85rem] font-bold text-[#12356a]">Email</div>
-                  <label className="flex items-center gap-3 rounded-[18px] border border-[#cfeadf] bg-white/95 px-3.5 py-2.5 shadow-[0_8px_24px_rgba(151,193,177,0.14)]">
+                  <label className={`flex items-center gap-3 rounded-[18px] border px-3.5 py-2.5 shadow-[0_8px_24px_rgba(151,193,177,0.14)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
                     <FieldIconTile>
                       <Mail className="h-5 w-5 text-[#179651]" strokeWidth={1.9} />
                     </FieldIconTile>
@@ -337,9 +310,13 @@ export function DriverLoginPage() {
                         type="email"
                         autoComplete="off"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => {
+                          setEmail(e.target.value)
+                          if (loginError) setLoginError('')
+                        }}
                         placeholder="Enter email"
                         required
+                        aria-invalid={Boolean(loginError)}
                         className="block w-full border-0 bg-transparent p-0 text-[0.9rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
                       />
                     </span>
@@ -348,7 +325,7 @@ export function DriverLoginPage() {
 
                 <div className="space-y-2.5">
                   <div className="px-1 text-[0.85rem] font-bold text-[#12356a]">Password</div>
-                  <label className="flex items-center gap-3 rounded-[18px] border border-[#cfeadf] bg-white/95 px-3.5 py-2.5 shadow-[0_8px_24px_rgba(151,193,177,0.14)]">
+                  <label className={`flex items-center gap-3 rounded-[18px] border px-3.5 py-2.5 shadow-[0_8px_24px_rgba(151,193,177,0.14)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
                     <FieldIconTile>
                       <LockKeyhole className="h-5 w-5 text-[#179651]" strokeWidth={1.9} />
                     </FieldIconTile>
@@ -359,9 +336,13 @@ export function DriverLoginPage() {
                           type={showPassword ? 'text' : 'password'}
                           autoComplete="new-password"
                           value={password}
-                          onChange={(e) => setPassword(e.target.value)}
+                          onChange={(e) => {
+                            setPassword(e.target.value)
+                            if (loginError) setLoginError('')
+                          }}
                           placeholder="Enter password"
                           required
+                          aria-invalid={Boolean(loginError)}
                           className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-[0.9rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
                         />
                         <button
@@ -379,6 +360,9 @@ export function DriverLoginPage() {
                       </span>
                     </span>
                   </label>
+                  {loginError ? (
+                    <p className="px-1 text-[0.82rem] font-medium text-[#c1545c]">{loginError}</p>
+                  ) : null}
                 </div>
 
                 <label className="flex cursor-pointer items-center gap-2.5 px-1 pt-1 text-[0.85rem] font-medium text-[#24375f]">

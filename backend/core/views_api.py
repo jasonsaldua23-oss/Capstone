@@ -57,7 +57,6 @@ from .models import (
 
 
 logger = logging.getLogger(__name__)
-_order_legacy_checklist_columns_checked = False
 
 PRODUCT_UNIT_CASE = "case"
 PRODUCT_UNIT_PACK_BUNDLE = "pack(bundle)"
@@ -422,8 +421,6 @@ def _create_order_from_checkout_payload(
     performed_by: str | None,
     discount_breakdown: dict[str, Any] | None = None,
 ) -> Order:
-    _ensure_order_legacy_checklist_columns_defaults()
-
     year = timezone.now().year
     sequence = Order.objects.filter(created_at__year=year).count() + 1
     order_number = f"ORD-{year}-{str(sequence).zfill(4)}"
@@ -1073,47 +1070,6 @@ def _create_scheduled_replacement_order(
     return replacement_order
 
 
-def _ensure_order_legacy_checklist_columns_defaults() -> None:
-    global _order_legacy_checklist_columns_checked
-    if _order_legacy_checklist_columns_checked:
-        return
-
-    # Legacy deployments may still have old checklist columns as NOT NULL without defaults.
-    # Ensure they can accept new inserts from the current Order model.
-    if connection.vendor != "postgresql":
-        _order_legacy_checklist_columns_checked = True
-        return
-
-    table_name = Order._meta.db_table
-    legacy_columns = [
-        "checklist_items_verified",
-        "checklist_packaging_verified",
-        "checklist_vehicle_assigned",
-        "checklist_driver_assigned",
-    ]
-
-    with connection.cursor() as cursor:
-        for column_name in legacy_columns:
-            cursor.execute(
-                """
-                SELECT 1
-                FROM information_schema.columns
-                WHERE lower(table_name) = lower(%s)
-                  AND lower(column_name) = lower(%s)
-                LIMIT 1
-                """,
-                [table_name, column_name],
-            )
-            exists = cursor.fetchone() is not None
-            if not exists:
-                continue
-
-            cursor.execute(f'UPDATE "{table_name}" SET "{column_name}" = FALSE WHERE "{column_name}" IS NULL')
-            cursor.execute(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column_name}" SET DEFAULT FALSE')
-
-    _order_legacy_checklist_columns_checked = True
-
-
 NEGROS_OCCIDENTAL_BOUNDS = {
     # Strict Silay + Talisay service area (no map buffer).
     "min_lat": 10.64,
@@ -1606,13 +1562,6 @@ def _serialize_order(
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
     normalized_order_status = str(data.get("status") or "").strip().upper()
-    checklist_quantity_verified = bool(getattr(order, "checklist_quantity_verified", False))
-    data["checklistQuantityVerified"] = checklist_quantity_verified
-    # Backward-compatible fields kept for older clients; all mirror quantity checklist.
-    data["checklistItemsVerified"] = checklist_quantity_verified
-    data["checklistPackagingVerified"] = checklist_quantity_verified
-    data["checklistVehicleAssigned"] = checklist_quantity_verified
-    data["checklistDriverAssigned"] = checklist_quantity_verified
     data["customer"] = _serialize_model(order.customer, exclude={"password"})
     warehouse = None
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
@@ -2475,12 +2424,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                     "warehouseStage": str(dp.order.warehouse_stage or WarehouseStage.READY_TO_LOAD),
                     "loadedAt": dp.order.loaded_at.isoformat() if dp.order.loaded_at else None,
                     "status": _normalize_order_status(dp.order.status),
-                    "checklistQuantityVerified": bool(dp.order.checklist_quantity_verified),
-                    # Backward-compatible mirrors for older portal clients.
-                    "checklistItemsVerified": bool(dp.order.checklist_quantity_verified),
-                    "checklistPackagingVerified": bool(dp.order.checklist_quantity_verified),
-                    "checklistVehicleAssigned": bool(dp.order.checklist_quantity_verified),
-                    "checklistDriverAssigned": bool(dp.order.checklist_quantity_verified),
                     "isDriverAssigned": bool(trip.driver_id),
                     "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
@@ -2534,26 +2477,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                 trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
     data["tripSchedule"] = min(trip_schedule_candidates) if trip_schedule_candidates else None
     return data
-
-
-def _warehouse_checklist_complete(order: Order) -> bool:
-    return bool(order.checklist_quantity_verified)
-
-
-def _resolve_quantity_checklist(checklist: dict[str, Any]) -> bool | None:
-    if "quantityVerified" in checklist:
-        return bool(checklist.get("quantityVerified"))
-
-    legacy_keys = (
-        "itemsVerified",
-        "packagingVerified",
-        "vehicleAssigned",
-        "driverAssigned",
-    )
-    provided_values = [bool(checklist.get(key)) for key in legacy_keys if key in checklist]
-    if provided_values:
-        return all(provided_values)
-    return None
 
 
 def _normalize_allocation_policy(raw: Any) -> str:
@@ -3151,7 +3074,7 @@ def _allocate_inventory_for_order_item(
     return allocation_rows
 
 
-OTP_EXPIRY_MINUTES = 10
+OTP_EXPIRY_MINUTES = 5
 
 EMAIL_VERIFICATION_TOKEN_HOURS = 1
 
@@ -3670,7 +3593,8 @@ def _is_valid_stateless_otp(otp_code: str, email: str, account_type: str, purpos
     if not candidate:
         return False
     current = now or timezone.now()
-    for minute_offset in range(0, OTP_EXPIRY_MINUTES + 1):
+    # Use a strict rolling window so an OTP expires within ~5 minutes.
+    for minute_offset in range(0, OTP_EXPIRY_MINUTES):
         bucket = _otp_bucket(current - timedelta(minutes=minute_offset))
         expected = _stateless_otp_for_bucket(email, account_type, purpose, bucket)
         if hmac.compare_digest(candidate, expected):
@@ -6142,22 +6066,6 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
     if stage == WarehouseStage.DISPATCHED:
         return _err("DISPATCHED is set automatically when the trip starts", 400)
 
-    checklist = body.get("checklist") if isinstance(body.get("checklist"), dict) else {}
-    resolved_checklist = _resolve_quantity_checklist(checklist)
-    if resolved_checklist is not None:
-        order.checklist_quantity_verified = resolved_checklist
-
-    if "shortLoadQty" in body:
-        order.exception_short_load_qty = max(0, _int(body.get("shortLoadQty"), 0))
-    if "damagedOnLoadingQty" in body:
-        order.exception_damaged_on_loading_qty = max(0, _int(body.get("damagedOnLoadingQty"), 0))
-    if "holdReason" in body:
-        order.exception_hold_reason = str(body.get("holdReason") or "").strip() or None
-    if "exceptionNotes" in body:
-        order.exception_notes = str(body.get("exceptionNotes") or "").strip() or None
-
-    signoff_name = str(body.get("signoffName") or "").strip()
-
     if stage == WarehouseStage.LOADED:
         if not assigned_trip_for_loaded_stage:
             assigned_trip_for_loaded_stage = (
@@ -6168,20 +6076,6 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
             )
         if not assigned_trip_for_loaded_stage:
             return _err("Order must be assigned to a driver before LOADED", 400)
-        if not _warehouse_checklist_complete(order):
-            return _err("Quantity checklist must be completed before LOADED", 400)
-
-    if stage == WarehouseStage.DISPATCHED:
-        if not _warehouse_checklist_complete(order):
-            return _err("Quantity checklist is required before DISPATCHED", 400)
-        if str(order.exception_hold_reason or "").strip():
-            return _err("Order has hold reason and cannot be dispatched", 400)
-        if not signoff_name and not str(order.dispatch_signed_off_by or "").strip():
-            return _err("signoffName is required before DISPATCHED", 400)
-        if signoff_name:
-            order.dispatch_signed_off_by = signoff_name
-        order.dispatch_signed_off_user_id = staff.get("userId")
-        order.dispatch_signed_off_at = timezone.now()
 
     now = timezone.now()
     order.warehouse_stage = stage
@@ -6189,27 +6083,12 @@ def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonRes
         order.ready_to_load_at = now
     if stage == WarehouseStage.LOADED and not order.loaded_at:
         order.loaded_at = now
-    if stage == WarehouseStage.DISPATCHED and not order.warehouse_dispatched_at:
-        order.warehouse_dispatched_at = now
 
     if stage == WarehouseStage.LOADED and _normalize_order_status(order.status) in {OrderStatus.PREPARING, OrderStatus.CONFIRMED}:
         order.status = OrderStatus.PREPARING
-    if stage == WarehouseStage.DISPATCHED:
-        previous_status = _normalize_order_status(order.status)
-        order.status = OrderStatus.OUT_FOR_DELIVERY
 
     with transaction.atomic():
         order.save()
-
-    if stage == WarehouseStage.DISPATCHED:
-        timeline, _ = OrderTimeline.objects.get_or_create(order=order)
-        if not timeline.shipped_at:
-            timeline.shipped_at = now
-            timeline.save(update_fields=["shipped_at", "updated_at"])
-        if previous_status != OrderStatus.OUT_FOR_DELIVERY:
-            refreshed_for_email = Order.objects.select_related("customer").filter(id=order.id).first()
-            if refreshed_for_email:
-                _email_order_out_for_delivery_to_customer(refreshed_for_email)
 
     serialized_order = _serialize_order(
         Order.objects.select_related("customer", "timeline").get(id=order.id),

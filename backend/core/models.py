@@ -283,54 +283,11 @@ class Order(models.Model):
     loaded_at = models.DateTimeField(blank=True, null=True)
     warehouse_dispatched_at = models.DateTimeField(blank=True, null=True)
 
-    checklist_quantity_verified = models.BooleanField(default=False)
-
-    dispatch_signed_off_by = models.CharField(max_length=255, blank=True, null=True)
-    dispatch_signed_off_user_id = models.CharField(max_length=100, blank=True, null=True)
-    dispatch_signed_off_at = models.DateTimeField(blank=True, null=True)
-
-    exception_short_load_qty = models.IntegerField(default=0)
-    exception_damaged_on_loading_qty = models.IntegerField(default=0)
-    exception_hold_reason = models.TextField(blank=True, null=True)
-    exception_notes = models.TextField(blank=True, null=True)
-
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "Order"
-
-    @property
-    def checklist_items_verified(self) -> bool:
-        return bool(self.checklist_quantity_verified)
-
-    @checklist_items_verified.setter
-    def checklist_items_verified(self, value: bool) -> None:
-        self.checklist_quantity_verified = bool(value)
-
-    @property
-    def checklist_packaging_verified(self) -> bool:
-        return bool(self.checklist_quantity_verified)
-
-    @checklist_packaging_verified.setter
-    def checklist_packaging_verified(self, value: bool) -> None:
-        self.checklist_quantity_verified = bool(value)
-
-    @property
-    def checklist_vehicle_assigned(self) -> bool:
-        return bool(self.checklist_quantity_verified)
-
-    @checklist_vehicle_assigned.setter
-    def checklist_vehicle_assigned(self, value: bool) -> None:
-        self.checklist_quantity_verified = bool(value)
-
-    @property
-    def checklist_driver_assigned(self) -> bool:
-        return bool(self.checklist_quantity_verified)
-
-    @checklist_driver_assigned.setter
-    def checklist_driver_assigned(self, value: bool) -> None:
-        self.checklist_quantity_verified = bool(value)
 
 
 class OrderTimeline(models.Model):
