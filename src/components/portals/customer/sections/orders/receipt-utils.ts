@@ -115,7 +115,7 @@ export async function downloadOrderReceipt(order: Order) {
 
     let logoWidth = 0
     try {
-      const response = await fetch('/ann-anns-logo.png', { cache: 'no-store' })
+      const response = await fetch('/aab-trading-shop.png', { cache: 'no-store' })
       if (response.ok) {
         const logoBytes = await response.arrayBuffer()
         const logoImage = await pdf.embedPng(logoBytes)
@@ -133,7 +133,7 @@ export async function downloadOrderReceipt(order: Order) {
     }
 
     const titleX = margin + (logoWidth > 0 ? logoWidth + 8 : 0)
-    drawText("Ann Ann's Beverages Trading", titleX, y - 4, 10.8, true, rgb(0.06, 0.09, 0.16))
+    drawText('AAB TRADING SHOP', titleX, y - 4, 10.8, true, rgb(0.06, 0.09, 0.16))
     drawText('Order Receipt', page.getWidth() - margin - fontBold.widthOfTextAtSize('Order Receipt', 10), y - 3, 10, true)
     y -= 18
     drawText('Official Delivery Receipt', titleX, y - 3, 8.8, false, rgb(0.39, 0.45, 0.55))
@@ -178,7 +178,7 @@ export async function downloadOrderReceipt(order: Order) {
     for (let i = 0; i < maxRows; i++) {
       if (deliveryDetailLines[i]) drawText(deliveryDetailLines[i], col1X, y - i * 10, 8.3, false)
       if (i < 2) {
-        const soldByLine = i === 0 ? "Ann Ann's" : 'Beverages Trading'
+        const soldByLine = i === 0 ? 'AAB TRADING' : 'SHOP'
         drawText(soldByLine, col2X, y - i * 10, 8.3, false)
       }
       if (orderDetails[i]) drawText(orderDetails[i], col3X, y - i * 10, 8.3, false)

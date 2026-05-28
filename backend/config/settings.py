@@ -31,6 +31,10 @@ def _bool(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _csv(name: str) -> list[str]:
+    return [value.strip() for value in str(os.getenv(name, "")).split(",") if value.strip()]
+
+
 def _normalize_db_target(value: str) -> str:
     raw = str(value or "").strip().lower()
     if raw in {"lite", "sqlite", "local", "local_sqlite"}:
@@ -87,7 +91,21 @@ def _normalize_runtime_database_url(url: str) -> str:
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-logistics-dev-key")
 DEBUG = _bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = [h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",") if h.strip()]
+allowed_hosts = _csv("DJANGO_ALLOWED_HOSTS")
+render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
+if render_external_hostname:
+    allowed_hosts.append(render_external_hostname)
+allowed_hosts.extend(["localhost", "127.0.0.1"])
+if not allowed_hosts:
+    allowed_hosts = ["*"] if DEBUG else []
+ALLOWED_HOSTS = sorted(set(allowed_hosts))
+
+csrf_trusted_origins = _csv("DJANGO_CSRF_TRUSTED_ORIGINS")
+if render_external_hostname:
+    csrf_trusted_origins.append(f"https://{render_external_hostname}")
+CSRF_TRUSTED_ORIGINS = sorted(set(csrf_trusted_origins))
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -200,6 +218,7 @@ OTP_GMAIL_USER = os.getenv("OTP_GMAIL_USER", "").strip()
 OTP_GMAIL_APP_PASSWORD = "".join(os.getenv("OTP_GMAIL_APP_PASSWORD", "").split())
 OTP_FROM_NAME = os.getenv("OTP_FROM_NAME", "Ann Ann's Beverages Trading").strip()
 OTP_FROM_EMAIL = os.getenv("OTP_FROM_EMAIL", OTP_GMAIL_USER).strip()
+OTP_SMTP_FROM_EMAIL = os.getenv("OTP_SMTP_FROM_EMAIL", OTP_GMAIL_USER or OTP_FROM_EMAIL).strip()
 OTP_SMTP_SKIP_TLS_VERIFY = _bool("OTP_SMTP_SKIP_TLS_VERIFY", DEBUG)
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 
@@ -210,6 +229,8 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = OTP_GMAIL_USER
 EMAIL_HOST_PASSWORD = OTP_GMAIL_APP_PASSWORD
 DEFAULT_FROM_EMAIL = f"{OTP_FROM_NAME} <{OTP_FROM_EMAIL}>" if OTP_FROM_EMAIL else OTP_FROM_NAME
+if OTP_SMTP_FROM_EMAIL:
+    DEFAULT_FROM_EMAIL = f"{OTP_FROM_NAME} <{OTP_SMTP_FROM_EMAIL}>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Google OAuth (customer registration/login)

@@ -6,9 +6,9 @@ import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } f
 export const metadata: Metadata = {
   title: 'AAB TRADING DRIVER',
   icons: {
-    icon: '/aab-trading-logo.png',
-    shortcut: '/aab-trading-logo.png',
-    apple: '/aab-trading-logo.png',
+    icon: '/aab-trading-driver.png',
+    shortcut: '/aab-trading-driver.png',
+    apple: '/aab-trading-driver.png',
   },
 }
 

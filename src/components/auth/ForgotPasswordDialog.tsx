@@ -1,7 +1,7 @@
 'use client'
 
 import { type ReactNode, useEffect, useState } from 'react'
-import { ArrowRight, CheckCircle2, Loader2, LockKeyhole, Mail, ShieldCheck } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, LockKeyhole, Mail, Send, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -226,8 +226,11 @@ export function ForgotPasswordDialog({
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [otpSent, setOtpSent] = useState(false)
+  const [otpCooldown, setOtpCooldown] = useState(0)
   const [isSending, setIsSending] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [emailError, setEmailError] = useState('')
   const [otpError, setOtpError] = useState('')
   const [newPasswordError, setNewPasswordError] = useState('')
@@ -243,6 +246,14 @@ export function ForgotPasswordDialog({
     }
   }, [open, initialEmail])
 
+  useEffect(() => {
+    if (!otpCooldown) return
+    const timer = window.setInterval(() => {
+      setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [otpCooldown])
+
   const resetDialogState = () => {
     setOtp('')
     setNewPassword('')
@@ -250,6 +261,9 @@ export function ForgotPasswordDialog({
     setOtpSent(false)
     setIsSending(false)
     setIsResetting(false)
+    setOtpCooldown(0)
+    setShowNewPassword(false)
+    setShowConfirmPassword(false)
     setEmailError('')
     setOtpError('')
     setNewPasswordError('')
@@ -283,6 +297,7 @@ export function ForgotPasswordDialog({
         throw new Error(data?.error || 'Failed to send OTP.')
       }
       setOtpSent(true)
+      setOtpCooldown(30)
       toast.success('OTP sent. Check your email inbox.')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to send OTP.')
@@ -367,37 +382,47 @@ export function ForgotPasswordDialog({
           {triggerContent || 'Forgot password'}
         </button>
       </DialogTrigger>
-      <DialogContent className={cn('w-[calc(100vw-0.5rem)] max-w-[29rem] max-h-[calc(100dvh-0.5rem)] overflow-y-auto p-0', theme.dialogContent)}>
+      <DialogContent className="w-[420px] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-[16px] border border-[#dbe6f4] bg-white p-0 shadow-[0_14px_30px_rgba(15,44,89,0.22)]">
         <div className="relative">
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className={cn('absolute inset-0', theme.backdrop)} />
-            <div className={cn('absolute', theme.halo)} />
-            <div className={cn('absolute', theme.orb)} />
-            <div className={cn('absolute', theme.dotRing)} />
-          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="absolute right-3 top-3 z-20 grid h-7 w-7 place-items-center rounded-full bg-[#edf3fb] text-[#6b7e9a] hover:bg-[#e3edf8]"
+            aria-label="Close"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
 
-          <DialogHeader className={cn('relative border-b px-6 pb-5 pt-6', theme.headerBorder)}>
-            <div className={cn('mb-4 flex h-14 w-14 items-center justify-center rounded-[1.15rem]', theme.badge)}>
-              <ShieldCheck className={cn('h-7 w-7', theme.badgeIcon)} strokeWidth={2} />
+          <DialogHeader className="relative border-b border-[#dde7f3] px-5 pb-3 pt-4 pr-11 text-left">
+            <div className="grid gap-3 grid-cols-[1fr_auto] items-center">
+              <div>
+                <div className="mb-2.5 flex h-11 w-11 items-center justify-center rounded-full bg-[#eaf2fc]">
+                  <ShieldCheck className="h-5 w-5 text-[#1e86e0]" strokeWidth={2.1} />
+                </div>
+                <DialogTitle className="text-[20px] font-extrabold tracking-[-0.02em] leading-[1.05] text-[#0f3871]">
+                  Forgot password?
+                </DialogTitle>
+                <DialogDescription className="mt-2 max-w-[230px] text-[11px] leading-[1.35] text-[#60779a]">
+                  We will send a one-time OTP code to your registered email address.
+                </DialogDescription>
+              </div>
+              <div className="mr-2 h-[94px] w-[112px] items-center justify-center flex">
+                <div className="grid h-[88px] w-[106px] place-items-center rounded-[16px] bg-gradient-to-b from-[#e9f2ff] to-[#d5e6fb]">
+                  <LockKeyhole className="h-8 w-8 text-[#1e86e0]" />
+                </div>
+              </div>
             </div>
-            <DialogTitle className={cn('text-[1.75rem] font-extrabold tracking-[-0.03em]', theme.title)}>
-              Forgot password
-            </DialogTitle>
-            <DialogDescription className={cn('max-w-[22rem] text-[0.95rem] leading-[1.45]', theme.description)}>
-              We will send a one-time OTP code to your registered email address.
-            </DialogDescription>
           </DialogHeader>
 
-          <div className="relative space-y-4 px-6 py-5">
-            <div className="space-y-2.5">
-              <Label htmlFor="forgot-password-email" className={cn('px-1 text-[0.88rem] font-bold', theme.label)}>
-                Email
+          <div className="relative space-y-3 px-5 py-3.5">
+            <div className="space-y-2">
+              <Label htmlFor="forgot-password-email" className="px-0.5 text-[12px] font-semibold text-[#123d72]">
+                Email address
               </Label>
-              <FieldShell
-                icon={<Mail className={cn('h-5 w-5', theme.inputIcon)} strokeWidth={1.9} />}
-                invalid={Boolean(emailError)}
-                theme={theme}
-              >
+              <div className={cn('flex items-center gap-4 rounded-[22px] border bg-white px-4 py-3 shadow-[0_6px_16px_rgba(26,66,118,0.08)]', emailError ? 'border-[#e8b5bb]' : 'border-[#d5e2f0]')}>
+                <div className="grid h-10 w-10 place-items-center rounded-[12px] bg-[#eaf2fc]">
+                  <Mail className="h-5 w-5 text-[#1e86e0]" />
+                </div>
                 <Input
                   id="forgot-password-email"
                   type="email"
@@ -408,45 +433,39 @@ export function ForgotPasswordDialog({
                   }}
                   placeholder="you@example.com"
                   disabled={otpSent}
-                  className={cn(
-                    'h-auto border-0 bg-transparent p-0 text-[0.95rem] font-medium shadow-none ring-0 focus-visible:ring-0',
-                    theme.fieldPlaceholder,
-                    emailError ? 'text-[#a33f46]' : theme.fieldText
-                  )}
+                  className={cn('h-auto border-0 bg-transparent p-0 text-[12px] font-medium text-[#263c5a] placeholder:text-[#8ea2be] shadow-none ring-0 focus-visible:ring-0')}
                 />
-              </FieldShell>
-              {emailError ? <p className={cn('px-1 text-[0.78rem] font-medium', theme.errorText)}>{emailError}</p> : null}
+              </div>
+              {emailError ? <p className="px-1 text-sm font-medium text-[#c1545c]">{emailError}</p> : null}
             </div>
 
             {!otpSent ? (
               <Button
                 type="button"
-                className={cn('h-12 w-full rounded-full text-[0.98rem] font-bold', theme.primaryButton)}
+                className="h-[40px] w-full rounded-full bg-gradient-to-r from-[#2693f8] to-[#0e6fe0] text-[12px] font-bold text-white shadow-[0_10px_16px_rgba(17,110,216,0.26)] hover:brightness-[1.03]"
                 onClick={handleSendOtp}
                 disabled={isSending}
               >
-                {isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                 Send OTP
-                <ArrowRight className="ml-2 h-4 w-4" strokeWidth={2.6} />
               </Button>
             ) : (
-              <div className="space-y-3">
-                <div className={cn('rounded-[1.2rem] border px-4 py-3 text-[0.85rem]', theme.successCard, theme.successText)}>
+              <div className="space-y-4">
+                <div className="rounded-[16px] border border-[#aee7bf] bg-[#eaf9ef] px-4 py-3 text-base text-[#2d6c48]">
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className={cn('mt-0.5 h-4 w-4 shrink-0', theme.successIcon)} strokeWidth={2.2} />
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#2db452]" strokeWidth={2.2} />
                     <span>OTP sent. Enter the code from your email, then choose a new password.</span>
                   </div>
                 </div>
 
-                <div className="space-y-2.5">
-                  <Label htmlFor="forgot-password-otp" className={cn('px-1 text-[0.88rem] font-bold', theme.label)}>
+                <div className="space-y-3">
+                  <Label htmlFor="forgot-password-otp" className="px-1 text-[1rem] font-bold text-[#123d72]">
                     OTP code
                   </Label>
-                  <FieldShell
-                    icon={<ShieldCheck className={cn('h-5 w-5', theme.inputIcon)} strokeWidth={1.9} />}
-                    invalid={Boolean(otpError)}
-                    theme={theme}
-                  >
+                  <div className={cn('flex items-center gap-4 rounded-[22px] border bg-white px-4 py-3 shadow-[0_6px_16px_rgba(26,66,118,0.08)]', otpError ? 'border-[#e8b5bb]' : 'border-[#d5e2f0]')}>
+                    <div className="grid h-12 w-12 place-items-center rounded-[14px] bg-[#eaf2fc]">
+                      <ShieldCheck className="h-6 w-6 text-[#1e86e0]" />
+                    </div>
                     <Input
                       id="forgot-password-otp"
                       value={otp}
@@ -454,29 +473,32 @@ export function ForgotPasswordDialog({
                         setOtp(e.target.value)
                         if (otpError) setOtpError('')
                       }}
-                      placeholder="6-digit OTP"
-                      className={cn(
-                        'h-auto border-0 bg-transparent p-0 text-[0.95rem] font-medium shadow-none ring-0 focus-visible:ring-0',
-                        theme.fieldPlaceholder,
-                        otpError ? 'text-[#a33f46]' : theme.fieldText
-                      )}
+                      placeholder="Enter 6-digit OTP"
+                      className="h-auto border-0 bg-transparent p-0 text-[0.98rem] font-medium text-[#263c5a] placeholder:text-[#8ea2be] shadow-none ring-0 focus-visible:ring-0"
                     />
-                  </FieldShell>
-                  {otpError ? <p className={cn('px-1 text-[0.78rem] font-medium', theme.errorText)}>{otpError}</p> : null}
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={isSending || otpCooldown > 0}
+                      className="shrink-0 text-[1rem] font-semibold text-[#1e86e0] disabled:cursor-not-allowed disabled:text-[#94a6bf]"
+                    >
+                      {otpCooldown > 0 ? `Resend OTP (${otpCooldown}s)` : 'Resend OTP'}
+                    </button>
+                  </div>
+                  {otpError ? <p className="px-1 text-sm font-medium text-[#c1545c]">{otpError}</p> : null}
                 </div>
 
-                <div className="space-y-2.5">
-                  <Label htmlFor="forgot-password-new-password" className={cn('px-1 text-[0.88rem] font-bold', theme.label)}>
+                <div className="space-y-3">
+                  <Label htmlFor="forgot-password-new-password" className="px-1 text-[1rem] font-bold text-[#123d72]">
                     New password
                   </Label>
-                  <FieldShell
-                    icon={<LockKeyhole className={cn('h-5 w-5', theme.inputIcon)} strokeWidth={1.9} />}
-                    invalid={Boolean(newPasswordError)}
-                    theme={theme}
-                  >
+                  <div className={cn('flex items-center gap-4 rounded-[22px] border bg-white px-4 py-3 shadow-[0_6px_16px_rgba(26,66,118,0.08)]', newPasswordError ? 'border-[#e8b5bb]' : 'border-[#d5e2f0]')}>
+                    <div className="grid h-12 w-12 place-items-center rounded-[14px] bg-[#eaf2fc]">
+                      <LockKeyhole className="h-6 w-6 text-[#1e86e0]" />
+                    </div>
                     <Input
                       id="forgot-password-new-password"
-                      type="password"
+                      type={showNewPassword ? 'text' : 'password'}
                       autoComplete="new-password"
                       value={newPassword}
                       onChange={(e) => {
@@ -484,31 +506,28 @@ export function ForgotPasswordDialog({
                         if (newPasswordError) setNewPasswordError('')
                       }}
                       placeholder="Enter new password"
-                      className={cn(
-                        'h-auto border-0 bg-transparent p-0 text-[0.95rem] font-medium shadow-none ring-0 focus-visible:ring-0',
-                        theme.fieldPlaceholder,
-                        newPasswordError ? 'text-[#a33f46]' : theme.fieldText
-                      )}
+                      className="h-auto border-0 bg-transparent p-0 text-[0.98rem] font-medium text-[#263c5a] placeholder:text-[#8ea2be] shadow-none ring-0 focus-visible:ring-0"
                     />
-                  </FieldShell>
+                    <button type="button" onClick={() => setShowNewPassword((v) => !v)} className="shrink-0 text-[#95a7bf]">
+                      {showNewPassword ? <EyeOff className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
+                    </button>
+                  </div>
                   {newPasswordError ? (
-                    <p className={cn('px-1 text-[0.78rem] font-medium', theme.errorText)}>{newPasswordError}</p>
+                    <p className="px-1 text-sm font-medium text-[#c1545c]">{newPasswordError}</p>
                   ) : null}
-                  <p className={cn('px-1 text-[0.74rem] leading-[1.45]', theme.helperText)}>{PASSWORD_POLICY_MESSAGE}</p>
                 </div>
 
-                <div className="space-y-2.5">
-                  <Label htmlFor="forgot-password-confirm-password" className={cn('px-1 text-[0.88rem] font-bold', theme.label)}>
+                <div className="space-y-3">
+                  <Label htmlFor="forgot-password-confirm-password" className="px-1 text-[1rem] font-bold text-[#123d72]">
                     Confirm new password
                   </Label>
-                  <FieldShell
-                    icon={<LockKeyhole className={cn('h-5 w-5', theme.inputIcon)} strokeWidth={1.9} />}
-                    invalid={Boolean(confirmPasswordError)}
-                    theme={theme}
-                  >
+                  <div className={cn('flex items-center gap-4 rounded-[22px] border bg-white px-4 py-3 shadow-[0_6px_16px_rgba(26,66,118,0.08)]', confirmPasswordError ? 'border-[#e8b5bb]' : 'border-[#d5e2f0]')}>
+                    <div className="grid h-12 w-12 place-items-center rounded-[14px] bg-[#eaf2fc]">
+                      <LockKeyhole className="h-6 w-6 text-[#1e86e0]" />
+                    </div>
                     <Input
                       id="forgot-password-confirm-password"
-                      type="password"
+                      type={showConfirmPassword ? 'text' : 'password'}
                       autoComplete="new-password"
                       value={confirmPassword}
                       onChange={(e) => {
@@ -516,23 +535,27 @@ export function ForgotPasswordDialog({
                         if (confirmPasswordError) setConfirmPasswordError('')
                       }}
                       placeholder="Repeat new password"
-                      className={cn(
-                        'h-auto border-0 bg-transparent p-0 text-[0.95rem] font-medium shadow-none ring-0 focus-visible:ring-0',
-                        theme.fieldPlaceholder,
-                        confirmPasswordError ? 'text-[#a33f46]' : theme.fieldText
-                      )}
+                      className="h-auto border-0 bg-transparent p-0 text-[0.98rem] font-medium text-[#263c5a] placeholder:text-[#8ea2be] shadow-none ring-0 focus-visible:ring-0"
                     />
-                  </FieldShell>
+                    <button type="button" onClick={() => setShowConfirmPassword((v) => !v)} className="shrink-0 text-[#95a7bf]">
+                      {showConfirmPassword ? <EyeOff className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
+                    </button>
+                  </div>
                   {confirmPasswordError ? (
-                    <p className={cn('px-1 text-[0.78rem] font-medium', theme.errorText)}>{confirmPasswordError}</p>
+                    <p className="px-1 text-sm font-medium text-[#c1545c]">{confirmPasswordError}</p>
                   ) : null}
                 </div>
 
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <div className="rounded-[18px] border border-[#d7e6f5] bg-[#eef6ff] px-5 py-4 text-[#385679]">
+                  <p className="text-[1rem] font-semibold">Password must be at least 8 characters and include:</p>
+                  <p className="mt-1.5 text-[0.92rem] leading-[1.45]">{PASSWORD_POLICY_MESSAGE}</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Button
                     type="button"
                     variant="outline"
-                    className={cn('h-11 rounded-full font-semibold', theme.secondaryButton)}
+                    className="h-[48px] rounded-full border-[#4fa6ef] bg-white text-[0.98rem] font-semibold text-[#1f86df] hover:bg-[#f1f8ff]"
                     onClick={() => {
                       setOtpSent(false)
                       setOtp('')
@@ -543,13 +566,13 @@ export function ForgotPasswordDialog({
                   </Button>
                   <Button
                     type="button"
-                    className={cn('h-11 rounded-full font-bold', theme.primaryButton)}
+                    className="h-[48px] rounded-full bg-gradient-to-r from-[#1f92f2] to-[#116ed8] text-[1rem] font-bold text-white shadow-[0_14px_24px_rgba(17,110,216,0.3)] hover:brightness-[1.03]"
                     onClick={handleResetPassword}
                     disabled={isResetting}
                   >
-                    {isResetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {isResetting && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
                     Reset Password
-                    <ArrowRight className="ml-2 h-4 w-4" strokeWidth={2.6} />
+                    <ArrowRight className="ml-2 h-5 w-5" strokeWidth={2.6} />
                   </Button>
                 </div>
               </div>

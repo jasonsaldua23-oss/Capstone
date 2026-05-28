@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 
 const poppins = Poppins({
@@ -55,15 +55,7 @@ export function CustomerLoginPage() {
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
   const googleContinueSection = googleClientId ? (
-    <div className="mb-1.5 mt-1.5 space-y-1.5 sm:mb-2 sm:mt-2 sm:space-y-2">
-      <div className="relative py-0.5 sm:py-1">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-slate-200" />
-        </div>
-        <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
-          <span className="bg-white px-2 text-slate-500">Or continue with</span>
-        </div>
-      </div>
+    <div className="mb-0.5 mt-0.5 space-y-1 sm:mb-1 sm:mt-1 sm:space-y-1.5">
       <div className="flex justify-center w-full">
         <div ref={googleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
       </div>
@@ -386,67 +378,88 @@ export function CustomerLoginPage() {
   }
 
   return (
-    <div className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#ecf7f3] px-2 py-2 sm:min-h-screen sm:px-4 sm:py-8`}>
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-10 top-6 h-32 w-32 rounded-full border border-sky-200/60 bg-sky-100/50 blur-2xl sm:-left-16 sm:top-12 sm:h-64 sm:w-64" />
-        <div className="absolute -right-8 bottom-4 h-32 w-32 rounded-full border border-emerald-200/60 bg-emerald-100/50 blur-2xl sm:-right-16 sm:bottom-8 sm:h-64 sm:w-64" />
-      </div>
+    <div
+      className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-2 py-3 sm:min-h-screen sm:px-4 sm:py-8`}
+      style={{ backgroundImage: "url('/customer-login-bg.png')" }}
+    >
       {googleClientId ? (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
       <div className="relative z-[1] mx-auto flex w-full max-w-md items-center justify-center">
-        <Card className="w-full overflow-hidden rounded-[20px] border-sky-200/80 bg-white/96 py-0 shadow-[0_14px_36px_rgba(2,132,199,0.12)] backdrop-blur-md sm:rounded-[30px] sm:shadow-[0_18px_50px_rgba(2,132,199,0.14)]">
-          <div className="border-b border-sky-100 bg-[#f3fbff] px-3 pb-2.5 pt-3 text-center sm:px-6 sm:pb-5 sm:pt-6">
+        <Card className="w-full overflow-hidden rounded-[20px] border border-[#d9e4e5] bg-white py-0 shadow-[0_18px_46px_rgba(15,67,94,0.12)] backdrop-blur-md sm:rounded-[30px]">
+          <div className="border-b border-[#e7eded] bg-white px-4 pb-1 pt-2 text-center sm:px-7 sm:pb-2.5 sm:pt-3.5">
             <div className="flex items-center justify-center">
-              <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-sky-200/70 bg-sky-100 shadow-[0_6px_16px_rgba(14,165,233,0.14)] ring-2 ring-emerald-200/90 sm:h-12 sm:w-12 sm:rounded-2xl sm:shadow-[0_10px_24px_rgba(14,165,233,0.16)]">
-                <img src="/annshop.png" alt="AnnShop" className="h-full w-full scale-100 object-contain" />
+              <div className="inline-flex h-[84px] w-[84px] items-center justify-center overflow-hidden">
+                <img src="/aab-trading-shop.png" alt="AAB TRADING SHOP" className="h-full w-full scale-100 object-contain" />
               </div>
             </div>
-            <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-sky-700/80 sm:mt-3 sm:text-[11px]">Ann Ann's Beverages Trading</p>
-            <h1 className="mt-1 text-[1.55rem] font-black tracking-[-0.02em] sm:mt-2 sm:text-[2rem]">
-              <span className="text-[#0f4f8f]">Ann</span>
-              <span className="text-[#2f9a34]">Shop</span>
+            <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-[#3e9a35] sm:mt-2 sm:text-[10px]">ANN ANN'S BEVERAGES TRADING</p>
+            <h1 className="mt-0.5 text-[1.4rem] font-black leading-none tracking-[-0.02em] sm:mt-1 sm:text-[1.7rem]">
+              <span className="block text-[#1452a1]">AAB TRADING</span>
+              <span className="mt-0 block text-[#3f9a35]">SHOP</span>
             </h1>
-            <p className="mt-1 text-[12px] leading-tight text-slate-600 sm:mt-2 sm:text-[0.95rem]">Track orders and manage deliveries from one place.</p>
           </div>
-          <CardContent className="w-full px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2.5 sm:px-6 sm:pb-6 sm:pt-5">
+          <CardContent className="w-full px-4 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-0 sm:px-7 sm:pb-4 sm:pt-0">
           {authMode === 'login' ? (
-              <form onSubmit={handleLogin} autoComplete="off" className="space-y-2.5 sm:space-y-4">
+              <form onSubmit={handleLogin} autoComplete="off" className="space-y-1.5 sm:space-y-2">
+                <div className="flex items-center gap-3 px-1 pt-0">
+                  <span className="h-px flex-1 bg-[#dce5e6]" />
+                  <Leaf className="h-4 w-4 text-[#4aa13d]" />
+                  <span className="h-px flex-1 bg-[#dce5e6]" />
+                </div>
+                <p className="px-1 text-center text-[13px] leading-tight text-[#5d6d88] sm:text-[0.92rem]">Track orders and manage deliveries from one place.</p>
                 <div className="space-y-1.5 sm:space-y-2">
-                  <Label htmlFor="customer-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email</Label>
-                  <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className={`h-10 rounded-xl px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] sm:h-12 sm:text-base ${loginError ? 'border-rose-300 bg-rose-50/40 focus-visible:ring-rose-500' : 'border-sky-100 bg-sky-50/50 focus-visible:ring-sky-500'}`} />
+                  <Label htmlFor="customer-email" className="text-[12px] font-semibold tracking-[0.01em] text-[#324766] sm:text-[13px]">Email</Label>
+                  <div className={`relative h-9 rounded-xl border sm:h-10 ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
+                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#697a96]" />
+                    <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-9 pr-3 text-[15px] text-slate-900 placeholder:text-[#8a99b3] focus-visible:ring-0 sm:text-base" />
+                  </div>
                 </div>
                 <div className="space-y-1.5 sm:space-y-2">
-                  <Label htmlFor="customer-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
-                  <div className="relative">
-                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className={`h-10 rounded-xl pr-10 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] sm:h-12 sm:pr-11 sm:text-base ${loginError ? 'border-rose-300 bg-rose-50/40 focus-visible:ring-rose-500' : 'border-sky-100 bg-sky-50/50 focus-visible:ring-sky-500'}`} />
+                  <Label htmlFor="customer-password" className="text-[12px] font-semibold tracking-[0.01em] text-[#324766] sm:text-[13px]">Password</Label>
+                  <div className={`relative h-9 rounded-xl border sm:h-10 ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
+                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#697a96]" />
+                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-9 pr-10 text-[15px] text-slate-900 placeholder:text-[#8a99b3] focus-visible:ring-0 sm:text-base" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                   {loginError ? <p className="text-[12px] text-rose-600 sm:text-sm">{loginError}</p> : null}
                 </div>
-                <label className="flex items-center gap-2 text-[12px] text-slate-600 sm:text-sm">
+                <label className="flex items-center gap-2 text-[12px] text-[#4e5f79] sm:text-sm">
                   <input
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    className="h-4 w-4 rounded border-slate-300 text-[#3e9f34] focus:ring-[#3e9f34]"
                   />
                   Keep me logged in
                 </label>
-                <Button type="submit" className="h-10 w-full rounded-xl bg-sky-600 text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(2,132,199,0.24)] hover:bg-sky-500 sm:h-12 sm:text-base sm:shadow-[0_12px_24px_rgba(2,132,199,0.30)]" disabled={isLoading}>
+                <Button type="submit" className="h-9 w-full rounded-xl bg-gradient-to-r from-[#3ca232] to-[#4aac35] text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(63,150,55,0.28)] hover:from-[#34922c] hover:to-[#439c2f] sm:h-10 sm:text-[15px]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
                 </Button>
                 <ForgotPasswordDialog
                   accountType="customer"
                   portal="customer"
                   initialEmail={email}
-                  triggerClassName="w-full text-center text-[12px] text-slate-500 transition-colors hover:text-slate-700 sm:text-sm"
+                  triggerClassName="w-full text-center text-[12px] text-[#3f9a35] transition-colors hover:text-[#34832d] sm:text-sm"
                 />
+                <div className="pt-0.5">
+                  <div className="relative py-0 sm:py-0.5">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-[#dce5e6]" />
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
+                      <span className="bg-white px-2 text-[#7f8fa5]">OR CONTINUE WITH</span>
+                    </div>
+                  </div>
+                  <div className="mt-0.5 flex justify-center">
+                    <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
+                  </div>
+                </div>
                 {googleContinueSection}
-                <p className="text-center text-[12px] text-slate-600 sm:text-sm">
+                <p className="pt-0.5 text-center text-[12px] text-slate-600 sm:text-sm">
                   Don&apos;t have an account?{' '}
                   <button
                     type="button"
@@ -454,7 +467,7 @@ export function CustomerLoginPage() {
                       setLoginError('')
                       setAuthMode('register')
                     }}
-                    className="font-medium text-sky-700 hover:text-sky-600"
+                    className="font-semibold text-[#3f9a35] hover:text-[#34832d]"
                   >
                     Register
                   </button>

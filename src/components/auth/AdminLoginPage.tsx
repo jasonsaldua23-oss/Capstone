@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 
 const poppins = Poppins({
@@ -134,63 +134,79 @@ export function AdminLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className={`${poppins.className} min-h-screen bg-gray-50 flex items-center justify-center px-4`}>
+      <div
+        className={`${poppins.className} min-h-screen bg-[#eaf1f2] bg-cover bg-center bg-no-repeat flex items-center justify-center px-4`}
+        style={{ backgroundImage: "url('/customer-login-bg.png')" }}
+      >
         <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
       </div>
     )
   }
 
   return (
-    <div className={`${poppins.className} min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10`}>
+    <div
+      className={`${poppins.className} min-h-screen bg-[#eaf1f2] bg-cover bg-center bg-no-repeat flex items-center justify-center px-4 py-8`}
+      style={{ backgroundImage: "url('/customer-login-bg.png')" }}
+    >
       <Toaster position="top-right" />
-      <Card className="w-full max-w-md border-slate-200 bg-white shadow-xl">
-        <CardHeader className="space-y-3">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <Card className="w-full max-w-[420px] rounded-[24px] border border-[#dce3ec] bg-white/95 shadow-[0_16px_42px_rgba(15,23,42,0.14)] backdrop-blur-sm">
+        <CardHeader className="space-y-2 pb-0 pt-6">
+          <div className="mx-auto flex h-[112px] w-[112px] items-center justify-center overflow-hidden">
             <img
               src="/ann-anns-logo.png"
               alt="Ann Ann's Beverages Trading logo"
-              className="h-full w-full object-contain p-1"
+              className="h-full w-full object-contain"
             />
           </div>
-          <CardTitle className="text-slate-900 text-2xl text-center leading-tight">
-            <span className="block">Ann Ann&apos;s Beverages Trading</span>
-            <span className="block">Admin</span>
+          <CardTitle className=" text-[#112b60] text-center text-2xl font-extrabold leading-tight">
+            <span className="block">Ann Ann&apos;s Beverages</span>
+            <span className="block">Trading Admin</span>
           </CardTitle>
-          <CardDescription className="text-slate-500 text-center">Log in with your administrator credentials.</CardDescription>
+          <CardDescription className="text-[#7a89a6] text-center text-[15px]">Log in with your administrator credentials.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} autoComplete="off" className="space-y-4">
+        <CardContent className="px-7 pb-6">
+          <form onSubmit={handleLogin} autoComplete="off" className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="admin-email" className="text-slate-700">Email</Label>
-              <Input id="admin-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className={`h-11 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${loginError ? 'border-rose-300 focus-visible:ring-rose-500' : 'border-slate-300'}`} />
+              <Label htmlFor="admin-email" className="text-[#1f3566] text-sm font-semibold">Email</Label>
+              <div className={`relative h-11 rounded-xl border bg-white ${loginError ? 'border-rose-300' : 'border-[#d6deea]'}`}>
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a99b3]" />
+                <Input id="admin-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-10 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0" />
+              </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="admin-password" className="text-slate-700">Password</Label>
-              <div className="relative">
-                <Input id="admin-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className={`h-11 bg-white pr-11 text-slate-900 placeholder:text-slate-400 ${loginError ? 'border-rose-300 focus-visible:ring-rose-500' : 'border-slate-300 focus-visible:ring-indigo-500'}`} />
+              <Label htmlFor="admin-password" className="text-[#1f3566] text-sm font-semibold">Password</Label>
+              <div className={`relative h-11 rounded-xl border bg-white ${loginError ? 'border-rose-300' : 'border-[#d6deea]'}`}>
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a99b3]" />
+                <Input id="admin-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-10 pr-11 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0" />
                 <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
               {loginError ? <p className="text-sm text-rose-600">{loginError}</p> : null}
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-[#445877]">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                className="h-4 w-4 rounded border-[#ccd6e4] text-[#1f56d8] focus:ring-[#1f56d8]"
               />
               Keep me logged in
             </label>
-            <Button type="submit" className="w-full h-11 bg-indigo-600 text-white hover:bg-indigo-700" disabled={isLoading}>
-              {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
+            <Button type="submit" className="w-full h-11 rounded-[10px] bg-gradient-to-r from-[#0f4fd3] to-[#0b45bf] text-white shadow-[0_10px_20px_rgba(15,79,211,0.28)] hover:from-[#0d48c2] hover:to-[#093fae]" disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}Log In
             </Button>
             <ForgotPasswordDialog
               accountType="staff"
               portal="admin"
               initialEmail={email}
-              triggerClassName="w-full text-center text-sm text-slate-600 hover:text-slate-900 transition-colors"
+              triggerClassName="-mt-1 flex w-full items-center justify-center gap-2.5 text-[0.9rem] font-medium text-[#16984e] transition hover:text-[#107e41]"
+              triggerContent={
+                <>
+                  <Lock className="h-4 w-4" />
+                  <span className="text-[0.9rem] font-medium">Forgot password?</span>
+                </>
+              }
             />
           </form>
         </CardContent>

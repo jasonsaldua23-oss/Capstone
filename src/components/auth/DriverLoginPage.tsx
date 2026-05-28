@@ -232,7 +232,10 @@ export function DriverLoginPage() {
 
   if (isCheckingSession) {
     return (
-      <div className={`${poppins.className} flex min-h-screen items-center justify-center bg-[#eefaf5] px-4`}>
+      <div
+        className={`${poppins.className} flex min-h-screen items-center justify-center bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-4`}
+        style={{ backgroundImage: "url('/customer-login-bg.png')" }}
+      >
         <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
       </div>
     )
@@ -251,9 +254,9 @@ export function DriverLoginPage() {
 
   return (
     <div
-      className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-x-hidden overflow-y-auto bg-[#f6fcf8] px-0 py-1 md:min-h-screen md:px-12 md:py-10`}
+      className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-x-hidden overflow-y-auto bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-0 py-1 md:min-h-screen md:px-12 md:py-10`}
+      style={{ backgroundImage: "url('/customer-login-bg.png')" }}
     >
-      <DriverLoginBackdrop />
       <Toaster position="top-right" />
 
       <div className="relative z-[1] flex w-full justify-center">
@@ -267,15 +270,15 @@ export function DriverLoginPage() {
           <DriverRouteArtwork />
 
           <div className="relative z-[1] flex flex-col items-center">
-            <div className="flex h-[5.5rem] w-[5.5rem] items-center justify-center">
+            <div className="flex h-[8.25rem] w-[8.25rem] items-center justify-center">
               <img
-                src="/aab-trading-logo.png"
+                src="/aab-trading-driver.png"
                 alt="AAB Trading Driver"
-                className="h-full w-full object-contain drop-shadow-[0_10px_25px_rgba(31,86,145,0.18)]"
+                className="h-full w-full object-contain drop-shadow-[0_12px_28px_rgba(31,86,145,0.2)]"
               />
             </div>
 
-            <p className="mt-3 text-center text-[0.7rem] font-semibold uppercase tracking-[0.28em] text-[#199154]">
+            <p className="mt-0 text-center text-[0.7rem] font-semibold uppercase tracking-[0.28em] text-[#199154]">
               ANN ANN&apos;S BEVERAGES TRADING
             </p>
 

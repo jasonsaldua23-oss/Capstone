@@ -6292,7 +6292,11 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
         if total_weight_after_assignment > max_capacity_allowed:
             return _err(
-                "Exceed the maximum order weight allowed",
+                (
+                    f"Vehicle capacity limit reached. Total assigned weight would be "
+                    f"{total_weight_after_assignment:.2f} kg, but only up to 80% of capacity is allowed "
+                    f"({max_capacity_allowed:.2f} kg of {vehicle_capacity:.2f} kg)."
+                ),
                 400,
             )
 
@@ -6552,6 +6556,43 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                         warehouse_id=target_warehouse_id,
                         performed_by=staff_user_id or None,
                     )
+
+            # Enforce vehicle capacity (80%) on trip edits as well:
+            # adding/removing orders and changing driver/vehicle must stay within limit.
+            selected_vehicle = next_vehicle if (driver_changed and next_vehicle is not None) else trip.vehicle
+            if selected_vehicle:
+                vehicle_capacity = float(getattr(selected_vehicle, "capacity", 0) or 0)
+                if vehicle_capacity > 0:
+                    max_capacity_allowed = vehicle_capacity * 0.8
+                    trip_order_ids = list(
+                        TripDropPoint.objects.filter(trip_id=trip.id)
+                        .exclude(order_id__isnull=True)
+                        .values_list("order_id", flat=True)
+                        .distinct()
+                    )
+                    trip_orders = (
+                        Order.objects.filter(id__in=trip_order_ids)
+                        .prefetch_related("items__product")
+                    )
+                    trip_total_weight = sum(_calculate_order_weight(order) for order in trip_orders)
+                    current_vehicle_usage = _get_vehicle_capacity_usage(selected_vehicle.id)
+
+                    # If trip stays on the same vehicle, usage already includes this trip.
+                    # If trip is moved to another vehicle, add this trip weight to that vehicle usage.
+                    if str(getattr(trip, "vehicle_id", "") or "").strip() == str(getattr(selected_vehicle, "id", "") or "").strip():
+                        total_weight_after_assignment = current_vehicle_usage
+                    else:
+                        total_weight_after_assignment = current_vehicle_usage + trip_total_weight
+
+                    if total_weight_after_assignment > max_capacity_allowed:
+                        return _err(
+                            (
+                                f"Vehicle capacity limit reached. Total assigned weight would be "
+                                f"{total_weight_after_assignment:.2f} kg, but only up to 80% of capacity is allowed "
+                                f"({max_capacity_allowed:.2f} kg of {vehicle_capacity:.2f} kg)."
+                            ),
+                            400,
+                        )
 
             reordered_drop_points = list(TripDropPoint.objects.filter(trip_id=trip.id).order_by("sequence", "id"))
             for idx, point in enumerate(reordered_drop_points, start=1):

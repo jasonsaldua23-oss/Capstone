@@ -87,12 +87,12 @@ export function CustomerReceiptDialog(props: any) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
                     <img
-                      src="/ann-anns-logo.png"
-                      alt="Ann Ann's Beverages Trading"
+                      src="/aab-trading-shop.png"
+                      alt="AAB TRADING SHOP"
                       className="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white"
                     />
                     <div>
-                    <p className="font-bold text-slate-900 leading-tight">Ann Ann&apos;s Beverages Trading</p>
+                    <p className="font-bold text-slate-900 leading-tight">AAB TRADING SHOP</p>
                     <p className="text-[10px] text-slate-500">Official Delivery Receipt</p>
                     <p className="text-[10px] text-slate-600">Phone: {sellerPhone}</p>
                     </div>
@@ -117,7 +117,7 @@ export function CustomerReceiptDialog(props: any) {
                   </div>
                   <div>
                     <p className="font-semibold text-slate-500">Sold By</p>
-                    <p className="mt-1 leading-4 text-slate-700">Ann Ann&apos;s Beverages Trading</p>
+                    <p className="mt-1 leading-4 text-slate-700">AAB TRADING SHOP</p>
                   </div>
                   <div>
                     <p className="font-semibold text-slate-500">Order Details</p>

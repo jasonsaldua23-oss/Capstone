@@ -209,12 +209,12 @@ export default function Home() {
     }
 
     if (portal === 'customer') {
-      applyBrowserBranding('AnnShop', '/annshop.png')
+      applyBrowserBranding('AAB TRADING SHOP', '/aab-trading-shop.png')
       return
     }
 
     if (portal === 'driver') {
-      applyBrowserBranding('AnnDrive', '/anndrive.png')
+      applyBrowserBranding('AnnDrive', '/aab-trading-driver.png')
       return
     }
 

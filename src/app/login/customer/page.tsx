@@ -4,11 +4,11 @@ import { CustomerLoginPage as CustomerLoginScreen } from '@/components/auth/Cust
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
 
 export const metadata: Metadata = {
-  title: 'AnnShop',
+  title: 'AAB TRADING SHOP',
   icons: {
-    icon: '/annshop.png',
-    shortcut: '/annshop.png',
-    apple: '/annshop.png',
+    icon: '/aab-trading-shop.png',
+    shortcut: '/aab-trading-shop.png',
+    apple: '/aab-trading-shop.png',
   },
 }
 

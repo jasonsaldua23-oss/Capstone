@@ -30,7 +30,7 @@ export function DriverPortalHeader({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl border border-white/90 bg-white shadow-[0_6px_14px_rgba(15,23,42,0.14)]">
-              <img src="/aab-trading-logo.png" alt="AAB Trading Driver" className="h-full w-full object-cover" />
+              <img src="/aab-trading-driver.png" alt="AAB TRADING DRIVER" className="h-full w-full object-cover" />
             </div>
             <div className="leading-tight">
               <p className="text-[10px] uppercase tracking-[0.18em] text-slate-700">ANN ANN'S BEVERAGES TRADING</p>

@@ -30,12 +30,12 @@ export function CustomerPortalHeader(props: any) {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm md:h-10 md:w-10 md:rounded-xl">
-              <img src="/annshop.png" alt="AnnShop" className="h-full w-full object-contain p-1" />
+              <img src="/aab-trading-shop.png" alt="AAB TRADING SHOP" className="h-full w-full object-contain p-1" />
             </div>
             <div className="leading-tight">
-              <p className="text-[8px] uppercase tracking-[0.14em] text-slate-500 md:text-[9px] md:tracking-[0.16em]">Ann Ann's Beverages Trading</p>
+              <p className="text-[8px] uppercase tracking-[0.14em] text-slate-500 md:text-[9px] md:tracking-[0.16em]">AAB TRADING SHOP</p>
               <h1 className="text-[20px] font-extrabold tracking-[-0.02em] text-[#123e73] md:text-[26px]">
-                Ann<span className="text-[#2f9a34]">Shop</span>
+                AAB TRADING<span className="text-[#2f9a34]"> SHOP</span>
               </h1>
             </div>
           </div>

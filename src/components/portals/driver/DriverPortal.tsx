@@ -56,7 +56,7 @@ export function DriverPortal() {
     document.title = 'AAB TRADING DRIVER'
     faviconSelectors.forEach((selector) => {
       const node = document.head.querySelector(selector) as HTMLLinkElement | null
-      if (node) node.href = '/aab-trading-logo.png'
+      if (node) node.href = '/aab-trading-driver.png'
     })
 
     return () => {
