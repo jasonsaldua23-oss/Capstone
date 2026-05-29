@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -37,6 +37,8 @@ export function HistoryView({
   onOpenTrip: (trip: Trip) => void
 }) {
   const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const completedTrips = [...(trips || [])]
     .filter((trip) => isCompletedTrip(trip.status))
@@ -70,6 +72,21 @@ export function HistoryView({
       return tripText.includes(q) || vehicleText.includes(q) || stopText.includes(q)
     })
   }, [completedTrips, search])
+  const totalPages = Math.max(1, Math.ceil(visibleTrips.length / pageSize))
+  const paginatedTrips = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return visibleTrips.slice(start, start + pageSize)
+  }, [visibleTrips, currentPage])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
 
   const formatDate = (value?: string | null) => {
     if (!value) return 'N/A'
@@ -79,7 +96,7 @@ export function HistoryView({
   }
 
   return (
-    <div className="p-4">
+    <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:pb-4">
       <h2 className="mb-4 text-xl font-semibold text-slate-900">Delivery History</h2>
       <div className="relative mb-4">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -103,7 +120,15 @@ export function HistoryView({
         </Card>
       ) : (
         <div className="space-y-3">
-          {visibleTrips.map((trip) => (
+          <div className="flex items-center justify-between rounded-xl border border-sky-200/80 bg-white/85 px-3 py-2 text-xs text-[#4d6785] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+            <p>
+              Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, visibleTrips.length)} of {visibleTrips.length}
+            </p>
+            <p>
+              Page {currentPage} of {totalPages}
+            </p>
+          </div>
+          {paginatedTrips.map((trip) => (
             <Card key={trip.id} className="rounded-xl border border-slate-200 shadow-sm">
               <CardContent className="pt-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
@@ -164,6 +189,26 @@ export function HistoryView({
               </CardContent>
             </Card>
           ))}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 flex-1 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              disabled={currentPage <= 1}
+            >
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 flex-1 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
+              onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>

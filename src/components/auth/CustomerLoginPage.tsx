@@ -411,16 +411,16 @@ export function CustomerLoginPage() {
                 <p className="px-1 text-center text-[13px] leading-tight text-[#5d6d88] sm:text-[0.92rem]">Track orders and manage deliveries from one place.</p>
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="customer-email" className="text-[12px] font-semibold tracking-[0.01em] text-[#324766] sm:text-[13px]">Email</Label>
-                  <div className={`relative h-9 rounded-xl border sm:h-10 ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
+                  <div className={`relative h-11 rounded-xl border ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
                     <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#697a96]" />
-                    <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-9 pr-3 text-[15px] text-slate-900 placeholder:text-[#8a99b3] focus-visible:ring-0 sm:text-base" />
+                    <Input id="customer-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required className="h-full border-0 bg-transparent pl-9 pr-3 text-[15px] text-slate-900 placeholder:text-[#8a99b3] focus-visible:ring-0 sm:text-base" />
                   </div>
                 </div>
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="customer-password" className="text-[12px] font-semibold tracking-[0.01em] text-[#324766] sm:text-[13px]">Password</Label>
-                  <div className={`relative h-9 rounded-xl border sm:h-10 ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
+                  <div className={`relative h-11 rounded-xl border ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
                     <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#697a96]" />
-                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-9 pr-10 text-[15px] text-slate-900 placeholder:text-[#8a99b3] focus-visible:ring-0 sm:text-base" />
+                    <Input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required className="h-full border-0 bg-transparent pl-9 pr-10 text-[15px] text-slate-900 placeholder:text-[#8a99b3] focus-visible:ring-0 sm:text-base" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>

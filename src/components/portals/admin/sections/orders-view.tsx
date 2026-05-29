@@ -372,6 +372,22 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
     }
     return formatOrderStatus(order?.status, order?.paymentStatus)
   }
+  const getOrderStatusTextClass = (status: string) => {
+    const value = String(status || '').trim().toUpperCase()
+    if (value === 'PENDING') return 'text-yellow-700'
+    if (value === 'PREPARING') return 'text-lime-700'
+    if (value === 'CANCELLED') return 'text-red-700'
+    if (value === 'DELIVERED') return 'text-emerald-700'
+    return 'text-slate-700'
+  }
+  const getOrderStatusBadgeClass = (status: string) => {
+    const value = String(status || '').trim().toUpperCase()
+    if (value === 'PENDING') return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
+    if (value === 'PREPARING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
+    if (value === 'CANCELLED') return 'bg-red-100 text-red-700 hover:bg-red-100'
+    if (value === 'DELIVERED') return 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+    return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
+  }
 
   const getOrderWarehouseMeta = (order: any) => {
     const idSet = new Set<string>()
@@ -869,10 +885,10 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                   <tr>
                     <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
                     <th className="text-left p-4 font-semibold text-gray-800">CUSTOMER</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">PRODUCTS</th>
                     <th className="text-left p-4 font-semibold text-gray-800">WAREHOUSE</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">DELIVERY</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">DELIVERY DATE</th>
                     <th className="text-left p-4 font-semibold text-gray-800">VALUE</th>
+                    <th className="text-left p-4 font-semibold text-gray-800">STATUS</th>
                     <th className="text-left p-4 font-semibold text-gray-800">Actions</th>
                   </tr>
                 </thead>
@@ -888,17 +904,6 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                       <td className="p-4">
                         <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
                         <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
-                      </td>
-                      <td className="p-4">
-                        <p className="font-medium text-gray-900">
-                          {toArray<any>(order.items)
-                            .slice(0, 2)
-                            .map((item) => formatOrderItemPreview(item))
-                            .join(', ') || 'No items'}
-                          {Number(order.itemCount || toArray<any>(order.items).length) > 2
-                            ? ` +${Number(order.itemCount || toArray<any>(order.items).length) - 2} more`
-                            : ''}
-                        </p>
                       </td>
                       <td className="p-4">
                         {(() => {
@@ -936,6 +941,12 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                         {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
                       </td>
                       <td className="p-4 font-semibold text-gray-900">{formatPeso(order.totalAmount || 0)}</td>
+                      <td className="p-4">
+                        {(() => {
+                          const displayStatus = getDisplayOrderStatus(order)
+                          return <Badge className={getOrderStatusBadgeClass(displayStatus)}>{displayStatus}</Badge>
+                        })()}
+                      </td>
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <Button
@@ -979,7 +990,14 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                         <Truck className="h-5 w-5" />
                       </div>
                     </div>
-                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{getDisplayOrderStatus(selectedOrder)}</p>
+                    {(() => {
+                      const displayStatus = getDisplayOrderStatus(selectedOrder)
+                      return (
+                        <p className={`text-[0.8rem] font-bold leading-tight sm:text-[0.98rem] ${getOrderStatusTextClass(displayStatus)}`}>
+                          {displayStatus}
+                        </p>
+                      )
+                    })()}
                   </div>
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4">
                     <div className="mb-2 flex items-center justify-between">
@@ -1100,6 +1118,11 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                               {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
                               {' '}x{item.quantity}
                             </p>
+                            {String(item?.product?.category?.name || item?.product?.category || '').trim() ? (
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                {String(item?.product?.category?.name || item?.product?.category || '').trim()}
+                              </p>
+                            ) : null}
                             <CompactDiscountLine
                               value={formatPeso(Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0))}
                               percent={(() => {

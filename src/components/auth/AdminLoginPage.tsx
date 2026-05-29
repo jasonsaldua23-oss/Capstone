@@ -28,6 +28,9 @@ export function AdminLoginPage() {
   const [loginError, setLoginError] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false)
+  const [loginOtp, setLoginOtp] = useState('')
+  const [challengeToken, setChallengeToken] = useState('')
 
   const persistAdminWelcomeState = (userData: any) => {
     if (typeof window === 'undefined') return
@@ -95,6 +98,14 @@ export function AdminLoginPage() {
         data = null
       }
 
+      if (response.status === 202 && data?.requiresTwoFactor && data?.challengeToken) {
+        setRequiresTwoFactor(true)
+        setChallengeToken(String(data.challengeToken))
+        setLoginOtp('')
+        toast.success('Verification code sent to your email')
+        return
+      }
+
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
         const normalizedApiError = apiError.toLowerCase()
@@ -127,6 +138,42 @@ export function AdminLoginPage() {
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleVerifyLoginOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!challengeToken || !loginOtp.trim()) {
+      setLoginError('Enter the verification code.')
+      return
+    }
+    setLoginError('')
+    setIsLoading(true)
+    try {
+      const response = await fetch('/api/auth/login/verify-otp', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken, otp: loginOtp.trim(), portal: 'admin' }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success || !data?.user) {
+        setLoginError(String(data?.error || 'Invalid or expired verification code.'))
+        return
+      }
+      if (resolvePortalFromUser(data.user) !== 'admin') {
+        if (data.token) clearTabAuthToken()
+        await fetch('/api/auth/logout', { method: 'POST' })
+        setLoginError('Invalid email or password.')
+        return
+      }
+      persistAdminWelcomeState(data.user)
+      if (data.token) setTabAuthToken(data.token)
+      router.replace('/')
+    } catch {
+      toast.error('Unable to verify code. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -165,25 +212,48 @@ export function AdminLoginPage() {
           <CardDescription className="text-[#7a89a6] text-center text-[15px]">Log in with your administrator credentials.</CardDescription>
         </CardHeader>
         <CardContent className="px-7 pb-6">
-          <form onSubmit={handleLogin} autoComplete="off" className="space-y-3">
+          <form onSubmit={requiresTwoFactor ? handleVerifyLoginOtp : handleLogin} autoComplete="off" className="space-y-3">
+            {!requiresTwoFactor ? (
             <div className="space-y-2">
               <Label htmlFor="admin-email" className="text-[#1f3566] text-sm font-semibold">Email</Label>
               <div className={`relative h-11 rounded-xl border bg-white ${loginError ? 'border-rose-300' : 'border-[#d6deea]'}`}>
                 <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a99b3]" />
-                <Input id="admin-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-10 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0" />
+                <Input id="admin-email" type="email" autoComplete="off" value={email} onChange={(e) => { setEmail(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter email" required className="h-full border-0 bg-transparent pl-10 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0" />
               </div>
             </div>
+            ) : null}
+            {!requiresTwoFactor ? (
             <div className="space-y-2">
               <Label htmlFor="admin-password" className="text-[#1f3566] text-sm font-semibold">Password</Label>
               <div className={`relative h-11 rounded-xl border bg-white ${loginError ? 'border-rose-300' : 'border-[#d6deea]'}`}>
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a99b3]" />
-                <Input id="admin-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required aria-invalid={Boolean(loginError)} className="h-full border-0 bg-transparent pl-10 pr-11 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0" />
+                <Input id="admin-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); if (loginError) setLoginError('') }} placeholder="Enter password" required className="h-full border-0 bg-transparent pl-10 pr-11 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0" />
                 <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-600" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
               {loginError ? <p className="text-sm text-rose-600">{loginError}</p> : null}
             </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="admin-login-otp" className="text-[#1f3566] text-sm font-semibold">Verification Code</Label>
+                <div className={`relative h-11 rounded-xl border bg-white ${loginError ? 'border-rose-300' : 'border-[#d6deea]'}`}>
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a99b3]" />
+                  <Input
+                    id="admin-login-otp"
+                    type="text"
+                    autoComplete="one-time-code"
+                    value={loginOtp}
+                    onChange={(e) => { setLoginOtp(e.target.value); if (loginError) setLoginError('') }}
+                    placeholder="Enter OTP code"
+                    required
+                    className="h-full border-0 bg-transparent pl-10 text-slate-900 placeholder:text-[#9aa8bf] focus-visible:ring-0"
+                  />
+                </div>
+                {loginError ? <p className="text-sm text-rose-600">{loginError}</p> : null}
+              </div>
+            )}
+            {!requiresTwoFactor ? (
             <label className="flex items-center gap-2 text-sm text-[#445877]">
               <input
                 type="checkbox"
@@ -193,9 +263,25 @@ export function AdminLoginPage() {
               />
               Keep me logged in
             </label>
+            ) : null}
             <Button type="submit" className="w-full h-11 rounded-[10px] bg-gradient-to-r from-[#0f4fd3] to-[#0b45bf] text-white shadow-[0_10px_20px_rgba(15,79,211,0.28)] hover:from-[#0d48c2] hover:to-[#093fae]" disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}Log In
             </Button>
+            {requiresTwoFactor ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-10 rounded-[10px]"
+                onClick={() => {
+                  setRequiresTwoFactor(false)
+                  setChallengeToken('')
+                  setLoginOtp('')
+                  setLoginError('')
+                }}
+              >
+                Back to login
+              </Button>
+            ) : null}
             <ForgotPasswordDialog
               accountType="staff"
               portal="admin"

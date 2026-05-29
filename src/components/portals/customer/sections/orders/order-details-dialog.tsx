@@ -58,7 +58,7 @@ export function CustomerOrderDetailsDialog(props: any) {
   const hasActiveReplacementRequest = useMemo(() => {
     return selectedOrderReplacementRecords.some((record: any) => {
       const rawStatus = String(record?.status || '').toUpperCase()
-      return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED'].includes(rawStatus)
+      return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED'].includes(rawStatus)
     })
   }, [selectedOrderReplacementRecords])
 
@@ -245,6 +245,17 @@ export function CustomerOrderDetailsDialog(props: any) {
     )
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1
   }
+  const getOrderedCaseQtyForItem = (item: any) => {
+    const value = Number(item?.quantity ?? item?.orderedQuantity ?? 0)
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+  }
+  const getMaxReplacementQtyForLine = (line: { productId: string; inputMode: 'case' | 'bottle' }) => {
+    const selectedItem = selectableOrderItems.find((item: any) => String(item?.id || '') === String(line.productId || ''))
+    if (!selectedItem) return 0
+    const orderedCases = getOrderedCaseQtyForItem(selectedItem)
+    if (line.inputMode === 'case') return orderedCases
+    return orderedCases * getQuantityPerCaseForItem(selectedItem)
+  }
   const getSelectableItemsForLine = (lineKey: string) => {
     const selectedByOtherLines = new Set(
       replacementLines
@@ -253,6 +264,14 @@ export function CustomerOrderDetailsDialog(props: any) {
         .filter(Boolean)
     )
     return selectableOrderItems.filter((item: any) => !selectedByOtherLines.has(String(item.id || '')))
+  }
+  const getReplacementOptionLabel = (item: any) => {
+    const productName = String(item?.product?.name || item?.productName || 'Item').trim()
+    const sizeText = Array.isArray(item?.product?.sizes) && item.product.sizes.length
+      ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean).join(', ')
+      : String(item?.product?.sizeLabel || item?.product?.size || item?.product?.unit || '').trim()
+    const categoryText = String(item?.product?.category?.name || item?.product?.category || '').trim()
+    return [productName, sizeText, categoryText].filter(Boolean).join(' - ')
   }
 
   return (
@@ -269,7 +288,7 @@ export function CustomerOrderDetailsDialog(props: any) {
       {selectedOrder ? (
         <DialogContent
           showCloseButton={false}
-          className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-[760px] rounded-xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(2,6,23,0.30)] md:max-h-[92vh] md:rounded-2xl"
+          className="w-[96vw] max-h-[86vh] overflow-y-auto overflow-x-hidden max-w-[920px] rounded-xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(2,6,23,0.30)] md:max-h-[92vh] md:rounded-2xl"
         >
           <motion.div
             initial={{ opacity: 0, y: 6 }}
@@ -306,6 +325,8 @@ export function CustomerOrderDetailsDialog(props: any) {
                 type="button"
                 className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
                 onClick={() => setSelectedOrder(null)}
+                aria-label="Close order details dialog"
+                title="Close"
               >
                 <X className="h-4 w-4 md:h-4.5 md:w-4.5" />
               </button>
@@ -367,7 +388,7 @@ export function CustomerOrderDetailsDialog(props: any) {
               <div className="border-b border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-900 md:px-3 md:text-sm">
                 Order Items ({selectedOrder.items?.length || 0} items)
               </div>
-              <div className="grid grid-cols-[1fr_48px_74px_78px] md:grid-cols-[1fr_90px_110px_110px] border-b border-slate-200 px-2.5 py-2 text-[9px] md:px-3 md:text-[11px] font-semibold uppercase text-slate-500">
+              <div className="grid grid-cols-[minmax(0,1fr)_56px_86px_98px] md:grid-cols-[minmax(0,1fr)_90px_120px_130px] border-b border-slate-200 px-2.5 py-2 text-[9px] md:px-3 md:text-[11px] font-semibold uppercase text-slate-500">
                 <span>Product</span>
                 <span className="text-right">Qty</span>
                 <span className="text-right">Unit Price</span>
@@ -375,7 +396,7 @@ export function CustomerOrderDetailsDialog(props: any) {
               </div>
               <div className="max-h-[150px] overflow-y-auto md:max-h-[190px]">
                 {(selectedOrder.items || []).map((item: any) => (
-                  <div key={item.id} className="grid grid-cols-[1fr_48px_74px_78px] md:grid-cols-[1fr_90px_110px_110px] items-center px-2.5 py-2 text-xs md:px-3 md:py-2.5 md:text-sm">
+                  <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_56px_86px_98px] md:grid-cols-[minmax(0,1fr)_90px_120px_130px] items-center px-2.5 py-2 text-xs md:px-3 md:py-2.5 md:text-sm">
                     <div className="flex items-center gap-2">
                       <img
                         src={getProductImage(item.product?.imageUrl)}
@@ -383,10 +404,14 @@ export function CustomerOrderDetailsDialog(props: any) {
                         className="h-6 w-6 rounded border border-slate-200 object-cover bg-white md:h-8 md:w-8"
                       />
                       <div className="min-w-0">
-                        <p className="truncate text-slate-800">{item.product?.name || 'Item'}</p>
-                        <p className="truncate text-[10px] text-slate-500 md:text-xs">
-                          Size: {String(item.product?.sizeLabel || item.product?.size || item.product?.unit || '').trim() || 'N/A'}
+                        <p className="truncate text-slate-800">
+                          {(item.product?.name || 'Item')} {String(item.product?.sizeLabel || item.product?.size || item.product?.unit || '').trim() || 'N/A'}
                         </p>
+                        {String(item.product?.category?.name || item.product?.category || '').trim() ? (
+                          <p className="truncate text-[10px] text-slate-500 md:text-xs">
+                            {String(item.product?.category?.name || item.product?.category || '').trim()}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <span className="text-right text-slate-700">{item.quantity}</span>
@@ -528,20 +553,50 @@ export function CustomerOrderDetailsDialog(props: any) {
               <div className="grid gap-2 md:grid-cols-3">
                 <div className="space-y-1">
                   <p className="text-[11px] font-medium text-slate-600">Product</p>
-                  <select className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.productId} onChange={(e) => updateReplacementLine(line.key, { productId: e.target.value })}>
+                  <select
+                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+                    value={line.productId}
+                    onChange={(e) => updateReplacementLine(line.key, { productId: e.target.value })}
+                    aria-label={`Replacement product ${index + 1}`}
+                    title={`Replacement product ${index + 1}`}
+                  >
                     <option value="">Select product</option>
                     {getSelectableItemsForLine(line.key).map((item: any) => (
-                      <option key={item.id} value={item.id}>{item.product?.name || 'Item'}</option>
+                      <option key={item.id} value={item.id}>{getReplacementOptionLabel(item)}</option>
                     ))}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <p className="text-[11px] font-medium text-slate-600">Quantity</p>
-                  <input type="number" min={1} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.quantity} onChange={(e) => updateReplacementLine(line.key, { quantity: e.target.value })} placeholder={line.inputMode === 'case' ? 'Damaged units' : 'Damaged bottles'} />
+                  <input
+                    type="number"
+                    min={1}
+                    max={Math.max(getMaxReplacementQtyForLine(line), 1)}
+                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+                    value={line.quantity}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      if (!next) {
+                        updateReplacementLine(line.key, { quantity: '' })
+                        return
+                      }
+                      const maxQty = getMaxReplacementQtyForLine(line)
+                      const parsed = Number(next)
+                      if (!Number.isFinite(parsed)) return
+                      const clamped = Math.min(Math.max(Math.floor(parsed), 1), Math.max(maxQty, 1))
+                      updateReplacementLine(line.key, { quantity: String(clamped) })
+                    }}
+                  />
                 </div>
                 <div className="space-y-1">
                   <p className="text-[11px] font-medium text-slate-600">Reason</p>
-                  <select className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs" value={line.reason} onChange={(e) => updateReplacementLine(line.key, { reason: e.target.value })}>
+                  <select
+                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+                    value={line.reason}
+                    onChange={(e) => updateReplacementLine(line.key, { reason: e.target.value })}
+                    aria-label={`Replacement reason ${index + 1}`}
+                    title={`Replacement reason ${index + 1}`}
+                  >
                     {DAMAGE_REASON_OPTIONS.map((reason) => <option key={reason}>{reason}</option>)}
                   </select>
                 </div>
@@ -596,6 +651,13 @@ export function CustomerOrderDetailsDialog(props: any) {
                   const productName = product?.name || selectedItem?.productName || 'Product'
                   const quantityPerCase = getQuantityPerCaseForItem(selectedItem)
                   const inputQty = Math.max(Number(line.quantity || 0), 0)
+                  const orderedCases = getOrderedCaseQtyForItem(selectedItem)
+                  const maxInputQty = line.inputMode === 'case' ? orderedCases : orderedCases * quantityPerCase
+                  if (inputQty > maxInputQty) {
+                    throw new Error(
+                      `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${line.inputMode === 'case' ? 'unit(s)' : 'bottle(s)'})`
+                    )
+                  }
                   const quantityToReplace = line.inputMode === 'case'
                     ? inputQty * quantityPerCase
                     : inputQty

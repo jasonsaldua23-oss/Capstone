@@ -75,7 +75,8 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
   if (
     pathname === '/api/auth/email-verification/request' ||
     pathname === '/api/auth/email-verification/confirm' ||
-    pathname === '/api/auth/staff/google'
+    pathname === '/api/auth/staff/google' ||
+    pathname === '/api/auth/login/verify-otp'
   ) {
     return true
   }

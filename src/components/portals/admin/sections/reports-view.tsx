@@ -1852,11 +1852,15 @@ export function ReportsView() {
                           <td className="p-3">
                             <Badge
                               className={
-                                row.normalizedReportStatus === 'DELIVERED'
-                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-                                  : row.normalizedReportStatus === 'CANCELLED'
-                                    ? 'bg-rose-100 text-rose-700 hover:bg-rose-100'
-                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+                                row.normalizedReportStatus === 'PENDING'
+                                  ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
+                                  : row.normalizedReportStatus === 'PREPARING'
+                                    ? 'bg-lime-100 text-lime-800 hover:bg-lime-100'
+                                    : row.normalizedReportStatus === 'CANCELLED'
+                                      ? 'bg-red-100 text-red-700 hover:bg-red-100'
+                                      : row.normalizedReportStatus === 'DELIVERED'
+                                        ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                                        : 'bg-slate-100 text-slate-700 hover:bg-slate-100'
                               }
                             >
                               {formatOrderReportStatus(row.normalizedReportStatus)}

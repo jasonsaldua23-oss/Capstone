@@ -83,10 +83,12 @@ export function TripDetailView({
   const [arriveTargetDropPointId, setArriveTargetDropPointId] = useState<string | null>(null)
   const [arriveTargetDropPointName, setArriveTargetDropPointName] = useState('')
   const [isFailedDeliveryRescheduleOpen, setIsFailedDeliveryRescheduleOpen] = useState(false)
+  const [isFailedDeliverySubmitting, setIsFailedDeliverySubmitting] = useState(false)
   const [failedDeliveryRescheduleDropPointId, setFailedDeliveryRescheduleDropPointId] = useState<string | null>(null)
   const [failedDeliveryReceiveAgain, setFailedDeliveryReceiveAgain] = useState<'tomorrow' | 'other_date'>('tomorrow')
   const [failedDeliveryOtherDate, setFailedDeliveryOtherDate] = useState('')
   const [isDeliveredWarningOpen, setIsDeliveredWarningOpen] = useState(false)
+  const [isConfirmDeliveredSubmitting, setIsConfirmDeliveredSubmitting] = useState(false)
   const [deliveredTargetDropPointId, setDeliveredTargetDropPointId] = useState<string | null>(null)
   const [deliveredTargetDropPointName, setDeliveredTargetDropPointName] = useState('')
   const [isStartTripConfirmOpen, setIsStartTripConfirmOpen] = useState(false)
@@ -279,6 +281,16 @@ export function TripDetailView({
     const sizeLabel = sizeFromArray || sizeFromField
     return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
   }
+  const getItemCategoryLabel = (item: any): string => {
+    const product = item?.product || {}
+    return String(
+      product?.categoryName ||
+      product?.category ||
+      product?.productCategory ||
+      item?.category ||
+      ''
+    ).trim()
+  }
 
   const getOrderQtyWithUnitLabel = (item: any, order?: any): string => {
     const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
@@ -294,7 +306,7 @@ export function TripDetailView({
       const unitLabel = Number.isInteger(unitQty)
         ? String(unitQty)
         : unitQty.toFixed(2).replace(/\.00$/, '')
-      return `x${unitLabel} unit(s) (${replacementQtyToReplace} bottle(s))`
+      return `x${unitLabel} unit(s)`
     }
     const qty = Math.max(0, Number(item?.quantity || 0))
     const rawUnit = String(item?.productUnit || item?.product?.unit || '').trim().toLowerCase()
@@ -448,7 +460,7 @@ export function TripDetailView({
     openCameraCapture()
   }
 
-  const submitDeliveredForDropPoint = async (dropPoint: DropPoint) => {
+  const submitDeliveredForDropPoint = async (dropPoint: DropPoint): Promise<boolean> => {
     const dropPointId = String(dropPoint?.id || '').trim()
     const podDraft = podDraftByDropPoint[dropPointId]
     const podImageFile = podDraft?.file || null
@@ -456,18 +468,22 @@ export function TripDetailView({
     if (!podImageFile && !existingPodPhotoUrl) {
       toast.error('Capture POD photo first')
       openPodCameraCapture(String(dropPoint.id || ''))
-      return
+      return false
     }
     try {
       const imageUrl = podImageFile ? await uploadPodImage(podImageFile) : existingPodPhotoUrl
-      await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
+      const completed = await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
         recipientName: 'Customer',
         deliveryPhoto: imageUrl,
       })
-      setPodFileForDropPoint(dropPointId, null)
-      setDeliveryNote('')
+      if (completed) {
+        setPodFileForDropPoint(dropPointId, null)
+        setDeliveryNote('')
+      }
+      return completed
     } catch (error: any) {
       toast.error(error?.message || 'Failed to upload POD image')
+      return false
     }
   }
 
@@ -483,7 +499,7 @@ export function TripDetailView({
       rescheduleWindow?: 'today' | 'tomorrow' | 'other_date'
       rescheduleDate?: string
     }
-  ) => {
+  ): Promise<boolean> => {
     setIsUpdating(true)
     try {
       const response = await fetch(`/api/trips/${trip.id}/drop-points/${dropPointId}`, {
@@ -525,13 +541,16 @@ export function TripDetailView({
         }
         emitDataSync(['orders', 'trips'])
         refreshTripsInBackground()
+        return true
       } else {
         toast.error(payload?.error || 'Failed to update drop point')
         refreshTripsInBackground()
+        return false
       }
     } catch (error) {
       toast.error('An error occurred')
       refreshTripsInBackground()
+      return false
     } finally {
       setIsUpdating(false)
     }
@@ -1734,7 +1753,13 @@ export function TripDetailView({
             </DialogContent>
           </Dialog>
 
-          <Dialog open={isDeliveredWarningOpen} onOpenChange={setIsDeliveredWarningOpen}>
+          <Dialog
+            open={isDeliveredWarningOpen}
+            onOpenChange={(open) => {
+              if (isConfirmDeliveredSubmitting) return
+              setIsDeliveredWarningOpen(open)
+            }}
+          >
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
                 <DialogTitle className="text-[#0f3d72]">Confirm Mark as Delivered</DialogTitle>
@@ -1749,12 +1774,12 @@ export function TripDetailView({
                 <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
                   <p className="font-medium text-slate-900">{deliveredTargetDropPointName || 'Drop Point'}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => setIsDeliveredWarningOpen(false)}
-                    disabled={isUpdating}
+                    disabled={isUpdating || isConfirmDeliveredSubmitting}
                   >
                     Cancel
                   </Button>
@@ -1763,15 +1788,22 @@ export function TripDetailView({
                     className="bg-emerald-600 text-white hover:bg-emerald-700"
                     onClick={async () => {
                       const targetId = String(deliveredTargetDropPointId || '').trim()
-                      setIsDeliveredWarningOpen(false)
                       if (!targetId) return
                       const targetDropPoint = sortedDropPoints.find((point) => String(point.id) === targetId)
                       if (!targetDropPoint) return
-                      await submitDeliveredForDropPoint(targetDropPoint)
+                      setIsConfirmDeliveredSubmitting(true)
+                      try {
+                        const completed = await submitDeliveredForDropPoint(targetDropPoint)
+                        if (completed) {
+                          setIsDeliveredWarningOpen(false)
+                        }
+                      } finally {
+                        setIsConfirmDeliveredSubmitting(false)
+                      }
                     }}
-                    disabled={isUpdating || !deliveredTargetDropPointId}
+                    disabled={isUpdating || isConfirmDeliveredSubmitting || !deliveredTargetDropPointId}
                   >
-                    {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                    {isUpdating || isConfirmDeliveredSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                     Confirm Delivered
                   </Button>
                 </div>
@@ -1934,7 +1966,10 @@ export function TripDetailView({
                             </div>
 
                             {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
-                              <div className="mt-4 space-y-3 border-t pt-4">
+                              <div
+                                className="mt-4 space-y-3 border-t pt-4"
+                                onClick={(e) => e.stopPropagation()}
+                              >
                                 {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                                   <Button
                                     className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
@@ -2097,6 +2132,7 @@ export function TripDetailView({
                                       {(dropPoint.order.items || []).map((item, index) => (
                                         <div key={`${dropPoint.id}-item-${index}`} className="text-[11px] text-slate-600 md:text-sm">
                                           <p>{getItemDisplayNameWithSize(item)} {getOrderQtyWithUnitLabel(item, dropPoint.order)}</p>
+                                          {getItemCategoryLabel(item) ? <p className="text-[10px] text-slate-500 md:text-xs">{getItemCategoryLabel(item)}</p> : null}
                                         </div>
                                       ))}
                                     </div>
@@ -2130,7 +2166,10 @@ export function TripDetailView({
 
                     {/* Drop Point Actions */}
                     {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
-                      <div className="mt-2 space-y-2 border-t pt-2 md:mt-4 md:space-y-3 md:pt-4">
+                      <div
+                        className="mt-2 space-y-2 border-t pt-2 md:mt-4 md:space-y-3 md:pt-4"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
                           <Button
                             className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
@@ -2308,7 +2347,13 @@ export function TripDetailView({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isFailedDeliveryChoiceOpen} onOpenChange={(open) => { if (!open) closeFailedDeliveryChoice() }}>
+      <Dialog
+        open={isFailedDeliveryChoiceOpen}
+        onOpenChange={(open) => {
+          if (isFailedDeliverySubmitting) return
+          if (!open) closeFailedDeliveryChoice()
+        }}
+      >
         <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
@@ -2327,7 +2372,7 @@ export function TripDetailView({
                   if (!failedDeliveryDropPointId) return
                   openFailedDeliveryActionWarning('reschedule')
                 }}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
                 Reschedule
               </Button>
@@ -2339,19 +2384,25 @@ export function TripDetailView({
                   if (!failedDeliveryDropPointId) return
                   openFailedDeliveryActionWarning('cancel')
                 }}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
                 Cancel Delivery
               </Button>
             </div>
-            <Button type="button" variant="outline" className="h-11 w-full rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={closeFailedDeliveryChoice} disabled={isUpdating}>
+            <Button type="button" variant="outline" className="h-11 w-full rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={closeFailedDeliveryChoice} disabled={isUpdating || isFailedDeliverySubmitting}>
               Close
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isFailedDeliveryActionWarningOpen} onOpenChange={setIsFailedDeliveryActionWarningOpen}>
+      <Dialog
+        open={isFailedDeliveryActionWarningOpen}
+        onOpenChange={(open) => {
+          if (isFailedDeliverySubmitting) return
+          setIsFailedDeliveryActionWarningOpen(open)
+        }}
+      >
         <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#fff8f0] via-white to-[#f7fbff] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
@@ -2378,7 +2429,7 @@ export function TripDetailView({
                   setIsFailedDeliveryActionWarningOpen(false)
                   setFailedDeliveryPendingAction(null)
                 }}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
                 Back
               </Button>
@@ -2388,25 +2439,46 @@ export function TripDetailView({
                 onClick={async () => {
                   if (!failedDeliveryDropPointId || !failedDeliveryPendingAction) return
                   const action = failedDeliveryPendingAction
-                  setIsFailedDeliveryActionWarningOpen(false)
-                  setFailedDeliveryPendingAction(null)
-                  closeFailedDeliveryChoice()
                   if (action === 'reschedule') {
+                    setIsFailedDeliveryActionWarningOpen(false)
+                    setFailedDeliveryPendingAction(null)
                     openFailedDeliveryReschedule(failedDeliveryDropPointId)
                     return
                   }
-                  await handleUpdateDropPoint(failedDeliveryDropPointId, 'CANCELLED', deliveryNote || 'Delivery canceled by driver')
+                  setIsFailedDeliverySubmitting(true)
+                  try {
+                    const completed = await handleUpdateDropPoint(
+                      failedDeliveryDropPointId,
+                      'CANCELLED',
+                      deliveryNote || 'Delivery canceled by driver'
+                    )
+                    if (completed) {
+                      setIsFailedDeliveryActionWarningOpen(false)
+                      setFailedDeliveryPendingAction(null)
+                      closeFailedDeliveryChoice()
+                    }
+                  } finally {
+                    setIsFailedDeliverySubmitting(false)
+                  }
                 }}
-                disabled={isUpdating || !failedDeliveryPendingAction}
+                disabled={isUpdating || isFailedDeliverySubmitting || !failedDeliveryPendingAction}
               >
-                {failedDeliveryPendingAction === 'cancel' ? 'Confirm Cancel' : 'Confirm Reschedule'}
+                {isFailedDeliverySubmitting
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</>
+                  : (failedDeliveryPendingAction === 'cancel' ? 'Confirm Cancel' : 'Confirm Reschedule')}
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isFailedDeliveryRescheduleOpen} onOpenChange={(open) => { if (!open) closeFailedDeliveryReschedule() }}>
+      <Dialog
+        open={isFailedDeliveryRescheduleOpen}
+        onOpenChange={(open) => {
+          if (isFailedDeliverySubmitting) return
+          if (!open) closeFailedDeliveryReschedule()
+        }}
+      >
         <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
           <DialogHeader>
             <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
@@ -2423,7 +2495,7 @@ export function TripDetailView({
                 variant={failedDeliveryReceiveAgain === 'tomorrow' ? 'default' : 'outline'}
                 className={failedDeliveryReceiveAgain === 'tomorrow' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
                 onClick={() => setFailedDeliveryReceiveAgain('tomorrow')}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
                 Tomorrow
               </Button>
@@ -2432,7 +2504,7 @@ export function TripDetailView({
                 variant={failedDeliveryReceiveAgain === 'other_date' ? 'default' : 'outline'}
                 className={failedDeliveryReceiveAgain === 'other_date' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
                 onClick={() => setFailedDeliveryReceiveAgain('other_date')}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
                 Other date
               </Button>
@@ -2449,7 +2521,7 @@ export function TripDetailView({
                   value={failedDeliveryOtherDate}
                   min={new Date().toISOString().slice(0, 10)}
                   onChange={(event) => setFailedDeliveryOtherDate(event.target.value)}
-                  disabled={isUpdating}
+                  disabled={isUpdating || isFailedDeliverySubmitting}
                 />
                 <p className="mt-2 text-xs text-sky-800">
                   This order will be removed from this trip and returned to route planning.
@@ -2465,7 +2537,7 @@ export function TripDetailView({
                 variant="outline"
                 className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#0f3d72] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50 hover:text-[#0f3d72]"
                 onClick={closeFailedDeliveryReschedule}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
                 Back
               </Button>
@@ -2485,32 +2557,40 @@ export function TripDetailView({
                     failedDeliveryReceiveAgain === 'tomorrow'
                       ? 'tomorrow'
                       : `other date (${failedDeliveryOtherDate})`
-                  closeFailedDeliveryReschedule()
-                  await handleUpdateDropPoint(
-                    failedDeliveryRescheduleDropPointId,
-                    'FAILED',
-                    `${deliveryNote || 'Delivery failed'} - reschedule requested (${label})`,
-                    undefined,
-                    {
-                      releaseInventory: false,
-                      rescheduleRequested: true,
-                      rescheduleWindow: failedDeliveryReceiveAgain,
-                      rescheduleDate:
-                        failedDeliveryReceiveAgain === 'other_date'
-                          ? selectedOtherDateIso
-                          : (() => {
-                              const scheduled = new Date()
-                              if (failedDeliveryReceiveAgain === 'tomorrow') {
-                                scheduled.setDate(scheduled.getDate() + 1)
-                              }
-                              return scheduled.toISOString()
-                            })(),
+                  setIsFailedDeliverySubmitting(true)
+                  try {
+                    const completed = await handleUpdateDropPoint(
+                      failedDeliveryRescheduleDropPointId,
+                      'FAILED',
+                      `${deliveryNote || 'Delivery failed'} - reschedule requested (${label})`,
+                      undefined,
+                      {
+                        releaseInventory: false,
+                        rescheduleRequested: true,
+                        rescheduleWindow: failedDeliveryReceiveAgain,
+                        rescheduleDate:
+                          failedDeliveryReceiveAgain === 'other_date'
+                            ? selectedOtherDateIso
+                            : (() => {
+                                const scheduled = new Date()
+                                if (failedDeliveryReceiveAgain === 'tomorrow') {
+                                  scheduled.setDate(scheduled.getDate() + 1)
+                                }
+                                return scheduled.toISOString()
+                              })(),
+                      }
+                    )
+                    if (completed) {
+                      closeFailedDeliveryReschedule()
+                      closeFailedDeliveryChoice()
                     }
-                  )
+                  } finally {
+                    setIsFailedDeliverySubmitting(false)
+                  }
                 }}
-                disabled={isUpdating}
+                disabled={isUpdating || isFailedDeliverySubmitting}
               >
-                Confirm Reschedule
+                {isFailedDeliverySubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</> : 'Confirm Reschedule'}
               </Button>
             </div>
           </div>

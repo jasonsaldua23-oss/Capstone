@@ -4,8 +4,10 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Loader2, CheckCircle, Clock, Route, Truck, LocateFixed, CalendarClock, Navigation, Phone, Package, ChevronRight, Trophy, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
+import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 
 type Trip = any
 type AssignedOrderRow = {
@@ -64,6 +66,23 @@ export function HomeView({
   loadingOrderId: string | null
   onMarkOrderLoaded: (orderId: string) => Promise<boolean>
 }) {
+  const [welcomeState] = useState(() => {
+    if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
+    try {
+      const raw = window.sessionStorage.getItem('driver_welcome_state')
+      if (!raw) return { open: false, message: 'Welcome back!' }
+      const parsed = JSON.parse(raw) as { name?: string }
+      const name = String(parsed?.name || '').trim()
+      window.sessionStorage.removeItem('driver_welcome_state')
+      return {
+        open: true,
+        message: name ? `Welcome back, ${name}.` : 'Welcome back!',
+      }
+    } catch {
+      return { open: false, message: 'Welcome back!' }
+    }
+  })
+  const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
   const [loadChecklistByOrder, setLoadChecklistByOrder] = useState<Record<string, Record<string, boolean>>>({})
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
   const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
@@ -108,6 +127,16 @@ export function HomeView({
     const sizeLabel = sizeFromArray || sizeFromField
     return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
   }
+  const getItemCategoryLabel = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
+    const product: any = item?.product || {}
+    return String(
+      product?.categoryName ||
+      product?.category ||
+      product?.productCategory ||
+      (item as any)?.category ||
+      ''
+    ).trim()
+  }
   const getItemQtyWithUnitLabel = (
     order: AssignedOrderRow['order'],
     item: NonNullable<AssignedOrderRow['order']['items']>[number],
@@ -123,7 +152,7 @@ export function HomeView({
       if (qtyPerUnit > 0) {
         const unitQty = replacementQty / qtyPerUnit
         const unitText = Number.isInteger(unitQty) ? String(unitQty) : unitQty.toFixed(2).replace(/\.00$/, '')
-        return `Qty ${unitText} unit(s) (${replacementQty} bottle(s))`
+        return `Qty ${unitText} unit(s)`
       }
       return `Qty ${replacementQty} unit(s)`
     }
@@ -140,11 +169,6 @@ export function HomeView({
       return `Qty ${qty} bottle(s)`
     }
     if (unitHint.includes('case')) {
-      const bottlesPerCase = Math.max(Number(product?.quantity_per_unit || (item as any)?.quantityPerCase || 0), 0)
-      if (bottlesPerCase > 0) {
-        const totalBottles = qty * bottlesPerCase
-        return `Qty ${qty} case(s) (${totalBottles} bottle(s))`
-      }
       return `Qty ${qty} case(s)`
     }
     return `Qty ${qty} unit(s)`
@@ -199,9 +223,46 @@ export function HomeView({
 
   return (
     <>
+      <WelcomePopup
+        open={showWelcomePopup}
+        message={welcomeState.message}
+        subtitle="Check your assigned trips and complete deliveries on time."
+        onClose={() => setShowWelcomePopup(false)}
+        overlayClassName="bg-black/70"
+        panelClassName="border-emerald-200 bg-[#eaf8f1]"
+        titleClassName="text-slate-900"
+        subtitleClassName="text-slate-600"
+        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+      />
       {isLoading ? (
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-36 bg-white/70" />
+            <Skeleton className="h-10 w-64 max-w-full bg-white/75" />
+            <Skeleton className="h-5 w-80 max-w-full bg-white/70" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Card key={`driver-home-stat-skeleton-${index}`} className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+                <CardContent className="min-h-[106px] pt-4">
+                  <div className="space-y-3">
+                    <Skeleton className="h-4 w-24 bg-slate-200/80" />
+                    <Skeleton className="h-8 w-16 bg-slate-200/80" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
+            <CardContent className="space-y-4 pt-4">
+              <Skeleton className="h-6 w-56 bg-slate-200/80" />
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <Skeleton key={`driver-home-row-skeleton-${index}`} className="h-20 w-full rounded-xl bg-slate-200/80" />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       ) : (
         <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
@@ -375,6 +436,7 @@ export function HomeView({
                           <label className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-sm ${checked ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/80'}`}>
                             <div>
                               <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
+                              {getItemCategoryLabel(item) ? <p className="text-xs text-slate-500">{getItemCategoryLabel(item)}</p> : null}
                               <p className="text-xs text-slate-500">{getItemQtyWithUnitLabel(order, item)}</p>
                             </div>
                             <input

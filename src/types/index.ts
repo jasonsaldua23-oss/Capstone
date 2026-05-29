@@ -27,6 +27,7 @@ export interface AuthUser {
   avatar?: string | null
   role: string
   type: 'staff' | 'customer'
+  sessionTimeoutMinutes?: number
 }
 
 export interface AuthSession {

@@ -87,6 +87,7 @@ export function TransportationView() {
     email: '',
     phoneNumber: '',
     licenseNumber: '',
+    licenseType: '',
     licenseExpiry: '',
     vehicleId: '',
     status: 'Active',
@@ -254,6 +255,8 @@ export function TransportationView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: selectedDriver.id,
+          licenseNumber: (driverForm.licenseNumber || '').trim() || null,
+          licenseType: (driverForm.licenseType || '').trim() || null,
           phone: phoneNumber,
           licenseExpiry: driverForm.licenseExpiry || null,
           vehicleId: driverForm.vehicleId || null,
@@ -348,6 +351,7 @@ export function TransportationView() {
       email: '',
       phoneNumber: '',
       licenseNumber: '',
+      licenseType: '',
       licenseExpiry: '',
       vehicleId: '',
       status: 'Active',
@@ -503,9 +507,8 @@ export function TransportationView() {
                   <label className="text-sm font-medium text-gray-700">Vehicle Type</label>
                   <select value={vehicleForm.type} onChange={(e) => setVehicleForm({...vehicleForm, type: e.target.value})} title="Vehicle Type" className="w-full px-3 py-2 border rounded-md">
                     <option value="TRUCK">Truck</option>
+                    <option value="TRICYCLE">Tricycle</option>
                     <option value="VAN">Van</option>
-                    <option value="CAR">Car</option>
-                    <option value="MOTORCYCLE">Motorcycle</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -516,8 +519,6 @@ export function TransportationView() {
                   <label className="text-sm font-medium text-gray-700">Status</label>
                   <select value={vehicleForm.status} onChange={(e) => setVehicleForm({...vehicleForm, status: e.target.value})} title="Status" className="w-full px-3 py-2 border rounded-md">
                     <option value="AVAILABLE">Available</option>
-                    <option value="IN_USE">In Use</option>
-                    <option value="MAINTENANCE">Maintenance</option>
                     <option value="OUT_OF_SERVICE">Out of Service</option>
                   </select>
                 </div>
@@ -637,7 +638,7 @@ export function TransportationView() {
                           </div>
                           <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} | Driver: {driverName}</p>
                           <p className="text-[13px] text-gray-600">Route: {origin} {'->'} {destination}</p>
-                          <p className="text-[12px] text-slate-500">Fulfillment legs on trip: {legCount}</p>
+                          <p className="text-[12px] text-slate-500">Orders on trip: {legCount}</p>
                         </div>
                         <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => openTripDetails(trip)}>View Details</Button>
                       </div>
@@ -685,6 +686,10 @@ export function TransportationView() {
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">License Number</label>
                       <Input placeholder="License Number" value={driverForm.licenseNumber} onChange={(e) => setDriverForm({...driverForm, licenseNumber: e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-gray-700">License Type</label>
+                      <Input placeholder="License Type" maxLength={30} value={driverForm.licenseType} onChange={(e) => setDriverForm({...driverForm, licenseType: e.target.value})} />
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">License Expiry</label>
@@ -745,12 +750,13 @@ export function TransportationView() {
                         <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
                         <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
                         <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
+                        <p className="text-sm text-gray-500">License Type: {driver.licenseType || driver.license_type || 'N/A'}</p>
                         <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
                           {driver.isActive ? 'Active' : 'Inactive'}
                         </p>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || '', licenseExpiry: driver.licenseExpiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
+                        <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || driver.license_number || '', licenseType: driver.licenseType || driver.license_type || '', licenseExpiry: driver.licenseExpiry || driver.license_expiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
                         <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
                       </div>
                     </div>

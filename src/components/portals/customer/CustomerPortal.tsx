@@ -113,6 +113,7 @@ export function CustomerPortal() {
   const [customerDiscountStatus, setCustomerDiscountStatus] = useState('REMOVED')
   const [customerDiscountPercent, setCustomerDiscountPercent] = useState(0)
   const [customerDiscountAmountPerCase, setCustomerDiscountAmountPerCase] = useState(0)
+  const [productCategoryFilter, setProductCategoryFilter] = useState('ALL')
   const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false)
   const [orderFilterStatus, setOrderFilterStatus] = useState('ALL')
@@ -841,6 +842,7 @@ export function CustomerPortal() {
             imageUrl: product.imageUrl || null,
             unit: product.unit,
             sizeLabel: getProductSizeLabel(product),
+            category: String((product as any)?.category?.name || (product as any)?.category || '').trim() || undefined,
             unitPrice: product.price,
             quantity: Math.min(qty, available),
             available,
@@ -856,6 +858,10 @@ export function CustomerPortal() {
               available,
               imageUrl: i.imageUrl || product.imageUrl || null,
               sizeLabel: i.sizeLabel || getProductSizeLabel(product),
+              category:
+                String((i as any)?.category || '').trim() ||
+                String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
+                undefined,
             }
           : i
       )
@@ -867,12 +873,18 @@ export function CustomerPortal() {
     setCart((prev) =>
       prev.map((item) => {
         const currentSize = String((item as any)?.sizeLabel || '').trim()
-        if (currentSize && currentSize.toUpperCase() !== 'N/A') return item
         const product = products.find((p) => String(p.id) === String(item.productId))
-        if (!product) {
-          return { ...item, sizeLabel: String(item.unit || 'case').trim() || 'case' }
+        const nextCategory =
+          String((item as any)?.category || '').trim() ||
+          String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
+          undefined
+        if (currentSize && currentSize.toUpperCase() !== 'N/A') {
+          return { ...item, category: nextCategory }
         }
-        return { ...item, sizeLabel: getProductSizeLabel(product) }
+        if (!product) {
+          return { ...item, sizeLabel: String(item.unit || 'case').trim() || 'case', category: nextCategory }
+        }
+        return { ...item, sizeLabel: getProductSizeLabel(product), category: nextCategory }
       })
     )
   }, [products, setCart])
@@ -1019,11 +1031,30 @@ export function CustomerPortal() {
     })
   }, [cart])
 
+  const productCategoryOptions = useMemo(() => {
+    const categories = Array.from(
+      new Set(
+        products
+          .map((product: any) => String(product?.category?.name || product?.category || '').trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b))
+    return ['ALL', ...categories]
+  }, [products])
+
   const filteredProducts = useMemo(() => {
     const q = productSearch.toLowerCase().trim()
-    if (!q) return products
-    return products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
-  }, [products, productSearch])
+    return products.filter((p: any) => {
+      const matchesSearch =
+        !q ||
+        String(p?.name || '').toLowerCase().includes(q) ||
+        String(p?.sku || '').toLowerCase().includes(q)
+      if (!matchesSearch) return false
+      if (productCategoryFilter === 'ALL') return true
+      const category = String(p?.category?.name || p?.category || '').trim()
+      return category === productCategoryFilter
+    })
+  }, [products, productSearch, productCategoryFilter])
 
   const composedShippingAddress = useMemo(() => {
     return [
@@ -1325,24 +1356,30 @@ export function CustomerPortal() {
 
     let addedCount = 0
     let skippedCount = 0
+    let missingProductRefCount = 0
+    let productNotFoundCount = 0
+    let outOfStockCount = 0
 
     orderItems.forEach((item: any) => {
       const productId = String(item?.product?.id || item?.productId || '').trim()
       const qty = Math.max(1, Number(item?.quantity || 1))
       if (!productId) {
         skippedCount += 1
+        missingProductRefCount += 1
         return
       }
 
       const catalogProduct = products.find((p) => String(p.id) === productId)
       if (!catalogProduct) {
         skippedCount += 1
+        productNotFoundCount += 1
         return
       }
 
       const available = getAvailableQty(catalogProduct)
       if (available <= 0) {
         skippedCount += 1
+        outOfStockCount += 1
         return
       }
 
@@ -1351,7 +1388,13 @@ export function CustomerPortal() {
     })
 
     if (addedCount === 0) {
-      toast.error('Unable to add items to cart')
+      if (outOfStockCount > 0 && productNotFoundCount === 0 && missingProductRefCount === 0) {
+        toast.error('Product unavailable: out of stock')
+      } else if (productNotFoundCount > 0 || missingProductRefCount > 0) {
+        toast.error('Product unavailable')
+      } else {
+        toast.error('Unable to add item right now')
+      }
       return
     }
 
@@ -2114,7 +2157,7 @@ export function CustomerPortal() {
     canvas.width = outputSize
     canvas.height = outputSize
     const ctx = canvas.getContext('2d')
-    if (!ctx) {
+    if (!ctx || typeof (ctx as any).clearRect !== 'function' || typeof (ctx as any).drawImage !== 'function') {
       toast.error('Image editor is unavailable on this device. Please try another photo.')
       return null
     }
@@ -2204,6 +2247,9 @@ export function CustomerPortal() {
             customerName={String(user?.name || profileName || '').trim()}
             productSearch={productSearch}
             setProductSearch={setProductSearch}
+            productCategoryFilter={productCategoryFilter}
+            setProductCategoryFilter={setProductCategoryFilter}
+            productCategoryOptions={productCategoryOptions}
             isProductsLoading={isProductsLoading}
             filteredProducts={filteredProducts}
             getAvailableQty={getAvailableQty}

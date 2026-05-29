@@ -31,6 +31,14 @@ export function WarehouseOrdersView({
   openRejectDialog,
 }: WarehouseOrdersViewProps) {
   const isRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
+  const getOrderStatusBadgeClass = (status: string) => {
+    const value = String(status || '').trim().toUpperCase()
+    if (value === 'PENDING') return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
+    if (value === 'PREPARING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
+    if (value === 'CANCELLED') return 'bg-red-100 text-red-700 hover:bg-red-100'
+    if (value === 'DELIVERED') return 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+    return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
+  }
 
   return (
     <Card>
@@ -123,7 +131,7 @@ export function WarehouseOrdersView({
                     <tr>
                       <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                       <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                      <th className="text-left p-4 font-medium text-gray-600">Date</th>
+                      <th className="text-left p-4 font-medium text-gray-600">Delivery Date</th>
                       <th className="text-left p-4 font-medium text-gray-600">Total</th>
                       <th className="text-left p-4 font-medium text-gray-600">Status</th>
                       <th className="text-left p-4 font-medium text-gray-600">Actions</th>
@@ -147,7 +155,10 @@ export function WarehouseOrdersView({
                         <td className="p-4 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                         <td className="p-4">
                           <div className="space-y-1">
-                            <Badge>{String((order as any)?._displayStatus || formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))}</Badge>
+                            {(() => {
+                              const displayStatus = String((order as any)?._displayStatus || formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))
+                              return <Badge className={getOrderStatusBadgeClass(displayStatus)}>{displayStatus}</Badge>
+                            })()}
                             {isRescheduledOrder(order) ? (
                               <p className="text-[11px] font-medium text-amber-700">Rescheduled Order</p>
                             ) : null}

@@ -105,10 +105,20 @@ export function CustomerCheckoutView({
                     className="h-[74px] w-[74px] rounded-md border object-cover bg-white"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-slate-800">{item.name}</p>
-                    <p className="mt-1 inline-block max-w-full truncate rounded border bg-gray-50 px-2 py-1 text-xs text-gray-600">
-                      Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}
-                    </p>
+                    {(() => {
+                      const sizeLabel = String(item.sizeLabel || item.unit || '').trim() || 'case'
+                      const categoryLabel = String((item as any)?.category?.name || (item as any)?.category || '').trim()
+                      return (
+                        <>
+                          <p className="truncate text-sm font-medium text-slate-800">
+                            {item.name} {sizeLabel}
+                          </p>
+                          {categoryLabel ? (
+                            <p className="text-xs text-slate-500">{categoryLabel}</p>
+                          ) : null}
+                        </>
+                      )
+                    })()}
                     <p className="mt-1 text-xl font-semibold text-emerald-700">{formatPeso(item.unitPrice)}</p>
                     <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
                   </div>

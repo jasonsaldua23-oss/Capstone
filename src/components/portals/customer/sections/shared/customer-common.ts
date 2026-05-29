@@ -58,7 +58,7 @@ export function getReplacementStatusLabel(status?: string | null) {
   if (rawStatus === 'UNDER_REVIEW') return 'Under Review'
   if (rawStatus === 'APPROVED') return 'Approved'
   if (rawStatus === 'REJECTED') return 'Rejected'
-  if (rawStatus === 'CANCELLED') return 'Cancelled'
+  if (rawStatus === 'CANCELLED' || rawStatus === 'CANCELED') return 'Cancelled'
   const normalizedStatus =
     rawStatus === 'REQUESTED'
       ? 'REPORTED'
@@ -73,7 +73,7 @@ export function getReplacementStatusLabel(status?: string | null) {
   if (normalizedStatus === 'RESOLVED_ON_DELIVERY') return 'Resolved on Delivery'
   if (normalizedStatus === 'NEEDS_FOLLOW_UP') return 'Partially Resolved'
   if (normalizedStatus === 'COMPLETED') return 'Completed'
-  if (normalizedStatus === 'CANCELLED') return 'Cancelled'
+  if (normalizedStatus === 'CANCELLED' || normalizedStatus === 'CANCELED') return 'Cancelled'
   if (normalizedStatus === 'IN_PROGRESS') return 'In Progress'
   return 'Reported'
 }

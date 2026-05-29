@@ -89,7 +89,7 @@ export function CustomerOrdersView(props: any) {
     const issue = deliveryIssuesByOrderId?.[order?.id]
     const rawStatus = String(issue?.rawStatus || '').toUpperCase()
     if (!rawStatus) return false
-    return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED'].includes(rawStatus)
+    return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED'].includes(rawStatus)
   }
   const getReplacementRequestDisplay = (order: any): { qty: number; label: 'unit' | 'bottle' } | null => {
     if (!isReplacementOrder(order)) return null
@@ -136,7 +136,7 @@ export function CustomerOrdersView(props: any) {
   const getReplacementDisplayStatus = (record: any, linkedOrder?: any | null) => {
     const rawStatus = String(record?.rawStatus || record?.status || '').trim().toUpperCase()
     const orderStatus = String(linkedOrder?.status || record?.orderStatus || '').trim().toUpperCase()
-    if (rawStatus === 'CANCELLED' || orderStatus === 'CANCELLED') return 'Cancelled'
+    if (['CANCELLED', 'CANCELED'].includes(rawStatus) || ['CANCELLED', 'CANCELED'].includes(orderStatus)) return 'Cancelled'
     if (rawStatus === 'REJECTED') return 'Rejected'
     return getReplacementStatusLabel(record?.status)
   }
@@ -573,7 +573,7 @@ export function CustomerOrdersView(props: any) {
                     </p>
                     {hasSubmittedRating ? (
                       <p className="mt-2 text-xs text-amber-700">
-                        Rated: {'â˜…'.repeat(submittedRating)}{'â˜†'.repeat(5 - submittedRating)}
+                        Rated: {'★'.repeat(submittedRating)}{'☆'.repeat(5 - submittedRating)}
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs text-slate-500">{formatOrderStatus(o.status, o.paymentStatus)}</p>
@@ -664,10 +664,17 @@ export function CustomerOrdersView(props: any) {
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Previous page"
+                title="Previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <button type="button" className="grid h-8 min-w-8 px-2 place-items-center rounded-md bg-emerald-100 font-semibold text-emerald-700">
+              <button
+                type="button"
+                className="grid h-8 min-w-8 px-2 place-items-center rounded-md bg-emerald-100 font-semibold text-emerald-700"
+                aria-label={`Current page ${currentPage}`}
+                title={`Current page ${currentPage}`}
+              >
                 {currentPage}
               </button>
               <button
@@ -675,6 +682,8 @@ export function CustomerOrdersView(props: any) {
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Next page"
+                title="Next page"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -730,6 +739,8 @@ export function CustomerOrdersView(props: any) {
                       type="button"
                       className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
                       onClick={() => setSelectedReplacementRecord(null)}
+                      aria-label="Close replacement details dialog"
+                      title="Close"
                     >
                       <X className="h-5 w-5" />
                     </button>

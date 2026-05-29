@@ -33,7 +33,7 @@ export function CustomerPortalHeader(props: any) {
               <img src="/aab-trading-shop.png" alt="AAB TRADING SHOP" className="h-full w-full object-contain p-1" />
             </div>
             <div className="leading-tight">
-              <p className="text-[8px] uppercase tracking-[0.14em] text-slate-500 md:text-[9px] md:tracking-[0.16em]">AAB TRADING SHOP</p>
+              <p className="text-[8px] uppercase tracking-[0.14em] text-slate-500 md:text-[9px] md:tracking-[0.16em]">ANN ANN'S BEVERAGES TRADING</p>
               <h1 className="text-[20px] font-extrabold tracking-[-0.02em] text-[#123e73] md:text-[26px]">
                 AAB TRADING<span className="text-[#2f9a34]"> SHOP</span>
               </h1>

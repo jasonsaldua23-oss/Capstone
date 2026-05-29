@@ -27,10 +27,17 @@ const PRODUCT_UNIT_OPTIONS = [
   { value: 'pack(bundle)', label: 'pack(bundle)' },
 ]
 
+const PRODUCT_CATEGORY_OPTIONS = [
+  'Carbonated(Glass)',
+  'Carbonated(PET/PLASTIC)',
+  'Carbonated(Cans)',
+  'Non-Carbonated',
+]
+
 const CASE_SIZE_OPTIONS = [
-  '8oz glass bottle',
-  '12oz glass bottle',
-  '1 Liter glass bottle',
+  '8oz',
+  '12oz',
+  '1 Liter',
 ]
 
 const PACK_SIZE_OPTIONS = [
@@ -87,6 +94,10 @@ const WEIGHT_BY_SIZE_PACK: Record<string, number> = {
 }
 
 const WEIGHT_BY_SIZE_CASE: Record<string, number> = {
+  '8oz': 0.45,
+  '12oz': 0.68,
+  '1 Liter': 1.55,
+  // Backward compatibility for existing records saved with old labels
   '8oz glass bottle': 0.45,
   '12oz glass bottle': 0.68,
   '1 Liter glass bottle': 1.55,
@@ -116,6 +127,7 @@ export function InventoryView() {
   const [productUnit, setProductUnit] = useState('case')
   const [productQuantityPerUnit, setProductQuantityPerUnit] = useState('')
   const [productPrice, setProductPrice] = useState('')
+  const [productCategory, setProductCategory] = useState('')
   const [productSizes, setProductSizes] = useState<string[]>([])
   const [productImageFile, setProductImageFile] = useState<File | null>(null)
   const [productSkuSeed, setProductSkuSeed] = useState('')
@@ -356,6 +368,9 @@ export function InventoryView() {
     if (!productWarehouseId) {
       return toast.error('Please select a warehouse')
     }
+    if (!productCategory) {
+      return toast.error('Please select a category')
+    }
     setIsSubmittingProduct(true)
     try {
       const uploadedImageUrl = await uploadProductImage(productImageFile)
@@ -372,6 +387,7 @@ export function InventoryView() {
             selectedProductBaseWeight !== null
               ? Number((selectedProductBaseWeight * Math.floor(nextQuantityPerUnit)).toFixed(2))
               : null,
+          category: productCategory,
           price: nextPrice,
           sizes: productSizes,
           imageUrl: uploadedImageUrl,
@@ -391,6 +407,7 @@ export function InventoryView() {
       setProductUnit('case')
       setProductQuantityPerUnit('')
       setProductPrice('')
+      setProductCategory('')
       setProductSizes([])
       setProductImageFile(null)
       setProductWarehouseId('')
@@ -598,7 +615,7 @@ export function InventoryView() {
             <AlertDialogDescription>
               This action will permanently delete{' '}
               <span className="font-semibold text-foreground">{editingItem?.product?.name || 'this product'}</span>{' '}
-              from the database. This cannot be undone.
+              from the system. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -653,6 +670,22 @@ export function InventoryView() {
                 onChange={(e) => setProductName(e.target.value)}
                 placeholder=""
               />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Category</label>
+              <select
+                aria-label="Product category"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={productCategory}
+                onChange={(e) => setProductCategory(e.target.value)}
+              >
+                <option value="">Select a category</option>
+                {PRODUCT_CATEGORY_OPTIONS.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">SKU</label>
@@ -745,6 +778,7 @@ export function InventoryView() {
                   setProductUnit('case')
                   setProductQuantityPerUnit('')
                   setProductPrice('')
+                  setProductCategory('')
                   setProductSizes([])
                   setProductImageFile(null)
                   setProductWarehouseId('')

@@ -38,12 +38,9 @@ export function WarehouseDashboardView({
     try {
       const raw = window.sessionStorage.getItem('warehouse_welcome_state')
       if (!raw) return { open: false, message: 'Welcome back!' }
-      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
-      const mode = String(parsed?.mode || '').toLowerCase()
+      const parsed = JSON.parse(raw) as { name?: string }
       const name = String(parsed?.name || '').trim()
-      const message = mode === 'new'
-        ? (name ? `Welcome, ${name}` : 'Welcome!')
-        : (name ? `Welcome back, ${name}` : 'Welcome back!')
+      const message = name ? `Welcome back, ${name}.` : 'Welcome back!'
       window.sessionStorage.removeItem('warehouse_welcome_state')
       return { open: true, message }
     } catch {
@@ -116,13 +113,13 @@ export function WarehouseDashboardView({
       <WelcomePopup
         open={showWelcomePopup}
         message={welcomeMessage}
-        subtitle="Warehouse operations and stock health overview."
+        subtitle="Manage dispatch, monitor inventory, and keep fulfillment moving."
         onClose={() => setShowWelcomePopup(false)}
         overlayClassName="bg-black/70"
-        panelClassName="border-indigo-200 bg-gradient-to-br from-white to-indigo-50"
+        panelClassName="border-emerald-200 bg-[#eaf8f1]"
         titleClassName="text-slate-900"
         subtitleClassName="text-slate-600"
-        buttonClassName="bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
       />
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Warehouse Dashboard</h1>

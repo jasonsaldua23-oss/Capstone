@@ -57,13 +57,13 @@ export function WarehouseInventoryView({
                   <tr>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap min-w-[190px]">Product</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Category</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Price</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Threshold</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Bottles</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Available</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Reserved</th>
-                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Location</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Status</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Actions</th>
                   </tr>
@@ -108,15 +108,15 @@ export function WarehouseInventoryView({
                             </div>
                           </div>
                         </td>
+                        <td className="p-2.5 text-center text-gray-600">
+                          {item.product?.category?.name || item.product?.category || 'N/A'}
+                        </td>
                         <td className="p-2.5 text-center font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{getThresholdValue(item)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{quantityPerCase}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{looseBottles}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{availableQty}</td>
                         <td className="p-2.5 text-center font-semibold text-orange-600">{reservedQty}</td>
-                        <td className="p-2.5 text-center text-gray-600">
-                          {item.warehouse?.name || item.warehouse?.code || 'N/A'}
-                        </td>
                         <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
                           {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}

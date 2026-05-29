@@ -120,19 +120,38 @@ export function TripsView() {
     toArray<any>(driver?.vehicles)
       .map((entry) => entry?.vehicle)
       .find((vehicle) => vehicle?.id)
+  const getDriverProfileCompletenessIssue = (driver: any) => {
+    if (!driver) return 'Driver not found'
+    const phone = String(driver?.phone || driver?.user?.phone || '').trim()
+    const licenseNumber = String(driver?.licenseNumber || driver?.license_number || '').trim()
+    const licenseType = String(driver?.licenseType || driver?.license_type || '').trim()
+    const licenseExpiry = String(driver?.licenseExpiry || driver?.license_expiry || '').trim()
+    if (!phone || !licenseNumber || !licenseType || !licenseExpiry) {
+      return 'Incomplete profile'
+    }
+    return ''
+  }
   const isDriverSelectableForTrip = (driver: any) => {
     if (!driver || driver?.isActive === false) return false
+    if (getDriverProfileCompletenessIssue(driver)) return false
     const assignedVehicle = getDriverAssignedVehicle(driver)
     if (!assignedVehicle?.id) return false
     return availableVehicleIdSet.has(String(assignedVehicle.id).trim())
   }
   const getDriverTripEligibilityLabel = (driver: any) => {
     if (driver?.isActive === false) return 'Inactive'
+    const profileIssue = getDriverProfileCompletenessIssue(driver)
+    if (profileIssue) return profileIssue
     const assignedVehicle = getDriverAssignedVehicle(driver)
     if (!assignedVehicle?.id) return 'No assigned vehicle'
     if (!availableVehicleIdSet.has(String(assignedVehicle.id).trim())) return 'Assigned vehicle unavailable'
     return ''
   }
+  const selectedDriverEligibilityIssue = useMemo(() => {
+    const selectedDriver = drivers.find((driver) => driver.id === selectedRouteDriverId)
+    if (!selectedDriver) return ''
+    return getDriverTripEligibilityLabel(selectedDriver)
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet])
   const selectedDriverAssignedVehicle = useMemo(() => {
     const selectedDriver = drivers.find((driver) => driver.id === selectedRouteDriverId)
     if (!selectedDriver) return undefined
@@ -408,6 +427,10 @@ export function TripsView() {
       toast.error('Select a saved route and driver first')
       return
     }
+    if (selectedDriverEligibilityIssue) {
+      toast.error(`Selected driver cannot be assigned: ${selectedDriverEligibilityIssue}`)
+      return
+    }
     if (selectedSavedRoute.orderIds.length === 0) {
       toast.error('Selected saved route has no orders')
       return
@@ -483,6 +506,10 @@ export function TripsView() {
     }
     if (!selectedRouteDriverId) {
       toast.error('Select a driver')
+      return
+    }
+    if (selectedDriverEligibilityIssue) {
+      toast.error(`Selected driver cannot be assigned: ${selectedDriverEligibilityIssue}`)
       return
     }
     if (!selectedDriverAssignedVehicle?.id) {
@@ -939,8 +966,8 @@ export function TripsView() {
                   className="h-8 text-xs"
                   value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
                 />
-                {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
-                  <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
+                  <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
                 ) : null}
                 <Button
                   className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
@@ -955,6 +982,7 @@ export function TripsView() {
                     !selectedRouteCity ||
                     selectedRouteOrderIds.length === 0 ||
                     !selectedRouteDriverId ||
+                    Boolean(selectedDriverEligibilityIssue) ||
                     !selectedDriverAssignedVehicle?.id
                   }
                 >
@@ -1094,8 +1122,8 @@ export function TripsView() {
                 readOnly
                 value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
               />
-              {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
-                <p className="text-xs text-amber-600">Selected driver has no assigned vehicle.</p>
+              {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
+                <p className="text-xs text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
               ) : null}
             </div>
 
@@ -1106,7 +1134,7 @@ export function TripsView() {
               <Button
                 className="flex-1 bg-black text-white hover:bg-black/90"
                 onClick={createTripFromRoute}
-                disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || !selectedDriverAssignedVehicle?.id}
+                disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id}
               >
                 {creatingTripFromRoute ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Create Trip

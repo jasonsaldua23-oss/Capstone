@@ -141,6 +141,7 @@ interface ProductOption {
   price?: number
   unit?: string
   sizes?: string[]
+  category?: string
   isOverstocked?: boolean
   overstockInfo?: {
     available: number
@@ -545,6 +546,7 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
+
 export function WarehousePortal() {
   const { user, setUser, logout } = useAuth()
   const {
@@ -642,6 +644,9 @@ export function WarehousePortal() {
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
   const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
   const [isVerifyingPasswordOtp, setIsVerifyingPasswordOtp] = useState(false)
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
+  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(true)
+  const [isSavingSecuritySettings, setIsSavingSecuritySettings] = useState(false)
   const hasNewPassword = newPassword.length > 0
   const passwordRequirements = [
     { id: 'length', label: 'At least 8 characters', met: newPassword.length >= 8 },
@@ -684,6 +689,8 @@ export function WarehousePortal() {
     setProfileName(String((user as any)?.name || ''))
     setProfileEmail(String((user as any)?.email || ''))
     setProfilePhone(String((user as any)?.phone || ''))
+    setTwoFactorEnabled(Boolean((user as any)?.twoFactorEnabled ?? (user as any)?.two_factor_enabled))
+    setLoginAlertsEnabled((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true)
     setNewPassword('')
     setConfirmPassword('')
   }, [user])
@@ -903,8 +910,56 @@ export function WarehousePortal() {
     }
     return availableVehicleIdSet.has(assignedId) ? assigned : undefined
   }
+  const getDriverProfileCompletenessIssue = (driver: DriverOption | undefined) => {
+    if (!driver) return 'Driver not found'
+    const phone = String((driver as any)?.phone || (driver as any)?.user?.phone || '').trim()
+    const licenseNumber = String((driver as any)?.licenseNumber || (driver as any)?.license_number || '').trim()
+    const licenseType = String((driver as any)?.licenseType || (driver as any)?.license_type || '').trim()
+    const licenseExpiry = String((driver as any)?.licenseExpiry || (driver as any)?.license_expiry || '').trim()
+    if (!phone || !licenseNumber || !licenseType || !licenseExpiry) {
+      return 'Incomplete profile'
+    }
+    return ''
+  }
+
+  const saveSecuritySettings = async () => {
+    const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
+    if (!userId) {
+      toast.error('Unable to resolve account ID')
+      return
+    }
+
+    setIsSavingSecuritySettings(true)
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          twoFactorEnabled,
+          loginAlertsEnabled,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to update security settings')
+      }
+
+      const nextUser = payload?.user || {}
+      setUser((prev: any) => ({
+        ...(prev || {}),
+        twoFactorEnabled: Boolean(nextUser.twoFactorEnabled ?? nextUser.two_factor_enabled ?? twoFactorEnabled),
+        loginAlertsEnabled: Boolean(nextUser.loginAlertsEnabled ?? nextUser.login_alerts_enabled ?? loginAlertsEnabled),
+      }))
+      toast.success('Security settings updated')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update security settings')
+    } finally {
+      setIsSavingSecuritySettings(false)
+    }
+  }
   const isDriverSelectableForTrip = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
     if (!driver || driver?.isActive === false) return false
+    if (getDriverProfileCompletenessIssue(driver)) return false
     if (options?.allowDriverId && String(driver.id || '').trim() === String(options.allowDriverId).trim()) {
       return Boolean(getDriverAssignedVehicle(driver, { allowVehicleId: options.allowVehicleId })?.id)
     }
@@ -912,6 +967,8 @@ export function WarehousePortal() {
   }
   const getDriverTripEligibilityLabel = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
     if (driver?.isActive === false) return 'Inactive'
+    const profileIssue = getDriverProfileCompletenessIssue(driver)
+    if (profileIssue) return profileIssue
     const assignedVehicle = (driver?.vehicles || []).find((item) => item?.vehicle?.id)?.vehicle
     if (!assignedVehicle?.id) return 'No assigned vehicle'
     if (!isDriverSelectableForTrip(driver, options)) return 'Assigned vehicle unavailable'
@@ -920,6 +977,13 @@ export function WarehousePortal() {
   const selectedDriverAssignedVehicle = useMemo(() => {
     const driver = drivers.find((d) => d.id === selectedRouteDriverId)
     return getDriverAssignedVehicle(driver, {
+      allowVehicleId: editingTripState?.originalVehicleId,
+    })
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
+  const selectedDriverEligibilityIssue = useMemo(() => {
+    const driver = drivers.find((d) => d.id === selectedRouteDriverId)
+    return getDriverTripEligibilityLabel(driver, {
+      allowDriverId: editingTripState?.originalDriverId,
       allowVehicleId: editingTripState?.originalVehicleId,
     })
   }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
@@ -1521,6 +1585,7 @@ export function WarehousePortal() {
         price: Number(item?.product?.price || 0),
         unit: String(item?.product?.unit || 'case').trim(),
         sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : [],
+        category: String((item?.product as any)?.category?.name || (item?.product as any)?.category || '').trim(),
         isOverstocked,
         overstockInfo: isOverstocked
           ? {
@@ -1540,7 +1605,8 @@ export function WarehousePortal() {
         name: entry.name || String(fallback?.name || '').trim(),
         price: Number(entry.price || fallback?.price || 0),
         unit: entry.unit || String(fallback?.unit || 'case').trim(),
-        sizes: (entry.sizes && entry.sizes.length > 0) ? entry.sizes : (Array.isArray(fallback?.sizes) ? fallback.sizes : [])
+        sizes: (entry.sizes && entry.sizes.length > 0) ? entry.sizes : (Array.isArray(fallback?.sizes) ? fallback.sizes : []),
+        category: entry.category || String((fallback as any)?.category?.name || (fallback as any)?.category || '').trim(),
       }
     })
 
@@ -2587,6 +2653,10 @@ export function WarehousePortal() {
       toast.error('Select a saved route and driver first')
       return
     }
+    if (selectedDriverEligibilityIssue) {
+      toast.error(`Selected driver cannot be assigned: ${selectedDriverEligibilityIssue}`)
+      return
+    }
     if (selectedSavedRoute.orderIds.length === 0) {
       toast.error('Selected saved route has no orders')
       return
@@ -2678,6 +2748,10 @@ export function WarehousePortal() {
     }
     if (!selectedRouteDriverId) {
       toast.error('Select a driver')
+      return
+    }
+    if (selectedDriverEligibilityIssue) {
+      toast.error(`Selected driver cannot be assigned: ${selectedDriverEligibilityIssue}`)
       return
     }
     if (!selectedDriverAssignedVehicle?.id) {
@@ -2780,6 +2854,10 @@ export function WarehousePortal() {
 
     if (!effectiveSelectedDriverId) {
       toast.error('Select a driver')
+      return
+    }
+    if (selectedDriverEligibilityIssue && driverChanged) {
+      toast.error(`Selected driver cannot be assigned: ${selectedDriverEligibilityIssue}`)
       return
     }
     if (driverChanged && !selectedDriverAssignedVehicle?.id) {
@@ -3599,6 +3677,14 @@ export function WarehousePortal() {
     }
     return formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
   }
+  const getWarehouseOrderStatusTextClass = (status: string) => {
+    const value = String(status || '').trim().toUpperCase()
+    if (value === 'PENDING') return 'text-yellow-700'
+    if (value === 'PREPARING') return 'text-lime-700'
+    if (value === 'CANCELLED') return 'text-red-700'
+    if (value === 'DELIVERED') return 'text-emerald-700'
+    return 'text-slate-700'
+  }
   const isWarehouseRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
 
   const orderStatusOptions = useMemo(() => {
@@ -3898,16 +3984,70 @@ export function WarehousePortal() {
     }
     const lines = sourceLines.length ? sourceLines : [fallbackLine]
     return lines.map((line: any) => {
+      const originalProductId = String(line?.originalProductId || line?.productId || '').trim()
+      const replacementProductId = String(line?.replacementProductId || line?.productId || '').trim()
+      const originalCategoryRaw = String(
+        line?.originalProductCategory ||
+        line?.originalCategory ||
+        line?.category ||
+        ''
+      ).trim()
+      const replacementCategoryRaw = String(
+        line?.replacementProductCategory ||
+        line?.replacementCategory ||
+        line?.category ||
+        ''
+      ).trim()
       const originalSize = String(line?.originalProductSize || replacement?.originalProductSize || meta?.originalProductSize || '').trim()
       const replacementSize = String(line?.replacementProductSize || replacement?.replacementProductSize || meta?.replacementProductSize || originalSize || '').trim()
       const originalBaseName = String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A')
       const replacementBaseName = String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A')
+      const matchedOriginalOrderItem = sourceOrderItems.find((orderItem: any) => {
+        const orderItemProductId = String(orderItem?.product?.id || orderItem?.productId || '').trim()
+        if (originalProductId && orderItemProductId && originalProductId === orderItemProductId) return true
+        const orderItemProductName = String(orderItem?.product?.name || orderItem?.productName || '').trim().toLowerCase()
+        return Boolean(orderItemProductName && orderItemProductName === originalBaseName.trim().toLowerCase())
+      })
+      const matchedReplacementOrderItem = sourceOrderItems.find((orderItem: any) => {
+        const orderItemProductId = String(orderItem?.product?.id || orderItem?.productId || '').trim()
+        if (replacementProductId && orderItemProductId && replacementProductId === orderItemProductId) return true
+        const orderItemProductName = String(orderItem?.product?.name || orderItem?.productName || '').trim().toLowerCase()
+        return Boolean(orderItemProductName && orderItemProductName === replacementBaseName.trim().toLowerCase())
+      })
+      const matchedOriginalCatalogProduct = products.find((product: any) => {
+        const catalogId = String(product?.id || '').trim()
+        if (originalProductId && catalogId && originalProductId === catalogId) return true
+        const catalogName = String(product?.name || '').trim().toLowerCase()
+        return Boolean(catalogName && catalogName === originalBaseName.trim().toLowerCase())
+      })
+      const matchedReplacementCatalogProduct = products.find((product: any) => {
+        const catalogId = String(product?.id || '').trim()
+        if (replacementProductId && catalogId && replacementProductId === catalogId) return true
+        const catalogName = String(product?.name || '').trim().toLowerCase()
+        return Boolean(catalogName && catalogName === replacementBaseName.trim().toLowerCase())
+      })
+      const originalCategory = originalCategoryRaw || String(
+        matchedOriginalOrderItem?.product?.category?.name ||
+        matchedOriginalOrderItem?.product?.category ||
+        matchedOriginalCatalogProduct?.category?.name ||
+        matchedOriginalCatalogProduct?.category ||
+        ''
+      ).trim()
+      const replacementCategory = replacementCategoryRaw || String(
+        matchedReplacementOrderItem?.product?.category?.name ||
+        matchedReplacementOrderItem?.product?.category ||
+        matchedReplacementCatalogProduct?.category?.name ||
+        matchedReplacementCatalogProduct?.category ||
+        ''
+      ).trim()
       const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
       const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
       const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
       return {
         originalProductName: formatProductNameWithSize(originalBaseName, originalSize),
         replacementProductName: formatProductNameWithSize(replacementBaseName, replacementSize),
+        originalProductCategory: originalCategory,
+        replacementProductCategory: replacementCategory,
         quantityToReplace,
         quantityReplaced,
         quantityToReplaceDisplay: toDisplayQty(line, quantityToReplace, 'toReplace'),
@@ -3942,6 +4082,9 @@ export function WarehousePortal() {
     const scheduledDeliveryDate = String((entry as any)?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
     const replacementOrderId = String((entry as any)?.replacementOrderId || meta?.replacementOrderId || '').trim()
     const hasScheduledFollowUp = Boolean(scheduledDeliveryDate || replacementOrderId)
+    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)) {
+      return 'Cancelled'
+    }
     if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
       return 'Approved'
     }
@@ -4441,6 +4584,39 @@ export function WarehousePortal() {
                   </Button>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Security Settings</CardTitle>
+                  <CardDescription>Manage 2FA verification and login protection.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4">
+                    <div className="pr-3">
+                      <p className="text-base font-semibold text-slate-900">2FA Verification</p>
+                      <p className="text-sm text-slate-500">Require OTP when signing in to warehouse portal</p>
+                    </div>
+                    <Button type="button" variant={twoFactorEnabled ? 'default' : 'outline'} onClick={() => setTwoFactorEnabled((prev) => !prev)}>
+                      {twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4">
+                    <div className="pr-3">
+                      <p className="text-base font-semibold text-slate-900">Login Alerts</p>
+                      <p className="text-sm text-slate-500">Send alert when your account signs in from a new device</p>
+                    </div>
+                    <Button type="button" variant={loginAlertsEnabled ? 'default' : 'outline'} onClick={() => setLoginAlertsEnabled((prev) => !prev)}>
+                      {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
+                    </Button>
+                  </div>
+
+                  <Button onClick={() => void saveSecuritySettings()} disabled={isSavingSecuritySettings}>
+                    {isSavingSecuritySettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Save Security Settings
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -4614,8 +4790,8 @@ export function WarehousePortal() {
                       className="h-8 text-xs"
                       value={selectedDriverAssignedVehicle?.licensePlate || editingTripState.vehiclePlate}
                     />
-                    {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId !== editingTripState.originalDriverId ? (
-                      <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                    {selectedRouteDriverId && selectedRouteDriverId !== editingTripState.originalDriverId && selectedDriverEligibilityIssue ? (
+                      <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
                     ) : null}
                     <p className="text-[11px] text-gray-500">This edit updates the trip orders and driver assignment.</p>
                   </>
@@ -4643,8 +4819,8 @@ export function WarehousePortal() {
                       className="h-8 text-xs"
                       value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
                     />
-                    {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
-                      <p className="text-[11px] text-amber-600">Selected driver has no assigned vehicle.</p>
+                    {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
+                      <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
                     ) : null}
                   </>
                 )}
@@ -4666,6 +4842,7 @@ export function WarehousePortal() {
                       ? (
                           editingTripId === editingTripState.tripId ||
                           !String(selectedRouteDriverId || editingTripState.originalDriverId || '').trim() ||
+                          Boolean(selectedDriverEligibilityIssue) ||
                           (
                             String(selectedRouteDriverId || editingTripState.originalDriverId || '').trim() !== String(editingTripState.originalDriverId || '').trim() &&
                             !selectedDriverAssignedVehicle?.id
@@ -4675,6 +4852,7 @@ export function WarehousePortal() {
                           !selectedRouteCity ||
                           selectedRouteOrderIds.length === 0 ||
                           !selectedRouteDriverId ||
+                          Boolean(selectedDriverEligibilityIssue) ||
                           !selectedDriverAssignedVehicle?.id
                         ))
                   }
@@ -4837,8 +5015,8 @@ export function WarehousePortal() {
                 readOnly
                 value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
               />
-              {!selectedDriverAssignedVehicle?.id && selectedRouteDriverId ? (
-                <p className="text-xs text-amber-600">Selected driver has no assigned vehicle.</p>
+              {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
+                <p className="text-xs text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
               ) : null}
             </div>
             <div className="flex gap-2">
@@ -4848,7 +5026,7 @@ export function WarehousePortal() {
               <Button
                 className="flex-1 bg-black text-white hover:bg-black/90"
                 onClick={createTripFromRoute}
-                disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || !selectedDriverAssignedVehicle?.id}
+                disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id}
               >
                 {creatingTripFromRoute ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Create Trip
@@ -4892,7 +5070,14 @@ export function WarehousePortal() {
                         <Truck className="h-5 w-5" />
                       </div>
                     </div>
-                    <p className="text-[0.8rem] font-bold leading-tight text-emerald-700 sm:text-[0.98rem]">{getWarehouseDisplayOrderStatus(selectedOrder)}</p>
+                    {(() => {
+                      const displayStatus = getWarehouseDisplayOrderStatus(selectedOrder)
+                      return (
+                        <p className={`text-[0.8rem] font-bold leading-tight sm:text-[0.98rem] ${getWarehouseOrderStatusTextClass(displayStatus)}`}>
+                          {displayStatus}
+                        </p>
+                      )
+                    })()}
                   </div>
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4.5">
                     <div className="mb-2 flex items-center justify-between">
@@ -5003,6 +5188,11 @@ export function WarehousePortal() {
                                   {getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
                                   {' '}x{item.quantity}
                                 </p>
+                                {String(item?.product?.category?.name || item?.product?.category || '').trim() ? (
+                                  <p className="mt-0.5 text-xs text-slate-500">
+                                    {String(item?.product?.category?.name || item?.product?.category || '').trim()}
+                                  </p>
+                                ) : null}
                                 {isMultiWarehouse && (
                                   <p className="mt-1 text-sm font-semibold text-slate-900">
                                     Allocated for this warehouse: {getItemAllocatedForWarehouse(item)}
@@ -5349,9 +5539,10 @@ export function WarehousePortal() {
                           const sizeString = product.sizes && product.sizes.length > 0
                             ? ` (${product.sizes.join(', ')})`
                             : ''
+                          const categoryLabel = String((product as any)?.category?.name || (product as any)?.category || '').trim()
                           return (
                             <option key={product.id} value={product.id} disabled={selectedInAnotherRow || Boolean(product.isOverstocked)}>
-                              {product.name}{sizeString}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
+                              {product.name}{sizeString}{categoryLabel ? ` - ${categoryLabel}` : ''}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
                             </option>
                           )
                         })}
@@ -5481,15 +5672,6 @@ export function WarehousePortal() {
               <Input id="edit-quantity" type="number" min="0" step="1" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
             </div>
             <div className="flex gap-2 pt-1">
-              <Button
-                variant="destructive"
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-                onClick={() => setDeleteEditOpen(true)}
-                disabled={isSavingEdit || isDeletingEdit}
-              >
-                {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Delete Product
-              </Button>
               <Button className="flex-1 bg-black text-white hover:bg-black/90" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
                 {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save Changes
@@ -5499,14 +5681,14 @@ export function WarehousePortal() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteEditOpen} onOpenChange={setDeleteEditOpen}>
+      <AlertDialog open={deleteEditOpen && !isWarehouseScopedUser} onOpenChange={setDeleteEditOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-red-600">Delete Product Permanently?</AlertDialogTitle>
             <AlertDialogDescription>
               This action will permanently delete{' '}
               <span className="font-semibold text-foreground">{editingItem?.product?.name || 'this product'}</span>{' '}
-              from the database. This cannot be undone.
+              from the system. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

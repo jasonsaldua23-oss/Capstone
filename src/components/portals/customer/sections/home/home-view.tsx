@@ -12,6 +12,9 @@ type CustomerHomeViewProps = {
   customerName: string
   productSearch: string
   setProductSearch: (value: string) => void
+  productCategoryFilter: string
+  setProductCategoryFilter: (value: string) => void
+  productCategoryOptions: string[]
   isProductsLoading: boolean
   filteredProducts: any[]
   getAvailableQty: (product: any) => number
@@ -26,6 +29,9 @@ export function CustomerHomeView({
   customerName,
   productSearch,
   setProductSearch,
+  productCategoryFilter,
+  setProductCategoryFilter,
+  productCategoryOptions,
   isProductsLoading,
   filteredProducts,
   getAvailableQty,
@@ -35,25 +41,25 @@ export function CustomerHomeView({
   cart,
   onOpenCart,
 }: CustomerHomeViewProps) {
-  const [welcomeMessage] = useState(() => {
+  const [welcomeState] = useState(() => {
     const normalizedName = String(customerName || '').trim()
-    const fallbackBack = normalizedName ? `Welcome back, ${normalizedName}` : 'Welcome back!'
-    if (typeof window === 'undefined') return fallbackBack
+    const fallbackBack = normalizedName ? `Welcome back, ${normalizedName}.` : 'Welcome back!'
+    if (typeof window === 'undefined') return { open: false, message: fallbackBack }
     try {
       const raw = window.sessionStorage.getItem('customer_welcome_state')
-      if (!raw) return fallbackBack
-      const parsed = JSON.parse(raw) as { mode?: string; name?: string; ts?: number }
-      const mode = String(parsed?.mode || '').toLowerCase()
+      if (!raw) return { open: false, message: fallbackBack }
+      const parsed = JSON.parse(raw) as { name?: string; ts?: number }
       const storedName = String(parsed?.name || '').trim() || normalizedName
       window.sessionStorage.removeItem('customer_welcome_state')
-      return mode === 'new'
-        ? (storedName ? `Welcome, ${storedName}` : 'Welcome!')
-        : (storedName ? `Welcome back, ${storedName}` : 'Welcome back!')
+      return {
+        open: true,
+        message: storedName ? `Welcome back, ${storedName}.` : 'Welcome back!',
+      }
     } catch {
-      return fallbackBack
+      return { open: false, message: fallbackBack }
     }
   })
-  const [showWelcomePopup, setShowWelcomePopup] = useState(true)
+  const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
   const [cardQtyByProductId, setCardQtyByProductId] = useState<Record<string, number>>({})
   const totalUnits = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
   const estimatedTotal = cart.reduce(
@@ -81,11 +87,11 @@ export function CustomerHomeView({
     <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f5f8f6] pb-5 md:mx-0 md:min-h-[calc(100dvh-9rem)] md:pb-4">
       <WelcomePopup
         open={showWelcomePopup}
-        message={welcomeMessage}
+        message={welcomeState.message}
         subtitle="Place your order and we will deliver it to your store."
         onClose={() => setShowWelcomePopup(false)}
         overlayClassName="bg-black/70"
-        panelClassName="border-emerald-200 bg-gradient-to-br from-white to-emerald-50"
+        panelClassName="border-emerald-200 bg-[#eaf8f1]"
         titleClassName="text-slate-900"
         subtitleClassName="text-slate-600"
         buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
@@ -103,11 +109,23 @@ export function CustomerHomeView({
                   className="h-auto border-0 bg-transparent p-0 text-sm text-slate-700 shadow-none focus-visible:ring-0 placeholder:text-slate-400"
                 />
               </div>
+              <select
+                value={productCategoryFilter}
+                onChange={(e) => setProductCategoryFilter(e.target.value)}
+                className="h-10 min-w-[170px] rounded-xl border border-slate-200 bg-[#f9fbfa] px-3 text-sm text-slate-700"
+                title="Filter by category"
+              >
+                {productCategoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category === 'ALL' ? 'All categories' : category}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="mt-3">
               <p className="text-[1.55rem] font-extrabold leading-tight tracking-[-0.02em] text-slate-900 md:text-xl">
-                {welcomeMessage}
+                Product Catalog
               </p>
               <p className="mt-1 text-sm text-slate-500">
                 Place your order and we&apos;ll deliver it to your store.
@@ -134,6 +152,9 @@ export function CustomerHomeView({
                 const quantityPerUnit = p
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
                   : 0
+                const categoryLabel = p
+                  ? String((p as any)?.category?.name || (p as any)?.category || '').trim()
+                  : ''
                 const currentQty = p ? getCardQty(p.id, availableQty) : 24
                 return (
                   <Card
@@ -157,17 +178,20 @@ export function CustomerHomeView({
                         </div>
 
                         <div className="min-w-0 flex-1 space-y-0.5 leading-tight">
-                          <p className="line-clamp-1 text-[1.05rem] font-semibold leading-tight text-slate-900 md:text-[1.45rem] md:font-semibold">
+                          <p className="line-clamp-2 text-[1rem] font-semibold leading-tight text-slate-900 md:line-clamp-1 md:text-[1.45rem] md:font-semibold">
                             {p?.name || 'Product Name'}
                           </p>
-                          <p className="text-[1rem] font-bold leading-tight text-slate-900 md:text-[1.35rem] md:font-bold md:text-slate-900">
+                          <p className="text-[0.95rem] font-bold leading-tight text-slate-900 md:text-[1.35rem] md:font-bold md:text-slate-900">
                             {p ? formatPeso(p.price || 0) : '$ Price'}
                           </p>
-                          <p className="text-[12px] text-slate-500 md:text-[14px]">Size: {sizeLabel}</p>
-                          <p className="text-[12px] text-slate-500 md:text-[14px]">
+                          <p className="text-[11px] text-slate-500 md:text-[14px]">Size: {sizeLabel}</p>
+                          <p className="text-[11px] text-slate-500 md:text-[14px]">
                             Qty/Unit: {quantityPerUnit > 0 ? quantityPerUnit : 'N/A'}
                           </p>
-                          <p className="text-[12px] font-medium text-emerald-700 md:text-[14px]">
+                          {categoryLabel ? (
+                            <p className="line-clamp-3 break-words text-[11px] leading-snug text-slate-500 md:line-clamp-2 md:text-[14px]">{categoryLabel}</p>
+                          ) : null}
+                          <p className="text-[11px] font-medium text-emerald-700 md:text-[14px]">
                             {availableQty > 0 ? `${availableQty} available` : 'Out of stock'}
                           </p>
                         </div>

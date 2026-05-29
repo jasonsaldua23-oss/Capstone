@@ -253,10 +253,46 @@ export function ReplacementsView() {
     }
     const lines = sourceLines.length ? sourceLines : [fallbackLine]
     return lines.map((line: any) => {
+      const originalProductId = String(line?.originalProductId || line?.productId || '').trim()
+      const replacementProductId = String(line?.replacementProductId || line?.productId || '').trim()
+      const originalCategoryRaw = String(
+        line?.originalProductCategory ||
+        line?.originalCategory ||
+        line?.category ||
+        ''
+      ).trim()
+      const replacementCategoryRaw = String(
+        line?.replacementProductCategory ||
+        line?.replacementCategory ||
+        line?.category ||
+        ''
+      ).trim()
       const originalSize = String(line?.originalProductSize || replacement?.originalProductSize || meta?.originalProductSize || '').trim()
       const replacementSize = String(line?.replacementProductSize || replacement?.replacementProductSize || meta?.replacementProductSize || originalSize || '').trim()
       const originalBaseName = String(line?.originalProductName || line?.productName || fallbackLine.originalProductName || 'N/A')
       const replacementBaseName = String(line?.replacementProductName || line?.replacementProduct?.name || line?.originalProductName || fallbackLine.replacementProductName || 'N/A')
+      const matchedOriginalOrderItem = sourceOrderItems.find((orderItem: any) => {
+        const orderItemProductId = String(orderItem?.product?.id || orderItem?.productId || '').trim()
+        if (originalProductId && orderItemProductId && originalProductId === orderItemProductId) return true
+        const orderItemProductName = String(orderItem?.product?.name || orderItem?.productName || '').trim().toLowerCase()
+        return Boolean(orderItemProductName && orderItemProductName === originalBaseName.trim().toLowerCase())
+      })
+      const matchedReplacementOrderItem = sourceOrderItems.find((orderItem: any) => {
+        const orderItemProductId = String(orderItem?.product?.id || orderItem?.productId || '').trim()
+        if (replacementProductId && orderItemProductId && replacementProductId === orderItemProductId) return true
+        const orderItemProductName = String(orderItem?.product?.name || orderItem?.productName || '').trim().toLowerCase()
+        return Boolean(orderItemProductName && orderItemProductName === replacementBaseName.trim().toLowerCase())
+      })
+      const originalCategory = originalCategoryRaw || String(
+        matchedOriginalOrderItem?.product?.category?.name ||
+        matchedOriginalOrderItem?.product?.category ||
+        ''
+      ).trim()
+      const replacementCategory = replacementCategoryRaw || String(
+        matchedReplacementOrderItem?.product?.category?.name ||
+        matchedReplacementOrderItem?.product?.category ||
+        ''
+      ).trim()
       const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
       const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
       const quantityReplaced = Math.max(0, rawQuantityReplaced)
@@ -264,6 +300,8 @@ export function ReplacementsView() {
       return {
         originalProductName: formatProductNameWithSize(originalBaseName, originalSize),
         replacementProductName: formatProductNameWithSize(replacementBaseName, replacementSize),
+        originalProductCategory: originalCategory,
+        replacementProductCategory: replacementCategory,
         quantityToReplace,
         quantityReplaced,
         quantityRemaining,
@@ -531,6 +569,7 @@ export function ReplacementsView() {
     const rawStatus = String(item?.status || '').toUpperCase()
     const rawMode = String(item?.replacementMode || meta?.replacementMode || '').trim().toUpperCase()
     const hasScheduledFollowUp = hasStrictScheduledFollowUp(item)
+    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)) return 'Cancelled'
     if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && hasScheduledFollowUp) {
       return 'Scheduled for Delivery'
     }
@@ -554,6 +593,7 @@ export function ReplacementsView() {
   const getNormalizedIssueStatus = (item: any) => {
     const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').toUpperCase()
+    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)) return 'CANCELLED'
     if (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && hasOutstandingReplacementQty(item, meta)) {
       return 'NEEDS_FOLLOW_UP'
     }
@@ -732,7 +772,9 @@ export function ReplacementsView() {
   const totalReplacedQty = filteredReplacements.reduce((sum, item) => {
     const meta = parseMeta(item?.notes)
     const rawStatus = String(item?.status || '').trim().toUpperCase()
-    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)
+    const isResolved =
+      (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)) ||
+      ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)
     if (!isResolved) return sum
     const bottleQty = getBottleReplacedQtyForKpi(item, meta)
     if (bottleQty > 0) return sum
@@ -1084,7 +1126,7 @@ export function ReplacementsView() {
               ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstanding) ||
               (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
             )
-            const isFinalizedStatus = ['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED'].includes(rawStatus) || isResolvedCase
+            const isFinalizedStatus = ['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || isResolvedCase
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber || 'N/A'],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
@@ -1132,8 +1174,18 @@ export function ReplacementsView() {
                           const lineLoss = replacementLineLoss[index] || 0
                           return (
                           <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
+                            <td className="px-3 py-2">
+                              <p className="font-semibold text-slate-900">{line.originalProductName}</p>
+                              {String(line.originalProductCategory || '').trim() ? (
+                                <p className="text-xs text-slate-500">{line.originalProductCategory}</p>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2">
+                              <p className="font-semibold text-slate-900">{line.replacementProductName}</p>
+                              {String(line.replacementProductCategory || '').trim() ? (
+                                <p className="text-xs text-slate-500">{line.replacementProductCategory}</p>
+                              ) : null}
+                            </td>
                             <td className="px-3 py-2">
                               <p className="font-semibold text-slate-900">{line.quantityToReplaceDisplay ?? line.quantityToReplace}</p>
                             </td>

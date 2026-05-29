@@ -111,6 +111,19 @@ export function DriverLoginPage() {
   const [frameHeight, setFrameHeight] = useState(DRIVER_CARD_FALLBACK_HEIGHT)
   const cardRef = useRef<HTMLDivElement | null>(null)
 
+  const persistDriverWelcomeState = (userData: any) => {
+    if (typeof window === 'undefined') return
+    try {
+      window.sessionStorage.setItem(
+        'driver_welcome_state',
+        JSON.stringify({
+          name: String(userData?.name || '').trim(),
+          ts: Date.now(),
+        })
+      )
+    } catch {}
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -221,6 +234,7 @@ export function DriverLoginPage() {
         return
       }
 
+      persistDriverWelcomeState(data.user)
       if (data.token) setTabAuthToken(data.token)
       router.replace('/')
     } catch {
@@ -319,7 +333,6 @@ export function DriverLoginPage() {
                         }}
                         placeholder="Enter email"
                         required
-                        aria-invalid={Boolean(loginError)}
                         className="block w-full border-0 bg-transparent p-0 text-[0.9rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
                       />
                     </span>
@@ -345,7 +358,6 @@ export function DriverLoginPage() {
                           }}
                           placeholder="Enter password"
                           required
-                          aria-invalid={Boolean(loginError)}
                           className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-[0.9rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
                         />
                         <button

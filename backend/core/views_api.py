@@ -299,7 +299,16 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
-        return None
+        parsed = None
+        # Accept common manually typed date formats from browser date fallbacks.
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            return None
     if timezone.is_naive(parsed):
         parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
     return parsed
@@ -1455,6 +1464,19 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     return p, None
 
 
+def _missing_driver_profile_fields(driver: User) -> list[str]:
+    missing: list[str] = []
+    if not str(getattr(driver, "phone", "") or "").strip():
+        missing.append("phone")
+    if not str(getattr(driver, "license_number", "") or "").strip():
+        missing.append("license number")
+    if not str(getattr(driver, "license_type", "") or "").strip():
+        missing.append("license type")
+    if not getattr(driver, "license_expiry", None):
+        missing.append("license expiry")
+    return missing
+
+
 def _create_staff_notifications(
     *,
     title: str,
@@ -1532,6 +1554,9 @@ def _user_payload(user: User) -> dict[str, Any]:
         "name": user.name,
         "avatar": user.avatar,
         "role": user.role,
+        "twoFactorEnabled": bool(getattr(user, "two_factor_enabled", False)),
+        "loginAlertsEnabled": bool(getattr(user, "login_alerts_enabled", True)),
+        "sessionTimeoutMinutes": int(getattr(user, "session_timeout_minutes", 30) or 30),
         "type": "staff",
     }
 
@@ -2527,6 +2552,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
             row["product"]["sizeLabel"] = product_size_label or None
             row["product"]["size"] = product_size_label or None
             row["product"]["sizes"] = product_sizes
+            row["product"]["category"] = str(getattr(product, "category", "") or "").strip() or None
         else:
             row["product"] = {
                 "id": None,
@@ -2537,6 +2563,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "sizeLabel": None,
                 "size": None,
                 "sizes": [],
+                "category": None,
                 "isActive": False,
             }
     else:
@@ -2550,6 +2577,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "sizeLabel": product_size_label or None,
                 "size": product_size_label or None,
                 "sizes": product_sizes,
+                "category": str(getattr(product, "category", "") or "").strip() or None,
             }
             if product
             else {
@@ -2561,6 +2589,7 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "sizeLabel": None,
                 "size": None,
                 "sizes": [],
+                "category": None,
             }
         )
     return row
@@ -3256,6 +3285,30 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
     )
 
 
+def _send_login_otp_email(email: str, otp_code: str) -> None:
+    subject = "Ann Ann's Beverages Trading - Login Verification Code"
+    message = (
+        "Use this one-time code to complete your login.\n\n"
+        f"Verification code: {otp_code}\n"
+        f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
+        "If you did not attempt to login, please reset your password immediately."
+    )
+    brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
+    if brevo_key:
+        try:
+            _send_via_brevo(subject=subject, message=message, recipient=email)
+            return
+        except Exception:
+            logger.exception("Brevo OTP send failed for login verification; falling back to SMTP")
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
 def _send_transactional_email(*, subject: str, message: str, recipients: list[str]) -> None:
     cleaned = [str(x or "").strip().lower() for x in recipients if str(x or "").strip()]
     if not cleaned:
@@ -3788,12 +3841,114 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         return _err("Invalid email or password", 401)
     if not user.is_active or not verify_password(password, user.password):
         return _err("Invalid email or password", 401)
+    session_timeout_minutes = int(getattr(user, "session_timeout_minutes", 30) or 30)
+    if session_timeout_minutes < 5:
+        session_timeout_minutes = 5
+
+    if bool(getattr(user, "two_factor_enabled", False)):
+        if not _otp_mail_ready():
+            return _err("2FA is enabled but OTP email service is not configured", 500)
+        now = timezone.now()
+        code = _stateless_otp_for_bucket(email, "staff", "login_2fa", _otp_bucket(now))
+        try:
+            _send_login_otp_email(email, code)
+        except Exception:
+            logger.exception("Failed to send login 2FA OTP")
+            return _err("Failed to send login verification code", 500)
+
+        challenge_token = create_token(
+            {
+                "type": "login_2fa",
+                "userId": user.id,
+                "email": user.email,
+                "portal": portal or "",
+                "rememberMe": bool(remember_me),
+            },
+            exp_hours=1,
+        )
+        return _ok(
+            {
+                "success": False,
+                "requiresTwoFactor": True,
+                "message": "Verification code sent to your email",
+                "challengeToken": challenge_token,
+            },
+            202,
+        )
+
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
-    token = create_token(payload, 24 * 30 if remember_me else 24)
+    token_exp_hours = 24 * 30 if remember_me else max(session_timeout_minutes / 60.0, 1 / 12)
+    token = create_token(payload, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
+    if bool(getattr(user, "login_alerts_enabled", True)):
+        try:
+            _send_transactional_email(
+                subject="Ann Ann's Beverages Trading - New Login Alert",
+                message=(
+                    f"Hello {user.name},\n\n"
+                    f"A new login to your account was detected at {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}.\n"
+                    "If this wasn't you, please reset your password immediately."
+                ),
+                recipients=[user.email],
+            )
+        except Exception:
+            logger.exception("Failed to send login alert email for user=%s", user.id)
+    return resp
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    challenge_token = str(body.get("challengeToken", "")).strip()
+    otp_code = str(body.get("otp", "")).strip()
+    if not challenge_token or not otp_code:
+        return _err("challengeToken and otp are required")
+
+    challenge_payload = decode_token(challenge_token)
+    if not challenge_payload or str(challenge_payload.get("type") or "") != "login_2fa":
+        return _err("Invalid or expired login challenge", 401)
+
+    user_id = str(challenge_payload.get("userId") or "").strip()
+    email = str(challenge_payload.get("email") or "").strip().lower()
+    remember_me = bool(challenge_payload.get("rememberMe", False))
+    if not user_id or not email:
+        return _err("Invalid login challenge", 401)
+
+    now = timezone.now()
+    if not _is_valid_stateless_otp(otp_code, email, "staff", "login_2fa", now):
+        return _err("Invalid or expired verification code", 400)
+
+    user = User.objects.filter(id=user_id, email=email, is_active=True).first()
+    if not user:
+        return _err("Account is unavailable", 401)
+
+    user.last_login_at = timezone.now()
+    user.save(update_fields=["last_login_at", "updated_at"])
+    payload = _user_payload(user)
+    session_timeout_minutes = int(getattr(user, "session_timeout_minutes", 30) or 30)
+    if session_timeout_minutes < 5:
+        session_timeout_minutes = 5
+    token_exp_hours = 24 * 30 if remember_me else max(session_timeout_minutes / 60.0, 1 / 12)
+    token = create_token(payload, token_exp_hours)
+    resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
+    _set_auth_cookie(resp, token, remember_me)
+    if bool(getattr(user, "login_alerts_enabled", True)):
+        try:
+            _send_transactional_email(
+                subject="Ann Ann's Beverages Trading - New Login Alert",
+                message=(
+                    f"Hello {user.name},\n\n"
+                    f"A new login to your account was detected at {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}.\n"
+                    "If this wasn't you, please reset your password immediately."
+                ),
+                recipients=[user.email],
+            )
+        except Exception:
+            logger.exception("Failed to send login alert email for user=%s", user.id)
     return resp
 
 
@@ -4041,6 +4196,28 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
     return _ok({"success": True, "message": "Password reset successful. Please log in."})
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_password_reset_verify_otp(request: HttpRequest) -> JsonResponse:
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    account_type = str(body.get("accountType", "")).strip().lower()
+    otp_code = str(body.get("otp", "")).strip()
+
+    if not email:
+        return _err("Email is required")
+    if account_type not in {"staff", "customer"}:
+        return _err("accountType must be 'staff' or 'customer'")
+    if not otp_code:
+        return _err("OTP is required")
+
+    now = timezone.now()
+    if not _is_valid_stateless_otp(otp_code, email, account_type, "password_reset", now):
+        return _err("Invalid or expired OTP", 400)
+
+    return _ok({"success": True, "message": "OTP verified successfully."})
+
+
 @require_GET
 def roles_list(request: HttpRequest) -> JsonResponse:
     _, err = _require_staff(request)
@@ -4174,6 +4351,18 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
             setattr(user, attr, body.get(key))
+    if "twoFactorEnabled" in body:
+        user.two_factor_enabled = bool(body.get("twoFactorEnabled"))
+    if "loginAlertsEnabled" in body:
+        user.login_alerts_enabled = bool(body.get("loginAlertsEnabled"))
+    if "sessionTimeoutMinutes" in body:
+        try:
+            timeout_minutes = int(body.get("sessionTimeoutMinutes"))
+        except (TypeError, ValueError):
+            return _err("Session timeout must be a valid number")
+        if timeout_minutes < 5:
+            return _err("Session timeout must be at least 5 minutes")
+        user.session_timeout_minutes = timeout_minutes
     if "email" in body:
         next_email = requested_email
         if not next_email:
@@ -4562,6 +4751,10 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         product_unit = _normalize_product_unit(body.get("unit"))
     except ValueError as exc:
         return _err(str(exc), 400)
+    raw_sizes = body.get("sizes")
+    normalized_sizes = [str(value).strip() for value in raw_sizes] if isinstance(raw_sizes, list) else []
+    normalized_sizes = [value for value in normalized_sizes if value]
+    category_value = str(body.get("category") or "").strip() or None
     initial_quantity = _int(body.get("availableQuantity"), _int(body.get("initialQuantity"), 0))
     if initial_quantity < 0:
         return _err("availableQuantity must be a non-negative integer", 400)
@@ -4575,7 +4768,8 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 unit=product_unit,
                 weight=body.get("weight"),
                 price=float(body.get("price") or 0),
-                sizes=body.get("sizes") or [],
+                category=category_value,
+                sizes=normalized_sizes,
                 quantity_per_unit=body.get("quantityPerCase", body.get("quantityPerUnit")),
                 is_active=bool(body.get("isActive", True)),
             )
@@ -4621,22 +4815,59 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         actor_name = str(p.get("name") or "Staff").strip() or "Staff"
         product_name = str(prod.name or "Product").strip() or "Product"
         product_sku = str(prod.sku or "").strip()
-        has_order_history = OrderItem.objects.filter(product_id=prod.id).exists()
-        if has_order_history:
-            if prod.is_active:
-                prod.is_active = False
-                prod.save(update_fields=["is_active", "updated_at"])
-            _create_staff_notifications(
-                title="Product archived",
-                message=(
-                    f"{actor_name} archived {product_name}{f' ({product_sku})' if product_sku else ''} "
-                    "to preserve past order history."
+        inventory_rows = Inventory.objects.filter(product_id=prod.id).values(
+            "warehouse__name",
+            "quantity",
+            "loose_bottles",
+            "reserved_quantity",
+        )
+        total_cases = 0
+        total_loose = 0
+        total_reserved = 0
+        for row in inventory_rows:
+            total_cases += max(0, _int(row.get("quantity"), 0))
+            total_loose += max(0, _int(row.get("loose_bottles"), 0))
+            total_reserved += max(0, _int(row.get("reserved_quantity"), 0))
+        if total_cases > 0 or total_loose > 0 or total_reserved > 0:
+            return _err(
+                (
+                    "Cannot delete product while stock still exists. "
+                    f"Remaining: {total_cases} case(s), {total_loose} loose bottle(s), "
+                    f"{total_reserved} reserved."
                 ),
-                reference_type="product",
-                reference_id=product_id,
+                409,
             )
-            return _ok({"success": True, "archived": True, "preservedOrderHistory": True})
-        prod.delete()
+        # Preserve order history snapshots, then allow hard delete.
+        # OrderItem.product uses SET_NULL so historical order rows remain readable.
+        try:
+            with transaction.atomic():
+                linked_order_items = OrderItem.objects.filter(product_id=prod.id)
+                for item in linked_order_items:
+                    updates: list[str] = []
+                    if not str(getattr(item, "product_name", "") or "").strip():
+                        item.product_name = product_name
+                        updates.append("product_name")
+                    if not str(getattr(item, "product_sku", "") or "").strip():
+                        item.product_sku = product_sku or None
+                        updates.append("product_sku")
+                    if not str(getattr(item, "product_unit", "") or "").strip():
+                        item.product_unit = _normalize_product_unit(getattr(prod, "unit", None))
+                        updates.append("product_unit")
+                    if updates:
+                        item.save(update_fields=updates)
+                prod.delete()
+        except ProtectedError:
+            return _err(
+                "Cannot delete product because it is still referenced by protected records. "
+                "Clear related records first, then try again.",
+                409,
+            )
+        except IntegrityError as exc:
+            logger.exception("Product delete integrity error for product %s", product_id)
+            return _err(f"Delete blocked by a system constraint: {str(exc)}", 409)
+        except Exception as exc:
+            logger.exception("Unexpected product delete error for product %s", product_id)
+            return _err(f"Failed to delete product: {str(exc)}", 500)
         _create_staff_notifications(
             title="Product deleted",
             message=f"{actor_name} deleted {product_name}{f' ({product_sku})' if product_sku else ''}.",
@@ -4658,6 +4889,13 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
+    if "category" in body:
+        prod.category = str(body.get("category") or "").strip() or None
+    if "sizes" in body:
+        raw_sizes = body.get("sizes")
+        if not isinstance(raw_sizes, list):
+            return _err("sizes must be an array", 400)
+        prod.sizes = [str(value).strip() for value in raw_sizes if str(value).strip()]
     if "isActive" in body:
         prod.is_active = bool(body.get("isActive"))
     prod.save()
@@ -5269,8 +5507,17 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             return _err("User already assigned as driver", 409)
         user.role = "DRIVER"
         user.license_number = body.get("licenseNumber") or f"DRV-{int(timezone.now().timestamp())}"
-        user.license_type = body.get("licenseType") or "B"
-        user.license_expiry = datetime.fromisoformat(body["licenseExpiry"]) if body.get("licenseExpiry") else timezone.now() + timedelta(days=365)
+        license_type_value = str(body.get("licenseType") or "B").strip()
+        if len(license_type_value) > 30:
+            return _err("License type must be 30 characters or fewer", 400)
+        user.license_type = license_type_value
+        if body.get("licenseExpiry"):
+            parsed_license_expiry = _parse_iso_datetime(body.get("licenseExpiry"))
+            if not parsed_license_expiry:
+                return _err("Invalid licenseExpiry format", 400)
+            user.license_expiry = parsed_license_expiry
+        else:
+            user.license_expiry = timezone.now() + timedelta(days=365)
         user.emergency_contact = body.get("emergencyContact")
         user.is_active = bool(body.get("isActive", True))
         user.save()
@@ -5301,9 +5548,19 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     ]
     for key, attr in mapping:
         if key in body:
-            setattr(d, attr, body.get(key))
+            next_value = body.get(key)
+            if attr == "license_type" and next_value is not None:
+                normalized_type = str(next_value).strip()
+                if len(normalized_type) > 30:
+                    return _err("License type must be 30 characters or fewer", 400)
+                setattr(d, attr, normalized_type or None)
+            else:
+                setattr(d, attr, next_value)
     if "licenseExpiry" in body and body.get("licenseExpiry"):
-        d.license_expiry = datetime.fromisoformat(body["licenseExpiry"])
+        parsed_license_expiry = _parse_iso_datetime(body.get("licenseExpiry"))
+        if not parsed_license_expiry:
+            return _err("Invalid licenseExpiry format", 400)
+        d.license_expiry = parsed_license_expiry
     if "vehicleId" in body:
         vehicle_id = str(body.get("vehicleId") or "").strip()
         if vehicle_id:
@@ -6212,6 +6469,12 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         vehicle = Vehicle.objects.get(id=str(body.get("vehicleId", "")))
     except (User.DoesNotExist, Vehicle.DoesNotExist):
         return _err("Driver or vehicle not found", 404)
+    missing_driver_fields = _missing_driver_profile_fields(driver)
+    if missing_driver_fields:
+        return _err(
+            "Selected driver profile is incomplete. Missing: " + ", ".join(missing_driver_fields),
+            400,
+        )
     requested_order_ids = [str(oid) for oid in (body.get("orderIds") or []) if str(oid).strip()]
     requested_warehouse_id = str(body.get("warehouseId") or "").strip()
     if not requested_warehouse_id:
@@ -6406,6 +6669,12 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                 next_vehicle = Vehicle.objects.get(id=requested_vehicle_id)
             except (User.DoesNotExist, Vehicle.DoesNotExist):
                 return _err("Driver or vehicle not found", 404)
+            missing_driver_fields = _missing_driver_profile_fields(next_driver)
+            if missing_driver_fields:
+                return _err(
+                    "Selected driver profile is incomplete. Missing: " + ", ".join(missing_driver_fields),
+                    400,
+                )
             if str(next_vehicle.driver_id or "").strip() != str(next_driver.id or "").strip():
                 return _err("Selected vehicle is not assigned to the selected driver", 400)
             driver_changed = (
@@ -7487,21 +7756,48 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         row["user"] = _serialize_model(d, exclude={"password"})
         return _ok({"success": True, "driver": row})
     body = _json_body(request)
+    next_license_number: str | None = None
     for key, attr in [
         ("emergencyContact", "emergency_contact"),
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
-        ("licensePhotoUrl", "license_photo_url"),
     ]:
         if key in body:
-            setattr(d, attr, body.get(key))
+            next_value = body.get(key)
+            if attr == "license_number":
+                normalized = str(next_value or "").strip()
+                next_license_number = normalized or None
+                setattr(d, attr, next_license_number)
+            elif attr == "license_type":
+                normalized_type = str(next_value or "").strip()
+                if len(normalized_type) > 30:
+                    return _err("License type must be 30 characters or fewer", 400)
+                setattr(d, attr, normalized_type or None)
+            else:
+                setattr(d, attr, next_value)
     if "licenseExpiry" in body and body.get("licenseExpiry"):
-        d.license_expiry = datetime.fromisoformat(str(body["licenseExpiry"]).replace("Z", "+00:00"))
-    d.save()
+        parsed_license_expiry = _parse_iso_datetime(body.get("licenseExpiry"))
+        if not parsed_license_expiry:
+            return _err("Invalid licenseExpiry format", 400)
+        d.license_expiry = parsed_license_expiry
+    if next_license_number:
+        duplicate = User.objects.filter(
+            role="DRIVER",
+            license_number=next_license_number,
+        ).exclude(id=d.id).exists()
+        if duplicate:
+            return _err("License number is already used by another driver", 409)
+
     for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
             setattr(d, attr, body.get(key))
-    d.save()
+    try:
+        d.save()
+    except IntegrityError:
+        return _err("Failed to update profile: duplicate or invalid driver data", 400)
+    except Exception:
+        logger.exception("Driver profile update failed for user_id=%s", d.id)
+        return _err("Failed to update profile", 500)
     row = _serialize_model(d, exclude={"password"})
     row["phone"] = d.phone
     row["user"] = _serialize_model(d, exclude={"password"})
@@ -8016,17 +8312,6 @@ def upload_damage_image(request: HttpRequest) -> JsonResponse:
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
     return _handle_image_upload(request, "damages", "damage")
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-def upload_driver_license_image(request: HttpRequest) -> JsonResponse:
-    p, err = _require_staff(request)
-    if err:
-        return err
-    if p.get("role") != "DRIVER":
-        return _err("Forbidden", 403)
-    return _handle_image_upload(request, "licenses", "license")
 
 
 @csrf_exempt

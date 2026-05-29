@@ -33,6 +33,9 @@ export function SettingsView() {
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
   const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
   const [isVerifyingPasswordOtp, setIsVerifyingPasswordOtp] = useState(false)
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
+  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(true)
+  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState('30')
   const hasNewPassword = newPassword.length > 0
   const passwordRequirements = [
     { id: 'length', label: 'At least 8 characters', met: newPassword.length >= 8 },
@@ -60,6 +63,12 @@ export function SettingsView() {
     setName(String((user as any)?.name || ''))
     setEmail(String((user as any)?.email || ''))
     setPhone(String((user as any)?.phone || ''))
+  }, [user])
+
+  useEffect(() => {
+    setTwoFactorEnabled(Boolean((user as any)?.twoFactorEnabled))
+    setLoginAlertsEnabled((user as any)?.loginAlertsEnabled !== false)
+    setSessionTimeoutMinutes(String((user as any)?.sessionTimeoutMinutes || 30))
   }, [user])
 
   const requestOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
@@ -242,6 +251,45 @@ export function SettingsView() {
     }
   }
 
+  const handleSaveSecuritySettings = () => {
+    void (async () => {
+      if (!userId) {
+        toast.error('Unable to resolve user ID')
+        return
+      }
+    const timeout = Number(sessionTimeoutMinutes)
+    if (!Number.isFinite(timeout) || timeout < 5) {
+      toast.error('Session timeout must be at least 5 minutes')
+      return
+    }
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          twoFactorEnabled,
+          loginAlertsEnabled,
+          sessionTimeoutMinutes: Math.floor(timeout),
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Failed to save security settings')
+      }
+      const nextUser = data?.user || {}
+      setUser((prev: any) => ({
+        ...(prev || {}),
+        twoFactorEnabled: Boolean(nextUser.twoFactorEnabled ?? nextUser.two_factor_enabled ?? twoFactorEnabled),
+        loginAlertsEnabled: Boolean(nextUser.loginAlertsEnabled ?? nextUser.login_alerts_enabled ?? loginAlertsEnabled),
+        sessionTimeoutMinutes: Number(nextUser.sessionTimeoutMinutes ?? nextUser.session_timeout_minutes ?? Math.floor(timeout)),
+      }))
+      toast.success('Security settings saved')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save security settings')
+    }
+    })()
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -250,7 +298,7 @@ export function SettingsView() {
       </div>
 
       <div className="w-full max-w-5xl space-y-6">
-        <div className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Profile Information</CardTitle>
@@ -323,70 +371,121 @@ export function SettingsView() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Password</CardTitle>
-              <CardDescription>Change your password</CardDescription>
+              <CardTitle>Security Settings</CardTitle>
+              <CardDescription>Manage 2FA verification and login protection</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">2FA Verification</p>
+                  <p className="text-xs text-slate-500">Require OTP when signing in to admin portal</p>
+                </div>
+                <Button
+                  type="button"
+                  variant={twoFactorEnabled ? 'default' : 'outline'}
+                  onClick={() => setTwoFactorEnabled((prev) => !prev)}
+                >
+                  {twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Login Alerts</p>
+                  <p className="text-xs text-slate-500">Send alert when your account signs in from a new device</p>
+                </div>
+                <Button
+                  type="button"
+                  variant={loginAlertsEnabled ? 'default' : 'outline'}
+                  onClick={() => setLoginAlertsEnabled((prev) => !prev)}
+                >
+                  {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
+                </Button>
+              </div>
+
               <div className="space-y-2">
-                <label htmlFor="new-password" className="text-sm font-medium text-gray-700">New Password</label>
-                <div className="relative">
-                  <Input
-                    id="new-password"
-                    type={showNewPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                  />
-                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowNewPassword((v) => !v)} aria-label={showNewPassword ? 'Hide password' : 'Show password'}>
-                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {passwordRequirements.map((rule) => (
-                    <div key={rule.id} className="flex items-start gap-2 text-xs">
-                      {rule.met ? (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
-                      ) : (
-                        <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
-                      )}
-                      <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
-                    </div>
-                  ))}
-                </div>
+                <label htmlFor="session-timeout" className="text-sm font-medium text-gray-700">Session Timeout (minutes)</label>
+                <Input
+                  id="session-timeout"
+                  type="number"
+                  min="5"
+                  value={sessionTimeoutMinutes}
+                  onChange={(e) => setSessionTimeoutMinutes(e.target.value)}
+                />
               </div>
-              <div className="space-y-2">
-                <label htmlFor="confirm-password" className="text-sm font-medium text-gray-700">Confirm Password</label>
-                <div className="relative">
-                  <Input
-                    id="confirm-password"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                  />
-                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowConfirmPassword((v) => !v)} aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}>
-                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-2 rounded-md border p-3">
-                <p className="text-xs text-gray-600">OTP is required to change password.</p>
-                <div className="flex gap-2">
-                  <Input value={passwordOtp} onChange={(e) => setPasswordOtp(e.target.value)} placeholder="Enter OTP" />
-                  <Button type="button" variant="outline" onClick={() => void requestOtp(accountEmail, 'password')} disabled={isSendingPasswordOtp}>
-                    {isSendingPasswordOtp ? 'Sending...' : passwordOtpSent ? 'Resend OTP' : 'Send OTP'}
-                  </Button>
-                  <Button type="button" onClick={() => void verifyOtp(accountEmail, 'password')} disabled={isVerifyingPasswordOtp || !passwordOtp.trim()}>
-                    {isVerifyingPasswordOtp ? 'Verifying...' : 'Verify OTP'}
-                  </Button>
-                </div>
-              </div>
-              <Button onClick={handlePasswordUpdate} disabled={isUpdatingPassword}>
-                {isUpdatingPassword ? 'Updating...' : 'Update Password'}
+
+              <Button type="button" onClick={handleSaveSecuritySettings}>
+                Save Security Settings
               </Button>
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Password</CardTitle>
+            <CardDescription>Change your password</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="new-password" className="text-sm font-medium text-gray-700">New Password</label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showNewPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowNewPassword((v) => !v)} aria-label={showNewPassword ? 'Hide password' : 'Show password'}>
+                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {passwordRequirements.map((rule) => (
+                  <div key={rule.id} className="flex items-start gap-2 text-xs">
+                    {rule.met ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
+                    ) : (
+                      <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
+                    )}
+                    <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirm-password" className="text-sm font-medium text-gray-700">Confirm Password</label>
+              <div className="relative">
+                <Input
+                  id="confirm-password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+                <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowConfirmPassword((v) => !v)} aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}>
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-xs text-gray-600">OTP is required to change password.</p>
+              <div className="flex gap-2">
+                <Input value={passwordOtp} onChange={(e) => setPasswordOtp(e.target.value)} placeholder="Enter OTP" />
+                <Button type="button" variant="outline" onClick={() => void requestOtp(accountEmail, 'password')} disabled={isSendingPasswordOtp}>
+                  {isSendingPasswordOtp ? 'Sending...' : passwordOtpSent ? 'Resend OTP' : 'Send OTP'}
+                </Button>
+                <Button type="button" onClick={() => void verifyOtp(accountEmail, 'password')} disabled={isVerifyingPasswordOtp || !passwordOtp.trim()}>
+                  {isVerifyingPasswordOtp ? 'Verifying...' : 'Verify OTP'}
+                </Button>
+              </div>
+            </div>
+            <Button onClick={handlePasswordUpdate} disabled={isUpdatingPassword}>
+              {isUpdatingPassword ? 'Updating...' : 'Update Password'}
+            </Button>
+          </CardContent>
+        </Card>
 
       </div>
     </div>

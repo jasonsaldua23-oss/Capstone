@@ -55,6 +55,9 @@ export function WarehouseReplacementsView({
   }
   const getWarehouseStatusLabel = (entry: any, meta: any): string => {
     const rawStatus = String(entry?.status || '').trim().toUpperCase()
+    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)) {
+      return 'Cancelled'
+    }
     const hasScheduledFollowUp = hasStrictScheduledFollowUp(entry)
     if (rawStatus === 'IN_PROGRESS' && hasScheduledFollowUp) {
       return 'Scheduled for Delivery'
@@ -346,7 +349,9 @@ export function WarehouseReplacementsView({
     scopedReplacements.forEach((item) => {
       const meta = parseIssueMeta(item?.notes)
       const rawStatus = String(item?.status || '').trim().toUpperCase()
-      const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)
+      const isResolved =
+        (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)) ||
+        ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)
       if (hasStrictScheduledFollowUp(item) && !isResolved) {
         scheduledReplacements.push(item)
         return
@@ -580,7 +585,7 @@ export function WarehouseReplacementsView({
             const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
             const hasOutstandingReplacementQty =
               totalQtyToReplace > 0 && totalQtyReplaced < totalQtyToReplace
-            const isClosedStatus = ['REJECTED', 'CANCELLED'].includes(rawStatus) || (
+            const isClosedStatus = ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || (
               ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty
             )
             const statusLabel = getWarehouseStatusLabel(selectedReplacement, meta)
@@ -640,8 +645,18 @@ export function WarehouseReplacementsView({
                       <tbody>
                         {replacementLines.map((line, index) => (
                           <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.originalProductName}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{line.replacementProductName}</td>
+                            <td className="px-3 py-2">
+                              <p className="font-semibold text-slate-900">{line.originalProductName}</p>
+                              {String((line as any).originalProductCategory || '').trim() ? (
+                                <p className="text-xs text-slate-500">{(line as any).originalProductCategory}</p>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2">
+                              <p className="font-semibold text-slate-900">{line.replacementProductName}</p>
+                              {String((line as any).replacementProductCategory || '').trim() ? (
+                                <p className="text-xs text-slate-500">{(line as any).replacementProductCategory}</p>
+                              ) : null}
+                            </td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{getModalQtyDisplay(selectedReplacement, meta, line, 'toReplace')}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{getModalQtyDisplay(selectedReplacement, meta, line, 'replaced')}</td>
                           </tr>

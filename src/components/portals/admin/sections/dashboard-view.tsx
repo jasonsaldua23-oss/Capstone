@@ -13,23 +13,24 @@ import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shar
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
-  const [welcomeMessage] = useState(() => {
-    if (typeof window === 'undefined') return 'Welcome back!'
+  const [welcomeState] = useState(() => {
+    if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
     try {
       const raw = window.sessionStorage.getItem('admin_welcome_state')
-      if (!raw) return 'Welcome back!'
-      const parsed = JSON.parse(raw) as { mode?: string; name?: string }
-      const mode = String(parsed?.mode || '').toLowerCase()
+      if (!raw) return { open: false, message: 'Welcome back!' }
+      const parsed = JSON.parse(raw) as { name?: string }
       const name = String(parsed?.name || '').trim()
       window.sessionStorage.removeItem('admin_welcome_state')
-      return mode === 'new'
-        ? (name ? `Welcome, ${name}` : 'Welcome!')
-        : (name ? `Welcome back, ${name}` : 'Welcome back!')
+      return {
+        open: true,
+        message: name ? `Welcome back, ${name}.` : 'Welcome back!',
+      }
     } catch {
-      return 'Welcome back!'
+      return { open: false, message: 'Welcome back!' }
     }
   })
-  const [showWelcomePopup, setShowWelcomePopup] = useState(true)
+  const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
+  const welcomeMessage = welcomeState.message
   const [warehouseCount, setWarehouseCount] = useState(0)
 
   useEffect(() => {
@@ -201,13 +202,13 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       <WelcomePopup
         open={showWelcomePopup}
         message={welcomeMessage}
-        subtitle="Here is your logistics overview."
+        subtitle="Monitor operations, inventory, and deliveries from your admin dashboard."
         onClose={() => setShowWelcomePopup(false)}
         overlayClassName="bg-black/70"
-        panelClassName="border-blue-200 bg-gradient-to-br from-white to-blue-50"
+        panelClassName="border-emerald-200 bg-[#eaf8f1]"
         titleClassName="text-slate-900"
         subtitleClassName="text-slate-600"
-        buttonClassName="bg-blue-100 text-blue-700 hover:bg-blue-200"
+        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
       />
       {isLoading ? (
         <PortalDashboardSkeleton />

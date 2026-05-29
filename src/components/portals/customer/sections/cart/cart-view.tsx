@@ -97,10 +97,15 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                           className="h-[96px] w-[96px] rounded-xl border border-slate-200 object-cover bg-white"
                         />
                         <div className="min-w-0 flex-1 space-y-1">
-                          <p className="truncate text-[1.05rem] font-semibold text-slate-900">{item.name}</p>
-                          <p className="inline-block max-w-full truncate rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
-                            Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}
+                          <p className="truncate text-[1.05rem] font-semibold text-slate-900">
+                            {item.name}{' '}
+                            <span className="text-[0.9rem] font-medium text-sky-700">
+                              {String(item.sizeLabel || item.unit || '').trim() || 'case'}
+                            </span>
                           </p>
+                          {String((item as any)?.category || '').trim() ? (
+                            <p className="text-xs text-slate-500">{String((item as any).category).trim()}</p>
+                          ) : null}
                           <p className="text-[2rem] font-bold leading-none text-emerald-700">{formatPeso(item.unitPrice)}</p>
                           <div className="pt-0.5">
                             <div className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50/80 px-1">
