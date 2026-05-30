@@ -36,7 +36,6 @@
     "cap:open:android": "npx cap open android",
     "lint": "eslint .",
     "db:status": "node scripts/show-db-target.mjs",
-    "db:use:lite": "node scripts/set-db-target.mjs lite",
     "db:use:supa": "node scripts/set-db-target.mjs supa",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

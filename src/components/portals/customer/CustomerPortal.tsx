@@ -981,14 +981,26 @@ export function CustomerPortal() {
     }
     const perCaseDiscount = discountType === 'AMOUNT_PER_CASE'
       ? amountPerCase
-      : ((selectedSubtotal / Math.max(1, discountCasesAffected)) * (discountPercent / 100))
-    const totalDiscount = isActive ? Math.min(selectedSubtotal, Math.max(0, perCaseDiscount * discountCasesAffected)) : 0
+      : 0
+    const percentageDiscountTotal = selectedCartItems.reduce((sum, item) => {
+      const qty = Math.max(0, Number(item?.quantity || 0))
+      const unitPrice = Math.max(0, Number(item?.unitPrice || 0))
+      return sum + (unitPrice * qty * (discountPercent / 100))
+    }, 0)
+    const totalDiscountRaw = discountType === 'AMOUNT_PER_CASE'
+      ? (amountPerCase * discountCasesAffected)
+      : percentageDiscountTotal
+    const totalDiscount = isActive ? Math.min(selectedSubtotal, Math.max(0, totalDiscountRaw)) : 0
     return {
       name,
       discountType,
       discountPercent,
       amountPerCase,
-      perCaseDiscount: isActive ? perCaseDiscount : 0,
+      perCaseDiscount: isActive
+        ? (discountType === 'AMOUNT_PER_CASE'
+          ? perCaseDiscount
+          : (discountCasesAffected > 0 ? totalDiscount / discountCasesAffected : 0))
+        : 0,
       casesAffected: discountCasesAffected,
       totalDiscount,
       finalTotal: Math.max(0, selectedSubtotal - totalDiscount),
@@ -999,6 +1011,7 @@ export function CustomerPortal() {
     customerDiscountAmountPerCase,
     customerDiscountPercent,
     discountCasesAffected,
+    selectedCartItems,
     selectedSubtotal,
   ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])

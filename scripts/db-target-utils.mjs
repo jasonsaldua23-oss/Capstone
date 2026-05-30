@@ -10,7 +10,6 @@ export const envPath = resolve(repoRoot, '.env')
 
 export function normalizeDbTarget(value) {
   const raw = String(value ?? '').trim().toLowerCase()
-  if (['lite', 'sqlite', 'local', 'local_sqlite'].includes(raw)) return 'lite'
   if (['supa', 'supabase', 'postgres', 'postgresql'].includes(raw)) return 'supa'
   return ''
 }
@@ -52,26 +51,17 @@ export function resolveDbTarget() {
 
   if (explicitTarget) return explicitTarget
 
-  const legacySqliteFlag =
-    String(process.env.DJANGO_USE_SQLITE ?? envValues.DJANGO_USE_SQLITE ?? '')
-      .trim()
-      .toLowerCase()
-
-  if (['1', 'true', 'yes', 'on'].includes(legacySqliteFlag)) return 'lite'
-
   const databaseUrl = String(process.env.DATABASE_URL ?? envValues.DATABASE_URL ?? '').trim()
-  return databaseUrl ? 'supa' : 'lite'
+  return databaseUrl ? 'supa' : ''
 }
 
 export function describeDbTarget(target = resolveDbTarget()) {
   const envValues = loadRepoEnv()
-  const sqliteDbPath = envValues.SQLITE_DB_PATH || 'backend/db.sqlite3'
 
   return {
     target,
-    label: target === 'lite' ? 'SQLite' : 'Supabase/Postgres',
-    djangoAlias: target === 'lite' ? 'local_sqlite' : 'supabase',
-    sqliteDbPath,
+    label: target === 'supa' ? 'Supabase/Postgres' : 'Not configured',
+    djangoAlias: target === 'supa' ? 'supabase' : 'unknown',
     hasSupabaseUrl: Boolean(String(envValues.DATABASE_URL || '').trim()),
   }
 }

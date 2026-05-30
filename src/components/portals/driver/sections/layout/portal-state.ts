@@ -132,6 +132,7 @@ const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 80
 const DRIVER_GPS_MAX_JUMP_METERS = 180
 const DRIVER_GPS_MAX_REALISTIC_SPEED_MPS = 45
 const DRIVER_HEARTBEAT_INTERVAL_MS = 5000
+const DRIVER_ACTIVITY_EVENT = 'aab:driver-activity'
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -634,6 +635,9 @@ export function useDriverPortalState() {
       if (shouldSendFallback) {
         void sendLocationUpdate(next, tripId)
         lastLocationUploadAtRef.current = now
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event(DRIVER_ACTIVITY_EVENT))
+        }
       }
       return false
     }
@@ -643,6 +647,9 @@ export function useDriverPortalState() {
     setIsTracking(true)
     void sendLocationUpdate(next, tripId)
     lastLocationUploadAtRef.current = now
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(DRIVER_ACTIVITY_EVENT))
+    }
     return true
   }
 

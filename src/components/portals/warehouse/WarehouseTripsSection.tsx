@@ -493,7 +493,7 @@ export function WarehouseTripsSection({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
-        <Button onClick={onOpenCreateTripFlow} className="bg-black text-white hover:bg-black/90 rounded-xl px-4">
+        <Button onClick={onOpenCreateTripFlow} className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4">
           <Truck className="h-4 w-4 mr-2" />
           Create Trip
         </Button>

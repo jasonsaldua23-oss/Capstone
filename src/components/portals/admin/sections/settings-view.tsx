@@ -80,7 +80,7 @@ export function SettingsView() {
     if (kind === 'profile') setIsSendingProfileOtp(true)
     else setIsSendingPasswordOtp(true)
     try {
-      const response = await fetch('/api/auth/email-verification/request', {
+      const response = await fetch(kind === 'password' ? '/api/auth/password-reset/request-otp' : '/api/auth/email-verification/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailToVerify, accountType: 'staff', roleId: accountRoleId }),
@@ -123,7 +123,7 @@ export function SettingsView() {
     if (kind === 'profile') setIsVerifyingProfileOtp(true)
     else setIsVerifyingPasswordOtp(true)
     try {
-      const response = await fetch('/api/auth/email-verification/confirm', {
+      const response = await fetch(kind === 'password' ? '/api/auth/password-reset/verify-otp' : '/api/auth/email-verification/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailToVerify, accountType: 'staff', otp }),
@@ -132,14 +132,14 @@ export function SettingsView() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to verify OTP')
       }
-      const token = String(payload?.verificationToken || '').trim()
-      if (!token) throw new Error('Missing verification token')
       if (kind === 'profile') {
+        const token = String(payload?.verificationToken || '').trim()
+        if (!token) throw new Error('Missing verification token')
         setProfileOtpVerified(true)
         setProfileOtpToken(token)
       } else {
         setPasswordOtpVerified(true)
-        setPasswordOtpToken(token)
+        setPasswordOtpToken(otp)
       }
       toast.success('OTP verified')
     } catch (error: any) {
@@ -151,8 +151,8 @@ export function SettingsView() {
   }
 
   const handleProfileSave = async () => {
-    if (!userId) {
-      toast.error('Unable to resolve user ID')
+    if (!accountEmail) {
+      toast.error('Unable to resolve account email')
       return
     }
     if (isEmailChanged && !profileOtpVerified) {
@@ -227,10 +227,15 @@ export function SettingsView() {
 
     setIsUpdatingPassword(true)
     try {
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'PUT',
+      const response = await fetch('/api/auth/password-reset/reset', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: newPassword, emailVerificationToken: passwordOtpToken }),
+        body: JSON.stringify({
+          email: accountEmail,
+          accountType: 'staff',
+          otp: passwordOtpToken,
+          newPassword,
+        }),
       })
       const data = await response.json()
       if (!response.ok || data?.success === false) {
@@ -363,7 +368,7 @@ export function SettingsView() {
                   </div>
                 </div>
               ) : null}
-              <Button onClick={handleProfileSave} disabled={isSavingProfile}>
+              <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={handleProfileSave} disabled={isSavingProfile}>
                 {isSavingProfile ? 'Saving...' : 'Save Changes'}
               </Button>
             </CardContent>
@@ -382,7 +387,7 @@ export function SettingsView() {
                 </div>
                 <Button
                   type="button"
-                  variant={twoFactorEnabled ? 'default' : 'outline'}
+                  className={twoFactorEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
                   onClick={() => setTwoFactorEnabled((prev) => !prev)}
                 >
                   {twoFactorEnabled ? 'Enabled' : 'Disabled'}
@@ -396,7 +401,7 @@ export function SettingsView() {
                 </div>
                 <Button
                   type="button"
-                  variant={loginAlertsEnabled ? 'default' : 'outline'}
+                  className={loginAlertsEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
                   onClick={() => setLoginAlertsEnabled((prev) => !prev)}
                 >
                   {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
@@ -414,7 +419,7 @@ export function SettingsView() {
                 />
               </div>
 
-              <Button type="button" onClick={handleSaveSecuritySettings}>
+              <Button type="button" className="bg-blue-600 text-white hover:bg-blue-700" onClick={handleSaveSecuritySettings}>
                 Save Security Settings
               </Button>
             </CardContent>
@@ -481,7 +486,7 @@ export function SettingsView() {
                 </Button>
               </div>
             </div>
-            <Button onClick={handlePasswordUpdate} disabled={isUpdatingPassword}>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={handlePasswordUpdate} disabled={isUpdatingPassword}>
               {isUpdatingPassword ? 'Updating...' : 'Update Password'}
             </Button>
           </CardContent>

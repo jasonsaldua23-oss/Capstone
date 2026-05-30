@@ -265,7 +265,7 @@ export function AdminLoginPage() {
             </label>
             ) : null}
             <Button type="submit" className="w-full h-11 rounded-[10px] bg-gradient-to-r from-[#0f4fd3] to-[#0b45bf] text-white shadow-[0_10px_20px_rgba(15,79,211,0.28)] hover:from-[#0d48c2] hover:to-[#093fae]" disabled={isLoading}>
-              {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}Log In
+              {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}Log In
             </Button>
             {requiresTwoFactor ? (
               <Button

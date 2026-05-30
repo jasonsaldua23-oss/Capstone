@@ -200,7 +200,7 @@ export function VehiclesView() {
           <h1 className="text-2xl font-bold text-gray-900">Vehicles</h1>
           <p className="text-gray-500">Manage your delivery fleet</p>
         </div>
-        <Button className="gap-2" onClick={() => setAddOpen(true)}>
+        <Button className="gap-2 bg-blue-600 text-white hover:bg-blue-700" onClick={() => setAddOpen(true)}>
           Add Vehicle
         </Button>
       </div>
@@ -213,7 +213,7 @@ export function VehiclesView() {
         ) : vehicles.length === 0 ? (
           <div className="col-span-full text-center py-12">
             <p className="text-gray-500">No vehicles found</p>
-            <Button className="mt-4">Add First Vehicle</Button>
+            <Button className="mt-4 bg-blue-600 text-white hover:bg-blue-700">Add First Vehicle</Button>
           </div>
         ) : (
           vehicles.map((vehicle: any) => (

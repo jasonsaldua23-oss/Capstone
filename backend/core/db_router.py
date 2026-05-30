@@ -7,7 +7,7 @@ class CoreAppRouter:
 
     Enable with:
     - ENABLE_CORE_DB_ROUTER=1
-    - CORE_DB_ALIAS=supabase | local_sqlite | default
+    - CORE_DB_ALIAS=supabase | default
     """
 
     def __init__(self) -> None:

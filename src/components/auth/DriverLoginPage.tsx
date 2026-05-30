@@ -1,6 +1,6 @@
 'use client'
 
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Poppins } from 'next/font/google'
 import { Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
@@ -15,13 +15,13 @@ const poppins = Poppins({
   weight: ['400', '500', '600', '700', '800'],
 })
 
-const DRIVER_CARD_FALLBACK_WIDTH = 496
-const DRIVER_CARD_FALLBACK_HEIGHT = 820
+const DRIVER_CARD_FALLBACK_WIDTH = 420
+const DRIVER_CARD_FALLBACK_HEIGHT = 740
 
 function DriverRouteArtwork() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.99),rgba(243,252,248,0.92)_56%,rgba(230,248,241,0.76)_100%)]" />
+      <div className="absolute inset-0 bg-white" />
       <div className="absolute inset-y-[4.5%] right-[6%] w-[38%] rounded-[2.2rem] bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.12))] opacity-90" />
       <svg
         aria-hidden="true"
@@ -81,18 +81,6 @@ function DriverSpeedLines({ className = '' }: { className?: string }) {
       <path d="M16 17H88" stroke="rgba(168,239,220,0.92)" strokeLinecap="round" strokeWidth="6" />
       <path d="M6 25H82" stroke="rgba(178,245,226,0.88)" strokeLinecap="round" strokeWidth="6" />
     </svg>
-  )
-}
-
-function FieldIconTile({
-  children,
-}: {
-  children: ReactNode
-}) {
-  return (
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] bg-[linear-gradient(145deg,#effbf4,#daf3e6)] shadow-[0_10px_22px_rgba(16,185,129,0.12)]">
-      {children}
-    </div>
   )
 }
 
@@ -261,7 +249,7 @@ export function DriverLoginPage() {
   }
 
   const scaledCardStyle = {
-    width: isMobileViewport ? '31rem' : '34rem',
+    width: '26.25rem',
     transform: `scale(${layoutScale})`,
     transformOrigin: 'center center' as const,
   }
@@ -280,11 +268,11 @@ export function DriverLoginPage() {
           className="relative shrink-0 max-w-none"
           style={scaledCardStyle}
         >
-        <div className="relative overflow-hidden rounded-[1.7rem] border border-white/70 bg-white/72 px-6 pb-5 pt-4 shadow-[0_22px_70px_rgba(81,136,119,0.18)] backdrop-blur-[18px]">
+        <div className="relative overflow-hidden rounded-[1.35rem] border border-white/70 bg-white px-4 pb-3 pt-3 shadow-[0_18px_52px_rgba(81,136,119,0.15)] backdrop-blur-[18px]">
           <DriverRouteArtwork />
 
           <div className="relative z-[1] flex flex-col items-center">
-            <div className="flex h-[8.25rem] w-[8.25rem] items-center justify-center">
+            <div className="flex h-[6.2rem] w-[6.2rem] items-center justify-center">
               <img
                 src="/aab-trading-driver.png"
                 alt="AAB Trading Driver"
@@ -296,31 +284,29 @@ export function DriverLoginPage() {
               ANN ANN&apos;S BEVERAGES TRADING
             </p>
 
-            <h1 className="mt-3 text-center leading-[0.96] tracking-[-0.04em]">
-              <span className="block text-[2.2rem] font-extrabold text-[#0a4286]">
+            <h1 className="mt-2 text-center leading-[0.96] tracking-[-0.04em]">
+              <span className="block text-[2rem] font-extrabold text-[#0a4286]">
                 AAB TRADING
               </span>
               <span className="mt-2 flex items-center justify-center gap-3">
                 <DriverSpeedLines className="h-3 w-8" />
-                <span className="text-[2.4rem] font-extrabold text-[#13a455]">
+                <span className="text-[2.15rem] font-extrabold text-[#13a455]">
                   DRIVER
                 </span>
                 <DriverSpeedLines className="h-3 w-8 scale-x-[-1]" />
               </span>
             </h1>
 
-            <p className="mt-4 max-w-[22rem] text-center text-[0.95rem] font-medium leading-[1.35] text-[#586484]">
+            <p className="mt-2.5 max-w-[18rem] text-center text-[0.85rem] font-medium leading-[1.35] text-[#586484]">
               Sign in to start routes and track drops in real time.
             </p>
 
-            <div className="relative mt-5 w-full rounded-[1.5rem] border border-[#d7eee5] bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(251,255,252,0.94))] px-5 py-4 shadow-[0_16px_40px_rgba(127,180,157,0.14)]">
-              <form onSubmit={handleLogin} autoComplete="off" className="space-y-3.5">
+            <div className="relative mt-3 w-full px-1 py-1">
+              <form onSubmit={handleLogin} autoComplete="off" className="space-y-3">
                 <div className="space-y-2.5">
                   <div className="px-1 text-[0.85rem] font-bold text-[#12356a]">Email</div>
-                  <label className={`flex items-center gap-3 rounded-[18px] border px-3.5 py-2.5 shadow-[0_8px_24px_rgba(151,193,177,0.14)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
-                    <FieldIconTile>
-                      <Mail className="h-5 w-5 text-[#179651]" strokeWidth={1.9} />
-                    </FieldIconTile>
+                  <label className={`flex h-12 items-center gap-2.5 rounded-[14px] border px-3 shadow-[0_6px_18px_rgba(151,193,177,0.12)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
+                    <Mail className="h-4 w-4 text-[#8a99b3]" strokeWidth={1.9} />
                     <span className="min-w-0 flex-1">
                       <input
                         id="driver-email"
@@ -333,7 +319,7 @@ export function DriverLoginPage() {
                         }}
                         placeholder="Enter email"
                         required
-                        className="block w-full border-0 bg-transparent p-0 text-[0.9rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
+                        className="block w-full border-0 bg-transparent p-0 text-[0.95rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
                       />
                     </span>
                   </label>
@@ -341,10 +327,8 @@ export function DriverLoginPage() {
 
                 <div className="space-y-2.5">
                   <div className="px-1 text-[0.85rem] font-bold text-[#12356a]">Password</div>
-                  <label className={`flex items-center gap-3 rounded-[18px] border px-3.5 py-2.5 shadow-[0_8px_24px_rgba(151,193,177,0.14)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
-                    <FieldIconTile>
-                      <LockKeyhole className="h-5 w-5 text-[#179651]" strokeWidth={1.9} />
-                    </FieldIconTile>
+                  <label className={`flex h-12 items-center gap-2.5 rounded-[14px] border px-3 shadow-[0_6px_18px_rgba(151,193,177,0.12)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
+                    <LockKeyhole className="h-4 w-4 text-[#8a99b3]" strokeWidth={1.9} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
                         <input
@@ -358,18 +342,18 @@ export function DriverLoginPage() {
                           }}
                           placeholder="Enter password"
                           required
-                          className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-[0.9rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
+                          className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-[0.95rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword((value) => !value)}
-                          className="flex h-7 w-7 items-center justify-center rounded-full text-[#6f7b96] transition-colors hover:text-[#27446c]"
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-[#6f7b96] transition-colors hover:text-[#27446c]"
                           aria-label={showPassword ? 'Hide password' : 'Show password'}
                         >
                           {showPassword ? (
-                            <EyeOff className="h-4 w-4" strokeWidth={1.9} />
+                            <EyeOff className="h-3.5 w-3.5" strokeWidth={1.9} />
                           ) : (
-                            <Eye className="h-4 w-4" strokeWidth={1.9} />
+                            <Eye className="h-3.5 w-3.5" strokeWidth={1.9} />
                           )}
                         </button>
                       </span>
@@ -407,12 +391,6 @@ export function DriverLoginPage() {
                     Log In
                   </span>
                 </button>
-
-                <div className="flex items-center gap-4 pt-1 text-[#49546f]">
-                  <div className="h-px flex-1 bg-[#d8dee8]" />
-                  <span className="text-[0.82rem]">or</span>
-                  <div className="h-px flex-1 bg-[#d8dee8]" />
-                </div>
 
                 <div className="flex justify-center pt-1">
                   <ForgotPasswordDialog

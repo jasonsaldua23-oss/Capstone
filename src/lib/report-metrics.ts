@@ -352,7 +352,10 @@ function isWarehouseDashboardOrder(order: any) {
 }
 
 export function summarizeWarehouseDashboardOrders(orders: any[]): WarehouseOrderStats {
-  const scopedOrders = orders.filter(isWarehouseDashboardOrder)
+  const scopedOrders = orders.filter((order) => {
+    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+    return !Boolean(order?.isScheduledReplacement) && !orderNumber.startsWith('RPL-')
+  })
   return {
     totalOrders: scopedOrders.length,
     outForDelivery: scopedOrders.filter((order) => String(order?.status || '').toUpperCase() === 'IN_TRANSIT').length,

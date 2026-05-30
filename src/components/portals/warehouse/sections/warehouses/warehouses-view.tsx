@@ -37,7 +37,7 @@ export function WarehouseWarehousesView({
                     Capacity: {Number(assignedWarehouse.capacity || 0).toLocaleString()} units
                   </p>
                 </div>
-                <Badge variant={assignedWarehouse.isActive ? 'default' : 'secondary'}>
+                <Badge className={assignedWarehouse.isActive ? 'bg-green-100 text-green-700 hover:bg-green-100' : 'bg-red-100 text-red-700 hover:bg-red-100'}>
                   {assignedWarehouse.isActive ? 'Active' : 'Inactive'}
                 </Badge>
               </div>

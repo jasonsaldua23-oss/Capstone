@@ -1,3 +1,0 @@
--- SQLite stores enum values as TEXT in this schema, so no table rewrite is required.
--- This migration exists to track the schema enum extension:
--- PENDING, CONFIRMED, CANCELLED

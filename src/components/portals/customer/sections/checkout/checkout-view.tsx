@@ -64,6 +64,10 @@ export function CustomerCheckoutView({
   const today = new Date()
   const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const minDeliveryDate = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`
+  const effectiveDiscountPercent =
+    selectedSubtotal > 0 && totalDiscount > 0
+      ? (totalDiscount / selectedSubtotal) * 100
+      : 0
 
   return (
     <section className="-mx-4 -mt-4 bg-white/55 pb-20 md:mx-0 md:mt-0 md:rounded-[1.6rem] md:border md:border-white/70 md:bg-white/75 md:pb-4 md:shadow-[0_18px_45px_rgba(15,23,42,0.08)] md:backdrop-blur-xl">
@@ -133,7 +137,7 @@ export function CustomerCheckoutView({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
               </div>
-              <CompactDiscountLine value={formatPeso(totalDiscount)} />
+              <CompactDiscountLine value={formatPeso(totalDiscount)} percent={effectiveDiscountPercent || discountPercent} />
               <div className="h-px bg-slate-100" />
               <div className="flex items-center justify-between text-[15px] font-semibold text-slate-900 md:text-base">
                 <span>Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</span>

@@ -159,6 +159,7 @@ export default function Home() {
   const [isMounted, setIsMounted] = useState(false)
   const [sessionExpiredPortal, setSessionExpiredPortal] = useState<PortalType | null>(null)
   const sessionTimerRef = useRef<number | null>(null)
+  const DRIVER_ACTIVITY_EVENT = 'aab:driver-activity'
   const getPortalLoginPath = (targetPortal: PortalType) => `/login/${targetPortal}`
 
   // Check for existing session on mount
@@ -264,6 +265,12 @@ export default function Home() {
       window.addEventListener(eventName, restartSessionTimer, { passive: true })
     })
     window.addEventListener('focus', restartSessionTimer)
+    const onDriverTrackingActivity = () => {
+      if (portal === 'driver' && user) {
+        restartSessionTimer()
+      }
+    }
+    window.addEventListener(DRIVER_ACTIVITY_EVENT, onDriverTrackingActivity)
     restartSessionTimer()
 
     return () => {
@@ -275,6 +282,7 @@ export default function Home() {
         window.removeEventListener(eventName, restartSessionTimer)
       })
       window.removeEventListener('focus', restartSessionTimer)
+      window.removeEventListener(DRIVER_ACTIVITY_EVENT, onDriverTrackingActivity)
     }
   }, [isMounted, user, portal, sessionExpiredPortal])
 
@@ -332,31 +340,11 @@ export default function Home() {
             {portal === 'warehouse' && <WarehousePortal />}
             {sessionExpiredPortal ? (
               <div className="fixed inset-0 z-[120] grid place-items-center bg-black/55 px-4 backdrop-blur-[2px]">
-                <div
-                  className={`w-full max-w-[32rem] rounded-2xl border px-5 py-5 shadow-[0_20px_56px_rgba(0,0,0,0.35)] ${
-                    sessionExpiredPortal === 'customer'
-                      ? 'border-emerald-200 bg-gradient-to-b from-[#f0fbf7] via-white to-[#ecfdf5]'
-                      : sessionExpiredPortal === 'driver'
-                        ? 'border-sky-200 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2]'
-                        : sessionExpiredPortal === 'warehouse'
-                          ? 'border-amber-200 bg-gradient-to-b from-[#fff8eb] via-white to-[#fffaf0]'
-                          : 'border-blue-200 bg-gradient-to-b from-[#f2f8ff] via-white to-[#edf5ff]'
-                  }`}
-                >
+                <div className="w-full max-w-[32rem] rounded-2xl border border-blue-200 bg-gradient-to-b from-[#f2f8ff] via-white to-[#edf5ff] px-5 py-5 shadow-[0_20px_56px_rgba(0,0,0,0.35)]">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <AlertTriangle
-                          className={`h-5 w-5 ${
-                            sessionExpiredPortal === 'customer'
-                              ? 'text-emerald-700'
-                              : sessionExpiredPortal === 'driver'
-                                ? 'text-sky-700'
-                                : sessionExpiredPortal === 'warehouse'
-                                  ? 'text-amber-700'
-                                  : 'text-blue-700'
-                          }`}
-                        />
+                        <AlertTriangle className="h-5 w-5 text-blue-700" />
                         <p className="text-[1.1rem] font-semibold leading-tight text-slate-900">Your session has expired</p>
                       </div>
                       <p className="mt-1 text-sm text-slate-600">Please log in again to continue using the system.</p>
@@ -364,15 +352,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => logoutToPortal(sessionExpiredPortal)}
-                      className={`shrink-0 rounded-xl px-5 py-2.5 text-base font-semibold text-white ${
-                        sessionExpiredPortal === 'customer'
-                          ? 'bg-emerald-600 hover:bg-emerald-500'
-                          : sessionExpiredPortal === 'driver'
-                            ? 'bg-[#0d61ad] hover:bg-[#0b579c]'
-                            : sessionExpiredPortal === 'warehouse'
-                              ? 'bg-amber-600 hover:bg-amber-500'
-                              : 'bg-blue-600 hover:bg-blue-500'
-                      }`}
+                      className="shrink-0 rounded-xl bg-blue-600 px-5 py-2.5 text-base font-semibold text-white hover:bg-blue-500"
                     >
                       Log in
                     </button>

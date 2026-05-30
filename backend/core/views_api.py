@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import hmac
 import base64
 import json
@@ -3113,7 +3113,14 @@ def _normalize_email(value: Any) -> str:
 
 
 def _is_gmail_email(email: str) -> bool:
-    return bool(email and email.endswith("@gmail.com") and "@" in email and email.count("@") == 1)
+    normalized = str(email or "").strip()
+    if not normalized:
+        return False
+    try:
+        validate_email(normalized)
+        return True
+    except ValidationError:
+        return False
 
 
 def _staff_email_conflict_message(email: str, role: str, exclude_user_id: str | None = None) -> str | None:
@@ -3264,7 +3271,7 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
 def _send_email_verification_otp(email: str, otp_code: str) -> None:
     subject = "Ann Ann's Beverages Trading - Email Verification Code"
     message = (
-        "Use this code to verify that your Gmail address is active and can receive mail.\n\n"
+        "Use this code to verify that your email address is active and can receive mail.\n\n"
         f"Verification code: {otp_code}\n"
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
@@ -3595,15 +3602,19 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
     _send_transactional_email(subject=subject, message=message, recipients=recipients)
 
 
-def _is_inventory_overstocked_for_restock_block(inventory: Inventory) -> bool:
+def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_restock_qty: int = 0) -> bool:
     """
     Overstock guard for stock-in:
     - available >= threshold * 3
     - condition has persisted for at least 7 days
+    - OR incoming restock quantity >= threshold * 5
     """
     threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
     if threshold <= 0:
         return False
+    incoming_qty = max(0, _int(incoming_restock_qty, 0))
+    if incoming_qty >= (threshold * 5):
+        return True
     available = max(
         0,
         _int(getattr(inventory, "quantity", 0), 0) - _int(getattr(inventory, "reserved_quantity", 0), 0),
@@ -3688,7 +3699,7 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
     if not email:
         return _err("Email is required")
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed")
+        return _err("Invalid email format")
     if account_type not in {"staff", "customer"}:
         return _err("accountType must be 'staff' or 'customer'")
     if account_type == "staff":
@@ -3729,7 +3740,7 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
     if not email:
         return _err("Email is required")
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed")
+        return _err("Invalid email format")
 
     # Must match the authenticated user's current email
     current_email = _normalize_email(p.get("email"))
@@ -3768,7 +3779,7 @@ def auth_email_verification_confirm_existing(request: HttpRequest) -> JsonRespon
     if not email:
         return _err("Email is required")
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed")
+        return _err("Invalid email format")
     if not otp_code:
         return _err("Verification code is required")
 
@@ -3795,7 +3806,7 @@ def auth_email_verification_confirm(request: HttpRequest) -> JsonResponse:
     if not email:
         return _err("Email is required")
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed")
+        return _err("Invalid email format")
     if account_type not in {"staff", "customer"}:
         return _err("accountType must be 'staff' or 'customer'")
     if not otp_code:
@@ -3822,7 +3833,7 @@ def health(_request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def auth_login(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
-    email = str(body.get("email", "")).strip().lower()
+    email = str(body.get("email", "")).strip()
     password = str(body.get("password", ""))
     portal = str(body.get("portal", "")).strip().lower()
     remember_me = bool(body.get("rememberMe", False))
@@ -3849,9 +3860,9 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         if not _otp_mail_ready():
             return _err("2FA is enabled but OTP email service is not configured", 500)
         now = timezone.now()
-        code = _stateless_otp_for_bucket(email, "staff", "login_2fa", _otp_bucket(now))
+        code = _stateless_otp_for_bucket(user.email, "staff", "login_2fa", _otp_bucket(now))
         try:
-            _send_login_otp_email(email, code)
+            _send_login_otp_email(user.email, code)
         except Exception:
             logger.exception("Failed to send login 2FA OTP")
             return _err("Failed to send login verification code", 500)
@@ -3913,7 +3924,7 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
         return _err("Invalid or expired login challenge", 401)
 
     user_id = str(challenge_payload.get("userId") or "").strip()
-    email = str(challenge_payload.get("email") or "").strip().lower()
+    email = str(challenge_payload.get("email") or "").strip()
     remember_me = bool(challenge_payload.get("rememberMe", False))
     if not user_id or not email:
         return _err("Invalid login challenge", 401)
@@ -3956,7 +3967,7 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def auth_customer_login(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
-    email = str(body.get("email", "")).strip().lower()
+    email = str(body.get("email", "")).strip()
     password = str(body.get("password", ""))
     remember_me = bool(body.get("rememberMe", False))
     if not email or not password:
@@ -4004,7 +4015,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
         if not bool(claims.get("email_verified")):
             return _err("Google email is not verified", 401)
         if not _is_gmail_email(email):
-            return _err("Only Gmail addresses are allowed (example@gmail.com)")
+            return _err("Invalid email format (example@domain.com)")
 
         name = str(claims.get("name") or "").strip() or email.split("@")[0]
         avatar = str(claims.get("picture") or "").strip() or None
@@ -4074,7 +4085,7 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     if password_error:
         return _err(password_error)
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed (example@gmail.com)")
+        return _err("Invalid email format (example@domain.com)")
     if Customer.objects.filter(email=email).exists():
         return _err("Email is already registered", 409)
     if not _is_email_verification_token_valid(email_verification_token, email, "customer"):
@@ -4256,7 +4267,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     if password_error:
         return _err(password_error)
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed for staff/driver accounts")
+        return _err("Invalid email format for staff/driver account")
     if role_id not in {x for x, _ in RoleType.choices}:
         return _err("Role not found", 404)
     role = role_id
@@ -4264,7 +4275,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     if existing_message:
         return _err(existing_message, 409)
     if not _is_email_verification_token_valid(email_verification_token, email, "staff"):
-        return _err("Please verify this Gmail address before creating the user", 400)
+        return _err("Please verify this email address before creating the user", 400)
     user = User.objects.create(
         email=email,
         password=hash_password(password),
@@ -4368,7 +4379,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         if not next_email:
             return _err("Email is required")
         if next_email != current_email and not _is_gmail_email(next_email):
-            return _err("Only Gmail addresses are allowed for staff/driver accounts")
+            return _err("Invalid email format for staff/driver account")
         user.email = next_email
     if "isActive" in body:
         user.is_active = bool(body.get("isActive"))
@@ -4417,7 +4428,7 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     if password_error:
         return _err(password_error)
     if not _is_gmail_email(email):
-        return _err("Only Gmail addresses are allowed for customer accounts")
+        return _err("Invalid email format for customer account")
     if Customer.objects.filter(email=email).exists():
         return _err("Email already exists for customer accounts", 409)
     address_error = _ensure_negros_occidental_address(
@@ -4973,8 +4984,8 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         product=product,
         defaults={"quantity": qty, "reserved_quantity": 0, "threshold": max(1, int(qty * 0.15)), "last_restocked_at": timezone.now()},
     )
-    if not created and _is_inventory_overstocked_for_restock_block(item):
-        return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days).", 400)
+    if not created and _is_inventory_overstocked_for_restock_block(item, qty):
+        return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days or incoming restock >= 5x threshold).", 400)
     if not created:
         item.quantity += qty
         item.loose_bottles = max(0, _int(getattr(item, "loose_bottles", 0), 0) + loose_bottles)
@@ -5185,8 +5196,8 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                         "last_restocked_at": timezone.now(),
                     },
                 )
-                if not created and _is_inventory_overstocked_for_restock_block(inv):
-                    return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days).", 400)
+                if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
+                    return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days or incoming restock >= 5x threshold).", 400)
 
             batch = StockBatch.objects.create(
                 batch_number=str(body.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}"),
@@ -5317,9 +5328,9 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                         "last_restocked_at": timezone.now(),
                     },
                 )
-                if not created and _is_inventory_overstocked_for_restock_block(inv):
+                if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
                     return _err(
-                        f"Batch {batch_data['index']}: cannot add stock for overstocked product (>= 3x threshold for 7+ days).",
+                        f"Batch {batch_data['index']}: cannot add stock for overstocked product (>= 3x threshold for 7+ days or incoming restock >= 5x threshold).",
                         400,
                     )
 
@@ -8343,6 +8354,7 @@ def ensure_demo_accounts() -> None:
         license_expiry=timezone.now() + timedelta(days=1500),
         hired_at=timezone.now(),
     )
+
 
 
 

@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
 
-load_dotenv(REPO_ROOT / ".env")
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(REPO_ROOT / ".env", override=True)
+load_dotenv(BASE_DIR / ".env", override=True)
 
 # Ensure Python uses a CA bundle for outbound TLS (SMTP/HTTPS).
 # Production default: certifi. Local override: set CUSTOM_CA_BUNDLE explicitly.
@@ -37,8 +37,6 @@ def _csv(name: str) -> list[str]:
 
 def _normalize_db_target(value: str) -> str:
     raw = str(value or "").strip().lower()
-    if raw in {"lite", "sqlite", "local", "local_sqlite"}:
-        return "lite"
     if raw in {"supa", "supabase", "postgres", "postgresql"}:
         return "supa"
     return ""
@@ -108,11 +106,6 @@ USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
@@ -122,11 +115,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -141,8 +131,6 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
-                "django.contrib.auth.context_processors.auth",
-                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
@@ -151,41 +139,22 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-FORCE_SQLITE = _bool("DJANGO_USE_SQLITE", False)
 SHOW_SAMPLE_DATA = _bool("SHOW_SAMPLE_DATA", False)
 DATABASE_URL = _normalize_runtime_database_url(os.getenv("DATABASE_URL", ""))
-SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "").strip()
 APP_DB_TARGET = _normalize_db_target(os.getenv("APP_DB_TARGET", ""))
-LOCAL_SQLITE_DB = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": SQLITE_DB_PATH or (BASE_DIR / "db.sqlite3"),
-}
 REMOTE_POSTGRES_DB = _parse_database_url(DATABASE_URL) if DATABASE_URL else None
 
-if APP_DB_TARGET:
-    USE_SQLITE_DB = APP_DB_TARGET == "lite"
-else:
-    USE_SQLITE_DB = FORCE_SQLITE or not REMOTE_POSTGRES_DB
+if APP_DB_TARGET and APP_DB_TARGET != "supa":
+    raise RuntimeError("Only Supabase/Postgres is supported. Set APP_DB_TARGET=supa or remove it.")
 
-# Respect explicit user intent to use Supabase even when connectivity is flaky.
-if APP_DB_TARGET == "supa":
-    USE_SQLITE_DB = False
+if not REMOTE_POSTGRES_DB:
+    raise RuntimeError("DATABASE_URL is required. SQLite fallback has been removed.")
 
-ACTIVE_DB_ALIAS = "local_sqlite" if USE_SQLITE_DB else "supabase"
-
-if USE_SQLITE_DB or not REMOTE_POSTGRES_DB:
-    DATABASES = {
-        "default": LOCAL_SQLITE_DB,
-        "local_sqlite": LOCAL_SQLITE_DB,
-    }
-    if REMOTE_POSTGRES_DB:
-        DATABASES["supabase"] = REMOTE_POSTGRES_DB
-else:
-    DATABASES = {
-        "default": REMOTE_POSTGRES_DB,
-        "supabase": REMOTE_POSTGRES_DB,
-        "local_sqlite": LOCAL_SQLITE_DB,
-    }
+ACTIVE_DB_ALIAS = "supabase"
+DATABASES = {
+    "default": REMOTE_POSTGRES_DB,
+    "supabase": REMOTE_POSTGRES_DB,
+}
 
 AUTH_PASSWORD_VALIDATORS = []
 

@@ -62,7 +62,7 @@ python manage.py runserver 0.0.0.0:8000
 ## Notes
 
 - Uses `.env` from repo root (`DATABASE_URL`, `JWT_SECRET`) when present.
-- Prefer `APP_DB_TARGET=supa` or `APP_DB_TARGET=lite` to switch databases; `DJANGO_USE_SQLITE` is still supported as a legacy fallback.
+- `DATABASE_URL` (Supabase/Postgres) is required; SQLite fallback has been removed.
 - Domain models are ported from Prisma schema in `prisma/schema.prisma`.
 - Existing Next.js API remains untouched for safe migration.
 - Use Django on a different port during parallel validation, then switch traffic when ready.

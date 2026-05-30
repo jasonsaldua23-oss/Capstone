@@ -4,15 +4,14 @@ import { envPath, normalizeDbTarget, repoRoot } from './db-target-utils.mjs'
 
 const requestedTarget = normalizeDbTarget(process.argv[2])
 
-if (!requestedTarget) {
-  console.error('Usage: node scripts/set-db-target.mjs <lite|supa>')
+if (requestedTarget !== 'supa') {
+  console.error('Usage: node scripts/set-db-target.mjs supa')
   process.exit(1)
 }
 
 const current = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
 const nextValues = {
   APP_DB_TARGET: requestedTarget,
-  DJANGO_USE_SQLITE: requestedTarget === 'lite' ? '1' : '0',
 }
 
 function upsertEnvValue(source, key, value) {

@@ -709,7 +709,7 @@ export function WarehousePortal() {
     if (kind === 'profile') setIsSendingProfileOtp(true)
     else setIsSendingPasswordOtp(true)
     try {
-      const response = await fetch('/api/auth/email-verification/request', {
+      const response = await fetch(kind === 'password' ? '/api/auth/password-reset/request-otp' : '/api/auth/email-verification/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailToVerify, accountType: 'staff', roleId: accountRoleId }),
@@ -752,7 +752,7 @@ export function WarehousePortal() {
     if (kind === 'profile') setIsVerifyingProfileOtp(true)
     else setIsVerifyingPasswordOtp(true)
     try {
-      const response = await fetch('/api/auth/email-verification/confirm', {
+      const response = await fetch(kind === 'password' ? '/api/auth/password-reset/verify-otp' : '/api/auth/email-verification/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailToVerify, accountType: 'staff', otp }),
@@ -761,14 +761,14 @@ export function WarehousePortal() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to verify OTP')
       }
-      const token = String(payload?.verificationToken || '').trim()
-      if (!token) throw new Error('Missing verification token')
       if (kind === 'profile') {
+        const token = String(payload?.verificationToken || '').trim()
+        if (!token) throw new Error('Missing verification token')
         setProfileOtpVerified(true)
         setProfileOtpToken(token)
       } else {
         setPasswordOtpVerified(true)
-        setPasswordOtpToken(token)
+        setPasswordOtpToken(otp)
       }
       toast.success('OTP verified')
     } catch (error: any) {
@@ -833,9 +833,9 @@ export function WarehousePortal() {
   }
 
   const updateProfilePassword = async () => {
-    const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
-    if (!userId) {
-      toast.error('Unable to resolve account ID')
+    const accountEmailForReset = String((user as any)?.email || '').trim().toLowerCase()
+    if (!accountEmailForReset) {
+      toast.error('Unable to resolve account email')
       return
     }
     if (!newPassword.trim()) {
@@ -862,10 +862,15 @@ export function WarehousePortal() {
 
     setIsUpdatingPassword(true)
     try {
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'PUT',
+      const response = await fetch('/api/auth/password-reset/reset', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: newPassword, emailVerificationToken: passwordOtpToken }),
+        body: JSON.stringify({
+          email: accountEmailForReset,
+          accountType: 'staff',
+          otp: passwordOtpToken,
+          newPassword,
+        }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -3216,6 +3221,13 @@ export function WarehousePortal() {
     }
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
+    else if (selectedProduct?.overstockInfo) {
+      const threshold = Math.max(0, Number(selectedProduct.overstockInfo.threshold || 0))
+      const incomingQty = Math.max(0, Number(row.quantity || 0))
+      if (threshold > 0 && incomingQty >= threshold * 5) {
+        errors.quantity = `Overstocked: incoming quantity (${incomingQty}) is >= 5x threshold (${threshold})`
+      }
+    }
     return errors
   }
 
@@ -4445,76 +4457,119 @@ export function WarehousePortal() {
             <div className="w-full max-w-5xl space-y-6">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-                <p className="text-gray-500">Manage your warehouse account and security settings</p>
+                <p className="text-gray-500">Manage your account and preferences</p>
               </div>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profile Settings</CardTitle>
-                  <CardDescription>Edit your warehouse account information.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                    <Avatar className="h-16 w-16 border border-slate-200 shadow-sm">
-                      {String((user as any)?.avatar || '').trim() ? (
-                        <AvatarImage src={String((user as any)?.avatar || '').trim()} alt={`${profileName || user?.name || 'User'} avatar`} className="object-cover" />
-                      ) : null}
-                      <AvatarFallback className="bg-linear-to-br from-cyan-600 to-emerald-600 text-lg font-semibold text-white">
-                        {(String(profileName || user?.name || 'U')
-                          .split(/\s+/)
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((part) => part.charAt(0).toUpperCase())
-                          .join('')) || 'U'}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-900">{profileName || user?.name || 'User'}</p>
-                      <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="warehouse-profile-name">Full Name</Label>
-                    <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="warehouse-profile-email">Email</Label>
-                    <Input
-                      id="warehouse-profile-email"
-                      type="email"
-                      value={profileEmail}
-                      onChange={(e) => {
-                        setProfileEmail(e.target.value)
-                        setProfileOtpSent(false)
-                        setProfileOtpVerified(false)
-                        setProfileOtpToken('')
-                        setProfileOtp('')
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="warehouse-profile-phone">Phone</Label>
-                    <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} />
-                  </div>
-                  {isProfileEmailChanged ? (
-                    <div className="space-y-2 rounded-md border p-3">
-                      <p className="text-xs text-gray-600">OTP is required to change email.</p>
-                      <div className="flex gap-2">
-                        <Input value={profileOtp} onChange={(e) => setProfileOtp(e.target.value)} placeholder="Enter OTP" />
-                        <Button type="button" variant="outline" onClick={() => void requestOtp(normalizedProfileEmail, 'profile')} disabled={isSendingProfileOtp}>
-                          {isSendingProfileOtp ? 'Sending...' : profileOtpSent ? 'Resend OTP' : 'Send OTP'}
-                        </Button>
-                        <Button type="button" onClick={() => void verifyOtp(normalizedProfileEmail, 'profile')} disabled={isVerifyingProfileOtp || !profileOtp.trim()}>
-                          {isVerifyingProfileOtp ? 'Verifying...' : 'Verify OTP'}
-                        </Button>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Profile Information</CardTitle>
+                    <CardDescription>Update your personal details</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                      <Avatar className="h-16 w-16 border border-slate-200 shadow-sm">
+                        {String((user as any)?.avatar || '').trim() ? (
+                          <AvatarImage src={String((user as any)?.avatar || '').trim()} alt={`${profileName || user?.name || 'User'} avatar`} className="object-cover" />
+                        ) : null}
+                        <AvatarFallback className="bg-linear-to-br from-cyan-600 to-emerald-600 text-lg font-semibold text-white">
+                          {(String(profileName || user?.name || 'U')
+                            .split(/\s+/)
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((part) => part.charAt(0).toUpperCase())
+                            .join('')) || 'U'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">{profileName || user?.name || 'User'}</p>
+                        <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
                       </div>
                     </div>
-                  ) : null}
-                  <Button onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
-                    {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Save Profile
-                  </Button>
-                </CardContent>
-              </Card>
+                    <div className="space-y-1">
+                      <Label htmlFor="warehouse-profile-name">Full Name</Label>
+                      <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="warehouse-profile-email">Email</Label>
+                      <Input
+                        id="warehouse-profile-email"
+                        type="email"
+                        value={profileEmail}
+                        onChange={(e) => {
+                          setProfileEmail(e.target.value)
+                          setProfileOtpSent(false)
+                          setProfileOtpVerified(false)
+                          setProfileOtpToken('')
+                          setProfileOtp('')
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="warehouse-profile-phone">Phone</Label>
+                      <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} />
+                    </div>
+                    {isProfileEmailChanged ? (
+                      <div className="space-y-2 rounded-md border p-3">
+                        <p className="text-xs text-gray-600">OTP is required to change email.</p>
+                        <div className="flex gap-2">
+                          <Input value={profileOtp} onChange={(e) => setProfileOtp(e.target.value)} placeholder="Enter OTP" />
+                          <Button type="button" variant="outline" onClick={() => void requestOtp(normalizedProfileEmail, 'profile')} disabled={isSendingProfileOtp}>
+                            {isSendingProfileOtp ? 'Sending...' : profileOtpSent ? 'Resend OTP' : 'Send OTP'}
+                          </Button>
+                          <Button type="button" onClick={() => void verifyOtp(normalizedProfileEmail, 'profile')} disabled={isVerifyingProfileOtp || !profileOtp.trim()}>
+                            {isVerifyingProfileOtp ? 'Verifying...' : 'Verify OTP'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                    <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
+                      {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Save Changes
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Security Settings</CardTitle>
+                    <CardDescription>Manage 2FA verification and login protection</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between rounded-md border p-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">2FA Verification</p>
+                        <p className="text-xs text-slate-500">Require OTP when signing in to warehouse portal</p>
+                      </div>
+                      <Button
+                        type="button"
+                        className={twoFactorEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
+                        onClick={() => setTwoFactorEnabled((prev) => !prev)}
+                      >
+                        {twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-md border p-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Login Alerts</p>
+                        <p className="text-xs text-slate-500">Send alert when your account signs in from a new device</p>
+                      </div>
+                      <Button
+                        type="button"
+                        className={loginAlertsEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
+                        onClick={() => setLoginAlertsEnabled((prev) => !prev)}
+                      >
+                        {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
+                      </Button>
+                    </div>
+
+                    <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void saveSecuritySettings()} disabled={isSavingSecuritySettings}>
+                      {isSavingSecuritySettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Save Security Settings
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
 
               <Card>
                 <CardHeader>
@@ -4578,42 +4633,9 @@ export function WarehousePortal() {
                       </Button>
                     </div>
                   </div>
-                  <Button onClick={() => void updateProfilePassword()} disabled={isUpdatingPassword}>
+                  <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void updateProfilePassword()} disabled={isUpdatingPassword}>
                     {isUpdatingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Update Password
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Security Settings</CardTitle>
-                  <CardDescription>Manage 2FA verification and login protection.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4">
-                    <div className="pr-3">
-                      <p className="text-base font-semibold text-slate-900">2FA Verification</p>
-                      <p className="text-sm text-slate-500">Require OTP when signing in to warehouse portal</p>
-                    </div>
-                    <Button type="button" variant={twoFactorEnabled ? 'default' : 'outline'} onClick={() => setTwoFactorEnabled((prev) => !prev)}>
-                      {twoFactorEnabled ? 'Enabled' : 'Disabled'}
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4">
-                    <div className="pr-3">
-                      <p className="text-base font-semibold text-slate-900">Login Alerts</p>
-                      <p className="text-sm text-slate-500">Send alert when your account signs in from a new device</p>
-                    </div>
-                    <Button type="button" variant={loginAlertsEnabled ? 'default' : 'outline'} onClick={() => setLoginAlertsEnabled((prev) => !prev)}>
-                      {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
-                    </Button>
-                  </div>
-
-                  <Button onClick={() => void saveSecuritySettings()} disabled={isSavingSecuritySettings}>
-                    {isSavingSecuritySettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Save Security Settings
                   </Button>
                 </CardContent>
               </Card>
@@ -4667,7 +4689,7 @@ export function WarehousePortal() {
                   className="mt-1 h-9 text-sm"
                 />
               </div>
-              <Button className="mt-1 mb-2 h-9 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
+              <Button className="mt-1 mb-2 h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 {editingTripState ? 'Refresh Orders' : 'Filter Orders'}
               </Button>
@@ -5024,7 +5046,7 @@ export function WarehousePortal() {
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-black text-white hover:bg-black/90"
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                 onClick={createTripFromRoute}
                 disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id}
               >
@@ -5638,7 +5660,7 @@ export function WarehousePortal() {
                   Cancel
                 </Button>
                 <Button
-                  className="flex-1 bg-black text-white hover:bg-black/90 text-base py-3"
+                  className="flex-1 bg-blue-600 text-white hover:bg-blue-700 text-base py-3"
                   onClick={addStockInBatch}
                   disabled={isSubmittingStockIn}
                 >
@@ -5672,7 +5694,7 @@ export function WarehousePortal() {
               <Input id="edit-quantity" type="number" min="0" step="1" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
             </div>
             <div className="flex gap-2 pt-1">
-              <Button className="flex-1 bg-black text-white hover:bg-black/90" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
+              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
                 {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save Changes
               </Button>

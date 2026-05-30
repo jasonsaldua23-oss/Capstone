@@ -39,7 +39,7 @@ export function WarehouseInventoryView({
               <CardTitle>Inventory</CardTitle>
               <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
             </div>
-            <Button onClick={openAddStockDialog}>
+            <Button onClick={openAddStockDialog} className="bg-blue-600 text-white hover:bg-blue-700">
               <Plus className="h-4 w-4 mr-2" />
               Add Stock
             </Button>

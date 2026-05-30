@@ -592,7 +592,7 @@ export function TripsView() {
         <div className="flex items-center gap-2">
           <Button
             onClick={() => setCreateRouteOpen(true)}
-            className="bg-black text-white hover:bg-black/90 rounded-xl px-4"
+            className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4"
           >
             <Truck className="h-4 w-4 mr-2" />
             Create Trip
@@ -867,7 +867,7 @@ export function TripsView() {
                   ))}
                 </select>
               </div>
-              <Button className="mt-1 mb-2 h-9 w-full bg-black text-sm text-white hover:bg-black/90" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
+              <Button className="mt-1 mb-2 h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Filter Orders
               </Button>
@@ -1132,7 +1132,7 @@ export function TripsView() {
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-black text-white hover:bg-black/90"
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                 onClick={createTripFromRoute}
                 disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id}
               >

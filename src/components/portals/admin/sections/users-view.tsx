@@ -310,7 +310,7 @@ export function UsersView() {
           <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
           <p className="text-gray-500">Manage staff accounts and permissions</p>
         </div>
-        <Button className="gap-2" onClick={() => setAddOpen(true)}>
+        <Button className="gap-2 bg-blue-600 text-white hover:bg-blue-700" onClick={() => setAddOpen(true)}>
           {/* <Users className="h-4 w-4" /> */}
           Add User
         </Button>
@@ -355,7 +355,7 @@ export function UsersView() {
                         <Badge variant="outline">{formatRoleLabel(resolveRoleCode(user))}</Badge>
                       </td>
                       <td className="p-4">
-                        <Badge variant={user.isActive ? 'default' : 'secondary'}>
+                        <Badge className={user.isActive ? 'bg-green-100 text-green-700 hover:bg-green-100' : 'bg-red-100 text-red-700 hover:bg-red-100'}>
                           {user.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                       </td>
@@ -496,7 +496,7 @@ export function UsersView() {
                     onChange={(e) => setEmailVerificationCode(e.target.value)}
                     placeholder="Enter the code sent to the Gmail address"
                   />
-                  <Button type="button" onClick={confirmEmailVerification} disabled={isVerificationConfirming || !emailVerificationCode.trim()}>
+                  <Button type="button" className="bg-blue-600 text-white hover:bg-blue-700" onClick={confirmEmailVerification} disabled={isVerificationConfirming || !emailVerificationCode.trim()}>
                     {isVerificationConfirming ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Confirm
                   </Button>
@@ -507,7 +507,7 @@ export function UsersView() {
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button
-              className="flex-1"
+              className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
               onClick={() => saveUser('create')}
               disabled={isSubmitting || !emailVerified || !passwordPolicySatisfied || !passwordsMatch}
             >
@@ -565,7 +565,7 @@ export function UsersView() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button className="flex-1" onClick={() => saveUser('edit')} disabled={isSubmitting}>
+            <Button className={`flex-1 ${form.isActive ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-red-600 text-white hover:bg-red-700'}`} onClick={() => saveUser('edit')} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               {form.isActive ? 'Save Changes' : 'Delete User'}
             </Button>
