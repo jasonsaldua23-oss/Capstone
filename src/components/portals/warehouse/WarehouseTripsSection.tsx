@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -83,6 +83,8 @@ export function WarehouseTripsSection({
   onEditTripDropPoints,
   editingTripId,
 }: WarehouseTripsSectionProps) {
+  const [tripsPage, setTripsPage] = useState(1)
+  const tripsPageSize = 10
   const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
   const [allocatingPoint, setAllocatingPoint] = useState<any | null>(null)
   const [confirmAllocateOpen, setConfirmAllocateOpen] = useState(false)
@@ -235,6 +237,21 @@ export function WarehouseTripsSection({
     const total = items.reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.quantity || 0)), 0)
     return { allocated, total }
   }
+  const totalTripsPages = Math.max(1, Math.ceil(scopedTrips.length / tripsPageSize))
+  const paginatedTrips = useMemo(() => {
+    const start = (tripsPage - 1) * tripsPageSize
+    return scopedTrips.slice(start, start + tripsPageSize)
+  }, [scopedTrips, tripsPage])
+
+  useEffect(() => {
+    setTripsPage(1)
+  }, [scopedTrips.length])
+
+  useEffect(() => {
+    if (tripsPage > totalTripsPages) {
+      setTripsPage(totalTripsPages)
+    }
+  }, [tripsPage, totalTripsPages])
   const getAssignedQtyForCurrentTripAndWarehouseFromLegs = (point: any): number => {
     const tripId = String((selectedTrip as any)?.id || '').trim()
     const tripNumber = String((selectedTrip as any)?.tripNumber || '').trim()
@@ -510,8 +527,35 @@ export function WarehouseTripsSection({
           ) : scopedTrips.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No trips found</div>
           ) : (
+            <>
+            <div className="flex items-center justify-between border-b px-1 pb-3">
+              <p className="text-xs text-slate-500">
+                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, scopedTrips.length)} of {scopedTrips.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage <= 1}
+                  onClick={() => setTripsPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-slate-600">Page {tripsPage} of {totalTripsPages}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage >= totalTripsPages}
+                  onClick={() => setTripsPage((prev) => Math.min(totalTripsPages, prev + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
             <div className="space-y-3">
-              {scopedTrips.map((trip) => (
+              {paginatedTrips.map((trip) => (
                 (() => {
                   const statusKey = getEffectiveTripStatus(trip)
                   const editAllowed = canDeleteTrip(trip)
@@ -593,6 +637,33 @@ export function WarehouseTripsSection({
                 })()
               ))}
             </div>
+            <div className="flex items-center justify-between border-t px-1 pt-3">
+              <p className="text-xs text-slate-500">
+                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, scopedTrips.length)} of {scopedTrips.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage <= 1}
+                  onClick={() => setTripsPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-slate-600">Page {tripsPage} of {totalTripsPages}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage >= totalTripsPages}
+                  onClick={() => setTripsPage((prev) => Math.min(totalTripsPages, prev + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import { CircleCheck, Eye, Loader2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,8 @@ export function WarehouseOrdersView({
   updatingOrderId,
   openRejectDialog,
 }: WarehouseOrdersViewProps) {
+  const [ordersPage, setOrdersPage] = useState(1)
+  const ordersPageSize = 10
   const isRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
   const getOrderStatusBadgeClass = (status: string) => {
     const value = String(status || '').trim().toUpperCase()
@@ -39,6 +42,21 @@ export function WarehouseOrdersView({
     if (value === 'DELIVERED') return 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
     return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
   }
+  const totalOrdersPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize))
+  const paginatedOrders = useMemo(() => {
+    const start = (ordersPage - 1) * ordersPageSize
+    return filteredOrders.slice(start, start + ordersPageSize)
+  }, [filteredOrders, ordersPage])
+
+  useEffect(() => {
+    setOrdersPage(1)
+  }, [orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, filteredOrders.length])
+
+  useEffect(() => {
+    if (ordersPage > totalOrdersPages) {
+      setOrdersPage(totalOrdersPages)
+    }
+  }, [ordersPage, totalOrdersPages])
 
   return (
     <Card>
@@ -138,7 +156,7 @@ export function WarehouseOrdersView({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders.map((order) => (
+                    {paginatedOrders.map((order) => (
                       <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="p-4">
                           <div className="space-y-1">
@@ -219,6 +237,32 @@ export function WarehouseOrdersView({
                     ))}
                   </tbody>
                 </table>
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Showing {(ordersPage - 1) * ordersPageSize + 1}-{Math.min(ordersPage * ordersPageSize, filteredOrders.length)} of {filteredOrders.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={ordersPage <= 1}
+                      onClick={() => setOrdersPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm text-slate-600">Page {ordersPage} of {totalOrdersPages}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={ordersPage >= totalOrdersPages}
+                      onClick={() => setOrdersPage((prev) => Math.min(totalOrdersPages, prev + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

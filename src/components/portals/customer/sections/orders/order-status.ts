@@ -3,8 +3,9 @@ import type { Order } from '../shared/customer-types'
 export const orderStages = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered']
 
 export const normalizeDeliveryStatus = (status: string, paymentStatus?: string | null) => {
-  if (String(paymentStatus || '').toLowerCase() === 'pending_approval') return 'PENDING'
   const raw = String(status || '').toUpperCase()
+  if (raw === 'CANCELLED' || raw === 'CANCELED' || raw === 'FAILED_DELIVERY') return 'CANCELLED'
+  if (String(paymentStatus || '').toLowerCase() === 'pending_approval') return 'PENDING'
   if (raw === 'PENDING') return 'PENDING'
   if (raw === 'CONFIRMED') return 'PREPARING'
   if (raw === 'RESCHEDULED') return 'PENDING'

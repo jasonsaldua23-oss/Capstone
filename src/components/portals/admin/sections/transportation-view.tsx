@@ -60,6 +60,8 @@ export function TransportationView() {
   const [vehicles, setVehicles] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
   const [trips, setTrips] = useState<any[]>([])
+  const [tripsPage, setTripsPage] = useState(1)
+  const tripsPageSize = 10
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
@@ -149,6 +151,12 @@ export function TransportationView() {
   const activeTripsCount = trips.filter((trip) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))).length
   const driversOnDutyCount = drivers.filter((driver) => driver?.isActive !== false).length
   const maintenanceCount = vehicles.filter((vehicle) => String(vehicle?.status).toUpperCase().includes('MAINTENANCE')).length
+  const totalTripsPages = Math.max(1, Math.ceil(trips.length / tripsPageSize))
+  const safeTripsPage = Math.min(tripsPage, totalTripsPages)
+  const paginatedTrips = useMemo(() => {
+    const start = (safeTripsPage - 1) * tripsPageSize
+    return trips.slice(start, start + tripsPageSize)
+  }, [trips, safeTripsPage, tripsPageSize])
 
   const isDriverAssignable = (driver: any) => {
     const status = String(driver?.status || '').toUpperCase()
@@ -487,7 +495,7 @@ export function TransportationView() {
         <div className="w-full pb-1">
           <TabsList className="h-auto w-full gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
             <TabsTrigger value="vehicles" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
-            <TabsTrigger value="trips" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Active Trips</TabsTrigger>
+            <TabsTrigger value="trips" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Trips</TabsTrigger>
             <TabsTrigger value="drivers" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Drivers</TabsTrigger>
           </TabsList>
         </div>
@@ -616,7 +624,33 @@ export function TransportationView() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {trips.slice(0, 10).map((trip: any) => {
+              <div className="flex items-center justify-between border-b pb-3">
+                <p className="text-xs text-slate-500">
+                  Showing {(safeTripsPage - 1) * tripsPageSize + 1}-{Math.min(safeTripsPage * tripsPageSize, trips.length)} of {trips.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={safeTripsPage <= 1}
+                    onClick={() => setTripsPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-slate-600">Page {safeTripsPage} of {totalTripsPages}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={safeTripsPage >= totalTripsPages}
+                    onClick={() => setTripsPage((prev) => Math.min(totalTripsPages, prev + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+              {paginatedTrips.map((trip: any) => {
                 const status = normalizeTripStatus(trip?.status || 'PLANNED')
                 const driverName = trip?.driver?.name || trip?.driver?.user?.name || 'Unassigned'
                 const vehicleName = trip?.vehicle?.licensePlate || 'Unassigned'
@@ -634,7 +668,17 @@ export function TransportationView() {
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-base font-semibold">{trip.tripNumber || trip.id}</p>
-                            <Badge className={`${status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'} text-xs px-2 py-0.5`}>{status.replace(/_/g, ' ')}</Badge>
+                            <Badge
+                              className={`${
+                                status === 'IN_PROGRESS'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : status === 'COMPLETED'
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-gray-100 text-gray-700'
+                              } text-xs px-2 py-0.5`}
+                            >
+                              {status.replace(/_/g, ' ')}
+                            </Badge>
                           </div>
                           <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} | Driver: {driverName}</p>
                           <p className="text-[13px] text-gray-600">Route: {origin} {'->'} {destination}</p>
@@ -646,6 +690,32 @@ export function TransportationView() {
                   </Card>
                 )
               })}
+              <div className="flex items-center justify-between border-t pt-3">
+                <p className="text-xs text-slate-500">
+                  Showing {(safeTripsPage - 1) * tripsPageSize + 1}-{Math.min(safeTripsPage * tripsPageSize, trips.length)} of {trips.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={safeTripsPage <= 1}
+                    onClick={() => setTripsPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-slate-600">Page {safeTripsPage} of {totalTripsPages}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={safeTripsPage >= totalTripsPages}
+                    onClick={() => setTripsPage((prev) => Math.min(totalTripsPages, prev + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </TabsContent>
@@ -725,7 +795,7 @@ export function TransportationView() {
                     </div>
                   </div>
                   <div>
-                <Button onClick={saveDriver} disabled={isSubmitting} className="w-full">
+                <Button onClick={saveDriver} disabled={isSubmitting} className="w-full bg-blue-600 text-white hover:bg-blue-700">
                   {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : null}
                   Update Driver
                 </Button>

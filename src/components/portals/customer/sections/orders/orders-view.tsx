@@ -557,7 +557,7 @@ export function CustomerOrdersView(props: any) {
                       ) : (
                         <p className="text-xs text-slate-500">No replacement items</p>
                       )}
-                      {isDelivered && !hasReplacementCase ? (
+                      {isDelivered && !isReplacementOrder(o) && !hasReplacementCase ? (
                         <p className="text-xs text-slate-500">No replacement case filed for this order.</p>
                       ) : null}
                       {replacementStatusLabel ? (
@@ -725,7 +725,7 @@ export function CustomerOrdersView(props: any) {
                     ) : (
                       <p className="text-xs text-slate-500">No items</p>
                     )}
-                    {isDelivered && !hasReplacementCase ? (
+                    {isDelivered && !isReplacementOrder(o) && !hasReplacementCase ? (
                       <p className="text-xs text-slate-500">No replacement case filed for this order.</p>
                     ) : null}
                     {deliveryIssue ? (
@@ -747,9 +747,20 @@ export function CustomerOrdersView(props: any) {
                       {formatPeso(o.totalAmount)}
                     </p>
                     {hasSubmittedRating ? (
-                      <p className="mt-2 text-xs text-amber-700">
-                        Rated: {'★'.repeat(submittedRating)}{'☆'.repeat(5 - submittedRating)}
-                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex items-center gap-0.5">
+                          {Array.from({ length: 5 }).map((_, index) => {
+                            const value = index + 1
+                            const isActive = value <= submittedRating
+                            return (
+                              <Star
+                                key={`submitted-rating-${o.id}-${value}`}
+                                className={`h-3.5 w-3.5 ${isActive ? 'fill-amber-500 text-amber-500' : 'text-slate-300'}`}
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
                     ) : null}
                     <p className="mt-1 text-xs text-slate-500">{formatOrderStatus(o.status, o.paymentStatus)}</p>
                   </div>

@@ -142,6 +142,7 @@ interface ProductOption {
   unit?: string
   sizes?: string[]
   category?: string
+  inventoryStatus?: 'healthy' | 'low' | 'critical' | 'out_of_stock' | 'overstocked'
   isOverstocked?: boolean
   overstockInfo?: {
     available: number
@@ -1585,6 +1586,7 @@ export function WarehousePortal() {
         ? Math.max(0, Math.floor((Date.now() - lastRestockedAt.getTime()) / (24 * 60 * 60 * 1000)))
         : 0
       const isOverstocked = isOverstockedInventoryItem(item)
+      const inventoryStatus = getInventoryAlertLevel(item)
       fromInventory.push({
         id: productId,
         sku: String(item?.product?.sku || '').trim(),
@@ -1593,6 +1595,7 @@ export function WarehousePortal() {
         unit: String(item?.product?.unit || 'case').trim(),
         sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : [],
         category: String((item?.product as any)?.category?.name || (item?.product as any)?.category || '').trim(),
+        inventoryStatus,
         isOverstocked,
         overstockInfo: isOverstocked
           ? {
@@ -2021,7 +2024,7 @@ export function WarehousePortal() {
   const tripStatusColors: Record<string, string> = {
     PLANNED: 'bg-blue-100 text-blue-800',
     IN_PROGRESS: 'bg-green-100 text-green-800',
-    COMPLETED: 'bg-gray-100 text-gray-800',
+    COMPLETED: 'bg-green-100 text-green-700',
     CANCELLED: 'bg-red-100 text-red-800',
   }
 
@@ -3682,10 +3685,6 @@ export function WarehousePortal() {
   }
 
   const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null, notes?: string | null) => {
-    if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
-      return 'PENDING APPROVAL'
-    }
-
     const rawStatus = String(status || '').toUpperCase()
     const rawStage = String(warehouseStage || '').toUpperCase()
     void notes
@@ -3693,6 +3692,9 @@ export function WarehousePortal() {
     if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(rawStatus)) return 'DELIVERED'
     if (rawStatus === 'REJECTED') return 'REJECTED'
     if (['FAILED', 'FAILED_DELIVERY', 'CANCELLED'].includes(rawStatus)) return 'CANCELLED'
+    if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
+      return 'PENDING APPROVAL'
+    }
 
     if (['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(rawStatus) || rawStage === 'DISPATCHED') {
       return 'OUT FOR DELIVERY'
@@ -5576,9 +5578,25 @@ export function WarehousePortal() {
                   <div key={row.id} className="grid grid-cols-[minmax(160px,1.7fr)_minmax(72px,0.65fr)_minmax(120px,0.95fr)_minmax(120px,0.95fr)_24px] items-start gap-1.5 border-b bg-white px-2.5 py-3 transition hover:bg-gray-50">
                     {/* Product Select */}
                     <div className="min-w-0 space-y-1">
+                      {(() => {
+                        const selectedProductMeta = availableExistingProducts.find((p) => p.id === row.productId)
+                        const statusToneClass =
+                          selectedProductMeta?.inventoryStatus === 'overstocked' ? 'text-blue-700' :
+                          selectedProductMeta?.inventoryStatus === 'critical' || selectedProductMeta?.inventoryStatus === 'out_of_stock' ? 'text-red-700' :
+                          selectedProductMeta?.inventoryStatus === 'low' ? 'text-amber-700' :
+                          'text-slate-900'
+                        const statusLabel =
+                          selectedProductMeta?.inventoryStatus === 'overstocked' ? 'Overstocked' :
+                          selectedProductMeta?.inventoryStatus === 'critical' ? 'Critical' :
+                          selectedProductMeta?.inventoryStatus === 'out_of_stock' ? 'Out of Stock' :
+                          selectedProductMeta?.inventoryStatus === 'low' ? 'Low' :
+                          selectedProductMeta?.inventoryStatus === 'healthy' ? 'Healthy' :
+                          ''
+                        return (
+                      <>
                       <select
                         title="Select Product"
-                        className={`h-10 min-w-0 w-full rounded-md border px-2 py-1.5 text-sm font-medium ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
+                        className={`h-10 min-w-0 w-full rounded-md border px-2 py-1.5 text-sm font-medium ${statusToneClass} ${row.validationErrors.productId ? 'border-red-500 bg-red-50' : 'border-input bg-white'}`}
                         value={row.productId}
                         onChange={(e) => updateStockRow(row.id, 'productId', e.target.value)}
                       >
@@ -5598,6 +5616,14 @@ export function WarehousePortal() {
                           )
                         })}
                       </select>
+                      {statusLabel ? (
+                        <p className={`px-0.5 text-[11px] font-semibold ${statusToneClass}`}>
+                          {statusLabel}
+                        </p>
+                      ) : null}
+                      </>
+                        )
+                      })()}
                       {row.validationErrors.productId && (
                         <p className="text-xs text-red-600">{row.validationErrors.productId}</p>
                       )}

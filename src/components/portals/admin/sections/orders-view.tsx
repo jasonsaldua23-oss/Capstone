@@ -78,6 +78,8 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
   const [orderMinPriceFilter, setOrderMinPriceFilter] = useState('')
   const [orderMaxPriceFilter, setOrderMaxPriceFilter] = useState('')
   const [orderSearchQuery, setOrderSearchQuery] = useState('')
+  const [ordersPage, setOrdersPage] = useState(1)
+  const ordersPageSize = 10
   const latestOrderMarkerRef = useRef('')
   const latestOrderUpdatedAtRef = useRef('')
 
@@ -347,14 +349,15 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
   }
 
   const formatOrderStatus = (status: string, paymentStatus?: string) => {
+    const raw = String(status || '').toUpperCase()
+    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY', 'FAILED'].includes(raw)) return 'CANCELLED'
+    if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(raw)) return 'DELIVERED'
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING'
     }
-    const raw = String(status || '').toUpperCase()
     if (['CONFIRMED', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PREPARING'
     if (raw === 'UNAPPROVED') return 'PENDING'
     if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
-    if (raw === 'FAILED_DELIVERY') return 'CANCELLED'
     return raw.replace(/_/g, ' ')
   }
 
@@ -576,6 +579,21 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
       return true
     })
   }, [orders, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery])
+  const totalOrdersPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize))
+  const paginatedOrders = useMemo(() => {
+    const start = (ordersPage - 1) * ordersPageSize
+    return filteredOrders.slice(start, start + ordersPageSize)
+  }, [filteredOrders, ordersPage])
+
+  useEffect(() => {
+    setOrdersPage(1)
+  }, [warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery, orders.length])
+
+  useEffect(() => {
+    if (ordersPage > totalOrdersPages) {
+      setOrdersPage(totalOrdersPages)
+    }
+  }, [ordersPage, totalOrdersPages])
 
   const fulfillmentAlerts = useMemo(() => {
     let unallocated = 0
@@ -893,7 +911,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((order: any) => (
+                  {paginatedOrders.map((order: any) => (
                     <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="p-4">
                         <div className="flex items-center gap-2">
@@ -964,6 +982,32 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                   ))}
                 </tbody>
               </table>
+              <div className="flex items-center justify-between border-t px-4 py-3">
+                <p className="text-xs text-slate-500">
+                  Showing {(ordersPage - 1) * ordersPageSize + 1}-{Math.min(ordersPage * ordersPageSize, filteredOrders.length)} of {filteredOrders.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={ordersPage <= 1}
+                    onClick={() => setOrdersPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-slate-600">Page {ordersPage} of {totalOrdersPages}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={ordersPage >= totalOrdersPages}
+                    onClick={() => setOrdersPage((prev) => Math.min(totalOrdersPages, prev + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>

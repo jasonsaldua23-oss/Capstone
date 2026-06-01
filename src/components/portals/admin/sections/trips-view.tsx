@@ -58,6 +58,8 @@ export function TripsView() {
   const [deleteTripOpen, setDeleteTripOpen] = useState(false)
   const [isDeletingTrip, setIsDeletingTrip] = useState(false)
   const [trips, setTrips] = useState<any[]>([])
+  const [tripsPage, setTripsPage] = useState(1)
+  const tripsPageSize = 10
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
   const [vehicles, setVehicles] = useState<any[]>([])
@@ -580,6 +582,21 @@ export function TripsView() {
       day: 'numeric',
     })
   }
+  const totalTripsPages = Math.max(1, Math.ceil(trips.length / tripsPageSize))
+  const paginatedTrips = useMemo(() => {
+    const start = (tripsPage - 1) * tripsPageSize
+    return trips.slice(start, start + tripsPageSize)
+  }, [trips, tripsPage])
+
+  useEffect(() => {
+    setTripsPage(1)
+  }, [trips.length])
+
+  useEffect(() => {
+    if (tripsPage > totalTripsPages) {
+      setTripsPage(totalTripsPages)
+    }
+  }, [tripsPage, totalTripsPages])
 
   return (
     <>
@@ -611,8 +628,35 @@ export function TripsView() {
               <Button className="mt-4">Create First Trip</Button>
             </div>
           ) : (
+            <>
+            <div className="flex items-center justify-between border-b pb-3">
+              <p className="text-xs text-slate-500">
+                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, trips.length)} of {trips.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage <= 1}
+                  onClick={() => setTripsPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-slate-600">Page {tripsPage} of {totalTripsPages}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage >= totalTripsPages}
+                  onClick={() => setTripsPage((prev) => Math.min(totalTripsPages, prev + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
             <div className="space-y-3">
-              {trips.map((trip: any) => {
+              {paginatedTrips.map((trip: any) => {
                 const normalizedTripStatus = normalizeTripStatus(trip.status)
                 const deleteAllowed = normalizedTripStatus === 'PLANNED'
 
@@ -672,6 +716,33 @@ export function TripsView() {
                 )
               })}
             </div>
+            <div className="flex items-center justify-between border-t pt-3">
+              <p className="text-xs text-slate-500">
+                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, trips.length)} of {trips.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage <= 1}
+                  onClick={() => setTripsPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-slate-600">Page {tripsPage} of {totalTripsPages}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={tripsPage >= totalTripsPages}
+                  onClick={() => setTripsPage((prev) => Math.min(totalTripsPages, prev + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
           )}
         {/* Trip Details Dialog (outside conditional block) */}
         <Dialog open={!!selectedTrip} onOpenChange={(open) => !open && setSelectedTrip(null)}>

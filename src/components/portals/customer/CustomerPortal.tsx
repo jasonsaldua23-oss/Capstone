@@ -1503,9 +1503,13 @@ export function CustomerPortal() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to cancel order')
       }
-      const updatedOrder = payload?.order || { id: orderId, status: 'CANCELLED' }
-      setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status: 'CANCELLED' } : order)))
-      setSelectedOrder((prev) => (prev?.id === orderId ? { ...prev, ...updatedOrder, status: 'CANCELLED' } : prev))
+      const updatedOrder = payload?.order || { id: orderId, status: 'CANCELLED', paymentStatus: 'cancelled' }
+      setOrders((prev) =>
+        prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status: 'CANCELLED', paymentStatus: 'cancelled' } : order))
+      )
+      setSelectedOrder((prev) =>
+        prev?.id === orderId ? { ...prev, ...updatedOrder, status: 'CANCELLED', paymentStatus: 'cancelled' } : prev
+      )
       toast.success('Order cancelled successfully')
       // Refresh once in background via shared sync channel.
       emitDataSync(['orders'])

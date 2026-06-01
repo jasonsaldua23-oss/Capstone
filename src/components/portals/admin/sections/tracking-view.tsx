@@ -60,6 +60,8 @@ export function TrackingView() {
   const [ordersForMap, setOrdersForMap] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
+  const [activeTripsPage, setActiveTripsPage] = useState(1)
+  const activeTripsPageSize = 10
 
   const isDropPointCompleted = (status: unknown) => {
     const value = String(status || '').toUpperCase()
@@ -182,6 +184,21 @@ export function TrackingView() {
     () => trips.filter((trip: any) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))),
     [trips]
   )
+  const totalActiveTripsPages = Math.max(1, Math.ceil(activeTrips.length / activeTripsPageSize))
+  const paginatedActiveTrips = useMemo(() => {
+    const start = (activeTripsPage - 1) * activeTripsPageSize
+    return activeTrips.slice(start, start + activeTripsPageSize)
+  }, [activeTrips, activeTripsPage])
+
+  useEffect(() => {
+    setActiveTripsPage(1)
+  }, [activeTrips.length, trackingDate])
+
+  useEffect(() => {
+    if (activeTripsPage > totalActiveTripsPages) {
+      setActiveTripsPage(totalActiveTripsPages)
+    }
+  }, [activeTripsPage, totalActiveTripsPages])
 
   const recentLocations = trips
     .filter((trip: any) => tripMatchesTrackingDay(trip))
@@ -525,7 +542,7 @@ export function TrackingView() {
                 <p className="text-sm text-gray-500">No active trips right now</p>
               ) : (
                 <div className="space-y-3">
-                  {activeTrips.slice(0, 5).map((trip: any) => (
+                  {paginatedActiveTrips.map((trip: any) => (
                     <div key={trip.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
                       <div className="bg-green-500 h-2 w-2 rounded-full animate-pulse"></div>
                       <div className="flex-1">
@@ -539,6 +556,34 @@ export function TrackingView() {
                   ))}
                 </div>
               )}
+              {!isLoading && activeTrips.length > 0 ? (
+                <div className="mt-3 flex items-center justify-between border-t pt-3">
+                  <p className="text-xs text-slate-500">
+                    Showing {(activeTripsPage - 1) * activeTripsPageSize + 1}-{Math.min(activeTripsPage * activeTripsPageSize, activeTrips.length)} of {activeTrips.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={activeTripsPage <= 1}
+                      onClick={() => setActiveTripsPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm text-slate-600">Page {activeTripsPage} of {totalActiveTripsPages}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={activeTripsPage >= totalActiveTripsPages}
+                      onClick={() => setActiveTripsPage((prev) => Math.min(totalActiveTripsPages, prev + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

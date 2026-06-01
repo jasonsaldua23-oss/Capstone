@@ -5569,8 +5569,8 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
             serialized_batches = [_serialize_model(b, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for b in created_stock_batches]
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
-                title="Bulk stock import completed",
-                message=f"{actor_name} added {len(created_stock_batches)} stock batches in {warehouse.name}.",
+                title="Bulk Stock In completed",
+                message=f"{actor_name} completed Stock In for {len(created_stock_batches)} batches in {warehouse.name}.",
                 reference_type="stock_batch",
                 reference_id=warehouse.id,
             )
