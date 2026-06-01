@@ -613,7 +613,9 @@ export function WarehousePortal() {
   const [editName, setEditName] = useState('')
   const [editImageUrl, setEditImageUrl] = useState('')
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
-  const [editQuantity, setEditQuantity] = useState('')
+  const [editingBatch, setEditingBatch] = useState<StockBatchItem | null>(null)
+  const [editBatchQuantity, setEditBatchQuantity] = useState('')
+  const [isSavingBatchQty, setIsSavingBatchQty] = useState(false)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeletingEdit, setIsDeletingEdit] = useState(false)
   const [deleteEditOpen, setDeleteEditOpen] = useState(false)
@@ -2036,6 +2038,7 @@ export function WarehousePortal() {
     const retries = options?.retries ?? 5
     const timeoutMs = options?.timeoutMs ?? 12000
     let lastError = 'Request failed'
+    let lastStatus = 0
 
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const controller = new AbortController()
@@ -2052,12 +2055,25 @@ export function WarehousePortal() {
           credentials: init?.credentials ?? 'include',
           signal: controller.signal,
         })
+        lastStatus = response.status
         const data = await response.json().catch(() => ({}))
         const dbUnavailable = Boolean(data?.dbUnavailable)
         if (response.ok && data?.success !== false && !dbUnavailable) {
           return { ok: true as const, data, status: response.status }
         }
         lastError = data?.error || `Request failed (${response.status})`
+        const nonRetriable =
+          response.status === 400 ||
+          response.status === 401 ||
+          response.status === 403 ||
+          response.status === 404 ||
+          response.status === 405 ||
+          response.status === 409 ||
+          response.status === 410 ||
+          response.status === 422
+        if (nonRetriable) {
+          return { ok: false as const, data, status: response.status, error: lastError }
+        }
       } catch (error: any) {
         lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
       } finally {
@@ -2069,7 +2085,7 @@ export function WarehousePortal() {
       }
     }
 
-    return { ok: false as const, data: null, status: 0, error: lastError }
+    return { ok: false as const, data: null, status: lastStatus, error: lastError }
   }
 
   const fetchInventoryData = async (warehouseId?: string) => {
@@ -3051,7 +3067,8 @@ export function WarehousePortal() {
 
   const getStockStatus = (item: InventoryItem) => {
     const level = getInventoryAlertLevel(item)
-    return level === 'healthy' || level === 'overstocked' ? 'healthy' : 'restock'
+    if (level === 'overstocked') return 'overstocked'
+    return level === 'healthy' ? 'healthy' : 'restock'
   }
 
   const openEditDialog = (item: InventoryItem) => {
@@ -3060,7 +3077,11 @@ export function WarehousePortal() {
     setEditName(item.product?.name || '')
     setEditImageUrl(item.product?.imageUrl || '')
     setEditImageFile(null)
-    setEditQuantity(String(item.quantity ?? 0))
+  }
+
+  const openBatchQuantityDialog = (batch: StockBatchItem) => {
+    setEditingBatch(batch)
+    setEditBatchQuantity(String(Math.max(0, Number(batch.quantity || 0))))
   }
 
   const uploadProductImage = async (file: File) => {
@@ -3084,12 +3105,6 @@ export function WarehousePortal() {
       return
     }
 
-    const nextQuantity = Number(editQuantity)
-
-    if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
-      toast.error('Quantity must be a non-negative number')
-      return
-    }
     if (!editName.trim()) {
       toast.error('Product name is required')
       return
@@ -3112,18 +3127,6 @@ export function WarehousePortal() {
         throw new Error(productPayload?.error || 'Failed to update product')
       }
 
-      const inventoryResponse = await fetch(`/api/inventory/${editingItem.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quantity: nextQuantity,
-        }),
-      })
-      const inventoryPayload = await inventoryResponse.json().catch(() => ({}))
-      if (!inventoryResponse.ok || inventoryPayload?.success === false) {
-        throw new Error(inventoryPayload?.error || 'Failed to update inventory')
-      }
-
       toast.success('Inventory item updated')
       setEditingItem(null)
       await fetchInventoryData()
@@ -3135,6 +3138,39 @@ export function WarehousePortal() {
       toast.error(error?.message || 'Failed to save changes')
     } finally {
       setIsSavingEdit(false)
+    }
+  }
+
+  const saveStockBatchQuantity = async () => {
+    if (!editingBatch?.id) return
+    const nextQuantity = Number(editBatchQuantity)
+    if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
+      toast.error('Quantity must be a non-negative number')
+      return
+    }
+
+    setIsSavingBatchQty(true)
+    try {
+      const response = await fetch('/api/stock-batches', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: editingBatch.id, quantity: Math.floor(nextQuantity) }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to update stock batch quantity')
+      }
+
+      setEditingBatch(null)
+      toast.success('Stock batch quantity updated')
+      await fetchInventoryData()
+      await fetchStockBatchesData()
+      await fetchInventoryTransactionsData()
+      emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update stock batch quantity')
+    } finally {
+      setIsSavingBatchQty(false)
     }
   }
 
@@ -3221,13 +3257,7 @@ export function WarehousePortal() {
     }
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
-    else if (selectedProduct?.overstockInfo) {
-      const threshold = Math.max(0, Number(selectedProduct.overstockInfo.threshold || 0))
-      const incomingQty = Math.max(0, Number(row.quantity || 0))
-      if (threshold > 0 && incomingQty >= threshold * 5) {
-        errors.quantity = `Overstocked: incoming quantity (${incomingQty}) is >= 5x threshold (${threshold})`
-      }
-    }
+    if (!row.expiryDate.trim()) errors.expiryDate = 'Expiry date is required'
     return errors
   }
 
@@ -3326,10 +3356,7 @@ export function WarehousePortal() {
     }
 
     // Validate all rows before submitting
-    if (!validateAllStockRows()) {
-      toast.error('Please fix errors in the form')
-      return
-    }
+    if (!validateAllStockRows()) return
 
     // Prepare batches
     const batches = stockRows.map(row => ({
@@ -4232,7 +4259,7 @@ export function WarehousePortal() {
           onLogout={handleLogout}
         />
 
-        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeView}
@@ -4240,7 +4267,7 @@ export function WarehousePortal() {
               animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
               exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
               transition={{ duration: 0.16, ease: 'easeOut' }}
-              className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100"
+              className="w-full"
             >
           {!hasAssignedWarehouse && (
             <Card>
@@ -4431,6 +4458,7 @@ export function WarehousePortal() {
                   loadingBatches={loadingBatches}
                   stockBatches={stockBatches}
                   getDaysLeft={getDaysLeft}
+                  openBatchQuantityDialog={openBatchQuantityDialog}
                 />
               </TabsContent>
             </Tabs>
@@ -4450,6 +4478,7 @@ export function WarehousePortal() {
               loadingBatches={loadingBatches}
               stockBatches={stockBatches}
               getDaysLeft={getDaysLeft}
+              openBatchQuantityDialog={openBatchQuantityDialog}
             />
           )}
 
@@ -5574,7 +5603,7 @@ export function WarehousePortal() {
                       )}
                       {!row.validationErrors.productId && availableExistingProducts.some((p) => p.isOverstocked) && (
                         <p className="text-xs text-amber-700">
-                          Some products are blocked: overstocked (available is at least 3x threshold for 7+ days).
+                          Some products are blocked: overstocked (latest stock-in reached at least 10x threshold).
                         </p>
                       )}
                     </div>
@@ -5677,7 +5706,7 @@ export function WarehousePortal() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Inventory Item</DialogTitle>
-            <DialogDescription>Update product details and stock threshold.</DialogDescription>
+            <DialogDescription>Update product name and photo.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -5689,14 +5718,40 @@ export function WarehousePortal() {
               <Input id="edit-image-file" type="file" accept="image/*" onChange={(e) => setEditImageFile(e.target.files?.[0] || null)} />
               {editImageUrl && <p className="text-xs text-gray-500">Current photo is set.</p>}
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-quantity">In Stock Quantity</Label>
-              <Input id="edit-quantity" type="number" min="0" step="1" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
-            </div>
             <div className="flex gap-2 pt-1">
               <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
                 {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save Changes
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingBatch} onOpenChange={(open) => !open && setEditingBatch(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Stock Batch Quantity</DialogTitle>
+            <DialogDescription>
+              Update quantity for batch {editingBatch?.batchNumber || ''}. Inventory totals will sync automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="edit-batch-quantity">Quantity</Label>
+              <Input
+                id="edit-batch-quantity"
+                type="number"
+                min="0"
+                step="1"
+                value={editBatchQuantity}
+                onChange={(e) => setEditBatchQuantity(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveStockBatchQuantity} disabled={isSavingBatchQty}>
+                {isSavingBatchQty ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Save Quantity
               </Button>
             </div>
           </div>

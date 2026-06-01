@@ -119,6 +119,7 @@ export function WarehouseInventoryView({
                         <td className="p-2.5 text-center font-semibold text-orange-600">{reservedQty}</td>
                         <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
+                          {status === 'overstocked' && <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Overstocked</Badge>}
                           {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                         </td>
                         <td className="p-2.5 text-center">

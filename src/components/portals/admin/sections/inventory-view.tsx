@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from './shared'
+import { getInventoryAlertLevel } from '@/lib/report-metrics'
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
@@ -249,7 +250,11 @@ export function InventoryView() {
   const getReservedQty = (item: any) => Number(item.reservedQuantity ?? item.reserved_quantity ?? 0)
   const getAvailableQty = (item: any) => Math.max(0, (item.quantity ?? 0) - getReservedQty(item))
   const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? item.min_stock ?? 0)
-  const getStockStatus = (item: any) => (getAvailableQty(item) <= getThreshold(item) * 1.5 ? 'restock' : 'healthy')
+  const getStockStatus = (item: any) => {
+    const level = getInventoryAlertLevel(item)
+    if (level === 'overstocked') return 'overstocked'
+    return level === 'healthy' ? 'healthy' : 'restock'
+  }
   const filteredInventory = useMemo(() => {
     if (selectedWarehouseId === 'all') return inventory
     return inventory.filter((item) => getWarehouseIdFromRow(item) === selectedWarehouseId)
@@ -447,7 +452,7 @@ export function InventoryView() {
                   setProductSkuSeed(createSkuSeed())
                   setRegisterProductOpen(true)
                 }}
-                className="shrink-0 whitespace-nowrap"
+                className="shrink-0 whitespace-nowrap bg-blue-600 text-white hover:bg-blue-700"
               >
                 Register Product
               </Button>
@@ -520,6 +525,7 @@ export function InventoryView() {
                         <td className="p-2.5 text-center text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
                         <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
+                          {status === 'overstocked' && <Badge className="whitespace-nowrap bg-blue-100 text-blue-800 hover:bg-blue-100">Overstocked</Badge>}
                           {status === 'restock' && <Badge className="whitespace-nowrap bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                         </td>
                         <td className="p-2.5 text-center">
@@ -597,7 +603,7 @@ export function InventoryView() {
                     {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Delete Product
                   </Button>
-                  <Button className="flex-1" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
+                  <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
                     {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                     Save Changes
                   </Button>
@@ -788,7 +794,7 @@ export function InventoryView() {
                 Cancel
               </Button>
               <Button
-                className="flex-1"
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                 onClick={registerProduct}
                 disabled={isSubmittingProduct}
               >

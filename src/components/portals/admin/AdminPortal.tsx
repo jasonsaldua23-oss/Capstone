@@ -370,6 +370,18 @@ async function safeFetchJson(
         return { ok: true as const, data, status: response.status }
       }
       lastError = data?.error || `Request failed (${response.status})`
+      const nonRetriable =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 404 ||
+        response.status === 405 ||
+        response.status === 409 ||
+        response.status === 410 ||
+        response.status === 422
+      if (nonRetriable) {
+        return { ok: false as const, data, status: response.status, error: lastError }
+      }
     } catch (error: any) {
       lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
     } finally {
@@ -1030,7 +1042,7 @@ export function AdminPortal() {
         </header>
 
         {/* Page Content */}
-        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeView}
@@ -1038,7 +1050,7 @@ export function AdminPortal() {
               animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
               exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
               transition={{ duration: 0.16, ease: 'easeOut' }}
-              className="origin-top scale-[0.8] w-[125%] md:w-full md:scale-100"
+              className="w-full"
             >
               {renderActiveView()}
             </motion.div>

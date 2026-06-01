@@ -1,6 +1,10 @@
 import { toast } from 'sonner'
 import type { Order, OrderItem } from '../shared/customer-types'
-import { createPdfBlob, formatPdfMoney } from '../shared/customer-common'
+import { formatPdfMoney } from '../shared/customer-common'
+
+declare global {
+  interface Window {}
+}
 
 const getOrderLineTotal = (item: OrderItem) => {
   const explicit = Number(item.totalPrice)
@@ -8,15 +12,141 @@ const getOrderLineTotal = (item: OrderItem) => {
   return Number(item.unitPrice || 0) * Number(item.quantity || 0)
 }
 
-export async function downloadOrderReceipt(order: Order) {
+function inlineComputedStyles(source: Element, clone: Element) {
+  const sourceStyle = window.getComputedStyle(source as HTMLElement)
+  const cloneStyle = (clone as HTMLElement).style
+  for (let i = 0; i < sourceStyle.length; i += 1) {
+    const prop = sourceStyle[i]
+    const value = sourceStyle.getPropertyValue(prop)
+    if (!value) continue
+    cloneStyle.setProperty(prop, value, sourceStyle.getPropertyPriority(prop))
+  }
+  const sourceChildren = Array.from(source.children)
+  const cloneChildren = Array.from(clone.children)
+  for (let i = 0; i < sourceChildren.length; i += 1) {
+    if (sourceChildren[i] && cloneChildren[i]) inlineComputedStyles(sourceChildren[i], cloneChildren[i])
+  }
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Failed to read blob'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function inlineImagesAsDataUrls(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll('img'))
+  await Promise.all(
+    images.map(async (img) => {
+      const rawSrc = String(img.getAttribute('src') || '').trim()
+      if (!rawSrc || rawSrc.startsWith('data:')) return
+      try {
+        const absoluteSrc = new URL(rawSrc, window.location.origin).toString()
+        const response = await fetch(absoluteSrc, { mode: 'cors', credentials: 'include', cache: 'no-store' })
+        if (!response.ok) throw new Error('Image fetch failed')
+        const blob = await response.blob()
+        const dataUrl = await blobToDataUrl(blob)
+        img.setAttribute('src', dataUrl)
+      } catch {
+        img.removeAttribute('src')
+      }
+    })
+  )
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Failed to load svg image'))
+    img.src = src
+  })
+}
+
+async function renderElementToCanvas(element: HTMLElement): Promise<HTMLCanvasElement> {
+  if (document.fonts?.ready) await document.fonts.ready
+  const rect = element.getBoundingClientRect()
+  const width = Math.max(1, Math.ceil(rect.width))
+  const height = Math.max(1, Math.ceil(element.scrollHeight || rect.height))
+  const clone = element.cloneNode(true) as HTMLElement
+  inlineComputedStyles(element, clone)
+  await inlineImagesAsDataUrls(clone)
+  clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml')
+  clone.style.width = `${width}px`
+  clone.style.height = `${height}px`
+  clone.style.maxHeight = 'none'
+  clone.style.overflow = 'visible'
+  clone.style.margin = '0'
+  const serialized = new XMLSerializer().serializeToString(clone)
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <foreignObject width="100%" height="100%">${serialized}</foreignObject>
+</svg>`
+  const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  const image = await loadImage(svgDataUrl)
+  const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 2))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(width * scale)
+  canvas.height = Math.round(height * scale)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas unavailable')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.setTransform(scale, 0, 0, scale, 0, 0)
+  ctx.drawImage(image, 0, 0, width, height)
+  return canvas
+}
+
+export async function downloadOrderReceipt(order: Order, receiptElement?: HTMLElement | null) {
   try {
-    const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
+    if (receiptElement) {
+      try {
+        const canvas = await renderElementToCanvas(receiptElement)
+        const dataUrl = canvas.toDataURL('image/png')
+        const { PDFDocument } = await import('pdf-lib')
+        const pdfDoc = await PDFDocument.create()
+        const pngBytes = await fetch(dataUrl).then((res) => res.arrayBuffer())
+        const pngImage = await pdfDoc.embedPng(pngBytes)
+        const imageWidth = pngImage.width
+        const imageHeight = pngImage.height
+        const page = pdfDoc.addPage([imageWidth, imageHeight])
+        page.drawImage(pngImage, { x: 0, y: 0, width: imageWidth, height: imageHeight })
+        const pdfBytes = await pdfDoc.save()
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+        const pdfUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = pdfUrl
+        link.download = `Receipt-${order.orderNumber || order.id}.pdf`
+        link.rel = 'noopener'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 15000)
+        toast.success('Receipt downloaded')
+        return
+      } catch (captureError) {
+        console.error('Preview capture failed', captureError)
+        toast.error('Failed to export preview. Please try again.')
+        return
+      }
+    }
+
     const subtotal = Number(order.subtotal ?? order.items.reduce((sum, item) => sum + getOrderLineTotal(item), 0))
-    const tax = Number(order.tax ?? 0)
-    const shippingCost = Number(order.shippingCost ?? 0)
     const discount = Number(order.discount ?? 0)
-    const total = Number(order.totalAmount ?? subtotal + tax + shippingCost - discount)
-    const issuedAt = new Date(order.deliveredAt || order.deliveryDate || order.createdAt)
+    const total = Number(order.totalAmount ?? subtotal - discount)
+    const discountPercent = (() => {
+      const explicitPercent = Number((order as any)?.discountDetails?.percent)
+      if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
+      if (subtotal > 0 && discount > 0) return (discount / subtotal) * 100
+      return 0
+    })()
+    const discountPercentLabel =
+      Number.isInteger(discountPercent)
+        ? `${discountPercent}%`
+        : `${discountPercent.toFixed(2).replace(/\.?0+$/, '')}%`
     const receiptNumber = `RCT-${String(order.orderNumber || order.id)}`
     const normalizeToken = (value: string) =>
       String(value || '')
@@ -50,222 +180,171 @@ export async function downloadOrderReceipt(order: Order) {
       '+63 9460056944'
     ).trim()
 
-    const fileName = `Receipt-${order.orderNumber}.pdf`
-    const pdf = await PDFDocument.create()
-    // Size page by expected content so export matches compact preview.
-    const orderItems = Array.isArray(order.items) ? order.items : []
-    const deliveryLineCount =
-      Math.max(1, String(fullAddress || '-').split(',').map((x) => x.trim()).filter(Boolean).length) +
-      (String(order.shippingName || '').trim() ? 1 : 0) +
-      (String(order.shippingPhone || '').trim() ? 1 : 0)
-    const estimatedHeight = Math.max(
-      320,
-      Math.min(760, 270 + (deliveryLineCount * 12) + (orderItems.length * 20))
-    )
-    const pageSize: [number, number] = [390, estimatedHeight]
-    let page = pdf.addPage(pageSize)
-    const fontRegular = await pdf.embedFont(StandardFonts.Helvetica)
-    const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
-    const margin = 24
-    const contentWidth = page.getWidth() - margin * 2
-    let y = page.getHeight() - margin
+    const fileName = `Receipt-${order.orderNumber || order.id}.pdf`
+    const canvas = document.createElement('canvas')
+    canvas.width = 1200
+    canvas.height = 1600
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas unavailable')
 
-    const wrapText = (text: string, maxWidth: number, fontSize: number, font: any) => {
-      const words = String(text || '').split(/\s+/)
-      const lines: string[] = []
-      let current = ''
-      for (const word of words) {
-        const next = current ? `${current} ${word}` : word
-        if (font.widthOfTextAtSize(next, fontSize) <= maxWidth) {
-          current = next
-        } else {
-          if (current) lines.push(current)
-          current = word
-        }
-      }
-      if (current) lines.push(current)
-      return lines.length ? lines : ['']
+    const navy = '#102a5c'
+    const slate = '#334155'
+    const lightBorder = '#dbe3ef'
+    const green = '#16a34a'
+    const paleGreen = '#edf9f0'
+    const left = 60
+    const top = 52
+    const width = 1080
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.strokeStyle = '#e5e7eb'
+    ctx.lineWidth = 2
+    ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48)
+
+    ctx.fillStyle = navy
+    ctx.font = 'bold 48px Arial'
+    ctx.fillText('AAB TRADING SHOP', left + 120, top + 40)
+    ctx.font = '24px Arial'
+    ctx.fillStyle = slate
+    ctx.fillText('Official Delivery Receipt', left + 120, top + 78)
+    ctx.fillText(sellerPhone, left + 120, top + 114)
+    ctx.font = 'bold 46px Arial'
+    ctx.fillStyle = navy
+    ctx.fillText('ORDER', left + 740, top + 42)
+    ctx.fillText('RECEIPT', left + 700, top + 92)
+    ctx.strokeStyle = green
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.moveTo(left + 700, top + 108)
+    ctx.lineTo(left + 860, top + 108)
+    ctx.stroke()
+
+    let y = top + 160
+    ctx.strokeStyle = '#c8d7ef'
+    ctx.lineWidth = 2
+    ctx.fillStyle = '#f8fbff'
+    ctx.fillRect(left, y, width, 88)
+    ctx.strokeRect(left, y, width, 88)
+    ctx.strokeStyle = '#d7e3f6'
+    ctx.beginPath()
+    ctx.moveTo(left + width / 2, y)
+    ctx.lineTo(left + width / 2, y + 88)
+    ctx.stroke()
+    ctx.fillStyle = slate
+    ctx.font = '26px Arial'
+    ctx.fillText('Receipt No.', left + 26, y + 36)
+    ctx.font = 'bold 42px Arial'
+    ctx.fillStyle = navy
+    ctx.fillText(receiptNumber, left + 26, y + 74)
+    ctx.fillStyle = slate
+    ctx.font = '26px Arial'
+    ctx.fillText('Order No.', left + width / 2 + 26, y + 36)
+    ctx.font = 'bold 42px Arial'
+    ctx.fillStyle = navy
+    ctx.fillText(String(order.orderNumber || ''), left + width / 2 + 26, y + 74)
+
+    y += 120
+    const col = width / 3
+    ctx.font = 'bold 26px Arial'
+    ctx.fillStyle = navy
+    ctx.fillText('DELIVERY ADDRESS', left, y)
+    ctx.fillText('SOLD BY', left + col + 20, y)
+    ctx.fillText('ORDER DETAILS', left + col * 2 + 20, y)
+    ctx.font = '30px Arial'
+    ctx.fillStyle = slate
+    const lines = [fullAddress || '-']
+    lines.forEach((line, i) => ctx.fillText(line, left, y + 44 + i * 34))
+    ctx.fillText('AAB TRADING SHOP', left + col + 20, y + 44)
+    ctx.fillText(`Ordered: ${new Date(order.createdAt).toLocaleDateString()}`, left + col * 2 + 20, y + 44)
+    ctx.fillText(`Delivered: ${new Date(order.deliveredAt || order.deliveryDate || order.createdAt).toLocaleDateString()}`, left + col * 2 + 20, y + 78)
+
+    y += 160
+    ctx.fillStyle = navy
+    ctx.fillRect(left, y, width, 56)
+    ctx.fillStyle = '#fff'
+    ctx.font = 'bold 24px Arial'
+    ctx.fillText('Item Description', left + 20, y + 36)
+    ctx.fillText('Qty', left + 520, y + 36)
+    ctx.fillText('Unit Price', left + 640, y + 36)
+    ctx.fillText('Amount', left + 860, y + 36)
+    y += 56
+    ctx.strokeStyle = lightBorder
+    ctx.strokeRect(left, y, width, 100)
+    const item = (order.items || [])[0]
+    if (item) {
+      ctx.fillStyle = navy
+      ctx.font = '30px Arial'
+      ctx.fillText(String(item.product?.name || 'Item'), left + 20, y + 46)
+      ctx.font = '20px Arial'
+      ctx.fillStyle = slate
+      const cat = String((item.product as any)?.categoryName || (item.product as any)?.category || '').trim()
+      if (cat) ctx.fillText(cat, left + 20, y + 78)
+      ctx.fillStyle = '#102a5c'
+      ctx.font = '30px Arial'
+      ctx.fillText(String(item.quantity || 0), left + 530, y + 60)
+      ctx.fillText(formatPdfMoney(Number(item.unitPrice || 0)), left + 640, y + 60)
+      ctx.fillText(formatPdfMoney(getOrderLineTotal(item)), left + 860, y + 60)
     }
 
-    const ensureSpace = (needed: number) => {
-      if (y - needed >= margin) return
-      page = pdf.addPage(pageSize)
-      y = page.getHeight() - margin
+    y += 130
+    ctx.strokeStyle = '#b9e6ca'
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(left, y, width * 0.62, 180)
+    ctx.strokeRect(left, y, width * 0.62, 180)
+    ctx.fillStyle = paleGreen
+    ctx.fillRect(left + width * 0.62, y, width * 0.38, 180)
+    ctx.strokeRect(left + width * 0.62, y, width * 0.38, 180)
+    ctx.fillStyle = navy
+    ctx.font = 'bold 38px Arial'
+    ctx.fillText('Subtotal', left + 28, y + 62)
+    ctx.fillText(formatPdfMoney(subtotal), left + 260, y + 62)
+    if (discount > 0) {
+      ctx.fillStyle = green
+      ctx.font = 'bold 36px Arial'
+      ctx.fillText(`Discount${discountPercent > 0 ? ` (${discountPercentLabel})` : ''}`, left + 28, y + 126)
+      ctx.fillText(`-${formatPdfMoney(discount)}`, left + 260, y + 126)
     }
+    ctx.fillStyle = green
+    ctx.font = 'bold 42px Arial'
+    ctx.fillText('TOTAL PRICE', left + width * 0.62 + 40, y + 78)
+    ctx.fillStyle = navy
+    ctx.font = 'bold 72px Arial'
+    ctx.fillText(formatPdfMoney(total), left + width * 0.62 + 40, y + 150)
 
-    const drawText = (text: string, x: number, yy: number, size = 10, bold = false, color = rgb(0.2, 0.25, 0.32)) => {
-      page.drawText(text, {
-        x,
-        y: yy,
-        size,
-        font: bold ? fontBold : fontRegular,
-        color,
-      })
-    }
+    y += 230
+    ctx.strokeStyle = '#dbe3ef'
+    ctx.beginPath()
+    ctx.moveTo(left, y)
+    ctx.lineTo(left + width, y)
+    ctx.stroke()
+    ctx.font = '20px Arial'
+    ctx.fillStyle = '#64748b'
+    ctx.fillText('This receipt serves as proof of payment and delivery.', left + 180, y + 36)
+    ctx.fillText('Thank you for your purchase.', left + 320, y + 66)
 
-    page.drawRectangle({
-      x: 8,
-      y: 8,
-      width: page.getWidth() - 16,
-      height: page.getHeight() - 16,
-      borderColor: rgb(0.88, 0.91, 0.94),
-      borderWidth: 1,
-      color: rgb(1, 1, 1),
-    })
-
-    let logoWidth = 0
-    try {
-      const response = await fetch('/aab-trading-shop.png', { cache: 'no-store' })
-      if (response.ok) {
-        const logoBytes = await response.arrayBuffer()
-        const logoImage = await pdf.embedPng(logoBytes)
-        const logoHeight = 34
-        logoWidth = (logoImage.width / logoImage.height) * logoHeight
-        page.drawImage(logoImage, {
-          x: margin,
-          y: y - 26,
-          width: logoWidth,
-          height: logoHeight,
-        })
-      }
-    } catch {
-      logoWidth = 0
-    }
-
-    const titleX = margin + (logoWidth > 0 ? logoWidth + 8 : 0)
-    drawText('AAB TRADING SHOP', titleX, y - 4, 10.8, true, rgb(0.06, 0.09, 0.16))
-    drawText('Order Receipt', page.getWidth() - margin - fontBold.widthOfTextAtSize('Order Receipt', 10), y - 3, 10, true)
-    y -= 18
-    drawText('Official Delivery Receipt', titleX, y - 3, 8.8, false, rgb(0.39, 0.45, 0.55))
-    y -= 12
-    drawText(`Phone: ${sellerPhone}`, titleX, y - 3, 8.4, false, rgb(0.39, 0.45, 0.55))
-    y -= 14
-
-    const badgeText = `Receipt No: ${receiptNumber} | Order No: ${order.orderNumber}`
-    page.drawRectangle({
-      x: margin,
-      y: y - 10,
-      width: contentWidth,
-      height: 20,
-      borderColor: rgb(0.88, 0.91, 0.94),
-      borderWidth: 1,
-      color: rgb(0.97, 0.98, 0.99),
-    })
-    const badgeLines = wrapText(badgeText, contentWidth - 12, 8.4, fontRegular)
-    badgeLines.forEach((line, idx) => drawText(line, margin + 6, y + 3 - idx * 10, 8.4, false, rgb(0.28, 0.33, 0.41)))
-    y -= 30
-
-    const colGap = 12
-    const colW = (contentWidth - colGap * 2) / 3
-    const col1X = margin
-    const col2X = margin + colW + colGap
-    const col3X = margin + (colW + colGap) * 2
-    drawText('Delivery Details', col1X, y, 8.8, true, rgb(0.39, 0.45, 0.55))
-    drawText('Sold By', col2X, y, 8.8, true, rgb(0.39, 0.45, 0.55))
-    drawText('Order Details', col3X, y, 8.8, true, rgb(0.39, 0.45, 0.55))
-    y -= 12
-
-    const addressLines = wrapText(fullAddress || '-', colW, 8.3, fontRegular)
-    const recipientLine = String(order.shippingName || '').trim() ? [`Recipient: ${String(order.shippingName || '').trim()}`] : []
-    const phoneLine = String(order.shippingPhone || '').trim() ? [`Phone: ${String(order.shippingPhone || '').trim()}`] : []
-    const deliveryDetailLines = [...addressLines, ...recipientLine, ...phoneLine]
-    const orderDetails = [
-      `Ordered: ${new Date(order.createdAt).toLocaleDateString()}`,
-      `Delivered: ${issuedAt.toLocaleDateString()}`,
-    ]
-    const maxRows = Math.max(deliveryDetailLines.length, 1, orderDetails.length)
-    ensureSpace(maxRows * 11 + 6)
-    for (let i = 0; i < maxRows; i++) {
-      if (deliveryDetailLines[i]) drawText(deliveryDetailLines[i], col1X, y - i * 10, 8.3, false)
-      if (i < 2) {
-        const soldByLine = i === 0 ? 'AAB TRADING' : 'SHOP'
-        drawText(soldByLine, col2X, y - i * 10, 8.3, false)
-      }
-      if (orderDetails[i]) drawText(orderDetails[i], col3X, y - i * 10, 8.3, false)
-    }
-    y -= maxRows * 10 + 14
-
-    ensureSpace(24)
-    page.drawLine({
-      start: { x: margin, y },
-      end: { x: margin + contentWidth, y },
-      thickness: 1,
-      color: rgb(0.88, 0.91, 0.94),
-    })
-    y -= 12
-    drawText('Item Description', margin, y, 9, true, rgb(0.39, 0.45, 0.55))
-    drawText('Qty', page.getWidth() - margin - fontBold.widthOfTextAtSize('Qty', 9), y, 9, true, rgb(0.39, 0.45, 0.55))
-    y -= 10
-
-    for (const item of order.items || []) {
-      const lineText = `${item.product?.name || 'Item'} (${(item.product as any)?.unit || 'unit'}) - ${formatPdfMoney(Number(item.unitPrice || 0))}`
-      const lines = wrapText(lineText, contentWidth - 42, 8.5, fontRegular)
-      const blockHeight = Math.max(lines.length * 10, 10)
-      ensureSpace(blockHeight + 6)
-      lines.forEach((line, idx) => drawText(line, margin, y - idx * 10, 8.5, false, rgb(0.12, 0.16, 0.23)))
-      drawText(String(Number(item.quantity || 0)), page.getWidth() - margin - fontBold.widthOfTextAtSize(String(Number(item.quantity || 0)), 9), y, 9, true, rgb(0.12, 0.16, 0.23))
-      y -= blockHeight + 4
-    }
-
-    y -= 4
-    ensureSpace(30)
-    const totalLabel = 'Total Price'
-    const totalValue = formatPdfMoney(total)
-    const totalBlockWidth = 182
-    page.drawLine({
-      start: { x: page.getWidth() - margin - totalBlockWidth, y },
-      end: { x: page.getWidth() - margin, y },
-      thickness: 1,
-      color: rgb(0.8, 0.84, 0.9),
-    })
-    y -= 14
-    drawText(totalLabel, page.getWidth() - margin - totalBlockWidth + 2, y, 11, true, rgb(0.06, 0.09, 0.16))
-    drawText(totalValue, page.getWidth() - margin - fontBold.widthOfTextAtSize(totalValue, 11), y, 11, true, rgb(0.06, 0.09, 0.16))
-    y -= 24
-
-    const footer = 'This receipt serves as proof of payment and delivery. Thank you for your purchase.'
-    const footerLines = wrapText(footer, contentWidth, 8, fontRegular)
-    ensureSpace(footerLines.length * 9 + 6)
-    footerLines.forEach((line, idx) => {
-      const w = fontRegular.widthOfTextAtSize(line, 8)
-      drawText(line, (page.getWidth() - w) / 2, y - idx * 8, 8, false, rgb(0.39, 0.45, 0.55))
-    })
-
-    const pdfBytes = await pdf.save()
-    const blob = createPdfBlob(pdfBytes)
-
-    const nav = navigator as any
-    if (typeof nav?.msSaveOrOpenBlob === 'function') {
-      nav.msSaveOrOpenBlob(blob, fileName)
-    } else {
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      link.rel = 'noopener'
-      link.style.display = 'none'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.setTimeout(() => URL.revokeObjectURL(url), 30000)
-    }
+    const dataUrl = canvas.toDataURL('image/png')
+    const { PDFDocument } = await import('pdf-lib')
+    const pdfDoc = await PDFDocument.create()
+    const pngBytes = await fetch(dataUrl).then((res) => res.arrayBuffer())
+    const pngImage = await pdfDoc.embedPng(pngBytes)
+    const imageWidth = pngImage.width
+    const imageHeight = pngImage.height
+    const page = pdfDoc.addPage([imageWidth, imageHeight])
+    page.drawImage(pngImage, { x: 0, y: 0, width: imageWidth, height: imageHeight })
+    const pdfBytes = await pdfDoc.save()
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+    const pdfUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = pdfUrl
+    link.download = fileName
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 15000)
     toast.success('Receipt downloaded')
   } catch (error) {
     console.error('Receipt download failed:', error)
-    try {
-      const { PDFDocument, StandardFonts } = await import('pdf-lib')
-      const simple = await PDFDocument.create()
-      const page = simple.addPage([595.28, 841.89])
-      const font = await simple.embedFont(StandardFonts.Helvetica)
-      page.drawText(`Receipt ${order.orderNumber}`, { x: 40, y: 800, size: 14, font })
-      page.drawText(`Total Price: ${formatPdfMoney(Number(order.totalAmount || 0))}`, { x: 40, y: 780, size: 11, font })
-      const fallbackBlob = createPdfBlob(await simple.save())
-      const fallbackUrl = URL.createObjectURL(fallbackBlob)
-      const opened = window.open(fallbackUrl, '_blank')
-      if (!opened) throw new Error('Popup blocked')
-    } catch (fallbackError) {
-      console.error('Receipt fallback failed:', fallbackError)
-      toast.error('Failed to download receipt. Please allow downloads/popups and try again.')
-    }
+    toast.error('Failed to download receipt.')
   }
 }

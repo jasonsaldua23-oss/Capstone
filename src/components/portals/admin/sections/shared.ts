@@ -337,13 +337,32 @@ export async function safeFetchJson(
           data = { error: text }
         }
       }
-      return { ok: response.ok && data?.success !== false, status: response.status, data }
+      const result = { ok: response.ok && data?.success !== false, status: response.status, data }
+      if (result.ok) return result
+
+      // Do not retry auth/permission errors or other client-side request errors.
+      const nonRetriable =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 404 ||
+        response.status === 405 ||
+        response.status === 409 ||
+        response.status === 410 ||
+        response.status === 422
+      if (nonRetriable || attempt === retries) {
+        return result
+      }
+      attempt += 1
+      await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
+      continue
     } catch (error) {
       if (attempt === retries) {
         const message = error instanceof Error ? error.message : 'Request failed'
         return { ok: false, status: 0, data: { error: message } }
       }
       attempt += 1
+      await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
     } finally {
       window.clearTimeout(timer)
     }

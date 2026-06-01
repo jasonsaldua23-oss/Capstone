@@ -330,7 +330,6 @@ export function TripDetailView({
       day: 'numeric',
     })
   }
-  const ETA_SPEED_KMH = 28
   // Geospatial helpers used for route/movement calculations.
   const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
     const radiusKm = 6371
@@ -643,7 +642,40 @@ export function TripDetailView({
     }
   }
 
+  const insecureCameraMessage = 'Camera requires a secure connection (HTTPS). Open this app over HTTPS to allow camera on mobile.'
+
+  const mapWebCameraErrorToMessage = (error: any) => {
+    const errName = String(error?.name || '')
+    const denied =
+      errName === 'NotAllowedError' ||
+      errName === 'PermissionDeniedError' ||
+      errName === 'SecurityError'
+
+    if (!window.isSecureContext) {
+      return insecureCameraMessage
+    }
+    if (denied) {
+      return 'Camera permission denied. Please enable camera access in browser/app settings.'
+    }
+    if (errName === 'NotFoundError') {
+      return 'No camera device was found on this phone.'
+    }
+    if (errName === 'NotReadableError') {
+      return 'Camera is busy in another app. Close other camera apps and retry.'
+    }
+    if (errName === 'TypeError') {
+      return 'Camera is unavailable for this page. On mobile this is usually due to non-HTTPS access.'
+    }
+    if (errName === 'AbortError') {
+      return 'Unable to start camera. Please retry.'
+    }
+    return 'Unable to access camera on this device/browser.'
+  }
+
   const ensureWebCameraPermission = async (): Promise<{ granted: boolean; reason?: string }> => {
+    if (!window.isSecureContext) {
+      return { granted: false, reason: insecureCameraMessage }
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       return { granted: false, reason: 'This browser/device does not expose camera APIs for this page.' }
     }
@@ -662,24 +694,7 @@ export function TripDetailView({
       preflightStream.getTracks().forEach((track) => track.stop())
       return { granted: true }
     } catch (error: any) {
-      const errName = String(error?.name || '')
-      const denied =
-        errName === 'NotAllowedError' ||
-        errName === 'PermissionDeniedError' ||
-        errName === 'SecurityError'
-      if (denied) {
-        return { granted: false, reason: 'Camera permission denied. Please enable camera access in browser/app settings.' }
-      }
-      if (errName === 'NotFoundError') {
-        return { granted: false, reason: 'No camera device was found on this phone.' }
-      }
-      if (errName === 'NotReadableError') {
-        return { granted: false, reason: 'Camera is busy in another app. Close other camera apps and retry.' }
-      }
-      if (errName === 'TypeError') {
-        return { granted: false, reason: 'Camera is unavailable for this page. On mobile this is usually due to non-HTTPS access.' }
-      }
-      return { granted: false, reason: 'Unable to access camera on this device/browser.' }
+      return { granted: false, reason: mapWebCameraErrorToMessage(error) }
     }
   }
 
@@ -955,7 +970,7 @@ export function TripDetailView({
       setCameraError(null)
       try {
         if (!window.isSecureContext) {
-          handleCameraPermissionDenied('Camera requires a secure connection (HTTPS). Open this app over HTTPS to allow camera on mobile.')
+          handleCameraPermissionDenied(insecureCameraMessage)
           return
         }
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -973,26 +988,7 @@ export function TripDetailView({
         cameraStreamRef.current = stream
         await attachCameraStreamToVideo()
       } catch (error: any) {
-        const errName = String(error?.name || '')
-        const denied =
-          errName === 'NotAllowedError' ||
-          errName === 'PermissionDeniedError' ||
-          errName === 'SecurityError'
-        if (denied || errName === 'NotFoundError' || errName === 'NotReadableError' || errName === 'AbortError' || errName === 'TypeError') {
-          const specificMessage =
-            denied
-              ? 'Camera permission denied. Please enable camera access in browser/app settings.'
-              : errName === 'NotFoundError'
-                ? 'No camera device was found on this phone.'
-                : errName === 'NotReadableError'
-                  ? 'Camera is busy in another app. Close other camera apps and retry.'
-                  : errName === 'TypeError'
-                    ? 'Camera is unavailable for this page. On mobile this usually means non-HTTPS access.'
-                    : 'Unable to start camera. Please check permission and try again.'
-          handleCameraPermissionDenied(specificMessage)
-          return
-        }
-        handleCameraPermissionDenied('Unable to access camera on this device/browser.')
+        handleCameraPermissionDenied(mapWebCameraErrorToMessage(error))
       } finally {
         if (mounted) {
           setIsCameraLoading(false)
@@ -1352,9 +1348,15 @@ export function TripDetailView({
       ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
       : warehouseRouteStart
   let etaAnchor = etaStartPoint
-  let cumulativeEtaKm = 0
   let pendingPhaseIndex = 0
   const dropPointMapLocations = mappableDropPoints.map((point) => {
+    const normalizedDropPointStatus = String(point.status || '').toUpperCase()
+    const normalizedOrderStatus = String(point?.order?.status || '').toUpperCase()
+    const isCancelledLike = ['FAILED', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(normalizedDropPointStatus)
+      || ['FAILED', 'CANCELLED', 'CANCELED'].includes(normalizedOrderStatus)
+    const isRescheduledLike = Boolean(point?.rescheduleRequested)
+      || normalizedDropPointStatus === 'RESCHEDULED'
+      || normalizedOrderStatus === 'RESCHEDULED'
     const isCompleted = isDropPointDone(point.status)
     let markerEta: string | undefined
     let markerEtaPhase: 'completed' | 'next' | 'upcoming' | undefined
@@ -1364,10 +1366,7 @@ export function TripDetailView({
       markerEtaPhase = 'completed'
     } else if (etaAnchor) {
       const target = { lat: point.latitude as number, lng: point.longitude as number }
-      cumulativeEtaKm += haversineKm(etaAnchor, target)
       etaAnchor = target
-      const estimatedMinutes = Math.max(1, Math.round((cumulativeEtaKm / ETA_SPEED_KMH) * 60))
-      markerEta = `${estimatedMinutes} min`
       markerEtaPhase = pendingPhaseIndex === 0 ? 'next' : 'upcoming'
       pendingPhaseIndex += 1
     }
@@ -1381,7 +1380,7 @@ export function TripDetailView({
       status: point.status || 'PENDING',
       markerLabel: `${point.sequence}. ${stripPhilippinesFromAddress(point.address) || point.city || 'Drop Point'}`,
       markerType: 'pin' as const,
-      markerColor: '#2563eb',
+      markerColor: isCancelledLike ? '#ef4444' : (isRescheduledLike ? '#f59e0b' : '#2563eb'),
       markerNumber: point.sequence,
       markerEta,
       markerEtaPhase,
@@ -1617,7 +1616,7 @@ export function TripDetailView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-gradient-to-b from-[#dff0ea] to-transparent" />
-        <div className="space-y-4 p-4">
+        <div className={isMobileViewport ? 'space-y-0 p-0' : 'space-y-4 p-4'}>
           {/* Header */}
           <div className="hidden rounded-2xl border border-emerald-300/40 bg-blue-700 px-3 pb-3 pt-2.5 text-white shadow-[0_12px_26px_rgba(2,132,199,0.22)] md:mt-0 md:block md:px-4 md:pb-4 md:pt-3">
             <Button variant="ghost" size="sm" className="mb-1 h-6 p-0 text-[11px] text-white hover:bg-white/10 md:mb-2 md:h-7 md:text-xs" onClick={onBack}>
@@ -1659,7 +1658,7 @@ export function TripDetailView({
                 </p>
               ) : null}
               <Button
-                className="h-12 w-full gap-2 bg-slate-900 text-lg text-white hover:bg-slate-800"
+                className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => setIsStartTripConfirmOpen(true)}
                 disabled={isUpdating || notLoadedTripOrders.length > 0}
               >
@@ -1841,7 +1840,7 @@ export function TripDetailView({
           ) : null}
 
           {isMobileViewport ? (
-          <div className="relative -mx-4 overflow-hidden md:hidden">
+          <div className="relative overflow-hidden md:hidden">
             <div className="relative h-[calc(100dvh-12rem)] min-h-[540px] w-full overflow-hidden bg-[#dff0ea]">
               {mapLocations.length === 0 ? (
                 <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-600">
@@ -1881,7 +1880,7 @@ export function TripDetailView({
                 type="button"
                 onClick={handleMobileMapRecenter}
                 aria-label="Recenter map to driver location"
-                className="absolute bottom-[calc(env(safe-area-inset-bottom)+10.8rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-teal-200 bg-[#d8f4f7]/95 text-teal-900 shadow-[0_8px_18px_rgba(13,76,95,0.22)] backdrop-blur"
+                className="absolute bottom-[calc(env(safe-area-inset-bottom)+6.4rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-teal-200 bg-[#d8f4f7]/95 text-teal-900 shadow-[0_8px_18px_rgba(13,76,95,0.22)] backdrop-blur"
               >
                 <LocateFixed className="h-5 w-5" />
               </button>
@@ -1900,9 +1899,9 @@ export function TripDetailView({
               >
                 <DrawerContent
                   hideOverlay
-                  className="!bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] rounded-t-[1.9rem] border border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                  className="!bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
                 >
-                  <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+8rem)] pt-2 pr-3">
+                  <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] pt-2 pr-3">
                     <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
                     <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
                     <div className="flex items-start justify-between gap-3">
@@ -1949,6 +1948,34 @@ export function TripDetailView({
                                             Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
                                           </p>
                                         </div>
+                                        {(dropPoint.order.items || []).length > 0 ? (
+                                          <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
+                                            {(() => {
+                                              const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                              const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                              return (
+                                                <div className="mb-1 flex items-center gap-2">
+                                                  <p className="text-[11px] font-semibold text-slate-600">
+                                                    {isReplacementOrder ? 'Replacement Details' : 'Order Details'}
+                                                  </p>
+                                                  {isReplacementOrder ? (
+                                                    <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                                                      Replacement
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                              )
+                                            })()}
+                                            <div className="mt-1 space-y-0.5">
+                                              {(dropPoint.order.items || []).map((item, index) => (
+                                                <div key={`${dropPoint.id}-mobile-item-${index}`} className="text-[11px] text-slate-600">
+                                                  <p>{getItemDisplayNameWithSize(item)} {getOrderQtyWithUnitLabel(item, dropPoint.order)}</p>
+                                                  {getItemCategoryLabel(item) ? <p className="text-[10px] text-slate-500">{getItemCategoryLabel(item)}</p> : null}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ) : null}
                                       </>
                                     ) : null}
                                   </div>
@@ -2055,7 +2082,7 @@ export function TripDetailView({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 16, scale: 0.985 }}
                   transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                  className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] z-[1250] rounded-2xl border border-white/85 bg-white/96 px-4 pb-3 pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)]"
+                  className="fixed inset-x-0 bottom-0 z-[1250] w-full max-w-none rounded-t-[24px] border border-white/85 bg-white/96 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)]"
                   onClick={openMobileSheet}
                   onTouchStart={handleMobileSheetPeekTouchStart}
                   onTouchMove={handleMobileSheetPeekTouchMove}
@@ -2069,7 +2096,7 @@ export function TripDetailView({
                       <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                      {effectiveCompletedDropPoints}/{trip.totalDropPoints} Completed
+                      {effectiveCompletedDropPoints}/{trip.totalDropPoints} Delivered
                     </span>
                   </div>
                 </motion.button>

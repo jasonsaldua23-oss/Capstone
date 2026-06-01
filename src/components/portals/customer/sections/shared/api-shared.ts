@@ -11,7 +11,16 @@ export async function fetchJsonWithRetry(input: RequestInfo | URL, init?: Reques
       if (response.ok && data?.success !== false) {
         return { response, data }
       }
-      if (response?.status === 401 || response?.status === 403) {
+      if (
+        response?.status === 400 ||
+        response?.status === 401 ||
+        response?.status === 403 ||
+        response?.status === 404 ||
+        response?.status === 405 ||
+        response?.status === 409 ||
+        response?.status === 410 ||
+        response?.status === 422
+      ) {
         return { response, data }
       }
     } catch (error) {

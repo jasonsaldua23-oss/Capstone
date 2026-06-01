@@ -58,7 +58,7 @@ export function getReplacementStatusLabel(status?: string | null) {
   if (rawStatus === 'UNDER_REVIEW') return 'Under Review'
   if (rawStatus === 'APPROVED') return 'Approved'
   if (rawStatus === 'REJECTED') return 'Rejected'
-  if (rawStatus === 'CANCELLED' || rawStatus === 'CANCELED') return 'Cancelled'
+  if (rawStatus === 'CANCELLED' || rawStatus === 'CANCELED' || rawStatus === 'FAILED_DELIVERY') return 'Cancelled'
   const normalizedStatus =
     rawStatus === 'REQUESTED'
       ? 'REPORTED'

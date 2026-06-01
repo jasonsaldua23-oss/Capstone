@@ -60,6 +60,8 @@ export type OrderReportRow = {
   orderNumber: string
   customer: string
   itemSummary: string
+  productNameWithSize: string
+  productCategory: string
   totalQuantity: number
   status: string
   normalizedReportStatus: OrderReportStatus
@@ -177,19 +179,10 @@ export function getInventoryThreshold(item: any) {
 }
 
 export function isInventoryOverstocked(item: any, now = Date.now()) {
+  if (typeof item?.overstockedFlag === 'boolean') return item.overstockedFlag
   const threshold = getInventoryThreshold(item)
   if (threshold <= 0) return false
-  if (getInventoryAvailableQty(item) < threshold * 3) return false
-
-  const lastRestockedRaw =
-    item?.lastRestockedAt ??
-    item?.last_restocked_at ??
-    item?.updatedAt ??
-    item?.updated_at
-  const lastRestockedAt = toDate(lastRestockedRaw)
-  if (!lastRestockedAt) return false
-
-  return (now - lastRestockedAt.getTime()) >= (7 * 24 * 60 * 60 * 1000)
+  return false
 }
 
 export function getInventoryAlertLevel(item: any, now = Date.now()): InventoryAlertLevel {
@@ -198,7 +191,7 @@ export function getInventoryAlertLevel(item: any, now = Date.now()): InventoryAl
 
   if (available === 0) return 'out_of_stock'
   if (threshold > 0 && available <= threshold) return 'critical'
-  if (threshold > 0 && available <= threshold * 1.5) return 'low'
+  if (threshold > 0 && available <= threshold * 1.2) return 'low'
   if (isInventoryOverstocked(item, now)) return 'overstocked'
   return 'healthy'
 }
@@ -492,6 +485,17 @@ export function buildOrderReportRows(
         orderNumber: String(order?.orderNumber || order?.order_number || 'N/A'),
         customer: String(order?.customer?.name || order?.shippingName || 'N/A'),
         itemSummary: summarizeOrderItems(order?.items),
+        productNameWithSize: formatReportProductName(
+          Array.isArray(order?.items) && order.items.length > 0
+            ? (order.items[0]?.product ? { ...order.items[0], ...order.items[0].product } : order.items[0])
+            : null,
+          'N/A'
+        ),
+        productCategory: String(
+          (Array.isArray(order?.items) && order.items.length > 0
+            ? (order.items[0]?.product?.category ?? order.items[0]?.category)
+            : '') || ''
+        ).trim() || 'Uncategorized',
         totalQuantity,
         status: String(order?.status || ''),
         normalizedReportStatus,

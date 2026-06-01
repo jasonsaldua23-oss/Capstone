@@ -827,10 +827,8 @@ export function ReplacementsView() {
               <option value="UNDER_REVIEW">Under Review</option>
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
-              <option value="RESOLVED_ON_DELIVERY">Resolved on Delivery</option>
               <option value="COMPLETED">Completed</option>
               <option value="IN_PROGRESS">In Progress</option>
-              <option value="REPORTED">Reported</option>
             </select>
           </div>
         </div>
@@ -1005,7 +1003,7 @@ export function ReplacementsView() {
                           {totalLoss > 0 ? <p className="mt-1 text-xs font-semibold text-red-600">Loss: {formatPeso(totalLoss)}</p> : null}
                         </td>
                         <td className="p-4">
-                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
+                          <Badge className={hasEvidence ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : ''} variant="secondary">
                             {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
                           </Badge>
                         </td>
@@ -1043,7 +1041,7 @@ export function ReplacementsView() {
       </Card>
 
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0">
+        <DialogContent className="max-h-[90vh] w-[72vw] max-w-[640px] overflow-y-auto p-0 sm:max-w-[640px]">
           {selectedReplacement ? (() => {
             const meta = parseMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)

@@ -1,12 +1,13 @@
 'use client'
 
-import { Loader2 } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseStocksViewProps } from '../shared/types'
 
-export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft }: WarehouseStocksViewProps) {
+export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft, openBatchQuantityDialog }: WarehouseStocksViewProps) {
   const getBatchSizeLabel = (batch: any) => {
     const productSizes = Array.isArray(batch?.inventory?.product?.sizes)
       ? batch.inventory.product.sizes
@@ -50,6 +51,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft 
                   <th className="text-left p-4 font-medium text-gray-600">Days Left</th>
                   <th className="text-left p-4 font-medium text-gray-600">Status</th>
                   <th className="text-left p-4 font-medium text-gray-600">Location</th>
+                  <th className="text-left p-4 font-medium text-gray-600">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -76,6 +78,17 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft 
                       </td>
                       <td className="p-4 text-gray-600">
                         {batch.inventory?.warehouse?.code || batch.inventory?.warehouse?.name || batch.locationLabel || 'N/A'}
+                      </td>
+                      <td className="p-4">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                          onClick={() => openBatchQuantityDialog(batch)}
+                          title="Edit batch quantity"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                       </td>
                     </tr>
                   )

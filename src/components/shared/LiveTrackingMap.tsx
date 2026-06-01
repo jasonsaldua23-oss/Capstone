@@ -385,7 +385,7 @@ const TRUCK_SMOOTHING_DURATION_MS = 300;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 
-function getStatusPinIcon(color: 'green' | 'blue', number?: number | string) {
+function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', number?: number | string) {
   const label = number === undefined || number === null || String(number).trim() === '' ? '' : String(number);
   const cacheKey = `${color}:${label}`;
   const cached = statusPinIconCache.get(cacheKey);
@@ -396,11 +396,15 @@ function getStatusPinIcon(color: 'green' | 'blue', number?: number | string) {
     html: `
       <div style="position:relative;width:28px;height:44px;display:flex;align-items:flex-start;justify-content:center;">
         <img
-          src="${
-            color === 'green'
-              ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
-              : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
-          }"
+            src="${
+              color === 'green'
+                ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
+                : color === 'red'
+                  ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png'
+                  : color === 'orange'
+                    ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png'
+                    : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
+            }"
           alt="pin"
           style="width:25px;height:41px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));"
           onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';"
@@ -1023,6 +1027,22 @@ export default function LiveTrackingMap({
     [safeRouteLines, snappedRoutePointsById]
   );
 
+  const routeOriginPoint = useMemo<[number, number] | null>(() => {
+    const routePolylines = renderedRouteLines
+      .map((line) => ({
+        points: line.points,
+        priority: line.color === '#2563eb' && !line.dashArray ? 0 : 1,
+      }))
+      .filter(
+        (line): line is { points: [number, number][]; priority: number } =>
+          Array.isArray(line.points) && line.points.length > 1
+      )
+      .sort((a, b) => a.priority - b.priority);
+    if (routePolylines.length === 0) return null;
+    const first = routePolylines[0]?.points?.[0];
+    return Array.isArray(first) && Number.isFinite(first[0]) && Number.isFinite(first[1]) ? first : null;
+  }, [renderedRouteLines]);
+
   useEffect(() => {
     L.Marker.prototype.options.icon = DefaultIcon;
   }, []);
@@ -1354,15 +1374,31 @@ export default function LiveTrackingMap({
           ) : null
         )}
 
+        {routeOriginPoint ? (
+          <CircleMarkerUnsafe
+            center={routeOriginPoint}
+            radius={7}
+            pathOptions={{ color: '#111827', fillColor: '#9ca3af', fillOpacity: 0.95 }}
+          />
+        ) : null}
+
         {smoothedLocations.map((loc) =>
           loc.markerType === 'pin' ? (
             (() => {
-              const pinColor: 'green' | 'blue' =
-                loc.markerEtaPhase === 'completed' ||
-                String(loc.status || '').toUpperCase() === 'COMPLETED' ||
-                String(loc.status || '').toUpperCase() === 'DELIVERED'
-                  ? 'blue'
-                  : 'green';
+              const normalizedStatus = String(loc.status || '').toUpperCase();
+              const markerColor = String(loc.markerColor || '').toLowerCase();
+              const pinColor: 'green' | 'blue' | 'red' | 'orange' =
+                markerColor === '#ef4444'
+                  ? 'red'
+                  : markerColor === '#f59e0b'
+                    ? 'orange'
+                    : (
+                        loc.markerEtaPhase === 'completed' ||
+                        normalizedStatus === 'COMPLETED' ||
+                        normalizedStatus === 'DELIVERED'
+                      )
+                      ? 'blue'
+                      : 'green';
               return (
             <MarkerUnsafe
               key={loc.id}

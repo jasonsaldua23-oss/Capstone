@@ -325,7 +325,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Registered Customers</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Registered Clients</h1>
         <p className="text-gray-500">Customer insights, activity, and profile information</p>
       </div>
 
@@ -406,7 +406,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
               <option value="4">4.0+</option>
               <option value="3">3.0+</option>
             </select>
-            <Button className="gap-2" onClick={exportCsv}>
+            <Button className="gap-2 bg-blue-600 text-white hover:bg-blue-700" onClick={exportCsv}>
               <Download className="h-4 w-4" />
               Export
             </Button>
@@ -419,7 +419,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
           {isLoading ? (
             <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
           ) : filteredRows.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">No registered customers found</div>
+            <div className="text-center py-12 text-gray-500">No registered clients found</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">

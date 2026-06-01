@@ -85,16 +85,22 @@ export function CustomerOrdersView(props: any) {
   }
   const isReplacementOrder = (order: any): boolean =>
     String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
-  const hasActiveReplacementCase = (order: any): boolean => {
+  const hasCompletedReplacementCase = (order: any): boolean => {
     const issue = deliveryIssuesByOrderId?.[order?.id]
     const rawStatus = String(issue?.rawStatus || '').toUpperCase()
     if (!rawStatus) return false
-    return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED'].includes(rawStatus)
+    return ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+  }
+  const hasActiveReplacementCase = (order: any): boolean => {
+    const issue = deliveryIssuesByOrderId?.[order?.id]
+    const rawStatus = String(issue?.rawStatus || issue?.status || '').toUpperCase()
+    if (!rawStatus) return false
+    return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)
   }
   const getReplacementRequestDisplay = (order: any): { qty: number; label: 'unit' | 'bottle' } | null => {
     if (!isReplacementOrder(order)) return null
     const notes = String(order?.notes || '')
-    const replacementNumberMatch = notes.match(/\bRET-\d{4}-\d{4}\b/i)
+    const replacementNumberMatch = notes.match(/\b(?:RPL|RET)-\d{4}-\d{4}\b/i)
     const replacementNumber = String(replacementNumberMatch?.[0] || '').trim().toUpperCase()
     if (!replacementNumber) return null
     const record = (Array.isArray(deliveryIssueRecords) ? deliveryIssueRecords : []).find(
@@ -125,7 +131,7 @@ export function CustomerOrdersView(props: any) {
   const getReplacementRecordForOrder = (order: any): any | null => {
     if (!isReplacementOrder(order)) return null
     const notes = String(order?.notes || '')
-    const replacementNumberMatch = notes.match(/\bRET-\d{4}-\d{4}\b/i)
+    const replacementNumberMatch = notes.match(/\b(?:RPL|RET)-\d{4}-\d{4}\b/i)
     const replacementNumber = String(replacementNumberMatch?.[0] || '').trim().toUpperCase()
     if (!replacementNumber) return null
     const record = (Array.isArray(deliveryIssueRecords) ? deliveryIssueRecords : []).find(
@@ -136,7 +142,7 @@ export function CustomerOrdersView(props: any) {
   const getReplacementDisplayStatus = (record: any, linkedOrder?: any | null) => {
     const rawStatus = String(record?.rawStatus || record?.status || '').trim().toUpperCase()
     const orderStatus = String(linkedOrder?.status || record?.orderStatus || '').trim().toUpperCase()
-    if (['CANCELLED', 'CANCELED'].includes(rawStatus) || ['CANCELLED', 'CANCELED'].includes(orderStatus)) return 'Cancelled'
+    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || ['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(orderStatus)) return 'Cancelled'
     if (rawStatus === 'REJECTED') return 'Rejected'
     return getReplacementStatusLabel(record?.status)
   }
@@ -166,6 +172,60 @@ export function CustomerOrdersView(props: any) {
     } catch {
       return {}
     }
+  }
+  const getReplacementNumberFromRecord = (record: any, linkedOrder?: any | null) => {
+    const direct = String(record?.replacementNumber || record?.replacement_number || '').trim()
+    if (direct) return direct.toUpperCase()
+    const orderNumber = String(record?.orderNumber || record?.order_number || '').trim()
+    if (/^(RPL|RET)-\d{4}-\d{4}$/i.test(orderNumber)) return orderNumber.toUpperCase()
+    const candidates = [record?.notes, record?.description, linkedOrder?.notes]
+    for (const value of candidates) {
+      const match = String(value || '').match(/\b(?:RPL|RET)-\d{4}-\d{4}\b/i)
+      if (match) return String(match[0] || '').trim().toUpperCase()
+    }
+    return ''
+  }
+  const getReplacementItemsForRecord = (record: any) => {
+    if (!record) return []
+    const meta = parseReplacementMeta(record)
+    const lines =
+      (Array.isArray(record?.replacementLines) && record.replacementLines.length ? record.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(record?.replacementItems) && record.replacementItems.length ? record.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+    const qtyLabel = getReplacementDisplayQty(record)
+    const formatName = (line: any) => {
+      const baseName = String(
+        line?.replacementProductName ||
+        line?.originalProductName ||
+        record?.replacementProductName ||
+        record?.originalProductName ||
+        'Replacement item'
+      ).trim()
+      const size = String(
+        line?.replacementProductSize ||
+        line?.originalProductSize ||
+        record?.replacementProductSize ||
+        record?.originalProductSize ||
+        ''
+      ).trim()
+      return size ? `${baseName} ${size}` : baseName
+    }
+    if (lines.length > 0) {
+      return lines.map((line: any, index: number) => ({
+        key: String(line?.id || line?.replacementProductId || index),
+        name: formatName(line),
+        qtyLabel,
+        imageUrl: String(line?.replacementProductImageUrl || line?.originalProductImageUrl || '').trim(),
+      }))
+    }
+    return [{
+      key: String(record?.id || 'replacement'),
+      name: formatName(record),
+      qtyLabel,
+      imageUrl: String(record?.replacementProductImageUrl || record?.originalProductImageUrl || '').trim(),
+    }]
   }
   const getReplacementDisplayQty = (record: any) => {
     const formatQty = (qty: number, kind: 'unit' | 'bottle') =>
@@ -218,6 +278,65 @@ export function CustomerOrdersView(props: any) {
     return 'N/A'
   }
 
+  const getReplacementTotalAmount = (record: any, linkedOrder: any | null): number => {
+    if (!record) return 0
+    const meta = parseReplacementMeta(record)
+    const sourceLines =
+      (Array.isArray(record?.replacementLines) && record.replacementLines.length ? record.replacementLines : null) ||
+      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
+      (Array.isArray(record?.replacementItems) && record.replacementItems.length ? record.replacementItems : null) ||
+      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
+      []
+    if (!sourceLines.length) return 0
+    const orderItems = Array.isArray(linkedOrder?.items) ? linkedOrder.items : []
+    return sourceLines.reduce((sum: number, line: any) => {
+      const matchedOrderItem = orderItems.find((orderItem: any) => {
+        const srcOrderItemId = String(line?.orderItemId ?? line?.originalOrderItemId ?? '').trim()
+        const oiId = String(orderItem?.id ?? '').trim()
+        if (srcOrderItemId && oiId && srcOrderItemId === oiId) return true
+
+        const srcProductId = String(
+          line?.productId ??
+          line?.originalProductId ??
+          line?.replacementProductId ??
+          ''
+        ).trim()
+        const oiProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
+        if (srcProductId && oiProductId && srcProductId === oiProductId) return true
+
+        const srcName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
+        const oiName = String(orderItem?.product?.name ?? orderItem?.name ?? '').trim().toLowerCase()
+        return Boolean(srcName && oiName && srcName === oiName)
+      })
+
+      const unitPrice = Number(
+        line?.unitPrice ??
+        line?.price ??
+        line?.sellingPrice ??
+        line?.replacementUnitPrice ??
+        line?.originalUnitPrice ??
+        matchedOrderItem?.unitPrice ??
+        matchedOrderItem?.price ??
+        matchedOrderItem?.product?.price ??
+        0
+      )
+      const qtyPerCase = Math.max(1, Number(line?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerCase ?? matchedOrderItem?.product?.quantityPerUnit ?? 1))
+      const effectiveUnit = String(
+        line?.productUnit ??
+        line?.replacementProductUnit ??
+        line?.originalProductUnit ??
+        matchedOrderItem?.product?.unit ??
+        matchedOrderItem?.unit ??
+        ''
+      ).trim().toLowerCase()
+      const isBottleUnit = effectiveUnit.includes('bottle')
+      const qty = Math.max(Number(line?.quantityToReplace ?? line?.damagedQuantity ?? record?.quantityToReplace ?? record?.replacementQuantity ?? 0), 0)
+      if (!qty || !Number.isFinite(unitPrice)) return sum
+      const billedQty = isBottleUnit ? qty : (qty / qtyPerCase)
+      return sum + (Number.isFinite(billedQty) ? billedQty * unitPrice : 0)
+    }, 0)
+  }
+
   const sanitizeReplacementText = (value: any): string => {
     const raw = String(value || '').trim()
     if (!raw) return 'N/A'
@@ -244,12 +363,19 @@ export function CustomerOrdersView(props: any) {
     () =>
       replacementTabRecords.map((record: any, index: number) => {
         const linkedOrder = getLinkedOrderForReplacementRecord(record)
-        const replacementNumber = String(record?.replacementNumber || '').trim()
-        const replacementOrderNumber = String(record?.replacementOrderNumber || linkedOrder?.orderNumber || '').trim()
+        const replacementNumber = getReplacementNumberFromRecord(record, linkedOrder)
+        const displayReplacementNumber = replacementNumber.replace(/^RET-/i, 'RPL-')
+        const trackingOrderId = String(
+          record?.replacementOrderId ||
+          linkedOrder?.id ||
+          record?.orderId ||
+          ''
+        ).trim()
         return {
           ...(linkedOrder || {}),
           id: String(record?.id || linkedOrder?.id || `replacement-${index + 1}`),
-          orderNumber: replacementOrderNumber || replacementNumber || String(linkedOrder?.orderNumber || record?.orderNumber || `Replacement ${index + 1}`),
+          trackingOrderId,
+          orderNumber: displayReplacementNumber || `Replacement ${index + 1}`,
           customerName:
             linkedOrder?.customerName ||
             linkedOrder?.customer?.name ||
@@ -260,29 +386,35 @@ export function CustomerOrdersView(props: any) {
           createdAt: record?.createdAt || linkedOrder?.createdAt || null,
           deliveryDate: record?.createdAt || linkedOrder?.deliveryDate || null,
           deliveredAt: null,
-          status: isReplacementOrder(linkedOrder) ? linkedOrder?.status : 'PENDING',
+          status: record?.status || record?.rawStatus || 'PENDING',
           paymentStatus: linkedOrder?.paymentStatus || null,
           items: Array.isArray(linkedOrder?.items) ? linkedOrder.items : [],
-          totalAmount: Number(linkedOrder?.totalAmount || 0),
-          notes: replacementNumber ? `Replacement request ${replacementNumber}` : String(linkedOrder?.notes || ''),
+          totalAmount: getReplacementTotalAmount(record, linkedOrder),
+          notes: displayReplacementNumber ? `Replacement request ${displayReplacementNumber}` : String(linkedOrder?.notes || ''),
           isScheduledReplacement: true,
+          __replacementRecord: record,
         }
       }),
     [replacementTabRecords, orders]
   )
 
-  const totalPages = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE))
+  const activeOrders = useMemo(
+    () => (ordersTab === 'REPLACEMENT' ? replacementTabOrders : visibleOrders),
+    [ordersTab, replacementTabOrders, visibleOrders]
+  )
+
+  const totalPages = Math.max(1, Math.ceil(activeOrders.length / PAGE_SIZE))
   const pagedOrders = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE
-    return visibleOrders.slice(start, start + PAGE_SIZE)
-  }, [visibleOrders, currentPage])
+    return activeOrders.slice(start, start + PAGE_SIZE)
+  }, [activeOrders, currentPage])
 
-  const startIndex = visibleOrders.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-  const endIndex = Math.min(currentPage * PAGE_SIZE, visibleOrders.length)
+  const startIndex = activeOrders.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const endIndex = Math.min(currentPage * PAGE_SIZE, activeOrders.length)
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [ordersSearch, ordersTab, visibleOrders.length])
+  }, [ordersSearch, ordersTab, activeOrders.length])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -351,15 +483,24 @@ export function CustomerOrdersView(props: any) {
           <div className="px-4 py-10 text-center text-sm text-slate-500">No replacement requests found.</div>
         ) : (
           <div className="space-y-2.5 px-2.5 pt-2.5 md:px-4">
-            {replacementTabOrders.map((o: any) => {
+            {pagedOrders.map((o: any) => {
               const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
-              const dateTime = formatOrderDateTime(o, normalizedStatus)
+              const record = o.__replacementRecord || null
+              const replacementRecord = record || getReplacementRecordForOrder(o)
+              const replacementStatusLabel = replacementRecord ? getReplacementDisplayStatus(replacementRecord, o) : null
+              const replacementItems = replacementRecord ? getReplacementItemsForRecord(replacementRecord) : []
+              const hasReplacementItems = replacementItems.length > 0
+              const replacementCreatedAt = replacementRecord?.createdAt || o.createdAt
+              const dateTime = replacementCreatedAt
+                ? {
+                    date: new Date(replacementCreatedAt).toLocaleDateString(),
+                    time: new Date(replacementCreatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  }
+                : { date: 'N/A', time: null }
               const isRescheduled = isRescheduledOrder(o.status)
               const orderItems = Array.isArray(o.items) ? o.items : []
               const replacementRequestDisplay = getReplacementRequestDisplay(o)
               const isDelivered = normalizedStatus === 'DELIVERED'
-              const replacementRecord = getReplacementRecordForOrder(o)
-              const replacementStatusLabel = replacementRecord ? getReplacementDisplayStatus(replacementRecord, o) : null
               const hasReplacementCase = Boolean(deliveryIssuesByOrderId[o.id])
               return (
                 <div key={o.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm md:px-3.5 md:py-3.5">
@@ -375,8 +516,7 @@ export function CustomerOrdersView(props: any) {
                       </div>
                       <p className="flex items-center gap-1.5 text-xs text-emerald-700">
                         <CalendarDays className="h-4 w-4" />
-                        {normalizedStatus === 'DELIVERED' ? 'Delivered on ' : ''}
-                        {dateTime.date}
+                        Reported on {dateTime.date}
                         {dateTime.time ? ` · ${dateTime.time}` : ''}
                       </p>
                       <div className="flex items-start gap-1.5 text-xs text-slate-700">
@@ -397,29 +537,25 @@ export function CustomerOrdersView(props: any) {
                     </div>
 
                     <div className="space-y-2">
-                      <p className="text-xs font-semibold text-slate-900">Order Items</p>
-                      {orderItems.length > 0 ? (
+                      <p className="text-xs font-semibold text-slate-900">Replacement Items</p>
+                      {hasReplacementItems ? (
                         <div className="space-y-1.5">
-                          {orderItems.map((item: any, index: number) => (
-                            <div key={`${o.id}-replacement-item-${item?.id || index}`} className="flex items-center gap-2">
+                          {replacementItems.map((item: any) => (
+                            <div key={`${o.id}-replacement-item-${item.key}`} className="flex items-center gap-2">
                               <img
-                                src={getProductImage(item?.product?.imageUrl)}
-                                alt={item?.product?.name || 'Product'}
+                                src={getProductImage(item?.imageUrl)}
+                                alt={item?.name || 'Replacement item'}
                                 className="h-10 w-10 rounded-md border border-slate-200 bg-slate-50 object-cover"
                               />
                               <div>
-                                <p className="text-xs text-slate-800">{getItemDisplayNameWithSize(item)}</p>
-                                <p className="text-xs text-slate-500">
-                                  {replacementRequestDisplay
-                                    ? `x${replacementRequestDisplay.qty} ${replacementRequestDisplay.label}${replacementRequestDisplay.qty > 1 ? 's' : ''}`
-                                    : formatQuantityWithUnit(item)}
-                                </p>
+                                <p className="text-xs text-slate-800">{item.name}</p>
+                                <p className="text-xs text-slate-500">{item.qtyLabel}</p>
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-500">No items</p>
+                        <p className="text-xs text-slate-500">No replacement items</p>
                       )}
                       {isDelivered && !hasReplacementCase ? (
                         <p className="text-xs text-slate-500">No replacement case filed for this order.</p>
@@ -434,7 +570,7 @@ export function CustomerOrdersView(props: any) {
                       <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
                         {formatPeso(o.totalAmount)}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">{formatOrderStatus(o.status, o.paymentStatus)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{replacementStatusLabel || 'Reported'}</p>
                     </div>
 
                     <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
@@ -456,7 +592,11 @@ export function CustomerOrdersView(props: any) {
                       {isOrderTrackable(o.status) && !isDelivered ? (
                         <Button
                           className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
-                          onClick={() => openTrackView(o.id)}
+                          onClick={() => {
+                            const trackId = String(o?.trackingOrderId || o?.id || '').trim()
+                            if (!trackId) return
+                            openTrackView(trackId)
+                          }}
                         >
                           <Truck className="mr-1 h-3.5 w-3.5" />
                           Track Replacement
@@ -467,6 +607,40 @@ export function CustomerOrdersView(props: any) {
                 </div>
               )
             })}
+
+            <div className="flex items-center justify-between px-1 pt-3 text-sm text-slate-600">
+              <p>Showing {startIndex} to {endIndex} of {activeOrders.length} replacement requests</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Previous page"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="grid h-8 min-w-8 px-2 place-items-center rounded-md bg-emerald-100 font-semibold text-emerald-700"
+                  aria-label={`Current page ${currentPage}`}
+                  title={`Current page ${currentPage}`}
+                >
+                  {currentPage}
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Next page"
+                  title="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           </div>
         )
       ) : visibleOrders.length === 0 ? (
@@ -485,6 +659,7 @@ export function CustomerOrdersView(props: any) {
             const submittedRating = Number(orderRatings[o.id] || 0)
             const hasSubmittedRating = submittedRating >= 1 && submittedRating <= 5
             const deliveryIssue = deliveryIssuesByOrderId[o.id]
+            const hasCompletedReplacement = hasCompletedReplacementCase(o)
             const hasActiveReplacement = hasActiveReplacementCase(o)
             const hasReplacementCase = Boolean(deliveryIssue)
 
@@ -642,12 +817,12 @@ export function CustomerOrdersView(props: any) {
                       <Button
                         variant="outline"
                         className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={hasActiveReplacement}
+                        disabled={hasCompletedReplacement || hasActiveReplacement}
                         onClick={() => {
                           setSelectedOrder({ ...o, __openReplacementRequest: true })
                         }}
                       >
-                        {hasActiveReplacement ? 'Replacement In Progress' : 'Request Replacement'}
+                        {hasCompletedReplacement ? 'Replacement Completed' : hasActiveReplacement ? 'Replacement In Progress' : 'Request Replacement'}
                       </Button>
                     ) : null}
                   </div>
@@ -657,7 +832,7 @@ export function CustomerOrdersView(props: any) {
           })}
 
           <div className="flex items-center justify-between px-1 pt-3 text-sm text-slate-600">
-            <p>Showing {startIndex} to {endIndex} of {visibleOrders.length} orders</p>
+            <p>Showing {startIndex} to {endIndex} of {activeOrders.length} orders</p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -694,7 +869,7 @@ export function CustomerOrdersView(props: any) {
       <Dialog open={!!selectedReplacementRecord} onOpenChange={(open) => !open && setSelectedReplacementRecord(null)}>
         <DialogContent
           showCloseButton={false}
-          className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-[760px] rounded-xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(2,6,23,0.30)]"
+          className="w-[97vw] max-h-[86vh] overflow-y-auto max-w-[1160px] rounded-xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(2,6,23,0.30)]"
         >
         {selectedReplacementRecord ? (() => {
             const selectedOrder = orders.find((item: any) =>

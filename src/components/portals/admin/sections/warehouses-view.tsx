@@ -544,7 +544,7 @@ export function WarehousesView() {
           <h1 className="text-2xl font-bold text-gray-900">Warehouses</h1>
           <p className="text-gray-500">Manage storage facilities and locations</p>
         </div>
-        <Button className="gap-2" onClick={() => { resetForm(); setAddOpen(true) }}>
+        <Button className="gap-2 bg-blue-600 text-white hover:bg-blue-700" onClick={() => { resetForm(); setAddOpen(true) }}>
           {/* Warehouse icon removed */}
           Add Warehouse
         </Button>
@@ -595,7 +595,7 @@ export function WarehousesView() {
           <div className="col-span-full text-center py-12">
             {/* Warehouse icon removed */}
             <p className="text-gray-500">No warehouses found</p>
-            <Button className="mt-4" onClick={() => { resetForm(); setAddOpen(true) }}>Add First Warehouse</Button>
+            <Button className="mt-4 bg-blue-600 text-white hover:bg-blue-700" onClick={() => { resetForm(); setAddOpen(true) }}>Add First Warehouse</Button>
           </div>
         ) : (
           warehouses.map((warehouse: any) => (
@@ -606,7 +606,7 @@ export function WarehousesView() {
                     <h3 className="font-semibold">{warehouse.name}</h3>
                     <p className="text-sm text-gray-500">{warehouse.code}</p>
                   </div>
-                  <Badge variant={warehouse.isActive ? 'default' : 'secondary'}>
+                  <Badge className={warehouse.isActive ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-red-100 text-red-800 hover:bg-red-100'}>
                     {warehouse.isActive ? 'Active' : 'Inactive'}
                   </Badge>
                 </div>
@@ -704,7 +704,7 @@ export function WarehousesView() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button className="flex-1" onClick={() => saveWarehouse('create')} disabled={isSubmitting}>
+            <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={() => saveWarehouse('create')} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save Warehouse
             </Button>
@@ -798,7 +798,7 @@ export function WarehousesView() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setManageOpen(false)}>Cancel</Button>
-            <Button className="flex-1" onClick={() => saveWarehouse('edit')} disabled={isSubmitting}>
+            <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={() => saveWarehouse('edit')} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save Changes
             </Button>
@@ -845,7 +845,7 @@ export function WarehousesView() {
                 Cancel
               </Button>
               <Button
-                className="flex-1"
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                 onClick={() => {
                   void applyPinnedLocationFromMap()
                 }}

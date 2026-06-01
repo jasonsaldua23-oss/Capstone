@@ -909,6 +909,14 @@ export function TransportationView() {
         <DialogContent className="max-w-xl w-full overflow-hidden rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
           {selectedDropPointDetail ? (
             <div className="space-y-4 p-6">
+              {(() => {
+                const orderNumber = String(selectedDropPointDetail.order?.orderNumber || '').trim().toUpperCase()
+                const isReplacementDropPoint = Boolean(selectedDropPointDetail.order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
+                const refLabel = isReplacementDropPoint ? 'Replacement Number' : 'PO Number'
+                const refStatusLabel = isReplacementDropPoint ? 'Replacement Status' : 'PO Status'
+                const itemsLabel = isReplacementDropPoint ? 'Replacement Items' : 'Order Items'
+                return (
+                  <>
               {/* Header */}
               <div className="flex items-center gap-3 border-b border-slate-200/70 pb-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-[0_8px_18px_rgba(37,99,235,0.28)]">
@@ -932,11 +940,11 @@ export function TransportationView() {
                   <span className="text-slate-700">{selectedDropPointDetail.address || 'N/A'}</span>
                 </div>
                 <div className="flex gap-2">
-                  <span className="min-w-[108px] font-semibold text-slate-900">PO Number</span>
+                  <span className="min-w-[108px] font-semibold text-slate-900">{refLabel}</span>
                   <span className="font-mono text-slate-800">{selectedDropPointDetail.order?.orderNumber || 'N/A'}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="min-w-[108px] font-semibold text-slate-900">PO Status</span>
+                  <span className="min-w-[108px] font-semibold text-slate-900">{refStatusLabel}</span>
                   {(() => {
                     const raw = String(selectedDropPointDetail.order?.status || 'N/A').toUpperCase()
                     const isActive = ['OUT_FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED'].includes(raw)
@@ -966,7 +974,7 @@ export function TransportationView() {
 
               {/* Order Items */}
               <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)]">
-                <p className="mb-3 text-sm font-semibold text-slate-900">Order Items</p>
+                <p className="mb-3 text-sm font-semibold text-slate-900">{itemsLabel}</p>
                 {Array.isArray(selectedDropPointDetail.order?.items) && selectedDropPointDetail.order.items.length > 0 ? (
                   <div className="space-y-2 text-sm">
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
@@ -1001,6 +1009,9 @@ export function TransportationView() {
                   Close
                 </Button>
               </div>
+                  </>
+                )
+              })()}
             </div>
           ) : null}
         </DialogContent>

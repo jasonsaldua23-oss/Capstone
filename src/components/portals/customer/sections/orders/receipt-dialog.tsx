@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ArrowLeft, Download } from 'lucide-react'
+import { ArrowLeft, CalendarDays, ClipboardList, MapPin, Phone, Store, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
@@ -52,6 +52,8 @@ export function CustomerReceiptDialog(props: any) {
       : 0)
   )
   const orderDiscount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
+  const orderTax = Number(selectedOrder?.tax || 0)
+  const orderShippingCost = Number(selectedOrder?.shippingCost || 0)
   const orderTotal = Number(selectedOrder?.totalAmount || 0)
   const orderDiscountPercent = (() => {
     const explicitPercent = Number(selectedOrder?.discountDetails?.percent)
@@ -63,18 +65,36 @@ export function CustomerReceiptDialog(props: any) {
     Number.isInteger(orderDiscountPercent)
       ? `${orderDiscountPercent}%`
       : `${orderDiscountPercent.toFixed(2).replace(/\.?0+$/, '')}%`
+  const orderDateLabel = selectedOrder?.createdAt
+    ? new Date(selectedOrder.createdAt).toLocaleDateString()
+    : '-'
+  const deliveredDateLabel = (selectedOrder?.deliveredAt || selectedOrder?.deliveryDate || selectedOrder?.createdAt)
+    ? new Date(selectedOrder.deliveredAt || selectedOrder.deliveryDate || selectedOrder.createdAt).toLocaleDateString()
+    : '-'
+  const getProductMeta = (item: any) => {
+    const size = String(item?.product?.size || item?.size || '-').trim()
+    const category =
+      String(
+        item?.product?.category?.name ||
+        item?.product?.categoryName ||
+        item?.product?.category ||
+        item?.categoryName ||
+        '-'
+      ).trim()
+    return { size, category }
+  }
 
   return (
     <Dialog open={Boolean(selectedOrder) && isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
       {selectedOrder && isOrderDelivered(selectedOrder) ? (
-        <DialogContent showCloseButton={false} className="w-[95vw] max-w-2xl h-[90vh] p-0 overflow-hidden rounded-2xl border border-emerald-100">
+        <DialogContent showCloseButton={false} className="h-[92vh] w-[96vw] max-w-[760px] p-0 overflow-hidden rounded-2xl border border-slate-200">
           <motion.div
             initial={{ opacity: 0, y: 8, scale: 0.99 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="flex h-full flex-col bg-gradient-to-b from-emerald-50 via-white to-slate-50"
+            className="flex h-full min-h-0 flex-col bg-white font-['Helvetica','Arial',sans-serif]"
           >
-            <div className="flex items-center border-b border-emerald-100 bg-white px-3 py-3">
+            <div className="flex items-center border-b border-slate-200 bg-white px-3 py-3">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsReceiptDialogOpen(false)}>
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -82,98 +102,157 @@ export function CustomerReceiptDialog(props: any) {
               <div className="h-8 w-8" />
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 md:p-6">
-              <div className="mx-auto w-full max-w-[760px] rounded-xl border border-emerald-100 bg-white p-4 text-[11px] shadow-sm shadow-emerald-100/50 md:p-6 md:text-xs">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 pb-24">
+              <div className="mx-auto w-full max-w-[680px]">
+                <div className="mx-auto w-full max-w-[520px] border border-slate-200 bg-white p-3 text-[12px] leading-[1.3] text-[#1f2937] sm:p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="flex items-start gap-3">
                     <img
                       src="/aab-trading-shop.png"
                       alt="AAB TRADING SHOP"
-                      className="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white"
+                      className="h-14 w-14 rounded-full border border-slate-200 object-cover bg-white sm:h-16 sm:w-16"
                     />
-                    <div>
-                    <p className="font-bold text-slate-900 leading-tight">AAB TRADING SHOP</p>
-                    <p className="text-[10px] text-slate-500">Official Delivery Receipt</p>
-                    <p className="text-[10px] text-slate-600">Phone: {sellerPhone}</p>
+                    <div className="min-w-0">
+                    <p className="text-[24px] font-bold leading-tight text-[#0f2347]">AAB TRADING SHOP</p>
+                    <p className="mt-1 text-[18px] text-slate-600">Official Delivery Receipt</p>
+                    <p className="mt-1 text-[18px] text-slate-700">{sellerPhone}</p>
                     </div>
                   </div>
-                  <p className="text-[10px] font-semibold text-slate-700">Order Receipt</p>
-                </div>
-
-                <div className="mt-3 rounded-md bg-emerald-50 px-2 py-1.5 text-[10px] text-slate-600 md:text-xs">
-                  Receipt No: {`RCT-${selectedOrder.orderNumber}`} | Order No: {selectedOrder.orderNumber}
-                </div>
-
-                <div className="mt-3 grid grid-cols-1 gap-3 text-[10px] md:grid-cols-3 md:gap-4 md:text-xs">
-                  <div>
-                    <p className="font-semibold text-slate-500">Delivery Details</p>
-                    <p className="mt-1 leading-4 text-slate-700 break-words">{deliveryLines.join(', ') || '-'}</p>
-                    {selectedOrder.shippingName ? (
-                      <p className="mt-1 text-slate-700">Recipient: {selectedOrder.shippingName}</p>
-                    ) : null}
-                    {selectedOrder.shippingPhone ? (
-                      <p className="text-slate-700">Phone: {selectedOrder.shippingPhone}</p>
-                    ) : null}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-500">Sold By</p>
-                    <p className="mt-1 leading-4 text-slate-700">AAB TRADING SHOP</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-500">Order Details</p>
-                    <p className="mt-1 text-slate-700">Ordered: {new Date(selectedOrder.createdAt).toLocaleDateString()}</p>
-                    <p className="text-slate-700">Delivered: {new Date(selectedOrder.deliveredAt || selectedOrder.deliveryDate || selectedOrder.createdAt).toLocaleDateString()}</p>
+                  <div className="pt-1 sm:text-right">
+                    <p className="text-[20px] font-bold tracking-[0.03em] text-[#0f2347] sm:text-[22px]">ORDER RECEIPT</p>
+                    <span className="mt-2 block h-[2px] w-16 bg-[#1e8d40] sm:ml-auto sm:w-20 sm:h-[3px]" />
                   </div>
                 </div>
 
-                <div className="mt-4 border-t border-emerald-100 pt-3">
-                  <div className="grid grid-cols-[1fr_auto] text-[10px] font-semibold text-slate-600 md:text-xs">
+                <div className="mt-5 flex flex-col gap-2 border border-[#7384a0] px-3 py-3 text-[14px] text-[#1f2937] sm:text-[18px]">
+                  <div className="flex items-start gap-2 sm:items-center">
+                    <ClipboardList className="mt-0.5 h-4 w-4 text-[#0f2347] sm:mt-0 sm:h-5 sm:w-5" />
+                    <p className="break-all">Receipt No: <span className="font-bold">{`RCT-${selectedOrder.orderNumber}`}</span></p>
+                  </div>
+                  <p className="pl-6">Order No: <span className="font-bold">{selectedOrder.orderNumber}</span></p>
+                </div>
+
+                <div className="mt-5 grid grid-cols-1 gap-4 border-b border-slate-300 pb-5 text-[13px] sm:grid-cols-2 sm:text-[15px]">
+                  <div className="space-y-4 sm:space-y-5 sm:border-r sm:border-slate-300 sm:pr-5">
+                    <div>
+                      <p className="flex items-center gap-2 font-bold uppercase tracking-[0.03em] text-[#0f2347]">
+                        <MapPin className="h-4 w-4 sm:h-5 sm:w-5" />
+                        Delivery Address
+                      </p>
+                      <p className="mt-1 leading-6">{deliveryLines.join(', ') || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="flex items-center gap-2 font-bold uppercase tracking-[0.03em] text-[#0f2347]">
+                        <User className="h-4 w-4 sm:h-5 sm:w-5" />
+                        Recipient
+                      </p>
+                      <p className="mt-1">{selectedOrder.shippingName || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="flex items-center gap-2 font-bold uppercase tracking-[0.03em] text-[#0f2347]">
+                        <Phone className="h-4 w-4 sm:h-5 sm:w-5" />
+                        Phone
+                      </p>
+                      <p className="mt-1">{selectedOrder.shippingPhone || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4 sm:space-y-5">
+                    <p className="flex items-center gap-2 font-bold uppercase tracking-[0.03em] text-[#0f2347]">
+                      <Store className="h-4 w-4 sm:h-5 sm:w-5" />
+                      Sold By
+                    </p>
+                    <p className="mt-1 break-words">AAB TRADING SHOP</p>
+                    <p className="flex items-center gap-2 font-bold uppercase tracking-[0.03em] text-[#0f2347]">
+                      <CalendarDays className="h-4 w-4 sm:h-5 sm:w-5" />
+                      Order Details
+                    </p>
+                    <p className="mt-1">Ordered: {orderDateLabel}</p>
+                    <p className="mt-1">Delivered: {deliveredDateLabel}</p>
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <div className="hidden items-center bg-[linear-gradient(120deg,#0f2347_0%,#0d2e61_48%,#0f2347_100%)] px-4 py-3 text-sm font-semibold text-white sm:grid sm:grid-cols-[1fr_64px_100px_110px]">
                     <p>Item Description</p>
-                    <p>Qty</p>
+                    <p className="text-center">Qty</p>
+                    <p className="text-center">Unit Price</p>
+                    <p className="text-right">Amount</p>
                   </div>
-                  <div className="mt-1 space-y-1">
+                  <div className="border border-slate-300 sm:border-t-0">
                     {selectedOrder.items?.map((item: any) => (
-                      <div key={`receipt-mobile-${item.id}`} className="grid grid-cols-[1fr_auto] gap-2 text-[10px] text-slate-700 md:text-xs">
-                        <p className="leading-4 break-words">
-                          {item.product?.name || 'Item'} ({item.product?.unit || 'unit'}) - {formatPeso(item.unitPrice)}
-                        </p>
-                        <p>{item.quantity}</p>
+                      <div key={`receipt-mobile-${item.id}`}>
+                        <div className="border-b border-slate-200 px-3 py-3 text-sm sm:hidden">
+                          <p className="font-semibold text-[#0f2347]">
+                            {item.product?.name || 'Item'} {getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}
+                          </p>
+                          {getProductMeta(item).category !== '-' ? (
+                            <p className="mt-1 text-[10px] text-slate-600">{getProductMeta(item).category}</p>
+                          ) : null}
+                          <div className="mt-2 grid grid-cols-3 gap-2 text-[12px] text-slate-700">
+                            <p>Qty: {item.quantity}</p>
+                            <p>Unit: {formatPeso(item.unitPrice)}</p>
+                            <p className="text-right">Amount: {formatPeso(Number(item.unitPrice || 0) * Number(item.quantity || 0))}</p>
+                          </div>
+                        </div>
+                        <div className="hidden grid-cols-[1fr_64px_100px_110px] items-center border-b border-slate-200 px-4 py-3 text-sm sm:grid">
+                          <div>
+                            <p>{item.product?.name || 'Item'} {getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}</p>
+                            {getProductMeta(item).category !== '-' ? (
+                              <p className="text-[9px] text-slate-600">{getProductMeta(item).category}</p>
+                            ) : null}
+                          </div>
+                          <p className="text-center">{item.quantity}</p>
+                          <p className="text-center">{formatPeso(item.unitPrice)}</p>
+                          <p className="text-right">{formatPeso(Number(item.unitPrice || 0) * Number(item.quantity || 0))}</p>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="mt-5 ml-auto w-full max-w-[220px] space-y-1 text-[10px] text-slate-700 md:text-xs">
+                <div className="mt-6 ml-auto w-full max-w-[280px] border-t border-b border-slate-400 py-3 text-[12px] sm:max-w-[320px]">
                   <p className="flex justify-between">
                     <span>Subtotal</span>
                     <span>{formatPeso(orderSubtotal)}</span>
                   </p>
+                  <p className="mt-1 flex justify-between md:mt-2">
+                    <span>Tax</span>
+                    <span>{formatPeso(orderTax)}</span>
+                  </p>
+                  <p className="mt-1 flex justify-between md:mt-2">
+                    <span>Shipping</span>
+                    <span>{formatPeso(orderShippingCost)}</span>
+                  </p>
                   {orderDiscount > 0 ? (
-                    <p className="flex justify-between text-[#2b4f83]">
+                    <p className="mt-1 flex justify-between text-[#1f4d8a] md:mt-2">
                       <span>Discount{orderDiscountPercent > 0 ? ` (${orderDiscountPercentLabel})` : ''}</span>
                       <span>-{formatPeso(orderDiscount)}</span>
                     </p>
                   ) : null}
-                  <p className="flex justify-between border-t border-emerald-100 pt-1 font-semibold text-slate-900">
-                    <span>Total Price</span>
+                </div>
+                <div className="ml-auto w-full max-w-[280px] border-b-2 border-[#1e8d40] py-2 sm:max-w-[320px]">
+                  <p className="flex justify-between text-xl font-bold text-[#0f2347]">
+                    <span>TOTAL PRICE</span>
                     <span>{formatPeso(orderTotal)}</span>
                   </p>
                 </div>
 
-                <p className="mt-6 text-center text-[9px] text-slate-500 md:text-[11px]">
-                  This receipt serves as proof of payment and delivery. Thank you for your purchase.
-                </p>
+                <div className="mt-8 border-t-2 border-[#0f2347] pt-3 text-center text-[10px] text-slate-600">
+                  <p>This receipt serves as proof of payment and delivery.</p>
+                  <p className="mt-1">Thank you for your purchase.</p>
+                </div>
+                  <div className="mt-4 border-b border-slate-300" />
+                </div>
               </div>
             </div>
 
-            <div className="border-t border-emerald-100 bg-white p-3">
+            <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/98 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur-sm">
               <Button
                 type="button"
                 className="h-11 w-full bg-emerald-600 text-white hover:bg-emerald-500"
                 onClick={() => downloadReceipt(selectedOrder)}
               >
-                <Download className="h-4 w-4 mr-2" />
-                Download
+                Download Receipt
               </Button>
             </div>
           </motion.div>

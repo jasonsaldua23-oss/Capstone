@@ -28,7 +28,16 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from .auth import TOKEN_NAME, create_token, decode_token, extract_token, hash_password, verify_password
+from .auth import (
+    TOKEN_NAME,
+    STAFF_TOKEN_NAME,
+    CUSTOMER_TOKEN_NAME,
+    create_token,
+    decode_token,
+    extract_token,
+    hash_password,
+    verify_password,
+)
 from .models import (
     Customer,
     Feedback,
@@ -1046,7 +1055,11 @@ def _create_scheduled_replacement_order(
             quantity=qty,
             unit_price=unit_price,
             total_price=line_total,
-            notes=f"Replacement line from {replacement.replacement_number}",
+            notes=(
+                f"Replacement line from {replacement.replacement_number}\n"
+                f"ReplacementUnitMode={'BOTTLE' if by_bottle else 'UNIT'}\n"
+                f"ReplacementRequestedBottles={max(qty_bottles, 0)}"
+            ),
         )
 
     if replacement_order.items.count() == 0:
@@ -1544,7 +1557,12 @@ def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = Fal
     }
     if remember_me:
         cookie_kwargs["max_age"] = 60 * 60 * 24 * 30
-    response.set_cookie(TOKEN_NAME, token, **cookie_kwargs)
+    payload = decode_token(token) or {}
+    account_type = str(payload.get("type") or "").strip().lower()
+    cookie_name = CUSTOMER_TOKEN_NAME if account_type == "customer" else STAFF_TOKEN_NAME
+    response.set_cookie(cookie_name, token, **cookie_kwargs)
+    # Clear legacy shared cookie so role sessions no longer overwrite each other.
+    response.delete_cookie(TOKEN_NAME, path="/")
 
 
 def _user_payload(user: User) -> dict[str, Any]:
@@ -3039,6 +3057,63 @@ def _allocate_inventory_for_order_item(
     if not inventories:
         raise ValueError(f"No inventory found for product {product.sku}")
 
+    effective_requested_qty = requested_qty
+    replacement_notes = str(getattr(order_item, "notes", "") or "")
+    replacement_unit_mode = str(getattr(order, "order_number", "") or "").strip().upper().startswith("RPL-") and "ReplacementUnitMode=BOTTLE" in replacement_notes
+    if replacement_unit_mode and _normalize_product_unit(getattr(product, "unit", None)) != "bottle":
+        requested_bottles_match = re.search(r"ReplacementRequestedBottles=(\d+)", replacement_notes)
+        requested_bottles = _int(requested_bottles_match.group(1), 0) if requested_bottles_match else 0
+        qty_per_case = max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
+        if requested_bottles > 0:
+            remaining_bottles = requested_bottles
+            inventories_sorted = sorted(
+                inventories,
+                key=lambda inv: str(getattr(inv, "warehouse_id", "") or "") != str(warehouse_id or ""),
+            )
+            loose_consumed_total = 0
+            for inventory in inventories_sorted:
+                if remaining_bottles <= 0:
+                    break
+                loose_available = max(0, _int(getattr(inventory, "loose_bottles", 0), 0))
+                if loose_available <= 0:
+                    continue
+                consume_loose = min(loose_available, remaining_bottles)
+                if consume_loose <= 0:
+                    continue
+                inventory.loose_bottles = loose_available - consume_loose
+                inventory.save(update_fields=["loose_bottles", "updated_at"])
+                InventoryTransaction.objects.create(
+                    warehouse=inventory.warehouse,
+                    product=product,
+                    type="OUT",
+                    quantity=consume_loose,
+                    reference_type="order_item",
+                    reference_id=order_item.id,
+                    notes=f"Replacement bottle allocation from loose stock for order {order.order_number}",
+                    performed_by=performed_by,
+                )
+                loose_consumed_total += consume_loose
+                remaining_bottles -= consume_loose
+
+            if loose_consumed_total > 0:
+                allocation_rows = [
+                    {
+                        "batchNumber": "LOOSE_BOTTLES",
+                        "quantity": loose_consumed_total,
+                        "warehouseId": None,
+                    }
+                ]
+            else:
+                allocation_rows = []
+            effective_requested_qty = int(math.ceil(remaining_bottles / qty_per_case)) if remaining_bottles > 0 else 0
+        else:
+            allocation_rows = []
+    else:
+        allocation_rows = []
+
+    if effective_requested_qty <= 0:
+        return allocation_rows
+
     inventory_by_id = {inv.id: inv for inv in inventories}
     batches = list(
         StockBatch.objects.select_related("inventory")
@@ -3048,8 +3123,7 @@ def _allocate_inventory_for_order_item(
         raise ValueError(f"No available stock batches for product {product.sku}")
 
     ordered_batches = _sorted_batches_for_policy(batches, allocation_policy)
-    remaining = requested_qty
-    allocation_rows: list[dict[str, Any]] = []
+    remaining = effective_requested_qty
 
     for batch in ordered_batches:
         if remaining <= 0:
@@ -3602,39 +3676,40 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
     _send_transactional_email(subject=subject, message=message, recipients=recipients)
 
 
-def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_restock_qty: int = 0) -> bool:
-    """
-    Overstock guard for stock-in:
-    - available >= threshold * 3
-    - condition has persisted for at least 7 days
-    - OR incoming restock quantity >= threshold * 5
-    """
+def _is_inventory_overstocked_flagged_by_stockin(inventory: Inventory) -> bool:
     threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
     if threshold <= 0:
         return False
-    incoming_qty = max(0, _int(incoming_restock_qty, 0))
-    if incoming_qty >= (threshold * 5):
-        return True
-    available = max(
-        0,
-        _int(getattr(inventory, "quantity", 0), 0) - _int(getattr(inventory, "reserved_quantity", 0), 0),
+    latest_stockin = (
+        InventoryTransaction.objects.filter(
+            warehouse_id=getattr(inventory, "warehouse_id", None),
+            product_id=getattr(inventory, "product_id", None),
+            type="IN",
+            reference_type="stock_batch",
+        )
+        .order_by("-created_at")
+        .only("quantity")
+        .first()
     )
-    if available < (threshold * 3):
+    if not latest_stockin:
         return False
+    return max(0, _int(getattr(latest_stockin, "quantity", 0), 0)) >= (threshold * 10)
 
-    reference_ts = (
-        getattr(inventory, "last_restocked_at", None)
-        or getattr(inventory, "updated_at", None)
-        or getattr(inventory, "created_at", None)
-    )
-    if not reference_ts:
-        return False
 
-    try:
-        sustained_until = reference_ts + timedelta(days=7)
-    except Exception:
+def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_restock_qty: int = 0) -> bool:
+    """
+    Overstock guard for stock-in:
+    - block only when product is currently flagged overstocked
+    - overstock flag is based on latest stock-in batch quantity >= 10x threshold
+    """
+    return _is_inventory_overstocked_flagged_by_stockin(inventory)
+
+
+def _stockin_would_flag_overstock(inventory: Inventory, stockin_qty: int) -> bool:
+    threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
+    if threshold <= 0:
         return False
-    return timezone.now() >= sustained_until
+    return max(0, _int(stockin_qty, 0)) >= (threshold * 10)
 
 
 def _otp_secret() -> str:
@@ -3852,10 +3927,6 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         return _err("Invalid email or password", 401)
     if not user.is_active or not verify_password(password, user.password):
         return _err("Invalid email or password", 401)
-    session_timeout_minutes = int(getattr(user, "session_timeout_minutes", 30) or 30)
-    if session_timeout_minutes < 5:
-        session_timeout_minutes = 5
-
     if bool(getattr(user, "two_factor_enabled", False)):
         if not _otp_mail_ready():
             return _err("2FA is enabled but OTP email service is not configured", 500)
@@ -3890,7 +3961,10 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
-    token_exp_hours = 24 * 30 if remember_me else max(session_timeout_minutes / 60.0, 1 / 12)
+    # Keep auth token lifetime independent from UI inactivity timeout.
+    # Inactivity is enforced client-side via session timer; short absolute JWT lifetimes
+    # cause active users to get unexpected 401s mid-session.
+    token_exp_hours = 24 * 30 if remember_me else 24
     token = create_token(payload, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
@@ -3940,10 +4014,8 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
-    session_timeout_minutes = int(getattr(user, "session_timeout_minutes", 30) or 30)
-    if session_timeout_minutes < 5:
-        session_timeout_minutes = 5
-    token_exp_hours = 24 * 30 if remember_me else max(session_timeout_minutes / 60.0, 1 / 12)
+    # Keep auth token lifetime independent from UI inactivity timeout.
+    token_exp_hours = 24 * 30 if remember_me else 24
     token = create_token(payload, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
@@ -4022,27 +4094,22 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
 
         with transaction.atomic():
             customer = Customer.objects.filter(email=email).first()
-            created = False
+            if not customer:
+                return _err("no registered account using this email", 404)
 
-            if customer and not customer.is_active:
+            if not customer.is_active:
                 return _err("Account is deactivated", 403)
 
-            if not customer:
-                customer = Customer.objects.create(
-                    email=email,
-                    password=hash_password(secrets.token_urlsafe(32)),
-                    name=name,
-                    avatar=avatar,
-                )
-                created = True
-            else:
-                changed_fields: list[str] = []
-                if avatar and customer.avatar != avatar:
-                    customer.avatar = avatar
-                    changed_fields.append("avatar")
-                if changed_fields:
-                    changed_fields.append("updated_at")
-                    customer.save(update_fields=changed_fields)
+            changed_fields: list[str] = []
+            if not str(customer.name or "").strip() and name:
+                customer.name = name
+                changed_fields.append("name")
+            if avatar and customer.avatar != avatar:
+                customer.avatar = avatar
+                changed_fields.append("avatar")
+            if changed_fields:
+                changed_fields.append("updated_at")
+                customer.save(update_fields=changed_fields)
 
         payload = _customer_payload(customer)
         token = create_token(payload, 24 * 30 if remember_me else 24)
@@ -4051,10 +4118,10 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                 "success": True,
                 "user": payload,
                 "token": token,
-                "message": "Registration successful" if created else "Login successful",
-                "created": created,
+                "message": "Login successful",
+                "created": False,
             },
-            201 if created else 200,
+            200,
         )
         _set_auth_cookie(resp, token, remember_me)
         return resp
@@ -4132,8 +4199,18 @@ def auth_me(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def auth_logout(_request: HttpRequest) -> JsonResponse:
+def auth_logout(request: HttpRequest) -> JsonResponse:
     resp = _ok({"success": True, "message": "Logout successful"})
+    payload = _require_auth(request)
+    account_type = str((payload or {}).get("type") or "").strip().lower()
+    if account_type == "customer":
+        resp.delete_cookie(CUSTOMER_TOKEN_NAME, path="/")
+    elif account_type == "staff":
+        resp.delete_cookie(STAFF_TOKEN_NAME, path="/")
+    else:
+        # Unknown/expired token: only clear legacy cookie, avoid killing other role sessions.
+        resp.delete_cookie(TOKEN_NAME, path="/")
+    # Keep cleanup for legacy shared cookie if present.
     resp.delete_cookie(TOKEN_NAME, path="/")
     return resp
 
@@ -4965,7 +5042,14 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             qs = qs.filter(warehouse_id=requested_warehouse_id)
         total = qs.count()
         rows = list(qs[off : off + size])
-        data = [_serialize_model(x, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)}) for x in rows]
+        data = []
+        for item in rows:
+            row = _serialize_model(
+                item,
+                include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)},
+            )
+            row["overstockedFlag"] = _is_inventory_overstocked_flagged_by_stockin(item)
+            data.append(row)
         return _ok({"success": True, "inventory": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
     warehouse_id = str(body.get("warehouseId", "")).strip()
@@ -4985,15 +5069,20 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         defaults={"quantity": qty, "reserved_quantity": 0, "threshold": max(1, int(qty * 0.15)), "last_restocked_at": timezone.now()},
     )
     if not created and _is_inventory_overstocked_for_restock_block(item, qty):
-        return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days or incoming restock >= 5x threshold).", 400)
+        return _err("Cannot add stock: product is currently flagged as overstocked (latest stock-in is >= 10x threshold).", 400)
     if not created:
         item.quantity += qty
         item.loose_bottles = max(0, _int(getattr(item, "loose_bottles", 0), 0) + loose_bottles)
     else:
         item.loose_bottles = loose_bottles
-    item.threshold = max(1, int(item.quantity * 0.15))
+    should_update_threshold = not _stockin_would_flag_overstock(item, qty)
+    if should_update_threshold:
+        item.threshold = max(1, int(item.quantity * 0.15))
     item.last_restocked_at = timezone.now()
-    item.save(update_fields=["quantity", "loose_bottles", "threshold", "last_restocked_at", "updated_at"])
+    update_fields = ["quantity", "loose_bottles", "last_restocked_at", "updated_at"]
+    if should_update_threshold:
+        update_fields.insert(2, "threshold")
+    item.save(update_fields=update_fields)
     InventoryTransaction.objects.create(
         warehouse=warehouse,
         product=product,
@@ -5081,7 +5170,7 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "POST", "PUT"])
 def stock_batches_collection(request: HttpRequest) -> JsonResponse:
     staff, err = _require_staff(request)
     if err:
@@ -5110,6 +5199,105 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         data = [_serialize_model(x, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for x in rows]
         return _ok({"success": True, "stockBatches": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     body = _json_body(request)
+    if request.method == "PUT":
+        batch_id = str(body.get("batchId") or body.get("id") or "").strip()
+        if not batch_id:
+            return _err("batchId is required", 400)
+        quantity = _int(body.get("quantity"), -1)
+        if quantity < 0:
+            return _err("quantity must be a non-negative number", 400)
+
+        batch = (
+            StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
+            .filter(id=batch_id)
+            .first()
+        )
+        if not batch:
+            return _err("Stock batch not found", 404)
+
+        staff_role = str(staff.get("role") or "").strip().upper()
+        staff_user_id = str(staff.get("userId") or "").strip()
+        if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+            allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(staff_user_id)
+            if not allowed_warehouse_ids or str(getattr(batch.inventory, "warehouse_id", "") or "").strip() not in allowed_warehouse_ids:
+                return _err("Access denied for this warehouse", 403)
+
+        inv = batch.inventory
+        previous_qty = max(0, _int(getattr(batch, "quantity", 0), 0))
+        next_qty = max(0, quantity)
+        delta = next_qty - previous_qty
+        if delta == 0:
+            return _ok(
+                {
+                    "success": True,
+                    "stockBatch": _serialize_model(batch, include={"inventory": lambda o: _serialize_model(o.inventory)}),
+                    "message": "Stock batch quantity unchanged",
+                }
+            )
+
+        if delta > 0 and _is_inventory_overstocked_for_restock_block(inv, delta):
+            return _err("Cannot increase stock batch quantity: product is overstocked.", 400)
+
+        with transaction.atomic():
+            batch.quantity = next_qty
+            _persist_stock_batch_quantity(batch)
+
+            refreshed_inventory = Inventory.objects.select_for_update().filter(id=inv.id).first()
+            if not refreshed_inventory:
+                return _err("Inventory not found", 404)
+            recalculated_total = (
+                StockBatch.objects.filter(inventory_id=refreshed_inventory.id, quantity__gt=0)
+                .aggregate(total=Sum("quantity"))
+                .get("total")
+            )
+            inv.quantity = max(0, _int(recalculated_total, 0))
+            should_update_threshold = not _stockin_would_flag_overstock(inv, next_qty)
+            if should_update_threshold:
+                inv.threshold = max(1, int(inv.quantity * 0.15))
+            update_fields = ["quantity", "updated_at"]
+            if should_update_threshold:
+                update_fields.insert(1, "threshold")
+            inv.save(update_fields=update_fields)
+
+            tx = (
+                InventoryTransaction.objects.filter(
+                    reference_type="stock_batch",
+                    reference_id=batch_id,
+                    type="IN",
+                )
+                .order_by("created_at")
+                .first()
+            )
+            if tx:
+                tx.quantity = next_qty
+                tx.notes = "Stock batch added (edited quantity)"
+                tx.performed_by = (_payload(request) or {}).get("userId")
+                tx.save(update_fields=["quantity", "notes", "performed_by"])
+            else:
+                InventoryTransaction.objects.create(
+                    warehouse=inv.warehouse,
+                    product=inv.product,
+                    type="IN",
+                    quantity=next_qty,
+                    reference_type="stock_batch",
+                    reference_id=batch_id,
+                    notes="Stock batch added (edited quantity)",
+                    performed_by=(_payload(request) or {}).get("userId"),
+                )
+
+        updated_batch = (
+            StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
+            .filter(id=batch_id)
+            .first()
+        )
+        return _ok(
+            {
+                "success": True,
+                "stockBatch": _serialize_model(updated_batch, include={"inventory": lambda o: _serialize_model(o.inventory)}) if updated_batch else None,
+                "message": "Stock batch quantity updated",
+            }
+        )
+
     qty = _int(body.get("quantity"), 0)
     if qty <= 0:
         return _err("quantity must be > 0")
@@ -5123,12 +5311,13 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             return _err("Invalid manufacturedDate", 400)
 
     expiry_raw = str(body.get("expiryDate") or body.get("expiry_date") or "").strip()
+    if not expiry_raw:
+        return _err("expiryDate is required", 400)
     expiry_date = None
-    if expiry_raw:
-        try:
-            expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
-        except ValueError:
-            return _err("Invalid expiryDate", 400)
+    try:
+        expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+    except ValueError:
+        return _err("Invalid expiryDate", 400)
 
     created_by = (_payload(request) or {}).get("userId")
 
@@ -5197,7 +5386,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     },
                 )
                 if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
-                    return _err("Cannot add stock: product is overstocked (>= 3x threshold for 7+ days or incoming restock >= 5x threshold).", 400)
+                    return _err("Cannot add stock: product is currently flagged as overstocked (latest stock-in is >= 10x threshold).", 400)
 
             batch = StockBatch.objects.create(
                 batch_number=str(body.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}"),
@@ -5211,9 +5400,14 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             )
 
             inv.quantity += qty
-            inv.threshold = max(1, int(inv.quantity * 0.15))
+            should_update_threshold = not _stockin_would_flag_overstock(inv, qty)
+            if should_update_threshold:
+                inv.threshold = max(1, int(inv.quantity * 0.15))
             inv.last_restocked_at = timezone.now()
-            inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
+            update_fields = ["quantity", "last_restocked_at", "updated_at"]
+            if should_update_threshold:
+                update_fields.insert(1, "threshold")
+            inv.save(update_fields=update_fields)
 
             InventoryTransaction.objects.create(
                 warehouse=inv.warehouse,
@@ -5286,12 +5480,13 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
         if not product:
             return _err(f"Batch {idx}: Product not found", 404)
 
+        if not expiry_raw:
+            return _err(f"Batch {idx}: expiryDate is required", 400)
         expiry_date = None
-        if expiry_raw:
-            try:
-                expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
-            except ValueError:
-                return _err(f"Batch {idx}: Invalid expiryDate format", 400)
+        try:
+            expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return _err(f"Batch {idx}: Invalid expiryDate format", 400)
 
         validated_batches.append({
             "index": idx,
@@ -5330,7 +5525,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 )
                 if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
                     return _err(
-                        f"Batch {batch_data['index']}: cannot add stock for overstocked product (>= 3x threshold for 7+ days or incoming restock >= 5x threshold).",
+                        f"Batch {batch_data['index']}: cannot add stock for product currently flagged as overstocked (latest stock-in is >= 10x threshold).",
                         400,
                     )
 
@@ -5348,9 +5543,14 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 
                 # Update inventory quantity
                 inv.quantity += qty
-                inv.threshold = max(1, int(inv.quantity * 0.15))
+                should_update_threshold = not _stockin_would_flag_overstock(inv, qty)
+                if should_update_threshold:
+                    inv.threshold = max(1, int(inv.quantity * 0.15))
                 inv.last_restocked_at = timezone.now()
-                inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
+                update_fields = ["quantity", "last_restocked_at", "updated_at"]
+                if should_update_threshold:
+                    update_fields.insert(1, "threshold")
+                inv.save(update_fields=update_fields)
 
                 # Create inventory transaction
                 InventoryTransaction.objects.create(
@@ -7242,7 +7442,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     if not order_id:
         return _err("orderId is required", 400)
     order = (
-        Order.objects.select_related("customer")
+        Order.objects.select_related("customer", "timeline")
         .prefetch_related("items__product")
         .filter(id=order_id, customer_id=p.get("userId"))
         .first()
@@ -7253,6 +7453,33 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     normalized_order_status = _normalize_order_status(getattr(order, "status", None))
     if normalized_order_status != OrderStatus.DELIVERED:
         return _err("Replacement request is only allowed for delivered orders", 400)
+
+    delivered_at = getattr(getattr(order, "timeline", None), "delivered_at", None)
+    if delivered_at is None:
+        delivered_at = getattr(order, "updated_at", None) or getattr(order, "created_at", None)
+    if delivered_at is not None and timezone.now() > (delivered_at + timedelta(days=3)):
+        return _err("Replacement request is only allowed within 3 days after delivery", 400)
+
+    existing_customer_replacements = (
+        Replacement.objects.filter(order_id=order.id, customer_id=order.customer_id, replacement_mode="CUSTOMER_SUBMITTED")
+        .only("id", "status", "replacement_mode", "notes")
+    )
+    for existing in existing_customer_replacements:
+        normalized_existing_status = _normalize_replacement_status(existing.status, existing.replacement_mode)
+        if normalized_existing_status in {
+            ReplacementStatus.REJECTED,
+            ReplacementStatus.COMPLETED,
+            ReplacementStatus.RESOLVED_ON_DELIVERY,
+        }:
+            return _err(
+                "You cannot request another replacement for this order after a rejected or completed replacement case",
+                400,
+            )
+        if _is_linked_replacement_order_delivered(existing):
+            return _err(
+                "You cannot request another replacement for this order after a rejected or completed replacement case",
+                400,
+            )
 
     order_items = list(order.items.select_related("product").all())
     order_items_by_id = {
@@ -7414,6 +7641,9 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     if not evidence_list:
         return _err("At least one evidence file is required", 400)
 
+    if Replacement.objects.filter(order=order, status__in=[ReplacementStatus.COMPLETED, ReplacementStatus.RESOLVED_ON_DELIVERY]).exists():
+        return _err("A replacement request is already completed for this order", 400)
+
     count = Replacement.objects.count() + 1
     now = timezone.now()
     if replacement_lines:
@@ -7448,7 +7678,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         meta["replacementLines"] = replacement_lines
         meta["replacementItems"] = replacement_lines
     replacement = Replacement.objects.create(
-        replacement_number=f"RET-{timezone.now().year}-{str(count).zfill(4)}",
+        replacement_number=f"RPL-{timezone.now().year}-{str(count).zfill(4)}",
         order=order,
         customer_id=order.customer_id,
         reason=damage_type,

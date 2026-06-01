@@ -181,7 +181,16 @@ async function fetchJsonWithRetry(
       if (response.ok && data?.success !== false) {
         return { response, data, raw }
       }
-      if (response.status === 401 || response.status === 403) {
+      if (
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 404 ||
+        response.status === 405 ||
+        response.status === 409 ||
+        response.status === 410 ||
+        response.status === 422
+      ) {
         return { response, data, raw }
       }
     } catch (error) {
@@ -292,6 +301,7 @@ export function useDriverPortalState() {
   const extractTripDriverId = useCallback((trip: any): string | null => {
     const value =
       trip?.driver?.id ??
+      trip?.driver?.user_id ??
       trip?.driver_id ??
       trip?.driverId ??
       trip?.driver?.userId ??
@@ -304,12 +314,28 @@ export function useDriverPortalState() {
   const resolveCurrentDriverUserId = useCallback(async (): Promise<string | null> => {
     if (currentDriverUserIdRef.current) return currentDriverUserIdRef.current
     const me = await fetchJsonWithRetry('/api/auth/me', { cache: 'no-store', credentials: 'include' }, { retries: 1, timeoutMs: 8000 })
-    if (!me.response?.ok || me.data?.success === false) return null
-    const role = String(me.data?.user?.role || '').toUpperCase()
-    const userId = String(me.data?.user?.id || me.data?.user?.userId || '').trim()
-    if (role !== 'DRIVER' || !userId) return null
-    currentDriverUserIdRef.current = userId
-    return userId
+    if (me.response?.ok && me.data?.success !== false) {
+      const role = String(me.data?.user?.role || '').toUpperCase()
+      const userId = String(me.data?.user?.id || me.data?.user?.userId || '').trim()
+      if (role === 'DRIVER' && userId) {
+        currentDriverUserIdRef.current = userId
+        return userId
+      }
+    }
+
+    // Fallback path: driver profile endpoint can still resolve the driver identity
+    // even when /api/auth/me is stale or role-conflicted.
+    const profile = await fetchJsonWithRetry('/api/driver/profile', { cache: 'no-store', credentials: 'include' }, { retries: 1, timeoutMs: 8000 })
+    if (!profile.response?.ok || profile.data?.success === false) return null
+    const profileUserId = String(
+      profile.data?.driver?.id ||
+      profile.data?.driver?.user?.id ||
+      profile.data?.driver?.userId ||
+      ''
+    ).trim()
+    if (!profileUserId) return null
+    currentDriverUserIdRef.current = profileUserId
+    return profileUserId
   }, [])
 
   const fetchTripsFallback = useCallback(async (): Promise<Trip[]> => {
@@ -318,7 +344,7 @@ export function useDriverPortalState() {
     const allTrips = await fetchJsonWithRetry(
       '/api/trips?page=1&pageSize=200',
       { cache: 'no-store', credentials: 'include' },
-      { retries: 1, timeoutMs: 10000 }
+      { retries: 1, timeoutMs: 20000 }
     )
     if (!allTrips.response?.ok || allTrips.data?.success === false) return []
     const rows = Array.isArray(allTrips.data?.trips) ? allTrips.data.trips : []
@@ -333,7 +359,7 @@ export function useDriverPortalState() {
       const { response, data, raw } = await fetchJsonWithRetry(
         '/api/driver/trips?page=1&pageSize=50',
         { cache: 'no-store', credentials: 'include' },
-        { retries: 2, timeoutMs: 10000 }
+        { retries: 2, timeoutMs: 20000 }
       )
 
       let nextTrips = Array.isArray(data?.trips) ? data.trips : []
@@ -344,6 +370,14 @@ export function useDriverPortalState() {
           nextTrips = fallbackTrips
         } else {
           const rawMessage = typeof data?.error === 'string' ? data.error : ''
+          const normalizedMessage = rawMessage.toLowerCase()
+          if (
+            normalizedMessage.includes('abort') ||
+            normalizedMessage.includes('timed out') ||
+            normalizedMessage.includes('signal is aborted')
+          ) {
+            return latestTripsRef.current
+          }
           const status = response?.status || 0
           const fallbackMessage =
             status >= 500

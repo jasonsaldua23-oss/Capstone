@@ -69,19 +69,6 @@ export function installTabAuthFetchInterceptor() {
       headers,
     })
 
-    // Recover from stale per-tab tokens by retrying once without the injected header.
-    if (!hasAuthHeader && (response.status === 401 || response.status === 403)) {
-      clearTabAuthToken()
-      const retryHeaders = new Headers(
-        init?.headers ?? (input instanceof Request ? input.headers : undefined)
-      )
-      retryHeaders.delete('Authorization')
-      return originalFetch(input, {
-        ...init,
-        headers: retryHeaders,
-      })
-    }
-
     return response
   }
 

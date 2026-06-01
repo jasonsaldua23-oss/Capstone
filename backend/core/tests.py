@@ -3763,6 +3763,104 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
 
+    def test_customer_replacement_request_rejects_order_delivered_more_than_3_days_ago(self) -> None:
+        OrderTimeline.objects.create(
+            order=self.order,
+            delivered_at=timezone.now() - timedelta(days=4),
+        )
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Leak",
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        "inputMode": "case",
+                        "quantityToReplace": 6,
+                        "quantityToReplaceCases": 1,
+                        "reason": "Leak",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("within 3 days", payload["error"])
+
+    def test_customer_replacement_request_rejects_if_previous_replacement_was_rejected(self) -> None:
+        Replacement.objects.create(
+            replacement_number="RET-EXIST-REJECTED-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Prior replacement",
+            description="Prior replacement",
+            status="REJECTED",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=1,
+        )
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Leak",
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        "inputMode": "case",
+                        "quantityToReplace": 6,
+                        "quantityToReplaceCases": 1,
+                        "reason": "Leak",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("cannot request another replacement", payload["error"])
+
+    def test_customer_replacement_request_rejects_if_previous_replacement_was_completed(self) -> None:
+        Replacement.objects.create(
+            replacement_number="RET-EXIST-COMPLETED-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Prior replacement",
+            description="Prior replacement",
+            status="COMPLETED",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=1,
+        )
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Leak",
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        "inputMode": "case",
+                        "quantityToReplace": 6,
+                        "quantityToReplaceCases": 1,
+                        "reason": "Leak",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertIn("cannot request another replacement", payload["error"])
+
 
 class CustomerCreationPermissionContractTests(TestCase):
     def setUp(self) -> None:

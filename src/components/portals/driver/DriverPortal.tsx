@@ -94,19 +94,21 @@ export function DriverPortal() {
         />
 
         <div className="flex min-h-0 flex-1">
-          <DriverBottomNav
-            activeView={activeView}
-            onOpenHome={() => {
-              setActiveView('home')
-              setSelectedTripId(null)
-            }}
-            onOpenTrips={() => {
-              setActiveView('trips')
-              setSelectedTripId(null)
-            }}
-            onOpenHistory={() => setActiveView('history')}
-            onOpenProfile={() => setActiveView('profile')}
-          />
+          {!(activeView === 'trips' && selectedTripId) ? (
+            <DriverBottomNav
+              activeView={activeView}
+              onOpenHome={() => {
+                setActiveView('home')
+                setSelectedTripId(null)
+              }}
+              onOpenTrips={() => {
+                setActiveView('trips')
+                setSelectedTripId(null)
+              }}
+              onOpenHistory={() => setActiveView('history')}
+              onOpenProfile={() => setActiveView('profile')}
+            />
+          ) : null}
           <div
             className={`flex min-h-0 flex-1 flex-col overflow-x-hidden ${activeView === 'trips' && selectedTripId ? 'overflow-y-hidden' : 'overflow-y-auto'}`}
           >
@@ -118,7 +120,13 @@ export function DriverPortal() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.22, ease: 'easeOut' }}
-              className={`min-h-0 w-full px-4 md:px-6 pb-24 md:pb-8 ${activeView === 'trips' ? 'pt-0 md:pt-0' : 'pt-4 md:pt-6'} ${activeView === 'trips' && selectedTripId ? 'flex flex-1 flex-col overflow-hidden' : 'flex-1'}`}
+              className={`min-h-0 w-full ${
+                activeView === 'trips' && selectedTripId ? 'px-0 md:px-6' : 'px-4 md:px-6'
+              } ${
+                activeView === 'trips' && selectedTripId ? 'pb-0 md:pb-4' : 'pb-24 md:pb-8'
+              } ${activeView === 'trips' ? 'pt-0 md:pt-0' : 'pt-4 md:pt-6'} ${
+                activeView === 'trips' && selectedTripId ? 'flex flex-1 flex-col overflow-hidden' : 'flex-1'
+              }`}
             >
               {activeView === 'home' && (
                 // Home summary/dashboard card stack.

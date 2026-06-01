@@ -38,7 +38,24 @@ export function CustomerTrackView(props: any) {
 
   const tracking = trackingByOrderId[order.id]
   const routePoints = Array.isArray(tracking?.routePoints) ? tracking.routePoints : []
-  const hasDriverCoordinates = typeof tracking?.latitude === 'number' && typeof tracking?.longitude === 'number'
+  const orderNumberKey = String(order?.orderNumber || '').trim().toUpperCase()
+  const isReplacementOrder = Boolean((order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+  const liveSource = String(tracking?.source || '').toLowerCase()
+  const hasLiveSource = liveSource === 'driver_gps' || liveSource === 'trip_stop'
+  const latestRoutePoint = routePoints
+    .filter((point: any) => Number.isFinite(Number(point?.latitude)) && Number.isFinite(Number(point?.longitude)))
+    .sort((a: any, b: any) => {
+      const at = new Date(String(a?.recordedAt || '')).getTime()
+      const bt = new Date(String(b?.recordedAt || '')).getTime()
+      return bt - at
+    })[0]
+  const driverLatitude = Number.isFinite(Number(latestRoutePoint?.latitude))
+    ? Number(latestRoutePoint?.latitude)
+    : (Number.isFinite(Number(tracking?.latitude)) ? Number(tracking?.latitude) : null)
+  const driverLongitude = Number.isFinite(Number(latestRoutePoint?.longitude))
+    ? Number(latestRoutePoint?.longitude)
+    : (Number.isFinite(Number(tracking?.longitude)) ? Number(tracking?.longitude) : null)
+  const hasDriverCoordinates = hasLiveSource && driverLatitude !== null && driverLongitude !== null
   const destinationLatitude =
     typeof tracking?.destinationLatitude === 'number'
       ? tracking.destinationLatitude
@@ -56,12 +73,26 @@ export function CustomerTrackView(props: any) {
       ? Number((tracking as any).trip.warehouseLongitude)
       : null
 
-  const mapLat = hasDriverCoordinates ? (tracking.latitude as number) : null
-  const mapLng = hasDriverCoordinates ? (tracking.longitude as number) : null
+  const mapLat = hasDriverCoordinates
+    ? (driverLatitude as number)
+    : (typeof destinationLatitude === 'number'
+      ? destinationLatitude
+      : (typeof warehouseLatitude === 'number' ? warehouseLatitude : null))
+  const mapLng = hasDriverCoordinates
+    ? (driverLongitude as number)
+    : (typeof destinationLongitude === 'number'
+      ? destinationLongitude
+      : (typeof warehouseLongitude === 'number' ? warehouseLongitude : null))
   const isDelivered = String(normalizeDeliveryStatus(order.status, order.paymentStatus)) === 'DELIVERED'
   const isRescheduled = isRescheduledOrder(order.status)
   const currentIndex = getOrderStageIndex(order.status, order.paymentStatus)
   const statusText = formatOrderStatus(order.status, order.paymentStatus)
+  const normalizedStatus = String(normalizeDeliveryStatus(order.status, order.paymentStatus))
+  const isInTransit = normalizedStatus === 'OUT_FOR_DELIVERY' || normalizedStatus === 'IN_TRANSIT'
+  const scheduleLabel = isDelivered ? 'Delivered on' : isInTransit ? 'Expected on' : 'Scheduled for'
+  const scheduleDateSource = isDelivered
+    ? (order.deliveredAt || order.deliveryDate || order.updatedAt || order.createdAt)
+    : (order.deliveryDate || order.updatedAt || order.createdAt)
 
   const timelineRows = [
     { key: 'pending', label: 'Order Confirmed', description: `We received your order ${order.orderNumber}.`, active: currentIndex >= 0 },
@@ -89,30 +120,33 @@ export function CustomerTrackView(props: any) {
           <div className="grid grid-cols-3 gap-2 md:gap-0">
             <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:bg-transparent md:p-0">
               <p className="text-xs text-white/80">Order Status</p>
-              <p className="text-xl font-bold md:text-3xl">{statusText.toUpperCase()}</p>
+              <p className="text-lg font-bold md:text-2xl">{statusText.toUpperCase()}</p>
             </div>
             <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:border-l md:border-r md:border-white/20 md:bg-transparent md:px-3 md:py-0">
-              <p className="text-xs text-white/80">Order ID</p>
+              <p className="text-xs text-white/80">{isReplacementOrder ? 'Replacement ID' : 'Order ID'}</p>
               <p className="text-sm font-semibold md:text-lg md:mb-2">{order.orderNumber}</p>
-              <Badge className="inline-block bg-emerald-200/20 text-emerald-100 hover:bg-emerald-200/20 text-xs">{statusText.toUpperCase()}</Badge>
               {isRescheduled ? (
                 <Badge className="mt-1 inline-block bg-amber-200/20 text-amber-50 hover:bg-amber-200/20 text-xs">RESCHEDULED ORDER</Badge>
               ) : null}
             </div>
             <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:bg-transparent md:pl-3 md:py-0">
-              <p className="text-xs text-white/80">Delivered on</p>
+              <p className="text-xs text-white/80">{scheduleLabel}</p>
               <p className="flex items-center justify-center gap-1 text-xs font-semibold md:gap-1.5 md:text-sm md:flex-col">
                 <CalendarDays className="h-3 w-3 md:h-4 md:w-4" />
-                {new Date(order.deliveredAt || order.deliveryDate || order.createdAt).toLocaleDateString()}
+                {new Date(scheduleDateSource).toLocaleDateString()}
               </p>
-              <p className="text-xs text-white/80 mt-1">{new Date(order.deliveredAt || order.deliveryDate || order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+              {isDelivered ? (
+                <p className="text-xs text-white/80 mt-1">
+                  {new Date(scheduleDateSource).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
 
         <Card className="rounded-xl border-slate-200 shadow-none">
           <CardContent className="p-0">
-            {mapLat !== null && mapLng !== null ? (
+            {isInTransit && hasDriverCoordinates && mapLat !== null && mapLng !== null ? (
               <DriverRouteMap
                 latitude={mapLat}
                 longitude={mapLng}
@@ -122,11 +156,13 @@ export function CustomerTrackView(props: any) {
                 warehouseLatitude={warehouseLatitude}
                 warehouseLongitude={warehouseLongitude}
                 destinationCompleted={isDelivered}
-                className="h-[240px] rounded-xl md:h-[300px]"
+                className="h-[280px] rounded-xl md:h-[360px]"
               />
             ) : (
-              <div className="grid h-[240px] place-items-center text-sm text-slate-500 md:h-[300px]">
-                Waiting for live driver GPS for this order.
+              <div className="grid h-[280px] place-items-center text-sm text-slate-500 md:h-[360px]">
+                {isInTransit
+                  ? 'Waiting for live driver GPS for this order.'
+                  : 'Driver location is shown only when the order is out for delivery.'}
               </div>
             )}
           </CardContent>
@@ -181,7 +217,7 @@ export function CustomerTrackView(props: any) {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-slate-500" />
-                  <p className="text-xs font-semibold text-slate-500">No. of Items</p>
+                  <p className="text-xs font-semibold text-slate-500">{isReplacementOrder ? 'No. of Replacement Items' : 'No. of Items'}</p>
                   <p className="ml-auto font-semibold text-slate-900">{(order.items || []).length} items</p>
                 </div>
                 <div className="flex items-center gap-2">

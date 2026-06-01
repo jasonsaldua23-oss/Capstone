@@ -7,6 +7,8 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.http import HttpRequest
 
 TOKEN_NAME = "auth_token"
+STAFF_TOKEN_NAME = "auth_token_staff"
+CUSTOMER_TOKEN_NAME = "auth_token_customer"
 TOKEN_EXP_HOURS = 24
 REMEMBER_ME_EXP_HOURS = 24 * 30
 
@@ -42,4 +44,16 @@ def extract_token(request: HttpRequest) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip() or None
-    return request.COOKIES.get(TOKEN_NAME)
+
+    # Role-scoped cookie fallback allows concurrent customer + staff sessions.
+    path = str(getattr(request, "path", "") or "")
+    preferred_cookie = CUSTOMER_TOKEN_NAME if path.startswith("/api/customer/") else STAFF_TOKEN_NAME
+    cookie_token = request.COOKIES.get(preferred_cookie)
+    if cookie_token:
+        return cookie_token
+
+    # Backward compatibility fallback for older shared cookie.
+    legacy_cookie = request.COOKIES.get(TOKEN_NAME)
+    if legacy_cookie:
+        return legacy_cookie
+    return None

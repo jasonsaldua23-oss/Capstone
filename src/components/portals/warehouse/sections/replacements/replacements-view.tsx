@@ -23,6 +23,18 @@ export function WarehouseReplacementsView({
 }: WarehouseReplacementsViewProps) {
   const [replacementDeliveryDate, setReplacementDeliveryDate] = useState('')
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
+  const todayDateInput = useMemo(() => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }, [])
+  const isPastScheduleDate = (value: string) => {
+    const raw = String(value || '').trim()
+    if (!raw) return false
+    return raw < todayDateInput
+  }
   const openReplacementDetails = (entry: any) => {
     const scheduled = String(entry?.scheduledDeliveryDate || '').trim()
     setReplacementDeliveryDate(scheduled)
@@ -531,7 +543,7 @@ export function WarehouseReplacementsView({
                           <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
                         </td>
                         <td className="p-4">
-                          <Badge variant={hasEvidence ? 'default' : 'secondary'}>
+                          <Badge className={hasEvidence ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : ''} variant="secondary">
                             {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
                           </Badge>
                         </td>
@@ -574,7 +586,7 @@ export function WarehouseReplacementsView({
           setReplacementDeliveryDate('')
         }
       }}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0">
+        <DialogContent className="max-h-[90vh] w-[98vw] max-w-[1400px] overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseIssueMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
@@ -692,12 +704,14 @@ export function WarehouseReplacementsView({
                             className="h-9 w-[170px] shrink-0 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
                             value={replacementDeliveryDate}
                             onChange={(event) => setReplacementDeliveryDate(event.target.value)}
+                            min={todayDateInput}
                           />
                           <Button
                             size="sm"
                             className="h-9 shrink-0 whitespace-nowrap px-4 bg-blue-600 text-white hover:bg-blue-700"
                             onClick={() => {
                               if (!replacementDeliveryDate) return
+                              if (isPastScheduleDate(replacementDeliveryDate)) return
                               const nextStatus = rawStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_FOLLOW_UP'
                               void updateIssueStatus(selectedReplacement.id, nextStatus, {
                                 notes: shouldShowSchedulePickerInModal
@@ -708,7 +722,7 @@ export function WarehouseReplacementsView({
                                 manualScheduleConfirmed: true,
                               })
                             }}
-                            disabled={updatingReplacementId === selectedReplacement.id || !replacementDeliveryDate}
+                            disabled={updatingReplacementId === selectedReplacement.id || !replacementDeliveryDate || isPastScheduleDate(replacementDeliveryDate)}
                           >
                             Schedule Delivery
                           </Button>

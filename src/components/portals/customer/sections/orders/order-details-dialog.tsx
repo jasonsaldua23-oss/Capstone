@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CalendarDays, CheckCircle2, Download, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -55,10 +55,16 @@ export function CustomerOrderDetailsDialog(props: any) {
     () => deliveryIssueRecords.filter((record: any) => record.orderId === selectedOrder?.id),
     [deliveryIssueRecords, selectedOrder?.id],
   )
+  const hasCompletedReplacementRequest = useMemo(() => {
+    return selectedOrderReplacementRecords.some((record: any) => {
+      const rawStatus = String(record?.status || '').toUpperCase()
+      return ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    })
+  }, [selectedOrderReplacementRecords])
   const hasActiveReplacementRequest = useMemo(() => {
     return selectedOrderReplacementRecords.some((record: any) => {
       const rawStatus = String(record?.status || '').toUpperCase()
-      return !['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED'].includes(rawStatus)
+      return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)
     })
   }, [selectedOrderReplacementRecords])
 
@@ -213,12 +219,12 @@ export function CustomerOrderDetailsDialog(props: any) {
   useEffect(() => {
     if (!selectedOrder) return
     const shouldOpenReplacement = Boolean((selectedOrder as any)?.__openReplacementRequest)
-    if (shouldOpenReplacement && hasActiveReplacementRequest) {
+    if (shouldOpenReplacement && (hasCompletedReplacementRequest || hasActiveReplacementRequest)) {
       setIsReplacementRequestOpen(false)
       return
     }
     setIsReplacementRequestOpen(shouldOpenReplacement)
-  }, [selectedOrder, hasActiveReplacementRequest])
+  }, [selectedOrder, hasCompletedReplacementRequest, hasActiveReplacementRequest])
 
   const selectableOrderItems = Array.isArray(selectedOrder?.items) ? selectedOrder.items : []
   const addReplacementLine = () => {
@@ -404,11 +410,11 @@ export function CustomerOrderDetailsDialog(props: any) {
                         className="h-6 w-6 rounded border border-slate-200 object-cover bg-white md:h-8 md:w-8"
                       />
                       <div className="min-w-0">
-                        <p className="truncate text-slate-800">
-                          {(item.product?.name || 'Item')} {String(item.product?.sizeLabel || item.product?.size || item.product?.unit || '').trim() || 'N/A'}
+                        <p className="text-slate-800 break-words leading-snug">
+                          {item.product?.name || 'Item'} {String(item.product?.sizeLabel || item.product?.size || '').trim()}
                         </p>
                         {String(item.product?.category?.name || item.product?.category || '').trim() ? (
-                          <p className="truncate text-[10px] text-slate-500 md:text-xs">
+                          <p className="text-[9px] text-slate-500 md:text-[10px] break-words leading-snug">
                             {String(item.product?.category?.name || item.product?.category || '').trim()}
                           </p>
                         ) : null}
@@ -442,9 +448,9 @@ export function CustomerOrderDetailsDialog(props: any) {
               {selectedOrderReplacementRecords.length ? (
                 <div className="border-t border-slate-200 px-3 py-3">
                   <p className="mb-1 text-xs font-semibold text-slate-700">Replacement Details</p>
-                  {hasActiveReplacementRequest ? (
+                  {hasCompletedReplacementRequest || hasActiveReplacementRequest ? (
                     <p className="mb-2 text-[11px] font-medium text-amber-700">
-                      A replacement request for this order is already in progress. You cannot submit another one yet.
+                      A replacement request for this order already exists. You cannot submit another one yet.
                     </p>
                   ) : null}
                   {selectedOrderReplacementRecords.map((record: any) => {
@@ -505,7 +511,6 @@ export function CustomerOrderDetailsDialog(props: any) {
                 onClick={() => setIsReceiptDialogOpen(true)}
                 disabled={!isOrderDelivered(selectedOrder)}
               >
-                <Download className="mr-1.5 h-3.5 w-3.5 md:h-4 md:w-4" />
                 View Receipt
               </Button>
               <Button className="h-9 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 md:h-10 md:text-sm" onClick={() => setSelectedOrder(null)}>
@@ -528,9 +533,9 @@ export function CustomerOrderDetailsDialog(props: any) {
       <DialogContent className="w-[95vw] max-w-[720px] rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-base font-semibold text-slate-900">Request Replacement</p>
         <p className="mt-1 text-xs text-slate-600">Select one or more products and set reason per product.</p>
-        {hasActiveReplacementRequest ? (
+        {hasCompletedReplacementRequest || hasActiveReplacementRequest ? (
           <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-700">
-            A replacement request is already in progress for this order.
+            A replacement request is already in progress or completed for this order.
           </p>
         ) : null}
         <div className="mt-3 space-y-2">
@@ -638,9 +643,9 @@ export function CustomerOrderDetailsDialog(props: any) {
           ) : null}
           <Button
             className="h-9 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-500"
-            disabled={isSubmittingReplacement || hasActiveReplacementRequest}
+            disabled={isSubmittingReplacement || hasCompletedReplacementRequest || hasActiveReplacementRequest}
             onClick={async () => {
-              if (hasActiveReplacementRequest) return
+              if (hasCompletedReplacementRequest || hasActiveReplacementRequest) return
               const validLines = replacementLines.filter((line) => line.productId && Number(line.quantity) > 0)
               if (validLines.length === 0) return alert('Add at least one valid damaged product line')
               setIsSubmittingReplacement(true)

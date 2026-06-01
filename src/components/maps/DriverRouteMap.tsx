@@ -621,15 +621,51 @@ export function DriverRouteMap({
         ) : null}
 
         {completedRoutePoints.length > 1 ? (
-          <PolylineUnsafe positions={completedRoutePoints} pathOptions={{ color: '#6b7280', weight: 5, opacity: 0.95 }} />
+          <>
+            <PolylineUnsafe
+              positions={completedRoutePoints}
+              pathOptions={{ color: '#2f3743', weight: 8.2, opacity: 0.32, lineCap: 'round', lineJoin: 'round' }}
+            />
+            <PolylineUnsafe
+              positions={completedRoutePoints}
+              pathOptions={{ color: '#4b5563', weight: 6.3, opacity: 0.93, lineCap: 'round', lineJoin: 'round' }}
+            />
+            <PolylineUnsafe
+              positions={completedRoutePoints}
+              pathOptions={{
+                color: '#f8fafc',
+                weight: 1.7,
+                opacity: 0.9,
+                dashArray: '1 12',
+                dashOffset: '0.5',
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
+          </>
         ) : null}
 
         {upcomingRoutePoints.length > 1 ? (
           <>
-            <PolylineUnsafe positions={upcomingRoutePoints} pathOptions={{ color: '#2563eb', weight: 8, opacity: 1 }} />
             <PolylineUnsafe
               positions={upcomingRoutePoints}
-              pathOptions={{ color: '#ffffff', weight: 3, opacity: 0.8, dashArray: '4 3' }}
+              pathOptions={{ color: '#7ddfff', weight: 8.8, opacity: 0.42, lineCap: 'round', lineJoin: 'round' }}
+            />
+            <PolylineUnsafe
+              positions={upcomingRoutePoints}
+              pathOptions={{ color: '#2ecbff', weight: 6.8, opacity: 0.99, lineCap: 'round', lineJoin: 'round' }}
+            />
+            <PolylineUnsafe
+              positions={upcomingRoutePoints}
+              pathOptions={{
+                color: '#f8fafc',
+                weight: 1.9,
+                opacity: 0.55,
+                dashArray: '2 10',
+                dashOffset: '0',
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
             />
           </>
         ) : null}

@@ -27,7 +27,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
-import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, ScatterChart, Scatter, ZAxis, LabelList, PieChart, Pie } from 'recharts'
+import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, LabelList, PieChart, Pie } from 'recharts'
 import {
   toArray,
   getCollection,
@@ -123,19 +123,19 @@ export function ReportsView() {
       try {
         const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes, stockBatchesRes] = await Promise.all([
           fetchAllPaginatedCollection<any>('/api/orders', 'orders', undefined, {
-            retries: 5,
+            retries: 1,
             timeoutMs: 20000,
             pageSize: 200,
             maxPages: 100,
           }),
-          safeFetchJson('/api/trips?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/drivers?limit=500&includeSample=true', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/inventory?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 5, timeoutMs: 20000 }),
-          safeFetchJson('/api/stock-batches?page=1&pageSize=2000', undefined, { retries: 5, timeoutMs: 20000 }),
+          safeFetchJson('/api/trips?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/drivers?limit=500&includeSample=true', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/inventory?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/stock-batches?page=1&pageSize=2000', undefined, { retries: 1, timeoutMs: 20000 }),
         ])
 
         if (!isMounted) return
@@ -336,7 +336,9 @@ export function ReportsView() {
         const replacementContextText = `${String(item?.description || '')} ${String(item?.notes || '')}`.toLowerCase()
         const replacementByBottle = /\bby\s*bottle\b/.test(replacementContextText) || /\bbottle(?:s)?\b/.test(replacementContextText)
         const totalLossFromLines = sourceLines.reduce((sum: number, line: any) => {
-          const qty = Math.max(Number(line?.quantityReplaced ?? line?.replacedQuantity ?? line?.quantity ?? item?.replacementQuantity ?? 0), 0)
+          const replacedQty = Math.max(Number(line?.quantityReplaced ?? line?.replacedQuantity ?? 0), 0)
+          const requestedQty = Math.max(Number(line?.quantityToReplace ?? line?.quantity ?? item?.replacementQuantity ?? 0), 0)
+          const qty = replacedQty > 0 ? replacedQty : requestedQty
           const matchedOrderItem = orderItems.find((orderItem: any) => {
             const srcOrderItemId = String(line?.orderItemId ?? line?.originalOrderItemId ?? '').trim()
             const oiId = String(orderItem?.id ?? '').trim()
@@ -395,11 +397,12 @@ export function ReportsView() {
           )
         )
         const fallbackQtyInBillingUnit = replacementByBottle ? (fallbackQty / fallbackQtyPerCase) : fallbackQty
-        const totalLoss = totalLossFromLines > 0
+        const totalLossRaw = totalLossFromLines > 0
           ? totalLossFromLines
           : fallbackQtyInBillingUnit > 0 && fallbackUnitPrice > 0
             ? fallbackQtyInBillingUnit * fallbackUnitPrice
             : 0
+        const totalLoss = Math.max(0, Number(totalLossRaw) || 0)
 
         const rawStatus = String(item.status || '').toUpperCase()
         const normalizedStatus =
@@ -434,19 +437,77 @@ export function ReportsView() {
   }, [orders, replacementsData, rangeStart, selectedReplacementStatus])
 
   const feedbackRows = useMemo(() => {
+    const getDriverNameFromTrip = (trip: any) => (
+      trip?.driver?.user?.name ||
+      trip?.driver?.name ||
+      trip?.assignedDriverName ||
+      trip?.assignedDriver?.name ||
+      ''
+    )
+
+    const findDriverByOrderId = (orderId: string) => {
+      if (!orderId) return ''
+      for (const trip of trips) {
+        const dropPoints = Array.isArray(trip?.dropPoints)
+          ? trip.dropPoints
+          : Array.isArray(trip?.drop_points)
+            ? trip.drop_points
+            : []
+        const hasOrder = dropPoints.some((dp: any) => {
+          const dpOrderId = String(dp?.orderId || dp?.order_id || dp?.order?.id || '').trim()
+          return dpOrderId && dpOrderId === orderId
+        })
+        if (hasOrder) {
+          return String(getDriverNameFromTrip(trip) || '').trim()
+        }
+      }
+      return ''
+    }
+
     return feedback
       .filter((item) => withinRange(item.createdAt, rangeStart))
       .filter((item) => selectedFeedbackStatus === 'all' || String(item.status || '').toUpperCase() === selectedFeedbackStatus)
-      .map((item) => ({
-        createdAt: item.createdAt,
-        customer: item.customer?.name || 'N/A',
-        orderId: item.order || 'N/A',
-        type: item.type || 'N/A',
-        rating: item.rating === null || item.rating === undefined ? 'N/A' : Number(item.rating),
-        status: item.status || 'N/A',
-        subject: item.subject || 'N/A',
-      }))
-  }, [feedback, rangeStart, selectedFeedbackStatus])
+      .map((item) => {
+        const orderRef = item.order
+        const orderId = String(
+          (typeof orderRef === 'object' && orderRef !== null
+            ? (orderRef as any).id
+            : orderRef) || item.orderId || ''
+        ).trim()
+        const relatedOrder = orders.find((order) => String(order?.id || '').trim() === orderId)
+        const relatedOrderNumber = String(
+          (typeof orderRef === 'object' && orderRef !== null
+            ? (orderRef as any).orderNumber || (orderRef as any).order_number
+            : '') || item.orderNumber || ''
+        ).trim()
+        const fallbackOrderByNumber = relatedOrderNumber
+          ? orders.find((order) => String(order?.orderNumber || '').trim() === relatedOrderNumber)
+          : null
+        const tripDriverName = findDriverByOrderId(orderId)
+        return {
+          createdAt: item.createdAt,
+          customer: item.customer?.name || 'N/A',
+          orderId: orderId || 'N/A',
+          driver:
+            relatedOrder?.driver?.name ||
+            relatedOrder?.assignedDriverName ||
+            relatedOrder?.assignedDriver?.name ||
+            relatedOrder?.trip?.driver?.name ||
+            fallbackOrderByNumber?.driver?.name ||
+            fallbackOrderByNumber?.assignedDriverName ||
+            fallbackOrderByNumber?.assignedDriver?.name ||
+            fallbackOrderByNumber?.trip?.driver?.name ||
+            tripDriverName ||
+            item?.driverName ||
+            item?.driver?.name ||
+            'N/A',
+          type: item.type || 'N/A',
+          rating: item.rating === null || item.rating === undefined ? 'N/A' : Number(item.rating),
+          status: item.status || 'N/A',
+          subject: item.subject || 'N/A',
+        }
+      })
+  }, [feedback, orders, trips, rangeStart, selectedFeedbackStatus])
 
   // Batch expiry stays under inventory reporting so stock age is reviewed alongside movement and low-stock risks.
   const stockExpiryRows = useMemo(() => {
@@ -509,12 +570,20 @@ export function ReportsView() {
     return drivers.map((driver) => {
       const stats = tripStats.get(driver.id) || { total: 0, completed: 0, dropPointsTotal: 0, deliveredDropPoints: 0 }
       const completionRate = stats.dropPointsTotal > 0 ? Math.round((stats.deliveredDropPoints / stats.dropPointsTotal) * 100) : 0
+      const profileDeliveries = Number(
+        (driver as any).totalDeliveries ??
+        (driver as any).total_deliveries ??
+        (driver as any).user?.totalDeliveries ??
+        (driver as any).user?.total_deliveries ??
+        0
+      ) || 0
+      const totalDeliveries = Math.max(profileDeliveries, Number(stats.deliveredDropPoints || 0))
 
       return {
         driverId: String(driver.id || ''),
         driverName: driver.user?.name || driver.name || 'N/A',
         rating: Number(driver.rating || 0).toFixed(1),
-        totalDeliveries: Number(driver.totalDeliveries || 0),
+        totalDeliveries,
         totalTrips: stats.total,
         completedTrips: stats.completed,
         dropPointsTotal: stats.dropPointsTotal,
@@ -1003,16 +1072,20 @@ export function ReportsView() {
     return { total: stockExpiryRows.length, critical, warning, expired }
   }, [stockExpiryRows])
 
+  const formatPesoCompact = (value: number) => formatPeso(value).replace(/\.00\b/, '')
+
   // Keep exported order columns aligned with the redesigned on-screen table instead of leaking internal helper fields.
   const orderExportRows = useMemo(() => {
     return orderRows.map((row) => ({
       orderNumber: row.orderNumber,
       customer: row.customer,
       itemSummary: row.itemSummary,
+      productNameWithSize: (row as any).productNameWithSize || row.itemSummary,
+      productCategory: (row as any).productCategory || 'Uncategorized',
       totalQuantity: row.totalQuantity,
       orderDate: row.orderDateLabel,
       orderStatus: formatOrderReportStatus(row.normalizedReportStatus),
-      totalAmount: formatPeso(Number(row.amount || 0)),
+      totalAmount: formatPesoCompact(Number(row.amount || 0)),
     }))
   }, [orderRows])
 
@@ -1020,7 +1093,6 @@ export function ReportsView() {
     return transportDriverRows.map((row) => ({
       driverName: row.driverName,
       rating: row.rating,
-      totalDeliveries: row.totalDeliveries,
       totalTrips: row.totalTrips,
       deliveredDropPoints: `${row.deliveredDropPoints || 0}/${row.dropPointsTotal || 0}`,
       completionRate: row.completionRate,
@@ -1037,6 +1109,21 @@ export function ReportsView() {
       quantity: row.quantity,
     }))
   }, [inventoryMovementRows])
+
+  const feedbackExportRows = useMemo(() => {
+    const toDateOnly = (value: unknown) => {
+      const iso = toIsoDateTime(value)
+      if (!iso) return 'N/A'
+      return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    }
+    return feedbackRows.map((row: any) => ({
+      createdAt: toDateOnly(row.createdAt),
+      customer: row.customer,
+      driver: row.driver,
+      type: row.type,
+      rating: row.rating,
+    }))
+  }, [feedbackRows])
 
   const orderSummaryLines = useMemo(() => ([
     `Total Orders: ${orderKpi.totalOrders}`,
@@ -1151,7 +1238,7 @@ export function ReportsView() {
   // Helper to sanitize text for PDF (WinAnsi encoding only supports Latin-1)
   const sanitizeForPdf = (text: string): string => {
     return text
-      .replace(/\u20B1/g, 'PHP ')
+      .replace(/\u20B1/g, 'P')
       .replace(/[\u20AC\u00A3\u00A5]/g, '')
   }
 
@@ -1176,12 +1263,14 @@ export function ReportsView() {
     }
 
     const pdfDoc = await PDFDocument.create()
-    let page = pdfDoc.addPage([842, 595])
+    let page = pdfDoc.addPage([595, 842])
     const font = await pdfDoc.embedFont(StandardFonts.TimesRoman)
     const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold)
     const companyName = options?.companyName || "Ann Ann's Beverages Trading"
+    const pageWidth = 595
+    const pageHeight = 842
     const margin = 28
-    const usableWidth = 842 - margin * 2
+    const usableWidth = pageWidth - margin * 2
     const sanitizedRows = title === 'Inventory Movement Report'
       ? rows.map((row) => {
           const record = row as Record<string, unknown>
@@ -1208,6 +1297,52 @@ export function ReportsView() {
       if (sanitized.length <= maxChars) return sanitized
       return `${sanitized.slice(0, Math.max(0, maxChars - 3))}...`
     }
+    const wrapTextLines = (value: string, maxCharsPerLine: number, maxLines = 2): string[] => {
+      const clean = sanitizeForPdf(String(value ?? '').replace(/\s+/g, ' ').trim())
+      if (!clean) return ['']
+      const words = clean.split(' ')
+      const lines: string[] = []
+      let current = ''
+      for (const word of words) {
+        const next = current ? `${current} ${word}` : word
+        if (next.length <= maxCharsPerLine) {
+          current = next
+          continue
+        }
+        if (current) lines.push(current)
+        current = word
+        if (lines.length >= maxLines - 1) break
+      }
+      if (lines.length < maxLines && current) lines.push(current)
+      if (lines.length === 0) lines.push(clean.slice(0, maxCharsPerLine))
+      return lines.slice(0, maxLines)
+    }
+    const drawWrappedCellText = (
+      textValue: string,
+      x: number,
+      yTop: number,
+      cellWidth: number,
+      cellHeight: number,
+      fontSize: number,
+      textFont: any,
+      textColor: any,
+      align: 'left' | 'center' | 'right' = 'left',
+      maxLines = 2
+    ) => {
+      const approxCharWidth = Math.max(4.4, fontSize * 0.5)
+      const maxChars = Math.max(6, Math.floor((cellWidth - 10) / approxCharWidth))
+      const lines = wrapTextLines(textValue, maxChars, maxLines)
+      const lineGap = Math.max(9, fontSize + 1)
+      const totalBlockHeight = (lines.length - 1) * lineGap
+      let ty = yTop - (cellHeight / 2) - (totalBlockHeight / 2) + 3
+      lines.forEach((line) => {
+        let tx = x + 4
+        if (align === 'center') tx = x + (cellWidth / 2) - (line.length * (fontSize * 0.24))
+        if (align === 'right') tx = x + cellWidth - 5 - (line.length * (fontSize * 0.5))
+        page.drawText(line, { x: tx, y: ty, size: fontSize, font: textFont, color: textColor })
+        ty -= lineGap
+      })
+    }
 
     let logoImage: any = null
     try {
@@ -1226,6 +1361,760 @@ export function ReportsView() {
         .replace(/^./, (str) => str.toUpperCase())
         .trim()
         .replace(/_/g, ' ')
+    }
+
+    if (title === 'Inventory Movement Report') {
+      const w = 595
+      const h = 842
+      const pad = 24
+      const contentW = w - pad * 2
+      const navy = rgb(0.08, 0.2, 0.53)
+      const blue = rgb(0.13, 0.39, 0.92)
+      const green = rgb(0.09, 0.58, 0.29)
+      const red = rgb(0.75, 0.1, 0.1)
+      const orange = rgb(0.94, 0.45, 0.05)
+      const text = rgb(0.12, 0.16, 0.24)
+      const muted = rgb(0.42, 0.47, 0.56)
+
+      const drawCell = (
+        x: number,
+        y: number,
+        cw: number,
+        ch: number,
+        val: string,
+        isHeader = false,
+        align: 'left' | 'center' | 'right' = 'left',
+        color = text,
+      ) => {
+        page.drawRectangle({
+          x,
+          y: y - ch,
+          width: cw,
+          height: ch,
+          borderColor: rgb(0.86, 0.89, 0.94),
+          borderWidth: 0.6,
+          color: isHeader ? rgb(0.95, 0.97, 1) : rgb(1, 1, 1),
+        })
+        const size = isHeader ? 9.5 : 9
+        drawWrappedCellText(
+          String(val || ''),
+          x,
+          y,
+          cw,
+          ch,
+          size,
+          isHeader ? boldFont : font,
+          color,
+          align,
+          isHeader ? 1 : 2
+        )
+      }
+
+      // Header
+      if (logoImage) {
+        const logoW = 56
+        const logoH = (logoImage.height / logoImage.width) * logoW
+        page.drawImage(logoImage, { x: pad, y: h - 70, width: logoW, height: logoH })
+      }
+      page.drawText(companyName, { x: pad + 66, y: h - 36, size: 17.5, font: boldFont, color: navy })
+      page.drawText('Inventory Movement Report', { x: pad + 66, y: h - 62, size: 13, font: boldFont, color: navy })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, { x: w - 250, y: h - 34, size: 9.6, font: boldFont, color: text })
+      page.drawText(`Date Range: ${options?.rangeLabel || 'All records'}`, { x: w - 250, y: h - 58, size: 9.6, font: boldFont, color: text })
+      page.drawLine({ start: { x: pad, y: h - 78 }, end: { x: w - pad, y: h - 78 }, thickness: 1.8, color: navy })
+
+      // KPI cards
+      const kpiY = h - 95
+      const gap = 12
+      const kW = (contentW - gap * 3) / 4
+      const kH = 64
+      const cards = [
+        { title: 'TOTAL MOVEMENTS', value: `${inventoryMovementSummary.totalMovements}`, note: 'All inventory transactions', color: blue, bg: rgb(0.94, 0.97, 1) },
+        { title: 'STOCK IN', value: `${inventoryMovementSummary.stockIn}`, note: 'Total units received', color: green, bg: rgb(0.94, 0.99, 0.95) },
+        { title: 'STOCK OUT', value: `${inventoryMovementSummary.stockOut}`, note: 'Total units issued', color: red, bg: rgb(1, 0.96, 0.96) },
+        { title: 'EXPIRING BATCHES', value: `${stockExpiryKpi.total}`, note: 'Require attention', color: orange, bg: rgb(1, 0.97, 0.93) },
+      ]
+      cards.forEach((card, i) => {
+        const x = pad + i * (kW + gap)
+        page.drawRectangle({ x, y: kpiY - kH, width: kW, height: kH, color: card.bg, borderColor: rgb(0.84, 0.88, 0.94), borderWidth: 0.8 })
+        page.drawText(card.title, { x: x + 8, y: kpiY - 20, size: 9, font: boldFont, color: card.color })
+        page.drawText(sanitizeForPdf(String(card.value || '')), { x: x + 8, y: kpiY - 40, size: 20, font: boldFont, color: card.color })
+        page.drawText(card.note, { x: x + 8, y: kpiY - 55, size: 8.5, font, color: muted })
+      })
+
+      // Inventory movements section
+      let y = kpiY - 86
+      page.drawText('INVENTORY MOVEMENTS', { x: pad, y, size: 13, font: boldFont, color: navy })
+      y -= 12
+      const headers = ['Date & Time', 'Warehouse', 'Product', 'Type', 'Quantity']
+      // Fit table exactly within portrait content width (547px) with enough room for Type/Quantity labels.
+      const widths = [140, 150, 141, 58, 58]
+      let x = pad
+      headers.forEach((hdr, idx) => {
+        drawCell(x, y, widths[idx], 22, hdr, true, 'center', rgb(1, 1, 1))
+        page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+        page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.1, y: y - 14, size: 9, font: boldFont, color: rgb(1, 1, 1) })
+        x += widths[idx]
+      })
+      y -= 22
+      const movementRows = sanitizedRows.slice(0, 12)
+      movementRows.forEach((r: any) => {
+        const rowH = 28
+        const typeRaw = String(r.type || '').toUpperCase()
+        const rowVals = [
+          formatDateTime(r.createdAt),
+          String(r.warehouse || 'N/A'),
+          String(r.product || 'N/A'),
+          typeRaw,
+          String(r.quantity ?? '0'),
+        ]
+        let cx = pad
+        rowVals.forEach((v, idx) => {
+          drawCell(cx, y, widths[idx], rowH, v, false, idx === 4 ? 'center' : 'left')
+          cx += widths[idx]
+        })
+        y -= rowH
+      })
+
+      // Net movement strip
+      const net = Number(inventoryMovementSummary.stockIn || 0) - Number(inventoryMovementSummary.stockOut || 0)
+      page.drawRectangle({ x: pad, y: y - 18, width: contentW, height: 18, color: rgb(0.97, 0.98, 1), borderColor: rgb(0.86, 0.89, 0.94), borderWidth: 0.7 })
+      page.drawText('Net Movement (IN - OUT):', { x: pad + 170, y: y - 12, size: 10, font: boldFont, color: navy })
+      page.drawText(`${net >= 0 ? '+' : ''}${net} units`, { x: pad + 350, y: y - 12, size: 10, font: boldFont, color: net >= 0 ? green : red })
+      y -= 30
+
+      // Expiring section
+      page.drawText('EXPIRING ITEMS', { x: pad, y, size: 13, font: boldFont, color: orange })
+      y -= 10
+      const expHeaders = ['Product', 'Batch/Lot No.', 'Expiry Date', 'Days Left', 'Available Qty', 'Status']
+      // Fit table exactly within portrait content width (547px).
+      const expWidths = [95, 100, 86, 62, 82, 122]
+      let ex = pad
+      expHeaders.forEach((hdr, idx) => {
+        page.drawRectangle({ x: ex, y: y - 20, width: expWidths[idx], height: 20, color: rgb(1, 0.97, 0.94), borderColor: rgb(0.98, 0.83, 0.69), borderWidth: 0.6 })
+        page.drawText(hdr, { x: ex + expWidths[idx] / 2 - hdr.length * 2.1, y: y - 13, size: 8.8, font: boldFont, color: text })
+        ex += expWidths[idx]
+      })
+      y -= 20
+      const expRows = stockExpiryRows.slice(0, 8)
+      expRows.forEach((r: any) => {
+        const rowH = 28
+        const vals = [
+          String(r.product || 'N/A'),
+          String(r.batchNumber || 'N/A'),
+          String(r.expiryDate || 'N/A'),
+          `${String(r.daysUntilExpiry ?? 'N/A')}`,
+          `${String(r.quantity ?? 0)} units`,
+          String(r.status || 'N/A'),
+        ]
+        let rx = pad
+        vals.forEach((v, idx) => {
+          drawCell(rx, y, expWidths[idx], rowH, v, false, idx >= 3 ? 'center' : 'left')
+          rx += expWidths[idx]
+        })
+        y -= rowH
+      })
+
+      y -= 10
+      page.drawText('NOTES', { x: pad, y, size: 12, font: boldFont, color: navy })
+      y -= 15
+      page.drawText('Please review expiring items and take appropriate action to minimize waste.', { x: pad, y, size: 9.5, font, color: muted })
+      page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      page.drawText("Thank you for using Ann Ann's Beverages Trading Inventory System.", { x: pad, y: 20, size: 9, font, color: muted })
+      page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+
+      const bytes = await pdfDoc.save()
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    if (title === 'Transportation Driver Performance Report') {
+      const w = 595
+      const h = 842
+      const pad = 24
+      const contentW = w - pad * 2
+      const navy = rgb(0.08, 0.2, 0.53)
+      const blue = rgb(0.13, 0.39, 0.92)
+      const green = rgb(0.09, 0.58, 0.29)
+      const amber = rgb(0.82, 0.55, 0.06)
+      const purple = rgb(0.36, 0.21, 0.58)
+      const cyan = rgb(0.04, 0.45, 0.62)
+      const orange = rgb(0.94, 0.45, 0.05)
+      const text = rgb(0.12, 0.16, 0.24)
+      const muted = rgb(0.42, 0.47, 0.56)
+
+      const drawCard = (
+        x: number,
+        y: number,
+        width: number,
+        titleText: string,
+        value: string,
+        note: string,
+        accent: any,
+        bg: any,
+      ) => {
+        page.drawRectangle({ x, y: y - 64, width, height: 64, color: bg, borderColor: rgb(0.84, 0.88, 0.94), borderWidth: 0.7 })
+        page.drawText(titleText, { x: x + 7, y: y - 18, size: 7.7, font: boldFont, color: accent })
+        page.drawText(value, { x: x + 7, y: y - 39, size: 18, font: boldFont, color: accent })
+        page.drawText(note, { x: x + 7, y: y - 54, size: 8, font, color: muted })
+      }
+
+      if (logoImage) {
+        const logoW = 52
+        const logoH = (logoImage.height / logoImage.width) * logoW
+        page.drawImage(logoImage, { x: pad, y: h - 66, width: logoW, height: logoH })
+      }
+      page.drawText(companyName, { x: pad + 58, y: h - 32, size: 18.5, font: boldFont, color: rgb(0.05, 0.05, 0.05) })
+      page.drawText('Transportation Driver Performance Report', { x: pad + 58, y: h - 54, size: 13, font: boldFont, color: navy })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, { x: w - 212, y: h - 36, size: 10, font: boldFont, color: text })
+      page.drawText(`Date Range: ${options?.rangeLabel || 'All records'}`, { x: w - 212, y: h - 58, size: 10, font: boldFont, color: text })
+      page.drawLine({ start: { x: pad, y: h - 74 }, end: { x: w - pad, y: h - 74 }, thickness: 1.5, color: navy })
+
+      const totalDrivers = String(driverPerformanceKpi.total || 0)
+      const activeDrivers = String(driverPerformanceKpi.active || 0)
+      const avgRating = String(driverPerformanceKpi.avgRating || '0.0')
+      const totalTrips = String(driverPerformanceKpi.totalTrips || 0)
+      const delivered = transportDriverRows.reduce((acc, row) => acc + Number(row.deliveredDropPoints || 0), 0)
+      const dropTotal = transportDriverRows.reduce((acc, row) => acc + Number(row.dropPointsTotal || 0), 0)
+      const deliveredRatio = `${delivered}/${dropTotal || 0}`
+      const completionRateValue = dropTotal > 0 ? `${Math.round((delivered / dropTotal) * 100)}%` : '0%'
+
+      const cardsY = h - 96
+      const gap = 8
+      const cardW = (contentW - gap * 5) / 6
+      drawCard(pad + (cardW + gap) * 0, cardsY, cardW, 'TOTAL DRIVERS', totalDrivers, 'All drivers', blue, rgb(0.95, 0.97, 1))
+      drawCard(pad + (cardW + gap) * 1, cardsY, cardW, 'ACTIVE DRIVERS', activeDrivers, 'Currently active', green, rgb(0.94, 0.99, 0.95))
+      drawCard(pad + (cardW + gap) * 2, cardsY, cardW, 'AVERAGE RATING', avgRating, 'Out of 5', amber, rgb(1, 0.98, 0.93))
+      drawCard(pad + (cardW + gap) * 3, cardsY, cardW, 'TOTAL TRIPS', totalTrips, 'All trips', purple, rgb(0.97, 0.95, 1))
+      drawCard(pad + (cardW + gap) * 4, cardsY, cardW, 'DELIVERED DROP POINTS', deliveredRatio, 'Total completed', cyan, rgb(0.94, 0.98, 1))
+      drawCard(pad + (cardW + gap) * 5, cardsY, cardW, 'COMPLETION RATE', completionRateValue, 'Overall rate', orange, rgb(1, 0.97, 0.93))
+
+      let y = cardsY - 94
+      page.drawText('DRIVER PERFORMANCE', { x: pad, y, size: 12.5, font: boldFont, color: navy })
+      y -= 12
+
+      const headers = ['Driver Name', 'Rating', 'Total Trips', 'Delivered Drop Points', 'Completion Rate', 'Status']
+      const widths = [106, 56, 68, 112, 96, 109]
+      let x = pad
+      headers.forEach((hdr, idx) => {
+        page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+        page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.0, y: y - 14, size: 8.6, font: boldFont, color: rgb(1, 1, 1) })
+        x += widths[idx]
+      })
+      y -= 22
+
+      sanitizedRows.slice(0, 16).forEach((row: any) => {
+        const rowH = 30
+        const vals = [
+          String(row.driverName || 'N/A'),
+          String(row.rating || 'N/A'),
+          String(row.totalTrips || '0'),
+          String(row.deliveredDropPoints || '0/0'),
+          String(row.completionRate || '0%'),
+          String(row.status || 'N/A'),
+        ]
+        let cx = pad
+        vals.forEach((v, idx) => {
+          page.drawRectangle({
+            x: cx,
+            y: y - rowH,
+            width: widths[idx],
+            height: rowH,
+            borderColor: rgb(0.86, 0.89, 0.94),
+            borderWidth: 0.6,
+            color: rgb(1, 1, 1),
+          })
+          const textVal = String(v || '')
+          const color = idx === 6 && String(v).toUpperCase() === 'ACTIVE' ? green : text
+          drawWrappedCellText(
+            textVal,
+            cx,
+            y,
+            widths[idx],
+            rowH,
+            8.5,
+            idx === 6 ? boldFont : font,
+            color,
+            idx === 0 ? 'left' : 'center',
+            2
+          )
+          cx += widths[idx]
+        })
+        y -= rowH
+      })
+
+      page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      page.drawText('Thank you for your dedication and hard work.', { x: pad, y: 20, size: 9, font, color: muted })
+      page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+
+      const bytes = await pdfDoc.save()
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    if (title === 'Warehouse Utilization Report') {
+      const w = 595
+      const h = 842
+      const pad = 24
+      const contentW = w - pad * 2
+      const navy = rgb(0.08, 0.2, 0.53)
+      const blue = rgb(0.13, 0.39, 0.92)
+      const green = rgb(0.09, 0.58, 0.29)
+      const orange = rgb(0.94, 0.45, 0.05)
+      const purple = rgb(0.36, 0.21, 0.58)
+      const text = rgb(0.12, 0.16, 0.24)
+      const muted = rgb(0.42, 0.47, 0.56)
+
+      if (logoImage) {
+        const logoW = 52
+        const logoH = (logoImage.height / logoImage.width) * logoW
+        page.drawImage(logoImage, { x: pad, y: h - 66, width: logoW, height: logoH })
+      }
+      page.drawText(companyName, { x: pad + 58, y: h - 32, size: 18.5, font: boldFont, color: navy })
+      page.drawText('Warehouse Utilization Report', { x: pad + 58, y: h - 54, size: 13, font: boldFont, color: navy })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, { x: w - 212, y: h - 36, size: 10, font: boldFont, color: text })
+      page.drawText(`Date Range: ${options?.rangeLabel || 'All records'}`, { x: w - 212, y: h - 58, size: 10, font: boldFont, color: text })
+      page.drawLine({ start: { x: pad, y: h - 74 }, end: { x: w - pad, y: h - 74 }, thickness: 1.5, color: navy })
+
+      const cardY = h - 96
+      const gap = 12
+      const cardW = (contentW - gap * 3) / 4
+      const cardH = 64
+      const totalWarehouses = selectedWarehouse === 'all'
+        ? warehouses.length
+        : warehouses.filter((wh) => String(wh?.id || '') === selectedWarehouse).length
+      const dataPoints = sanitizedRows.length
+      const latest = sanitizedRows[sanitizedRows.length - 1] as any
+      const currentUsed = Number(String(latest?.usedUnits || '0').replace(/,/g, '')) || 0
+      const currentCapacity = Number(String(latest?.totalCapacity || '0').replace(/,/g, '')) || 0
+      const currentUtil = currentCapacity > 0 ? ((currentUsed / currentCapacity) * 100) : 0
+      const peakRow = sanitizedRows.reduce((best: any, row: any) => {
+        const pct = Number(String(row?.utilizationPercent || '0').replace('%', '').trim()) || 0
+        return !best || pct > best.pct ? { row, pct } : best
+      }, null as any)
+
+      const cards = [
+        { title: 'TOTAL WAREHOUSES', value: `${totalWarehouses}`, note: 'All warehouses', accent: blue, bg: rgb(0.95, 0.97, 1) },
+        { title: 'DATA POINTS', value: `${dataPoints}`, note: 'Utilization snapshots', accent: green, bg: rgb(0.94, 0.99, 0.95) },
+        { title: 'CURRENT USAGE', value: `${currentUsed.toLocaleString()} / ${currentCapacity.toLocaleString()}`, note: `${currentUtil.toFixed(1)}% utilized`, accent: orange, bg: rgb(1, 0.97, 0.93) },
+        { title: 'PEAK UTILIZATION', value: `${Number(peakRow?.pct || 0).toFixed(1)}%`, note: String(peakRow?.row?.date || 'N/A'), accent: purple, bg: rgb(0.97, 0.95, 1) },
+      ]
+      cards.forEach((card, i) => {
+        const x = pad + i * (cardW + gap)
+        page.drawRectangle({ x, y: cardY - cardH, width: cardW, height: cardH, color: card.bg, borderColor: rgb(0.84, 0.88, 0.94), borderWidth: 0.7 })
+        page.drawText(card.title, { x: x + 8, y: cardY - 18, size: 8.5, font: boldFont, color: card.accent })
+        page.drawText(sanitizeForPdf(String(card.value || '')), { x: x + 8, y: cardY - 39, size: 16.5, font: boldFont, color: card.accent })
+        page.drawText(card.note, { x: x + 8, y: cardY - 54, size: 8, font, color: muted })
+      })
+
+      let y = cardY - 94
+      page.drawText('WAREHOUSE UTILIZATION', { x: pad, y, size: 12.5, font: boldFont, color: navy })
+      y -= 12
+
+      const headers = ['Date', 'Used Units', 'Total Capacity', 'Remaining Capacity', 'Utilization Percent']
+      const widths = [104, 104, 104, 112, 127]
+      let x = pad
+      headers.forEach((hdr, idx) => {
+        page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+        page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.1, y: y - 14, size: 8.8, font: boldFont, color: rgb(1, 1, 1) })
+        x += widths[idx]
+      })
+      y -= 22
+
+      sanitizedRows.slice(0, 20).forEach((row: any) => {
+        const rowH = 30
+        const vals = [
+          String(row.date || 'N/A'),
+          String(row.usedUnits || '0'),
+          String(row.totalCapacity || '0'),
+          String(row.remainingCapacity || '0'),
+          String(row.utilizationPercent || '0%'),
+        ]
+        let cx = pad
+        vals.forEach((v, idx) => {
+          page.drawRectangle({
+            x: cx,
+            y: y - rowH,
+            width: widths[idx],
+            height: rowH,
+            borderColor: rgb(0.86, 0.89, 0.94),
+            borderWidth: 0.6,
+            color: rgb(1, 1, 1),
+          })
+          drawWrappedCellText(String(v || ''), cx, y, widths[idx], rowH, 8.5, font, text, idx === 0 ? 'left' : 'center', 2)
+          cx += widths[idx]
+        })
+        y -= rowH
+      })
+
+      page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      page.drawText("Thank you for using Ann Ann's Beverages Trading Inventory System.", { x: pad, y: 20, size: 9, font, color: muted })
+      page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+
+      const bytes = await pdfDoc.save()
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    if (title === 'Replacement Handling Report') {
+      const w = 595
+      const h = 842
+      const pad = 24
+      const contentW = w - pad * 2
+      const navy = rgb(0.08, 0.2, 0.53)
+      const blue = rgb(0.13, 0.39, 0.92)
+      const green = rgb(0.09, 0.58, 0.29)
+      const orange = rgb(0.94, 0.45, 0.05)
+      const red = rgb(0.82, 0.1, 0.1)
+      const text = rgb(0.12, 0.16, 0.24)
+      const muted = rgb(0.42, 0.47, 0.56)
+
+      if (logoImage) {
+        const logoW = 52
+        const logoH = (logoImage.height / logoImage.width) * logoW
+        page.drawImage(logoImage, { x: pad, y: h - 66, width: logoW, height: logoH })
+      }
+      page.drawText(companyName, { x: pad + 58, y: h - 32, size: 18.5, font: boldFont, color: rgb(0.05, 0.05, 0.05) })
+      page.drawText('Replacement Handling Report', { x: pad + 58, y: h - 54, size: 13, font: boldFont, color: navy })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, { x: w - 212, y: h - 36, size: 10, font: boldFont, color: text })
+      page.drawText(`Date Range: ${options?.rangeLabel || 'All records'}`, { x: w - 212, y: h - 58, size: 10, font: boldFont, color: text })
+      page.drawLine({ start: { x: pad, y: h - 74 }, end: { x: w - pad, y: h - 74 }, thickness: 1.5, color: navy })
+
+      const totalCases = replacementRows.length
+      const completedCases = replacementRows.filter((row: any) => ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(String(row?.status || '').toUpperCase())).length
+      const openCases = replacementRows.filter((row: any) => ['REPORTED', 'IN_PROGRESS', 'NEEDS_FOLLOW_UP', 'PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(String(row?.status || '').toUpperCase())).length
+      const totalLoss = replacementRows.reduce((sum: number, row: any) => sum + (Number(row?.totalLoss || 0) || 0), 0)
+
+      const cardY = h - 96
+      const gap = 12
+      const cardW = (contentW - gap * 3) / 4
+      const cardH = 64
+      const cards = [
+        { title: 'TOTAL CASES', value: `${totalCases}`, note: 'All replacement cases', accent: blue, bg: rgb(0.95, 0.97, 1) },
+        { title: 'COMPLETED', value: `${completedCases}`, note: 'Resolved cases', accent: green, bg: rgb(0.94, 0.99, 0.95) },
+        { title: 'OPEN CASES', value: `${openCases}`, note: 'Pending / in progress', accent: orange, bg: rgb(1, 0.97, 0.93) },
+        { title: 'TOTAL LOSS', value: `- ${formatPesoCompact(Math.max(0, totalLoss))}`, note: 'Estimated value loss', accent: red, bg: rgb(1, 0.95, 0.96) },
+      ]
+      cards.forEach((card, i) => {
+        const x = pad + i * (cardW + gap)
+        page.drawRectangle({ x, y: cardY - cardH, width: cardW, height: cardH, color: card.bg, borderColor: rgb(0.84, 0.88, 0.94), borderWidth: 0.7 })
+        page.drawText(card.title, { x: x + 8, y: cardY - 18, size: 8.5, font: boldFont, color: card.accent })
+        page.drawText(sanitizeForPdf(String(card.value || '')), { x: x + 8, y: cardY - 39, size: 16.5, font: boldFont, color: card.accent })
+        page.drawText(card.note, { x: x + 8, y: cardY - 54, size: 8, font, color: muted })
+      })
+
+      let y = cardY - 94
+      page.drawText('REPLACEMENT CASES', { x: pad, y, size: 12.5, font: boldFont, color: navy })
+      y -= 12
+
+      const headers = ['Replacement #', 'Order #', 'Customer', 'Assigned Driver', 'Status', 'Total Loss', 'Reason', 'Created At']
+      const widths = [72, 66, 64, 74, 62, 58, 74, 77]
+      let x = pad
+      headers.forEach((hdr, idx) => {
+        page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+        page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.0, y: y - 14, size: 7.9, font: boldFont, color: rgb(1, 1, 1) })
+        x += widths[idx]
+      })
+      y -= 22
+
+      sanitizedRows.slice(0, 18).forEach((row: any) => {
+        const rowH = 30
+        const rawStatus = String(row.status || '').toUpperCase()
+        const vals = [
+          String(row.replacementNumber || 'N/A'),
+          String(row.orderNumber || 'N/A'),
+          String(row.customer || 'N/A'),
+          String(row.assignedDriver || 'N/A'),
+          rawStatus || 'N/A',
+          `- ${formatPesoCompact(Math.max(0, Number(row.totalLoss || 0)))}`,
+          String(row.reason || 'N/A'),
+          String(formatReportDateOnly(row.createdAt) || 'N/A'),
+        ]
+        let cx = pad
+        vals.forEach((v, idx) => {
+          page.drawRectangle({
+            x: cx,
+            y: y - rowH,
+            width: widths[idx],
+            height: rowH,
+            borderColor: rgb(0.86, 0.89, 0.94),
+            borderWidth: 0.6,
+            color: rgb(1, 1, 1),
+          })
+          const val = String(v || '')
+          const statusColor =
+            idx === 4
+              ? (rawStatus.includes('COMPLETE') || rawStatus.includes('RESOLVED') ? green : rawStatus.includes('REJECT') ? red : blue)
+              : idx === 5
+                ? red
+              : text
+          drawWrappedCellText(
+            val,
+            cx,
+            y,
+            widths[idx],
+            rowH,
+            8.2,
+            idx === 4 ? boldFont : font,
+            statusColor,
+            idx === 5 ? 'center' : 'left',
+            2
+          )
+          cx += widths[idx]
+        })
+        y -= rowH
+      })
+
+      page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      page.drawText("Thank you for using Ann Ann's Beverages Trading Inventory System.", { x: pad, y: 20, size: 9, font, color: muted })
+      page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+
+      const bytes = await pdfDoc.save()
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    if (title === 'Client Feedback & Service Evaluation Report') {
+      const w = 595
+      const h = 842
+      const pad = 24
+      const contentW = w - pad * 2
+      const navy = rgb(0.08, 0.2, 0.53)
+      const blue = rgb(0.13, 0.39, 0.92)
+      const green = rgb(0.09, 0.58, 0.29)
+      const purple = rgb(0.36, 0.21, 0.58)
+      const red = rgb(0.9, 0.2, 0.2)
+      const text = rgb(0.12, 0.16, 0.24)
+      const muted = rgb(0.42, 0.47, 0.56)
+
+      if (logoImage) {
+        const logoW = 52
+        const logoH = (logoImage.height / logoImage.width) * logoW
+        page.drawImage(logoImage, { x: pad, y: h - 66, width: logoW, height: logoH })
+      }
+      page.drawText(companyName, { x: pad + 58, y: h - 32, size: 18.5, font: boldFont, color: rgb(0.05, 0.05, 0.05) })
+      page.drawText('Client Feedback & Service Evaluation Report', { x: pad + 58, y: h - 54, size: 13, font: boldFont, color: navy })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, { x: w - 212, y: h - 36, size: 10, font: boldFont, color: text })
+      page.drawText(`Date Range: ${options?.rangeLabel || 'All records'}`, { x: w - 212, y: h - 58, size: 10, font: boldFont, color: text })
+      page.drawLine({ start: { x: pad, y: h - 74 }, end: { x: w - pad, y: h - 74 }, thickness: 1.5, color: navy })
+
+      const totalFeedback = feedbackExportRows.length
+      const avgRating = totalFeedback > 0
+        ? feedbackExportRows.reduce((sum: number, row: any) => sum + (Number(row?.rating || 0) || 0), 0) / totalFeedback
+        : 0
+      const compliments = feedbackExportRows.filter((row: any) => String(row?.type || '').toUpperCase().includes('COMPLIMENT')).length
+      const complaints = feedbackExportRows.filter((row: any) => String(row?.type || '').toUpperCase().includes('COMPLAINT')).length
+
+      const cardY = h - 96
+      const gap = 12
+      const cardW = (contentW - gap * 3) / 4
+      const cardH = 64
+      const cards = [
+        { title: 'TOTAL FEEDBACK', value: `${totalFeedback}`, note: 'All feedback received', accent: blue, bg: rgb(0.95, 0.97, 1) },
+        { title: 'AVERAGE RATING', value: `${avgRating.toFixed(2)}`, note: 'Out of 5', accent: green, bg: rgb(0.94, 0.99, 0.95) },
+        { title: 'COMPLIMENTS', value: `${compliments}`, note: 'Positive feedback', accent: purple, bg: rgb(0.97, 0.95, 1) },
+        { title: 'COMPLAINTS', value: `${complaints}`, note: 'Requires attention', accent: red, bg: rgb(1, 0.95, 0.96) },
+      ]
+      cards.forEach((card, i) => {
+        const x = pad + i * (cardW + gap)
+        page.drawRectangle({ x, y: cardY - cardH, width: cardW, height: cardH, color: card.bg, borderColor: rgb(0.84, 0.88, 0.94), borderWidth: 0.7 })
+        page.drawText(card.title, { x: x + 8, y: cardY - 18, size: 8.5, font: boldFont, color: card.accent })
+        page.drawText(sanitizeForPdf(String(card.value || '')), { x: x + 8, y: cardY - 39, size: 16.5, font: boldFont, color: card.accent })
+        page.drawText(card.note, { x: x + 8, y: cardY - 54, size: 8, font, color: muted })
+      })
+
+      let y = cardY - 94
+      page.drawText('FEEDBACK DETAILS', { x: pad, y, size: 12.5, font: boldFont, color: navy })
+      y -= 12
+
+      const headers = ['Created At', 'Customer', 'Driver', 'Type', 'Rating']
+      const widths = [104, 106, 100, 108, 129]
+      let x = pad
+      headers.forEach((hdr, idx) => {
+        page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+        page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.1, y: y - 14, size: 8.8, font: boldFont, color: rgb(1, 1, 1) })
+        x += widths[idx]
+      })
+      y -= 22
+
+      feedbackExportRows.slice(0, 18).forEach((row: any) => {
+        const rowH = 30
+        const typeRaw = String(row?.type || '').toUpperCase()
+        const ratingNum = Math.max(0, Math.min(5, Number(row?.rating || 0) || 0))
+        const vals = [
+          String(row.createdAt || 'N/A'),
+          String(row.customer || 'N/A'),
+          String(row.driver || 'N/A'),
+          typeRaw || 'N/A',
+          String(ratingNum || 'N/A'),
+        ]
+
+        let cx = pad
+        vals.forEach((v, idx) => {
+          page.drawRectangle({
+            x: cx,
+            y: y - rowH,
+            width: widths[idx],
+            height: rowH,
+            borderColor: rgb(0.86, 0.89, 0.94),
+            borderWidth: 0.6,
+            color: rgb(1, 1, 1),
+          })
+          if (idx === 4 && Number.isFinite(ratingNum)) {
+            const stars = '★★★★★'
+            const filled = '★'.repeat(ratingNum) + '☆'.repeat(5 - ratingNum)
+            page.drawText(stars, { x: cx + 8, y: y - 14, size: 10, font, color: rgb(0.82, 0.84, 0.87) })
+            page.drawText(filled, { x: cx + 8, y: y - 14, size: 10, font: boldFont, color: typeRaw.includes('COMPLIMENT') ? green : red })
+            page.drawText(String(ratingNum), { x: cx + widths[idx] - 14, y: y - 14, size: 8.8, font: boldFont, color: text })
+          } else {
+            const val = String(v || '')
+            const typeColor = idx === 3 ? (typeRaw.includes('COMPLIMENT') ? green : red) : text
+            drawWrappedCellText(val, cx, y, widths[idx], rowH, 8.3, idx === 3 ? boldFont : font, typeColor, 'left', 2)
+          }
+          cx += widths[idx]
+        })
+        y -= rowH
+      })
+
+      page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      page.drawText("Thank you for using Ann Ann's Beverages Trading System.", { x: pad, y: 20, size: 9, font, color: muted })
+      page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+
+      const bytes = await pdfDoc.save()
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    if (title === 'Order Report') {
+      const w = 595
+      const h = 842
+      const pad = 24
+      const contentW = w - pad * 2
+      const navy = rgb(0.08, 0.2, 0.53)
+      const green = rgb(0.09, 0.58, 0.29)
+      const red = rgb(0.9, 0.2, 0.2)
+      const text = rgb(0.12, 0.16, 0.24)
+      const muted = rgb(0.42, 0.47, 0.56)
+
+      if (logoImage) {
+        const logoW = 52
+        const logoH = (logoImage.height / logoImage.width) * logoW
+        page.drawImage(logoImage, { x: pad, y: h - 66, width: logoW, height: logoH })
+      }
+      page.drawText(companyName, { x: pad + 58, y: h - 32, size: 18.5, font: boldFont, color: rgb(0.05, 0.05, 0.05) })
+      page.drawText('Order Report', { x: pad + 58, y: h - 54, size: 13, font: boldFont, color: navy })
+      page.drawText(`Generated: ${new Date().toLocaleString()}`, { x: w - 212, y: h - 36, size: 10, font: boldFont, color: text })
+      page.drawText(`Date Range: ${options?.rangeLabel || 'All records'}`, { x: w - 212, y: h - 58, size: 10, font: boldFont, color: text })
+      page.drawLine({ start: { x: pad, y: h - 74 }, end: { x: w - pad, y: h - 74 }, thickness: 1.5, color: navy })
+
+      let y = h - 118
+      page.drawText('ORDER DETAILS', { x: pad, y, size: 12.5, font: boldFont, color: navy })
+      y -= 12
+
+      const headers = ['Order Number', 'Customer', 'Item Summary', 'Total Quantity', 'Order Date', 'Order Status', 'Total Amount']
+      const widths = [82, 92, 86, 76, 82, 78, 71]
+      let x = pad
+      headers.forEach((hdr, idx) => {
+        page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+        page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.0, y: y - 14, size: 8.4, font: boldFont, color: rgb(1, 1, 1) })
+        x += widths[idx]
+      })
+      y -= 22
+
+      sanitizedRows.slice(0, 22).forEach((row: any) => {
+        const rowH = 30
+        const rawStatus = String(row.orderStatus || row.status || '').toUpperCase()
+        const vals = [
+          String(row.orderNumber || 'N/A'),
+          String(row.customer || 'N/A'),
+          String(row.productNameWithSize || row.itemSummary || 'N/A'),
+          String(row.totalQuantity ?? '0'),
+          String(row.orderDate || row.createdAt || 'N/A'),
+          rawStatus || 'N/A',
+          String(row.totalAmount || '0'),
+        ]
+        let cx = pad
+        vals.forEach((v, idx) => {
+          page.drawRectangle({
+            x: cx,
+            y: y - rowH,
+            width: widths[idx],
+            height: rowH,
+            borderColor: rgb(0.86, 0.89, 0.94),
+            borderWidth: 0.6,
+            color: rgb(1, 1, 1),
+          })
+          const val = String(v || '')
+          if (idx === 2) {
+            drawWrappedCellText(String(v || ''), cx, y, widths[idx], rowH, 8.3, font, text, 'left', 1)
+            drawWrappedCellText(String(row.productCategory || 'Uncategorized'), cx, y - 11, widths[idx], rowH, 7.6, font, muted, 'left', 1)
+          } else if (idx === 5) {
+            const isDelivered = rawStatus.includes('DELIVERED')
+            const isCancelled = rawStatus.includes('CANCEL') || rawStatus.includes('REJECT')
+            const statusColor = isDelivered ? green : isCancelled ? red : navy
+            drawWrappedCellText(val, cx, y, widths[idx], rowH, 8.2, boldFont, statusColor, 'left', 2)
+          } else {
+            drawWrappedCellText(val, cx, y, widths[idx], rowH, 8.3, font, text, 'left', 2)
+          }
+          cx += widths[idx]
+        })
+        y -= rowH
+      })
+
+      page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      page.drawText("Thank you for using Ann Ann's Beverages Trading System.", { x: pad, y: 20, size: 9, font, color: muted })
+      page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+
+      const bytes = await pdfDoc.save()
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      return
     }
 
     const drawHeader = (heading: string) => {
@@ -1263,10 +2152,20 @@ export function ReportsView() {
       headers.forEach((header, index) => {
         const rawValue = String(row[header] ?? '')
         const approxCharWidth = tableBodyFontSize <= 8 ? 4.5 : 5.1
-        const value = ellipsize(rawValue, Math.max(8, Math.floor((colWidth - 12) / approxCharWidth)))
-        page.drawText(value, { x: margin + index * colWidth, y, size: tableBodyFontSize, font, color: rgb(0.18, 0.18, 0.18), maxWidth: colWidth - 8 })
+        drawWrappedCellText(
+          rawValue,
+          margin + index * colWidth,
+          y + 7,
+          colWidth,
+          20,
+          tableBodyFontSize,
+          font,
+          rgb(0.18, 0.18, 0.18),
+          'left',
+          2
+        )
       })
-      y -= lineHeight
+      y -= 22
       if (y < 95) break
     }
 
@@ -1281,7 +2180,7 @@ export function ReportsView() {
 
     const extraSections = options?.extraSections || []
     for (const section of extraSections) {
-      page = pdfDoc.addPage([842, 595])
+      page = pdfDoc.addPage([595, 842])
       drawHeader(`${title} - ${section.title}`)
       let sectionY = 470
 
@@ -1311,17 +2210,20 @@ export function ReportsView() {
           const row = sectionRows[rowIndex]
           sectionHeaders.forEach((header, index) => {
             const rawValue = String(row[header] ?? '')
-            const value = ellipsize(rawValue, Math.max(8, Math.floor((sectionColWidth - 12) / 5)))
-            page.drawText(value, {
-              x: margin + index * sectionColWidth,
-              y: sectionY,
-              size: sectionBodyFontSize,
+            drawWrappedCellText(
+              rawValue,
+              margin + index * sectionColWidth,
+              sectionY + 7,
+              sectionColWidth,
+              20,
+              sectionBodyFontSize,
               font,
-              color: rgb(0.18, 0.18, 0.18),
-              maxWidth: sectionColWidth - 8,
-            })
+              rgb(0.18, 0.18, 0.18),
+              'left',
+              2
+            )
           })
-          sectionY -= lineHeight
+          sectionY -= 22
           if (sectionY < 60) break
         }
       }
@@ -1371,7 +2273,7 @@ export function ReportsView() {
       summaryLines: replacementSummaryLines,
       rangeLabel: standardDateRangeLabel,
     })
-    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
+    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackExportRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
       rangeLabel: standardDateRangeLabel,
@@ -1597,7 +2499,7 @@ export function ReportsView() {
       })
       return
     }
-    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackRows, {
+    await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackExportRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
       rangeLabel: standardDateRangeLabel,
@@ -1611,7 +2513,7 @@ export function ReportsView() {
       warehouse: { title: 'Warehouse Utilization Report', rows: warehouseUtilizationRowsForExport, summaryLines: warehouseSummaryLines },
       inventory: { title: 'Inventory Movement Report', rows: inventoryExportRows, summaryLines: inventorySummaryLines },
       replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: replacementSummaryLines },
-      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackRows, summaryLines: feedbackSummaryLines },
+      feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackExportRows, summaryLines: feedbackSummaryLines },
     }
 
     const report = reportMap[activeReportTab]
@@ -1709,24 +2611,6 @@ export function ReportsView() {
               onStatusChange: setSelectedOrderStatus,
               showWarehouse: true,
             })}
-            {/* Report-style hero keeps the orders tab feeling like a generated business report instead of a plain list. */}
-            <Card className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-sky-50/40 to-blue-100/50 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
-              <CardContent className="flex flex-col gap-3 px-6 py-7 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-600">Ann Ann&apos;s Beverages Trading</p>
-                  <h2 className="mt-3 text-4xl font-black tracking-tight text-slate-900">Order Report</h2>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Generated on {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm backdrop-blur">
-                  {selectedWarehouse === 'all'
-                    ? 'All warehouses included'
-                    : `Warehouse filter applied: ${warehouses.find((warehouse) => String(warehouse.id) === selectedWarehouse)?.name || selectedWarehouse}`}
-                </div>
-              </CardContent>
-            </Card>
-
             {/* These KPI cards mirror the exported summary so the report headline numbers never drift. */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               <Card className="rounded-3xl border border-blue-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-blue-500">Total Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-slate-900">{orderKpi.totalOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">100% of filtered orders</p></CardHeader></Card>
@@ -1846,7 +2730,12 @@ export function ReportsView() {
                         <tr key={`${row.orderNumber}-${index}`} className="border-b last:border-0">
                           <td className="p-3 font-medium">{String(row.orderNumber || 'N/A')}</td>
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
-                          <td className="p-3 text-slate-600">{String(row.itemSummary || 'N/A')}</td>
+                          <td className="p-3">
+                            <div className="leading-tight">
+                              <p className="text-slate-700">{String((row as any).productNameWithSize || row.itemSummary || 'N/A')}</p>
+                              <p className="mt-1 text-xs text-slate-500">{String((row as any).productCategory || 'Uncategorized')}</p>
+                            </div>
+                          </td>
                           <td className="p-3">{Number(row.totalQuantity || 0).toLocaleString()}</td>
                           <td className="p-3">{String(row.orderDateLabel || 'N/A')}</td>
                           <td className="p-3">
@@ -1925,7 +2814,7 @@ export function ReportsView() {
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Avg Rating</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.avgRating}</CardTitle><p className="text-[11px] text-slate-400">Out of 5.0</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Trips</CardDescription><CardTitle className="text-[30px] leading-none text-blue-700">{driverPerformanceKpi.totalTrips}</CardTitle><p className="text-[11px] text-slate-400">Trips assigned to listed drivers</p></CardHeader></Card>
             </div>
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg">Completion Band Distribution</CardTitle>
@@ -1995,37 +2884,6 @@ export function ReportsView() {
                   </div>
                 </CardContent>
               </Card>
-              <Card className={chartCardClassName}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Rating vs Trip Productivity</CardTitle>
-                  <CardDescription>Bubble size represents completion rate</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-72 w-full">
-                    {transportRatingVsTripsScatter.length === 0 ? (
-                      <p className="py-8 text-center text-gray-500">No productivity data for selected filters</p>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ScatterChart margin={{ top: 12, right: 20, left: 8, bottom: 20 }}>
-                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
-                          <XAxis type="number" dataKey="rating" name="Rating" domain={[0, 5]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                          <YAxis type="number" dataKey="trips" name="Trips" allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                          <ZAxis type="number" dataKey="completionRate" name="Completion %" range={[40, 260]} />
-                          <Tooltip
-                            cursor={{ strokeDasharray: '3 3' }}
-                            contentStyle={chartTooltipStyle}
-                            labelStyle={chartTooltipLabelStyle}
-                            itemStyle={chartTooltipItemStyle}
-                            formatter={(value: any, key: any) => [key === 'completionRate' ? `${Number(value || 0)}%` : Number(value || 0).toLocaleString(), String(key)]}
-                            labelFormatter={(_label: any, payload: any) => payload?.[0]?.payload?.name || 'Driver'}
-                          />
-                          <Scatter data={transportRatingVsTripsScatter} fill="#0ea5e9" />
-                        </ScatterChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
             </div>
             <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
@@ -2041,7 +2899,6 @@ export function ReportsView() {
                       <tr>
                         <th className="p-3 text-left">Driver Name</th>
                         <th className="p-3 text-left">Rating</th>
-                        <th className="p-3 text-left">Total Deliveries</th>
                         <th className="p-3 text-left">Total Trips</th>
                         <th className="p-3 text-left">Delivered Drop Points</th>
                         <th className="p-3 text-left">Completion %</th>
@@ -2053,7 +2910,6 @@ export function ReportsView() {
                         <tr key={`${row.driverName}-${index}`} className="border-b last:border-0">
                           <td className="p-3 font-medium">{String(row.driverName || 'N/A')}</td>
                           <td className="p-3">{String(row.rating || 'N/A')}</td>
-                          <td className="p-3">{String(row.totalDeliveries || 0)}</td>
                           <td className="p-3">{String(row.totalTrips || 0)}</td>
                           <td className="p-3">{String(row.deliveredDropPoints || 0)}/{String(row.dropPointsTotal || 0)}</td>
                           <td className="p-3">{String(row.completionRate || '0%')}</td>
@@ -2596,7 +3452,7 @@ export function ReportsView() {
             <Card className="rounded-2xl border border-slate-200 shadow-sm">
               <CardHeader>
                 <div>
-                  <CardTitle>Returned or Damaged Products Report</CardTitle>
+                  <CardTitle>Replacement Report</CardTitle>
                   <CardDescription>Replacement handling and case tracking</CardDescription>
                 </div>
               </CardHeader>
@@ -2621,7 +3477,7 @@ export function ReportsView() {
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
                           <td className="p-3">{String(row.assignedDriver || 'N/A')}</td>
                           <td className="p-3">{String(row.status || 'N/A')}</td>
-                          <td className="p-3 font-semibold text-red-600">- {formatPeso(Number(row.totalLoss || 0))}</td>
+                          <td className="p-3 font-semibold text-red-600">{formatPeso(Math.max(0, Number(row.totalLoss || 0)))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2712,6 +3568,7 @@ export function ReportsView() {
                       <tr>
                         <th className="p-3 text-left">Date</th>
                         <th className="p-3 text-left">Customer</th>
+                        <th className="p-3 text-left">Driver</th>
                         <th className="p-3 text-left">Type</th>
                         <th className="p-3 text-left">Rating</th>
                       </tr>
@@ -2721,6 +3578,7 @@ export function ReportsView() {
                         <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
                           <td className="p-3">{formatDateTime(row.createdAt)}</td>
                           <td className="p-3">{String(row.customer || 'N/A')}</td>
+                          <td className="p-3">{String((row as any).driver || 'N/A')}</td>
                           <td className="p-3">{String(row.type || 'N/A')}</td>
                           <td className="p-3">{String(row.rating || 'N/A')}</td>
                         </tr>
@@ -2738,10 +3596,3 @@ export function ReportsView() {
     </div>
   )
 }
-
-
-
-
-
-
-
