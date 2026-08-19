@@ -93,17 +93,21 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-logistics-dev-key")
 DEBUG = _bool("DJANGO_DEBUG", True)
 
 allowed_hosts = _csv("DJANGO_ALLOWED_HOSTS")
-render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
-if render_external_hostname:
-    allowed_hosts.append(render_external_hostname)
-allowed_hosts.extend(["localhost", "127.0.0.1"])
 if not allowed_hosts:
-    allowed_hosts = ["*"] if DEBUG else []
+    allowed_hosts = ["*"]
+else:
+    if "*" not in allowed_hosts:
+        allowed_hosts.extend([".onrender.com", "localhost", "127.0.0.1"])
+        render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
+        if render_external_hostname:
+            allowed_hosts.append(render_external_hostname)
 ALLOWED_HOSTS = sorted(set(allowed_hosts))
 
 csrf_trusted_origins = _csv("DJANGO_CSRF_TRUSTED_ORIGINS")
+render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
 if render_external_hostname:
     csrf_trusted_origins.append(f"https://{render_external_hostname}")
+csrf_trusted_origins.extend(["https://*.onrender.com", "http://localhost:3000", "http://127.0.0.1:3000"])
 CSRF_TRUSTED_ORIGINS = sorted(set(csrf_trusted_origins))
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
