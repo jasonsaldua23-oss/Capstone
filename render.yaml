@@ -45,7 +45,7 @@ services:
     runtime: node
     plan: starter
     autoDeploy: true
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    buildCommand: npm ci && npx prisma generate && npm run build
     startCommand: npx next start -p $PORT -H 0.0.0.0
     healthCheckPath: /
     envVars:
