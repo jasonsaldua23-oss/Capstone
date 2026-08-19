@@ -19,6 +19,7 @@ type RetailProduct = {
   category: string
   packagingType: string
   looseUnit: string
+  sizes?: string[]
   retailUnitPrice?: string | null
   casePrice: string
   caseQuantity: number
@@ -46,6 +47,7 @@ type RetailCustomer = { id: string; name: string; email?: string; phone?: string
 type RetailSale = Record<string, any>
 
 const peso = (value: unknown) => `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const getProductSizeLabel = (p?: RetailProduct | null) => (Array.isArray(p?.sizes) && p.sizes.length > 0 ? ` (${p.sizes.join(', ')})` : '')
 
 async function readJson(response: Response) {
   const payload = await response.json().catch(() => ({}))
@@ -115,6 +117,21 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     if (!needle) return products
     return products.filter((product) => `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(needle))
   }, [products, search])
+
+  const availableCapacities = useMemo(() => {
+    const caps = new Set<number>()
+    products.forEach((p) => {
+      p.mixedCaseCapacities?.forEach((c) => caps.add(c))
+    })
+    return Array.from(caps).sort((a, b) => a - b)
+  }, [products])
+
+  useEffect(() => {
+    if (availableCapacities.length > 0 && !availableCapacities.includes(mixedCapacity)) {
+      setMixedCapacity(availableCapacities[0])
+      setMixedQuantityA(Math.max(1, Math.floor(availableCapacities[0] / 2)))
+    }
+  }, [availableCapacities, mixedCapacity])
 
   const mixedProducts = useMemo(
     () => products.filter((product) => product.supportedModes.includes('MIXED_CASE') && product.mixedCaseCapacities.includes(mixedCapacity)),
@@ -260,7 +277,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate font-semibold text-slate-950">{product.name}</p>
-                          <p className="text-xs text-slate-500">{product.sku} · {product.packagingType}</p>
+                          <p className="text-xs text-slate-500">{product.sku} · {product.packagingType}{getProductSizeLabel(product)}</p>
                           <p className="mt-1 text-xs font-medium text-emerald-700">{product.availableBaseUnits} {product.looseUnit}{product.availableBaseUnits === 1 ? '' : 's'} available</p>
                         </div>
                       </div>
@@ -282,9 +299,39 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
           <Card className="border-white/50 bg-white/75 shadow-sm backdrop-blur-xl">
             <CardHeader><CardTitle>Mixed Case Builder</CardTitle><CardDescription>Combine two compatible Glass Bottle products into one full case.</CardDescription></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-4">
-              <div><Label htmlFor="mixed-capacity">Case capacity</Label><Input id="mixed-capacity" type="number" min={2} value={mixedCapacity} onChange={(e) => setMixedCapacity(Math.max(2, Number(e.target.value) || 2))} /></div>
-              <div><Label htmlFor="mixed-a">Product A</Label><select id="mixed-a" value={mixedProductA} onChange={(e) => setMixedProductA(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select</option>{mixedProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-              <div><Label htmlFor="mixed-b">Product B</Label><select id="mixed-b" value={mixedProductB} onChange={(e) => setMixedProductB(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select</option>{mixedProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <div>
+                <Label htmlFor="mixed-capacity">Case capacity</Label>
+                {availableCapacities.length > 0 ? (
+                  <select
+                    id="mixed-capacity"
+                    value={mixedCapacity}
+                    onChange={(e) => {
+                      const cap = Number(e.target.value) || 12
+                      setMixedCapacity(cap)
+                      setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
+                    }}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    {availableCapacities.map((c) => (
+                      <option key={c} value={c}>{c} bottles</option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    id="mixed-capacity"
+                    type="number"
+                    min={2}
+                    value={mixedCapacity}
+                    onChange={(e) => {
+                      const cap = Math.max(2, Number(e.target.value) || 2)
+                      setMixedCapacity(cap)
+                      if (mixedQuantityA >= cap) setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
+                    }}
+                  />
+                )}
+              </div>
+              <div><Label htmlFor="mixed-a">Product A</Label><select id="mixed-a" value={mixedProductA} onChange={(e) => setMixedProductA(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select</option>{mixedProducts.map((p) => <option key={p.id} value={p.id}>{p.name}{getProductSizeLabel(p)}</option>)}</select></div>
+              <div><Label htmlFor="mixed-b">Product B</Label><select id="mixed-b" value={mixedProductB} onChange={(e) => setMixedProductB(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select</option>{mixedProducts.map((p) => <option key={p.id} value={p.id}>{p.name}{getProductSizeLabel(p)}</option>)}</select></div>
               <div><Label htmlFor="mixed-qty-a">Product A quantity</Label><Input id="mixed-qty-a" type="number" min={1} max={mixedCapacity - 1} value={mixedQuantityA} onChange={(e) => setMixedQuantityA(Number(e.target.value) || 1)} /></div>
               <div className="md:col-span-4 flex items-center justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>Product B automatically fills <strong>{Math.max(0, mixedCapacity - mixedQuantityA)}</strong> bottles.</span><Button onClick={addMixedCase}>Add Mixed Case</Button></div>
             </CardContent>
@@ -321,12 +368,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 {cart.map((line) => {
                   const product = products.find((item) => item.id === line.productId)
                   return <div key={line.key} className="rounded-xl border border-slate-200 p-3">
-                    <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{line.mode === 'MIXED_CASE' ? `Mixed Case · ${line.caseCapacity}` : product?.name}</p><p className="text-xs text-slate-500">{line.mode.replaceAll('_', ' ')}</p></div><Button size="icon" variant="ghost" aria-label="Remove cart line" onClick={() => { setCart((current) => current.filter((item) => item.key !== line.key)); invalidateQuote() }}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>
+                    <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{line.mode === 'MIXED_CASE' ? `Mixed Case · ${line.caseCapacity}` : `${product?.name || ''}${getProductSizeLabel(product)}`}</p><p className="text-xs text-slate-500">{line.mode.replaceAll('_', ' ')}</p></div><Button size="icon" variant="ghost" aria-label="Remove cart line" onClick={() => { setCart((current) => current.filter((item) => item.key !== line.key)); invalidateQuote() }}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>
                     <div className="mt-3 flex items-center gap-2"><Button size="icon" variant="outline" aria-label="Decrease quantity" onClick={() => updateLine(line.key, { quantity: Math.max(1, line.quantity - 1) })}><Minus className="h-4 w-4" /></Button><Input aria-label="Quantity" type="number" min={1} value={line.quantity} onChange={(e) => updateLine(line.key, { quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-20 text-center" /><Button size="icon" variant="outline" aria-label="Increase quantity" onClick={() => updateLine(line.key, { quantity: line.quantity + 1 })}><Plus className="h-4 w-4" /></Button></div>
                     {line.mode !== 'MIXED_CASE' && product?.depositEligible ? <div className="mt-3"><Label htmlFor={`empties-${line.key}`}>Empty {product.looseUnit}s provided</Label><Input id={`empties-${line.key}`} type="number" min={0} max={line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity} value={line.emptyBottlesProvided || 0} onChange={(e) => updateLine(line.key, { emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0) })} /></div> : null}
                     {line.mode === 'MIXED_CASE' ? <div className="mt-2 space-y-2 text-xs text-slate-600">{line.components?.map((component, componentIndex) => {
                       const componentProduct = products.find((p) => p.id === component.productId)
-                      return <div key={component.productId} className="grid grid-cols-[1fr_110px] items-end gap-2"><p>{componentProduct?.name}: {component.quantityBaseUnits} Glass Bottles</p>{componentProduct?.depositEligible ? <div><Label htmlFor={`mixed-empties-${line.key}-${component.productId}`} className="text-xs">Empties</Label><Input id={`mixed-empties-${line.key}-${component.productId}`} type="number" min={0} max={component.quantityBaseUnits} value={component.emptyBottlesProvided} onChange={(event) => {
+                      return <div key={component.productId} className="grid grid-cols-[1fr_110px] items-end gap-2"><p>{componentProduct?.name}{getProductSizeLabel(componentProduct)}: {component.quantityBaseUnits} Glass Bottles</p>{componentProduct?.depositEligible ? <div><Label htmlFor={`mixed-empties-${line.key}-${component.productId}`} className="text-xs">Empties</Label><Input id={`mixed-empties-${line.key}-${component.productId}`} type="number" min={0} max={component.quantityBaseUnits} value={component.emptyBottlesProvided} onChange={(event) => {
                         const components = [...(line.components || [])]
                         components[componentIndex] = { ...component, emptyBottlesProvided: Math.max(0, Number(event.target.value) || 0) }
                         updateLine(line.key, { components })
@@ -337,10 +384,23 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 {!cart.length ? <p className="py-8 text-center text-sm text-slate-500">Select products to begin a sale.</p> : null}
               </div>
 
-              <div className="grid gap-3"><div><Label htmlFor="fulfillment">Fulfillment</Label><select id="fulfillment" value={fulfillmentType} onChange={(e) => { setFulfillmentType(e.target.value as any); invalidateQuote() }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="IMMEDIATE">Immediate release</option><option value="CUSTOMER_PICKUP">Customer pickup</option></select></div><div><Label htmlFor="amount-paid">Amount paid</Label><Input id="amount-paid" type="number" min="0" step="0.01" value={amountPaid} onChange={(e) => { setAmountPaid(e.target.value); invalidateQuote() }} /></div></div>
+              <div>
+                <Label htmlFor="amount-paid">Amount paid</Label>
+                <Input
+                  id="amount-paid"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={amountPaid}
+                  onChange={(e) => {
+                    setAmountPaid(e.target.value)
+                    invalidateQuote()
+                  }}
+                />
+              </div>
 
               {quoteResult ? <div className="space-y-2 rounded-2xl bg-slate-950 p-4 text-sm text-white" aria-live="polite"><div className="flex justify-between"><span>Product total</span><span>{peso(quoteResult.productTotal)}</span></div><div className="flex justify-between"><span>Empty bottles provided</span><span>{quoteResult.emptyBottlesProvided}</span></div><div className="flex justify-between"><span>Deposit</span><span>{peso(quoteResult.deposit)}</span></div><div className="flex justify-between border-t border-white/20 pt-2 text-base font-bold"><span>Grand total</span><span>{peso(quoteResult.grandTotal)}</span></div><div className="flex justify-between"><span>{quoteResult.paymentStatus.replaceAll('_', ' ')}</span><span>Balance {peso(quoteResult.remainingBalance)}</span></div></div> : null}
-              <div className="grid grid-cols-2 gap-2"><Button variant="outline" disabled={submitting || !cart.length} onClick={reviewSale}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Review totals'}</Button><Button disabled={submitting || !quoteToken} onClick={completeSale}>{fulfillmentType === 'IMMEDIATE' ? 'Complete sale' : 'Reserve pickup'}</Button></div>
+              <div className="grid grid-cols-2 gap-2"><Button variant="outline" disabled={submitting || !cart.length} onClick={reviewSale}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Review totals'}</Button><Button disabled={submitting || !quoteToken} onClick={completeSale}>Complete sale</Button></div>
             </CardContent>
           </Card>
         </div>

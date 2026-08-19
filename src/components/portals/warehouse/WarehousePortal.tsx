@@ -44,6 +44,7 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
+import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 import {
   Boxes,
   Archive,
@@ -59,6 +60,10 @@ import {
   Pencil,
   Eye,
   CircleCheck,
+  CheckCircle2,
+  ShieldCheck,
+  KeyRound,
+  Lock,
   EyeOff,
   Trash2,
   ClipboardList,
@@ -643,6 +648,7 @@ export function WarehousePortal() {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [otpModalKind, setOtpModalKind] = useState<'profile' | 'password' | null>(null)
   const [profileOtp, setProfileOtp] = useState('')
   const [profileOtpSent, setProfileOtpSent] = useState(false)
   const [profileOtpVerified, setProfileOtpVerified] = useState(false)
@@ -715,7 +721,7 @@ export function WarehousePortal() {
     const emailToVerify = targetEmail.trim().toLowerCase()
     if (!emailToVerify) {
       toast.error('Email is required')
-      return
+      return false
     }
     if (kind === 'profile') setIsSendingProfileOtp(true)
     else setIsSendingPasswordOtp(true)
@@ -740,25 +746,28 @@ export function WarehousePortal() {
         setPasswordOtpToken('')
         setPasswordOtp('')
       }
-      toast.success('OTP sent')
+      setOtpModalKind(kind)
+      toast.success('Verification OTP code sent to your email')
+      return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to send OTP')
+      return false
     } finally {
       if (kind === 'profile') setIsSendingProfileOtp(false)
       else setIsSendingPasswordOtp(false)
     }
   }
 
-  const verifyOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
+  const verifyOtp = async (targetEmail: string, kind: 'profile' | 'password', otpValue?: string) => {
     const emailToVerify = targetEmail.trim().toLowerCase()
-    const otp = (kind === 'profile' ? profileOtp : passwordOtp).trim()
+    const otp = (otpValue || (kind === 'profile' ? profileOtp : passwordOtp)).trim()
     if (!emailToVerify) {
       toast.error('Email is required')
-      return
+      return false
     }
     if (!otp) {
       toast.error('Enter OTP first')
-      return
+      return false
     }
     if (kind === 'profile') setIsVerifyingProfileOtp(true)
     else setIsVerifyingPasswordOtp(true)
@@ -781,9 +790,12 @@ export function WarehousePortal() {
         setPasswordOtpVerified(true)
         setPasswordOtpToken(otp)
       }
-      toast.success('OTP verified')
+      toast.success('OTP verified successfully')
+      setOtpModalKind(null)
+      return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to verify OTP')
+      return false
     } finally {
       if (kind === 'profile') setIsVerifyingProfileOtp(false)
       else setIsVerifyingPasswordOtp(false)
@@ -2223,7 +2235,7 @@ export function WarehousePortal() {
     const maxPages = 100
     const fetchPage = (page: number) =>
       safeFetchJson(
-        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none&includeFulfillments=true&includeWarehouseAllocations=true`,
+        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true`,
         { cache: 'no-store', credentials: 'include' }
       )
 
@@ -2269,7 +2281,7 @@ export function WarehousePortal() {
         }
         if (latestOrderUpdatedAtRef.current) {
           const deltaParams = new URLSearchParams({
-            includeItems: 'none',
+            includeItems: 'full',
             includeFulfillments: 'true',
             includeWarehouseAllocations: 'true',
             sort: 'updated_at',
@@ -4567,17 +4579,37 @@ export function WarehousePortal() {
                       <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} />
                     </div>
                     {isProfileEmailChanged ? (
-                      <div className="space-y-2 rounded-md border p-3">
-                        <p className="text-xs text-gray-600">OTP is required to change email.</p>
-                        <div className="flex gap-2">
-                          <Input value={profileOtp} onChange={(e) => setProfileOtp(e.target.value)} placeholder="Enter OTP" />
-                          <Button type="button" variant="outline" onClick={() => void requestOtp(normalizedProfileEmail, 'profile')} disabled={isSendingProfileOtp}>
-                            {isSendingProfileOtp ? 'Sending...' : profileOtpSent ? 'Resend OTP' : 'Send OTP'}
-                          </Button>
-                          <Button type="button" onClick={() => void verifyOtp(normalizedProfileEmail, 'profile')} disabled={isVerifyingProfileOtp || !profileOtp.trim()}>
-                            {isVerifyingProfileOtp ? 'Verifying...' : 'Verify OTP'}
-                          </Button>
+                      <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 space-y-3">
+                        <div className="flex items-start gap-3">
+                          <div className="rounded-lg p-2 bg-blue-50 text-blue-600 border border-blue-100 shrink-0">
+                            <ShieldCheck className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">Email Verification</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              A verification code is required to change your email to <span className="font-medium text-slate-700">{normalizedProfileEmail}</span>.
+                            </p>
+                          </div>
                         </div>
+
+                        {profileOtpVerified ? (
+                          <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                            <span>New email verified</span>
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 font-medium h-9 text-xs"
+                            onClick={() => void requestOtp(normalizedProfileEmail, 'profile')}
+                            disabled={isSendingProfileOtp || !normalizedProfileEmail}
+                          >
+                            {isSendingProfileOtp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                            {isSendingProfileOtp ? 'Sending Security Code...' : profileOtpSent ? 'Resend Security Code' : 'Request Security Code'}
+                          </Button>
+                        )}
                       </div>
                     ) : null}
                     <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
@@ -4679,20 +4711,52 @@ export function WarehousePortal() {
                       </button>
                     </div>
                   </div>
-                  <div className="space-y-2 rounded-md border p-3">
-                    <p className="text-xs text-gray-600">OTP is required to change password.</p>
-                    <div className="flex gap-2">
-                      <Input value={passwordOtp} onChange={(e) => setPasswordOtp(e.target.value)} placeholder="Enter OTP" />
-                      <Button type="button" variant="outline" onClick={() => void requestOtp(accountEmail, 'password')} disabled={isSendingPasswordOtp}>
-                        {isSendingPasswordOtp ? 'Sending...' : passwordOtpSent ? 'Resend OTP' : 'Send OTP'}
-                      </Button>
-                      <Button type="button" onClick={() => void verifyOtp(accountEmail, 'password')} disabled={isVerifyingPasswordOtp || !passwordOtp.trim()}>
-                        {isVerifyingPasswordOtp ? 'Verifying...' : 'Verify OTP'}
-                      </Button>
+
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-lg p-2 bg-blue-50 text-blue-600 border border-blue-100 shrink-0">
+                        <ShieldCheck className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">Security Verification</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          A verification code will be sent to <span className="font-medium text-slate-700">{accountEmail}</span> to confirm this password change.
+                        </p>
+                      </div>
                     </div>
+
+                    {passwordOtpVerified ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                        <span>Identity verified for password update</span>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 font-medium h-9 text-xs"
+                        onClick={() => void requestOtp(accountEmail, 'password')}
+                        disabled={
+                          isSendingPasswordOtp ||
+                          !newPassword ||
+                          !confirmPassword ||
+                          newPassword !== confirmPassword ||
+                          Boolean(validatePasswordPolicy(newPassword))
+                        }
+                      >
+                        {isSendingPasswordOtp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                        {isSendingPasswordOtp ? 'Sending Security Code...' : passwordOtpSent ? 'Resend Security Code' : 'Request Security Code'}
+                      </Button>
+                    )}
                   </div>
-                  <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void updateProfilePassword()} disabled={isUpdatingPassword}>
-                    {isUpdatingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+
+                  <Button
+                    className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                    onClick={() => void updateProfilePassword()}
+                    disabled={isUpdatingPassword || !passwordOtpVerified}
+                  >
+                    {isUpdatingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
                     Update Password
                   </Button>
                 </CardContent>
@@ -5857,6 +5921,24 @@ export function WarehousePortal() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <OtpVerificationModal
+        open={otpModalKind !== null}
+        onOpenChange={(open) => {
+          if (!open) setOtpModalKind(null)
+        }}
+        email={otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail}
+        onVerify={(otp) =>
+          otpModalKind
+            ? verifyOtp(otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail, otpModalKind, otp)
+            : Promise.resolve(false)
+        }
+        onResendCode={() =>
+          otpModalKind
+            ? requestOtp(otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail, otpModalKind)
+            : Promise.resolve(false)
+        }
+      />
 
     </div>
   )

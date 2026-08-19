@@ -40,6 +40,9 @@ from .auth import (
 )
 from .models import (
     Customer,
+    ContainerType,
+    CustomerBottleBalance,
+    CustomerDepositLedger,
     Feedback,
     Inventory,
     InventoryTransaction,
@@ -51,6 +54,7 @@ from .models import (
     OrderTimeline,
     WarehouseStage,
     Product,
+    ProductPackaging,
     Replacement,
     ReplacementStatus,
     RoleType,
@@ -81,7 +85,9 @@ logger = logging.getLogger(__name__)
 
 PRODUCT_UNIT_CASE = "case"
 PRODUCT_UNIT_PACK_BUNDLE = "pack(bundle)"
-ALLOWED_PRODUCT_UNITS = {PRODUCT_UNIT_CASE, PRODUCT_UNIT_PACK_BUNDLE}
+PRODUCT_UNIT_BOTTLE = "bottle"
+PRODUCT_UNIT_MIXED_CASE = "mixed_case"
+ALLOWED_PRODUCT_UNITS = {PRODUCT_UNIT_CASE, PRODUCT_UNIT_PACK_BUNDLE, PRODUCT_UNIT_BOTTLE, PRODUCT_UNIT_MIXED_CASE}
 
 HIDDEN_SAMPLE_WORDS = ("test", "demo", "sample", "dummy", "placeholder", "fake")
 HIDDEN_SAMPLE_EMAIL_DOMAINS = ("@example.com", "@test.com", "@demo.com")
@@ -2560,9 +2566,13 @@ def _normalize_product_unit(raw: Any) -> str:
         return PRODUCT_UNIT_CASE
     if value in {"piece", "pieces", PRODUCT_UNIT_CASE}:
         return PRODUCT_UNIT_CASE
-    if value in {"pack", "bundle", "pack(bundle)", "pack (bundle)"}:
+    if value in {"pack", "bundle", "pack(bundle)", "pack (bundle)", PRODUCT_UNIT_PACK_BUNDLE}:
         return PRODUCT_UNIT_PACK_BUNDLE
-    raise ValueError("unit must be either 'case' or 'pack(bundle)'")
+    if value in {"bottle", "bottles", PRODUCT_UNIT_BOTTLE}:
+        return PRODUCT_UNIT_BOTTLE
+    if value in {"mixed_case", "mixed-case", "mixed case", PRODUCT_UNIT_MIXED_CASE}:
+        return PRODUCT_UNIT_MIXED_CASE
+    return value
 
 
 def _round_half_up(value: float) -> int:
@@ -4959,6 +4969,12 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 }
             )
 
+        packagings = list(
+            ProductPackaging.objects.filter(product_id__in=product_ids, is_active=True)
+            .select_related("container_type")
+        )
+        packaging_by_product: dict[str, ProductPackaging] = {p.product_id: p for p in packagings}
+
         products_out = []
         for product in rows:
             row = _serialize_model(product)
@@ -4969,6 +4985,23 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             )
             row["inventory"] = inventory_entries
             row["availableQuantity"] = available_quantity
+
+            pkg = packaging_by_product.get(product.id)
+            if pkg:
+                row["packagingType"] = "RETURNABLE" if pkg.is_returnable else "NON_RETURNABLE"
+                row["containerTypeId"] = pkg.container_type_id
+                row["containerTypeName"] = pkg.container_type.name if pkg.container_type else None
+                row["containersPerCase"] = pkg.containers_per_case
+                row["depositAmount"] = float(pkg.deposit_amount)
+                row["caseDepositAmount"] = float(pkg.case_deposit_amount)
+            elif str(product.category or "").strip().lower() in {"carbonated(glass)", "carbonated (glass)", "energy drinks (glass)", "energy drinks(glass)"}:
+                is_1l = any("1l" in str(sz).lower() or "1 liter" in str(sz).lower() for sz in (product.sizes or []))
+                is_8oz = any("8oz" in str(sz).lower() for sz in (product.sizes or []))
+                row["packagingType"] = "RETURNABLE"
+                row["containersPerCase"] = 12 if is_1l else 24
+                row["depositAmount"] = 6.0 if is_1l else 2.0
+                row["caseDepositAmount"] = 52.0 if is_1l else 42.0
+
             products_out.append(row)
 
         return _ok({"success": True, "products": products_out, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
@@ -8746,14 +8779,16 @@ def _require_retail_warehouse(request: HttpRequest) -> tuple[dict[str, Any] | No
     if error:
         return None, None, error
     role = str(payload.get("role") or "").strip().upper()
-    if role not in (RoleType.WAREHOUSE_STAFF, RoleType.ADMIN):
+    if role not in (RoleType.WAREHOUSE_STAFF, RoleType.ADMIN, RoleType.SUPER_ADMIN):
         return None, None, _err("Retail / POS is available only to warehouse staff and administrators", 403)
     staff_id = str(payload.get("userId") or "").strip()
-    if role == RoleType.ADMIN:
+    if role in (RoleType.ADMIN, RoleType.SUPER_ADMIN):
         requested_id = str(request.GET.get("warehouseId") or "").strip()
         if request.method != "GET":
             requested_id = str(_json_body(request).get("warehouseId") or requested_id).strip()
         warehouse = Warehouse.objects.filter(id=requested_id).first() if requested_id else None
+        if warehouse is None:
+            warehouse = Warehouse.objects.first()
         return payload, warehouse, None
     if not User.objects.filter(id=staff_id, role=RoleType.WAREHOUSE_STAFF, is_active=True).exists():
         return None, None, _err("Warehouse staff account is unavailable", 403)
@@ -8779,7 +8814,7 @@ def _retail_error(exc: ValueError) -> JsonResponse:
 
 def _retail_sale_queryset(warehouse: Warehouse | None = None):
     qs = (
-        Order.objects.select_related("customer", "created_by_user", "warehouse")
+        Order.objects.select_related("customer", "created_by_user")
         .prefetch_related("items__product", "items__mixed_case_components__product", "bottle_returns")
         .filter(sales_channel=SalesChannel.RETAIL_POS)
     )

@@ -163,9 +163,12 @@ def _primary_packaging(product: Product) -> ProductPackaging | None:
 
 def _price_for(product: Product, mode: str) -> Decimal:
     if mode == RetailSaleMode.LOOSE:
-        if product.retail_unit_price is None:
-            raise ValueError(f"Retail unit price is not configured for {product.name}")
-        return money(product.retail_unit_price)
+        if product.retail_unit_price is not None:
+            return money(product.retail_unit_price)
+        qty = units_per_case(product)
+        if qty > 0:
+            return money((product.case_price if product.case_price is not None else Decimal(str(product.price or 0))) / Decimal(qty))
+        raise ValueError(f"Retail unit price is not configured for {product.name}")
     if mode == RetailSaleMode.CASE:
         return money(product.case_price if product.case_price is not None else product.price)
     raise ValueError(f"Unsupported sale mode: {mode}")
@@ -520,6 +523,7 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
     capacity = max(0, int(product.quantity_per_unit or 0))
     available = available_base_units(inventory, product) if inventory else 0
     profile = product.packaging_profile
+    has_unit_price = product.retail_unit_price is not None or capacity > 0
     mixed_eligible = bool(
         category["compatibilityKey"] == "GLASS_BOTTLE"
         and not category["depositExempt"]
@@ -527,15 +531,21 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
         and profile
         and profile.is_active
         and normalized_capacities(profile)
-        and product.retail_unit_price is not None
+        and has_unit_price
     )
     modes: list[str] = []
-    if product.retail_unit_price is not None:
+    if has_unit_price:
         modes.append(RetailSaleMode.LOOSE)
     if capacity > 0:
         modes.append(RetailSaleMode.CASE)
     if mixed_eligible:
         modes.append(RetailSaleMode.MIXED_CASE)
+
+    effective_unit_price = (
+        product.retail_unit_price
+        if product.retail_unit_price is not None
+        else ((product.case_price if product.case_price is not None else Decimal(str(product.price or 0))) / Decimal(capacity) if capacity > 0 else None)
+    )
     return {
         "id": product.id,
         "sku": product.sku,
@@ -545,7 +555,7 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
         "packagingType": category["packagingType"],
         "looseUnit": category["looseUnit"],
         "sizes": product.sizes,
-        "retailUnitPrice": _money_text(product.retail_unit_price) if product.retail_unit_price is not None else None,
+        "retailUnitPrice": _money_text(effective_unit_price) if effective_unit_price is not None else None,
         "casePrice": _money_text(product.case_price if product.case_price is not None else product.price),
         "caseQuantity": capacity,
         "depositPerUnit": _money_text(unit_deposit),

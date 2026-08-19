@@ -93,6 +93,16 @@ function formatTransactionQuantity(tx: TransactionRow): string {
   return `${quantity} ${quantity === 1 ? measurement : `${measurement}s`}`
 }
 
+function formatTransactionStock(stock: number | null | undefined, tx: TransactionRow): string {
+  if (stock == null || isNaN(Number(stock))) return '-'
+  const val = Number(stock)
+  if (tx.quantityUnit === 'BASE_UNIT') {
+    return formatLooseQuantity(val, getTransactionLooseMeasurement(tx))
+  }
+  const measurement = tx.stockUnitLabel || 'Case'
+  return `${val.toLocaleString()} ${val === 1 ? measurement : `${measurement}s`}`
+}
+
 export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
   const [transactions, setTransactions] = useState<TransactionRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -288,8 +298,6 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
                     <th className="text-right p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="text-right p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Previous Stock</th>
-                    <th className="text-right p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Updated Stock</th>
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Performed By</th>
                     <th className="text-center p-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Action</th>
                   </tr>
@@ -318,12 +326,6 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                         <span className={isIncomingType(tx.stockType || tx.type) ? 'text-emerald-600' : 'text-red-600'}>
                           {formatTransactionQuantity(tx)}
                         </span>
-                      </td>
-                      <td className="p-3 text-right text-sm text-gray-600 tabular-nums">
-                        {tx.previousStock ?? '-'}
-                      </td>
-                      <td className="p-3 text-right text-sm text-gray-900 font-medium tabular-nums">
-                        {tx.updatedStock ?? '-'}
                       </td>
                       <td className="p-3">
                         <div className="text-sm text-gray-700">
@@ -496,11 +498,11 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-gray-500">
-                      {selectedTx.previousStock ?? '-'}
+                      {formatTransactionStock(selectedTx.previousStock, selectedTx)}
                     </span>
                     <span className="text-gray-300">→</span>
                     <span className="font-medium text-gray-800">
-                      {selectedTx.updatedStock ?? '-'}
+                      {formatTransactionStock(selectedTx.updatedStock, selectedTx)}
                     </span>
                   </div>
                 </div>

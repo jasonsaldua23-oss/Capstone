@@ -32,7 +32,16 @@ function isMixedCaseItem(item: any) {
 }
 
 function formatOrderItemContents(item: any) {
-  if (!isMixedCaseItem(item)) return String(item?.productName || item?.product?.name || 'Product')
+  if (!isMixedCaseItem(item)) {
+    const name = String(item?.productName || item?.product?.name || 'Product')
+    const qty = Number(item?.quantity || 0)
+    const size = Array.isArray(item?.product?.sizes) && item.product.sizes.length > 0
+      ? ` (${item.product.sizes.join(', ')})`
+      : item?.product?.sizeLabel
+        ? ` (${item.product.sizeLabel})`
+        : ''
+    return `${name}${size}${qty > 0 ? ` x${qty}` : ''}`
+  }
   const caseCount = Math.max(0, Number(item?.quantity || 0))
   const capacity = Math.max(0, Number(item?.caseCapacity || item?.case_capacity || 0))
   const components = (Array.isArray(item?.components) ? item.components : []).map((component: any) => {
@@ -235,7 +244,13 @@ export function WarehouseOrdersView({
                               </Button>
                             ) : null}
                             {stage !== 'COMPLETED' && stage !== 'CANCELLED' ? (
-                              <Button size="sm" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'cancel' })}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-rose-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                disabled={updatingOrderId === order.id || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY'].includes(stage)}
+                                onClick={() => setActionState({ order, action: 'cancel' })}
+                              >
                                 Cancel Order
                               </Button>
                             ) : null}
