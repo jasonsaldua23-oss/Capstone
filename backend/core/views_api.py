@@ -3265,7 +3265,7 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
         if exp_raw is not None:
             try:
                 exp = int(exp_raw)
-                now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+                now_ts = int(timezone.now().timestamp())
                 if exp < now_ts - 300:
                     raise ValueError("Google token is expired")
             except ValueError:
