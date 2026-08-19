@@ -274,7 +274,7 @@ export function TripsView() {
     try {
       const result = await safeFetchJson('/api/trips?limit=1000', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
       if (!result.ok) {
-        throw new Error(result.error || 'Failed trips fetch')
+        throw new Error(result.data?.error || 'Failed trips fetch')
       }
       setTrips(getCollection<any>(result.data, ['trips']))
     } catch (error) {
@@ -288,8 +288,8 @@ export function TripsView() {
     const effectiveDate = inputDate ?? routeDate
     const effectiveWarehouseId = inputWarehouseId ?? routeWarehouseId
     if (!effectiveDate || !effectiveWarehouseId) {
-      if (!silent) toast.error('Select route date and warehouse')
-      setRoutePlanMessage({ type: 'error', text: 'Select route date and warehouse first.' })
+      if (!silent) toast.error('Select a route date after completing warehouse setup')
+      setRoutePlanMessage({ type: 'error', text: 'Select a route date after completing warehouse setup.' })
       return false
     }
 
@@ -916,27 +916,10 @@ export function TripsView() {
                 />
               </div>
               <div className="mb-2">
-                <label htmlFor="warehouse-select" className="text-sm font-medium text-gray-700">Select Warehouse</label>
-                <select
-                  id="warehouse-select"
-                  value={routeWarehouseId}
-                  onChange={(e) => {
-                    const nextWarehouseId = e.target.value
-                    setRouteWarehouseId(nextWarehouseId)
-                    if (createRouteOpen && routeDate && nextWarehouseId) {
-                      void createRoutePlan(true, routeDate, nextWarehouseId)
-                    }
-                  }}
-                  title="Select warehouse"
-                  className="mt-1 h-9 w-full rounded-md border bg-white px-2.5 text-sm"
-                >
-                  <option value="">-- Choose Warehouse --</option>
-                  {warehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name} ({warehouse.city})
-                    </option>
-                  ))}
-                </select>
+                <label className="text-sm font-medium text-gray-700">Warehouse</label>
+                <div className="mt-1 flex h-9 w-full items-center rounded-md border bg-slate-50 px-2.5 text-sm text-slate-600">
+                  {warehouses[0]?.name || warehouses[0]?.code || 'Warehouse setup required'}
+                </div>
               </div>
               <Button className="mt-1 mb-2 h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
                 {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
@@ -1111,9 +1094,23 @@ export function TripsView() {
                                 ) : null}
                               </div>
                               <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
-                              {order.products && (
+                              {Array.isArray((order as any)?.productAllocations) && (order as any).productAllocations.length > 0 ? (
+                                <div className="mt-0.5 space-y-0.5">
+                                  {(order as any).productAllocations.map((line: any, index: number) => {
+                                    const sizeLabel = String(line?.sizeLabel || '').trim()
+                                    const categoryLabel = String(line?.categoryLabel || '').trim()
+                                    return (
+                                      <div key={`${String(line?.itemId || index)}-preview`} className="text-[11px] text-gray-500">
+                                        {String(line?.productName || 'Product')}
+                                        {sizeLabel ? ` (${sizeLabel})` : ''}
+                                        {categoryLabel ? ` - ${categoryLabel}` : ''}: {Number(line?.allocatedQtyForSelectedWarehouse || 0)} / {Number(line?.totalQty || 0)}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : order.products ? (
                                 <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
-                              )}
+                              ) : null}
                               <div className={`mt-0.5 text-[11px] ${Number(order?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
                                 Allocated for this warehouse: {Number(order?.allocatedQtyForSelectedWarehouse || 0)} / {Number(order?.totalOrderQty || 0)}
                               </div>

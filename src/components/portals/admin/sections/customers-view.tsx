@@ -202,9 +202,11 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
   }, [customerRows, search, statusFilter, ratingFilter])
 
   const totalClients = customerRows.length
-  const onlineClients = customerRows.filter((row) => Boolean(
-    row?.isOnline ?? row?.online ?? row?.is_online
-  )).length
+  const customersWithDiscounts = customerRows.filter((row) => {
+    const option = String(row?.discountOption || 'NO_DISCOUNT').toUpperCase()
+    const status = String(row?.discountStatus || 'REMOVED').toUpperCase()
+    return option !== 'NO_DISCOUNT' && status === 'ACTIVE'
+  }).length
   const currentMonth = new Date().getMonth()
   const currentYear = new Date().getFullYear()
   const newClients = customerRows.filter((row) => {
@@ -346,8 +348,8 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-emerald-50 p-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-600" /></div>
               <div>
-                <p className="text-xs text-gray-500">Online Clients</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{onlineClients}</p>
+                <p className="text-xs text-gray-500">Customers with Discounts</p>
+                <p className="text-2xl leading-tight font-bold text-gray-900">{customersWithDiscounts}</p>
               </div>
             </div>
           </CardContent>
@@ -552,7 +554,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setDiscountDialogOpen(false)}>Cancel</Button>
-            <Button className="flex-1" disabled={isSavingDiscount} onClick={saveDiscount}>
+            <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" disabled={isSavingDiscount} onClick={saveDiscount}>
               {isSavingDiscount ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save Discount
             </Button>

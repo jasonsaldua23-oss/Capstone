@@ -33,7 +33,7 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
           />
           <div>
             <h2 className="font-bold text-slate-950">Ann Ann's Beverages Trading</h2>
-            <p className="text-xs text-slate-600">Warehouse Portal</p>
+            <p className="text-xs text-slate-600">Warehouse Staff Portal</p>
           </div>
         </div>
       </div>

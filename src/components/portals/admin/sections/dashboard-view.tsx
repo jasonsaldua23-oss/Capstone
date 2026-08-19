@@ -92,7 +92,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const statCards = [
     { label: 'Purchase Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
-    { label: 'Warehouses', value: warehouseCount, color: 'red', icon: Warehouse },
+    { label: 'Warehouse', value: warehouseCount === 1 ? 'Registered' : 'Setup Required', color: 'red', icon: Warehouse },
     { label: 'Vehicles', value: totalVehicles, color: 'green', icon: Truck },
     { label: 'Clients', value: totalClients, color: 'indigo', icon: Users },
   ]

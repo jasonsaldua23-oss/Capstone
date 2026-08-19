@@ -9,8 +9,8 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunSQL(
-                    sql="""
+                migrations.RunPython(
+                    code=lambda apps, schema_editor: schema_editor.connection.cursor().execute("""
                     ALTER TABLE "Order" DROP COLUMN IF EXISTS "dispatch_signed_off_by";
                     ALTER TABLE "Order" DROP COLUMN IF EXISTS "dispatch_signed_off_user_id";
                     ALTER TABLE "Order" DROP COLUMN IF EXISTS "dispatch_signed_off_at";
@@ -18,8 +18,8 @@ class Migration(migrations.Migration):
                     ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_damaged_on_loading_qty";
                     ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_hold_reason";
                     ALTER TABLE "Order" DROP COLUMN IF EXISTS "exception_notes";
-                    """,
-                    reverse_sql=migrations.RunSQL.noop,
+                    """) if schema_editor.connection.vendor == 'postgresql' else None,
+                    reverse_code=migrations.RunPython.noop,
                 ),
             ],
             state_operations=[

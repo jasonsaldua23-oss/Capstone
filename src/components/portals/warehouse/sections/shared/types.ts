@@ -33,42 +33,32 @@ export type WarehouseInventoryViewProps = {
   getAvailableQty: (item: any) => number
   formatPeso: (value: number) => string
   openEditDialog: (item: any) => void
-  transactionDateFrom: string
-  setTransactionDateFrom: (value: string) => void
-  transactionDatePreset: string
-  setTransactionDatePreset: (value: string) => void
-  transactionTypeFilter: string
-  setTransactionTypeFilter: (value: string) => void
-  availableInventoryTransactionTypes: string[]
-  loadingInventoryTransactions: boolean
-  filteredInventoryTransactions: any[]
+}
+
+export type WarehousePurchaseRequestsViewProps = {
+  loadingOrders: boolean
+  purchaseRequests: any[]
+  formatPeso: (value: number) => string
+  openOrderDetail: (order: any) => Promise<void>
+  updateWarehouseOrderStatus: (
+    orderId: string,
+    status: 'CONFIRMED' | 'REJECTED' | 'CANCELLED',
+    reason?: string
+  ) => Promise<void>
 }
 
 export type WarehouseOrdersViewProps = {
   loadingOrders: boolean
-  scopedOrders: any[]
-  orderStatusFilter: string
-  setOrderStatusFilter: (value: string) => void
-  orderStatusOptions: string[]
-  orderDatePreset: string
-  setOrderDatePreset: (value: string) => void
-  orderCustomDateFilter: string
-  setOrderCustomDateFilter: (value: string) => void
-  orderMinPriceFilter: string
-  setOrderMinPriceFilter: (value: string) => void
-  orderMaxPriceFilter: string
-  setOrderMaxPriceFilter: (value: string) => void
-  filteredOrders: any[]
+  purchaseOrders: any[]
   formatPeso: (value: number) => string
-  formatWarehouseOrderStatus: (status: any, paymentStatus?: any, warehouseStage?: any, notes?: any) => string
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
+    status: 'PREPARING' | 'READY_FOR_DELIVERY' | 'FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED',
     reason?: string
   ) => Promise<void>
   updatingOrderId: string | null
-  openRejectDialog: (order: any) => void
+  onOpenTransportation: () => void
 }
 
 export type WarehouseReplacementSummary = {
@@ -95,14 +85,11 @@ export type WarehouseReplacementsViewProps = {
   updatingReplacementId: string | null
   selectedReplacement: any | null
   setSelectedReplacement: (value: any | null) => void
-  buildReplacementLines: (replacement: any, meta: any) => Array<{
-    originalProductName: string
-    replacementProductName: string
-    quantityToReplace: number
-    quantityReplaced: number
-    quantityToReplaceDisplay?: string
-    quantityReplacedDisplay?: string
-  }>
+  buildReplacementLines: (replacement: any, meta: any) => any[]
+  receiveReplacementReturn: (
+    replacementId: string,
+    returnedLines: Array<{ replacementLineId: string; quantityBaseUnits: number }>
+  ) => Promise<void>
 }
 
 export type WarehouseLiveTrackingViewProps = {

@@ -26,7 +26,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Lock } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import {
+  VEHICLE_STATUS_OPTIONS,
+  getVehicleTypes,
+  getClassificationsForType,
+  getPredefinedCapacity,
+  formatCapacity,
+  formatVehicleType,
+  formatVehicleClassification,
+  formatVehicleStatus,
+} from '@/lib/vehicle-config'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -78,8 +89,12 @@ export function TransportationView() {
   const [isDeletingDriver, setIsDeletingDriver] = useState(false)
   const [vehicleForm, setVehicleForm] = useState({
     licensePlate: '',
+    brand: '',
+    model: '',
+    year: new Date().getFullYear().toString(),
     type: 'TRUCK',
-    capacity: '',
+    classification: 'LIGHT_DUTY',
+    capacity: 2500,
     status: 'AVAILABLE',
     driverId: '',
     isActive: true,
@@ -168,9 +183,79 @@ export function TransportationView() {
     return vehicle?.isActive !== false && !['INACTIVE', 'OUT_OF_SERVICE', 'MAINTENANCE'].includes(status)
   }
 
+  const resetVehicleForm = () => {
+    setSelectedVehicle(null)
+    setVehicleForm({
+      licensePlate: '',
+      brand: '',
+      model: '',
+      year: new Date().getFullYear().toString(),
+      type: 'TRUCK',
+      classification: 'LIGHT_DUTY',
+      capacity: 2500,
+      status: 'AVAILABLE',
+      driverId: '',
+      isActive: true,
+    })
+  }
+
+  const handleVehicleTypeChange = (newType: string) => {
+    const classifications = getClassificationsForType(newType)
+    const defaultClass = classifications[0]?.value || 'LIGHT_DUTY'
+    const newCap = getPredefinedCapacity(newType, defaultClass)
+    setVehicleForm((prev) => ({
+      ...prev,
+      type: newType,
+      classification: defaultClass,
+      capacity: newCap,
+    }))
+  }
+
+  const handleClassificationChange = (newClass: string) => {
+    const newCap = getPredefinedCapacity(vehicleForm.type, newClass)
+    setVehicleForm((prev) => ({
+      ...prev,
+      classification: newClass,
+      capacity: newCap,
+    }))
+  }
+
+  const openEditVehicle = (vehicle: any) => {
+    setSelectedVehicle(vehicle)
+    const vType = String(vehicle.type || 'TRUCK').toUpperCase()
+    const vClass = String(vehicle.classification || 'LIGHT_DUTY').toUpperCase()
+    const cap = getPredefinedCapacity(vType, vClass) || Number(vehicle.capacity) || 2500
+    setVehicleForm({
+      licensePlate: vehicle.licensePlate || '',
+      brand: vehicle.brand || vehicle.make || '',
+      model: vehicle.model || '',
+      year: vehicle.year ? String(vehicle.year) : new Date().getFullYear().toString(),
+      type: vType,
+      classification: vClass,
+      capacity: cap,
+      status: String(vehicle.status || 'AVAILABLE').toUpperCase(),
+      driverId: vehicle?.drivers?.[0]?.driver?.id || vehicle?.driverId || '',
+      isActive: vehicle.isActive !== false,
+    })
+    setAddVehicleOpen(true)
+  }
+
   const saveVehicle = async (mode: 'create' | 'edit') => {
     if (!vehicleForm.licensePlate.trim()) {
       toast.error('License plate is required')
+      return
+    }
+    if (!vehicleForm.brand.trim()) {
+      toast.error('Vehicle Brand / Make is required')
+      return
+    }
+    if (!vehicleForm.model.trim()) {
+      toast.error('Model is required')
+      return
+    }
+    const yearNum = parseInt(vehicleForm.year, 10)
+    if (!yearNum || isNaN(yearNum) || yearNum < 1900 || yearNum > 2100) {
+      toast.error('Please enter a valid model year (e.g. 2024)')
       return
     }
 
@@ -186,28 +271,34 @@ export function TransportationView() {
     try {
       const endpoint = '/api/vehicles'
       const method = mode === 'create' ? 'POST' : 'PATCH'
+      const calculatedCapacity = getPredefinedCapacity(vehicleForm.type, vehicleForm.classification)
       const response = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: mode === 'edit' ? selectedVehicle.id : undefined,
           licensePlate: vehicleForm.licensePlate.trim(),
+          brand: vehicleForm.brand.trim(),
+          model: vehicleForm.model.trim(),
+          year: yearNum,
           type: String(vehicleForm.type || '').toUpperCase(),
-          capacity: parseInt(vehicleForm.capacity) || 0,
+          classification: String(vehicleForm.classification || '').toUpperCase(),
+          capacity: calculatedCapacity,
           status: String(vehicleForm.status || '').toUpperCase(),
           driverId: vehicleForm.driverId || null,
           isActive: vehicleForm.isActive,
         }),
       })
 
-      if (response.ok) {
-        await fetchData()
-        resetVehicleForm()
-        setAddVehicleOpen(false)
-        toast.success(`Vehicle ${mode === 'create' ? 'created' : 'updated'} successfully`)
-      } else {
-        toast.error('Failed to save vehicle')
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || `Failed to ${mode === 'create' ? 'create' : 'update'} vehicle`)
       }
+
+      await fetchData()
+      resetVehicleForm()
+      setAddVehicleOpen(false)
+      toast.success(`Vehicle ${mode === 'create' ? 'created' : 'updated'} successfully`)
     } catch (error: any) {
       toast.error(error?.message || 'An error occurred while saving')
     } finally {
@@ -339,18 +430,6 @@ export function TransportationView() {
     } finally {
       setIsDeletingDriver(false)
     }
-  }
-
-  const resetVehicleForm = () => {
-    setVehicleForm({
-      licensePlate: '',
-      type: 'TRUCK',
-      capacity: '',
-      status: 'AVAILABLE',
-      driverId: '',
-      isActive: true,
-    })
-    setSelectedVehicle(null)
   }
 
   const resetDriverForm = () => {
@@ -501,58 +580,227 @@ export function TransportationView() {
         </div>
 
         <TabsContent value="vehicles" className="space-y-4 mt-4">
-          <Dialog open={addVehicleOpen} onOpenChange={setAddVehicleOpen}>
-            <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto">
+          <Dialog open={addVehicleOpen} onOpenChange={(open) => { setAddVehicleOpen(open); if (!open) resetVehicleForm(); }}>
+            <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>{selectedVehicle ? 'Edit Vehicle' : 'Add New Vehicle'}</DialogTitle>
+                <DialogTitle className="text-xl font-semibold text-slate-900">
+                  {selectedVehicle ? 'Edit Vehicle' : 'Add New Vehicle'}
+                </DialogTitle>
+                <DialogDescription className="text-sm text-slate-500">
+                  {selectedVehicle
+                    ? 'Update the vehicle profile and operational status.'
+                    : 'Enter the vehicle specifications and operational details.'}
+                </DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 col-span-2">
-                  <label className="text-sm font-medium text-gray-700">License Plate</label>
-                  <Input placeholder="License Plate" value={vehicleForm.licensePlate} onChange={(e) => setVehicleForm({...vehicleForm, licensePlate: e.target.value})} />
+
+              <div className="space-y-6 py-2">
+                {/* SECTION 1: VEHICLE INFORMATION */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+                    <Truck className="h-3.5 w-3.5 text-blue-600" />
+                    Vehicle Information
+                  </h4>
+                  <div className="space-y-3.5">
+                    {/* 1. License Plate & 2. Vehicle Brand / Make */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">
+                          License Plate <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          placeholder="Enter license plate"
+                          value={vehicleForm.licensePlate}
+                          onChange={(e) => setVehicleForm({ ...vehicleForm, licensePlate: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">
+                          Vehicle Brand / Make <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          placeholder="e.g. Isuzu, Hino, Mitsubishi, Toyota"
+                          value={vehicleForm.brand}
+                          onChange={(e) => setVehicleForm({ ...vehicleForm, brand: e.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* 3. Model & 4. Model Year */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">
+                          Model <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          placeholder="e.g. N-Series, Elf, Canter"
+                          value={vehicleForm.model}
+                          onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">
+                          Model Year <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 2024"
+                          min={1900}
+                          max={2100}
+                          value={vehicleForm.year}
+                          onChange={(e) => setVehicleForm({ ...vehicleForm, year: e.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* 5. Vehicle Type & 6. Vehicle Classification */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">
+                          Vehicle Type <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={vehicleForm.type}
+                          onChange={(e) => handleVehicleTypeChange(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {getVehicleTypes().map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">
+                          Vehicle Classification <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={vehicleForm.classification}
+                          onChange={(e) => handleClassificationChange(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {getClassificationsForType(vehicleForm.type).map((c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.label} ({formatCapacity(c.capacityKg)})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* 7. Weight Capacity (kg) (Read-only, Locked) */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-700 flex items-center justify-between">
+                        <span>Weight Capacity (kg)</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-400 font-normal">
+                          <Lock className="h-3 w-3 text-slate-400" />
+                          Locked
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="text"
+                          readOnly
+                          disabled
+                          value={formatCapacity(vehicleForm.capacity)}
+                          className="bg-slate-50 text-slate-700 font-semibold border-slate-200 cursor-not-allowed pr-9"
+                        />
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                          <Lock className="h-4 w-4" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Automatically determined based on the selected vehicle type and classification.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Vehicle Type</label>
-                  <select value={vehicleForm.type} onChange={(e) => setVehicleForm({...vehicleForm, type: e.target.value})} title="Vehicle Type" className="w-full px-3 py-2 border rounded-md">
-                    <option value="TRUCK">Truck</option>
-                    <option value="TRICYCLE">Tricycle</option>
-                    <option value="VAN">Van</option>
-                  </select>
+
+                <div className="border-t border-slate-200" />
+
+                {/* SECTION 2: OPERATIONAL INFORMATION */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+                    <Settings className="h-3.5 w-3.5 text-blue-600" />
+                    Operational Information
+                  </h4>
+                  <div className="space-y-3.5">
+                    {/* 8. Status & 9. Assign Driver */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Status</label>
+                        <select
+                          value={vehicleForm.status}
+                          onChange={(e) => setVehicleForm({ ...vehicleForm, status: e.target.value })}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {VEHICLE_STATUS_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Assign Driver</label>
+                        <select
+                          value={vehicleForm.driverId}
+                          onChange={(e) => setVehicleForm({ ...vehicleForm, driverId: e.target.value })}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Unassigned</option>
+                          {drivers.map((driver: any) => (
+                            <option key={driver.id} value={driver.id} disabled={!isDriverAssignable(driver)}>
+                              {(driver.user?.name || driver.name || driver.email || driver.id) + (!isDriverAssignable(driver) ? ' (Inactive)' : '')}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* 10. Active / Inactive Toggle Switch */}
+                    <div className="flex items-center justify-between p-3.5 rounded-lg bg-slate-50 border border-slate-200">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-800">Active Vehicle</span>
+                          <Badge variant={vehicleForm.isActive ? 'default' : 'secondary'} className={vehicleForm.isActive ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100' : 'bg-slate-200 text-slate-600'}>
+                            {vehicleForm.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Only active vehicles can be assigned to deliveries.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={vehicleForm.isActive}
+                        onCheckedChange={(checked) => setVehicleForm({ ...vehicleForm, isActive: checked })}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Capacity (kg)</label>
-                  <Input type="number" placeholder="Capacity (kg)" value={vehicleForm.capacity} onChange={(e) => setVehicleForm({...vehicleForm, capacity: e.target.value})} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Status</label>
-                  <select value={vehicleForm.status} onChange={(e) => setVehicleForm({...vehicleForm, status: e.target.value})} title="Status" className="w-full px-3 py-2 border rounded-md">
-                    <option value="AVAILABLE">Available</option>
-                    <option value="OUT_OF_SERVICE">Out of Service</option>
-                  </select>
-                </div>
-                <div className="space-y-1 col-span-2">
-                  <label className="text-sm font-medium text-gray-700">Assign Driver</label>
-                  <select
-                    value={vehicleForm.driverId}
-                    onChange={(e) => setVehicleForm({ ...vehicleForm, driverId: e.target.value })}
-                    title="Assign Driver"
-                    className="w-full px-3 py-2 border rounded-md"
-                  >
-                    <option value="">Unassigned</option>
-                    {drivers.map((driver: any) => (
-                      <option key={driver.id} value={driver.id} disabled={!isDriverAssignable(driver)}>
-                        {(driver.user?.name || driver.name || driver.email || driver.id) + (!isDriverAssignable(driver) ? ' (Inactive)' : '')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-span-2 flex items-center gap-2">
-                  <input type="checkbox" title="Vehicle active" checked={vehicleForm.isActive} onChange={(e) => setVehicleForm({...vehicleForm, isActive: e.target.checked})} />
-                  <label>Active</label>
-                </div>
-                <Button onClick={() => saveVehicle(selectedVehicle ? 'edit' : 'create')} disabled={isSubmitting} className="w-full">
-                  {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : null}
-                  {selectedVehicle ? 'Update' : 'Add'} Vehicle
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-200">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { setAddVehicleOpen(false); resetVehicleForm(); }}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => saveVehicle(selectedVehicle ? 'edit' : 'create')}
+                  disabled={isSubmitting || !vehicleForm.licensePlate.trim() || !vehicleForm.brand.trim() || !vehicleForm.model.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white min-w-[120px]"
+                >
+                  {isSubmitting ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                  {selectedVehicle ? 'Update Vehicle' : 'Add Vehicle'}
                 </Button>
               </div>
             </DialogContent>
@@ -565,28 +813,72 @@ export function TransportationView() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4">
-              {vehicles.map((vehicle: any) => (
-                <Card key={vehicle.id}>
-                  <CardContent className="pt-6">
-                    <div className="flex flex-row items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-semibold">{vehicle.licensePlate || 'Vehicle'}</h3>
-                        <p className="text-sm text-gray-500">Plate: {vehicle.licensePlate}</p>
-                        <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} kg</p>
-                        <p className="text-sm text-gray-500">Driver: {vehicle?.drivers?.[0]?.driver?.user?.name || vehicle?.drivers?.[0]?.driver?.name || 'Not Assigned'}</p>
-                        <Badge className={String(vehicle.status).toUpperCase().includes('MAINTENANCE') ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}>
-                          {vehicle.status || 'Active'}
-                        </Badge>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => { setSelectedVehicle(vehicle); setVehicleForm({ licensePlate: vehicle.licensePlate || '', type: String(vehicle.type || 'TRUCK').toUpperCase(), capacity: String(vehicle.capacity || ''), status: String(vehicle.status || 'AVAILABLE').toUpperCase(), driverId: vehicle?.drivers?.[0]?.driver?.id || '', isActive: vehicle.isActive !== false }); setAddVehicleOpen(true) }}>Edit</Button>
-                        <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>Delete</Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3.5">License Plate</th>
+                    <th className="px-4 py-3.5">Brand / Make</th>
+                    <th className="px-4 py-3.5">Model</th>
+                    <th className="px-4 py-3.5">Year</th>
+                    <th className="px-4 py-3.5">Type</th>
+                    <th className="px-4 py-3.5">Classification</th>
+                    <th className="px-4 py-3.5">Capacity</th>
+                    <th className="px-4 py-3.5">Status</th>
+                    <th className="px-4 py-3.5">Assigned Driver</th>
+                    <th className="px-4 py-3.5">Active</th>
+                    <th className="px-4 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {vehicles.map((vehicle: any) => {
+                    const assignedDriverName = vehicle.driver?.name || vehicle.drivers?.[0]?.driver?.user?.name || vehicle.drivers?.[0]?.driver?.name || 'Unassigned'
+                    const isMaint = String(vehicle.status || '').toUpperCase() === 'MAINTENANCE'
+                    const isInUse = String(vehicle.status || '').toUpperCase() === 'IN_USE'
+                    const isOutOfService = String(vehicle.status || '').toUpperCase() === 'OUT_OF_SERVICE'
+                    const statusBadgeClass = isMaint
+                      ? 'bg-amber-100 text-amber-800'
+                      : isInUse
+                      ? 'bg-blue-100 text-blue-800'
+                      : isOutOfService
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-emerald-100 text-emerald-800'
+
+                    return (
+                      <tr key={vehicle.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 font-semibold text-slate-900">{vehicle.licensePlate}</td>
+                        <td className="px-4 py-3 text-slate-700">{vehicle.brand || vehicle.make || '—'}</td>
+                        <td className="px-4 py-3 text-slate-700">{vehicle.model || '—'}</td>
+                        <td className="px-4 py-3 text-slate-600">{vehicle.year || '—'}</td>
+                        <td className="px-4 py-3 font-medium text-slate-800">{formatVehicleType(vehicle.type)}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatVehicleClassification(vehicle.classification)}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">{formatCapacity(vehicle.capacity)}</td>
+                        <td className="px-4 py-3">
+                          <Badge className={statusBadgeClass}>{formatVehicleStatus(vehicle.status)}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{assignedDriverName}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={vehicle.isActive !== false ? 'default' : 'secondary'} className={vehicle.isActive !== false ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600'}>
+                            {vehicle.isActive !== false ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => openEditVehicle(vehicle)}>
+                              <Pencil className="h-3.5 w-3.5 mr-1" />
+                              Edit
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>
+                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                              Delete
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
 

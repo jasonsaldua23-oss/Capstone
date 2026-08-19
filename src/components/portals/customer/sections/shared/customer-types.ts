@@ -25,14 +25,45 @@ export interface Order {
 
 export interface OrderItem {
   id: string
+  itemType?: 'STANDARD_CASE' | 'MIXED_CASE'
+  caseCapacity?: number | null
   product: {
+    id?: string | null
     name: string
     sku: string
     imageUrl?: string | null
-  }
+  } | null
   quantity: number
   unitPrice: number
   totalPrice?: number | null
+  components?: MixedCaseComponent[]
+}
+
+export interface PackagingProfile {
+  id: string
+  code: string
+  name: string
+  containerType: string
+  containerSize: string
+  standardUnitsPerCase: number
+  allowedMixedCaseCapacities: number[]
+  compatibilityKey: string
+  baseUnitLabel: string
+  isActive: boolean
+}
+
+export interface MixedCaseComponent {
+  id?: string
+  productId: string
+  productName: string
+  productSku?: string | null
+  quantityPerCase: number
+  caseCount: number
+  totalBaseUnits: number
+  unitPrice: number
+  componentSubtotal: number
+  baseUnitLabel: string
+  product?: Product | null
 }
 
 export interface Product {
@@ -41,11 +72,29 @@ export interface Product {
   name: string
   imageUrl?: string | null
   unit: string
+  category?: string
+  containerPackagingType?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
+  looseUnit?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
+  packagingCompatibilityKey?: 'GLASS_BOTTLE' | 'PET_PLASTIC_BOTTLE' | 'CAN'
+  depositAllowed?: boolean
+  depositExempt?: boolean
+  depositStatus?: string
   sizes?: string[]
   size?: string
   sizeLabel?: string
   price: number
   availableQuantity?: number
+  availableBaseUnits?: number
+  baseUnitPrice?: number
+  quantityPerUnit?: number | null
+  quantityPerCase?: number | null
+  packagingProfile?: PackagingProfile | null
+  packagingType?: 'RETURNABLE' | 'NON_RETURNABLE'
+  containerTypeId?: string | null
+  containerTypeName?: string | null
+  containersPerCase?: number
+  depositAmount?: number
+  caseDepositAmount?: number
   inventory?: Array<{
     quantity: number
     reservedQuantity: number
@@ -54,14 +103,31 @@ export interface Product {
 
 export interface CartItem {
   productId: string
+  itemType?: 'STANDARD_CASE' | 'MIXED_CASE'
   name: string
   sku: string
   imageUrl?: string | null
   unit: string
   sizeLabel?: string
+  category?: string
+  containerPackagingType?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
+  looseUnit?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
+  packagingCompatibilityKey?: 'GLASS_BOTTLE' | 'PET_PLASTIC_BOTTLE' | 'CAN'
+  depositExempt?: boolean
   unitPrice: number
   quantity: number
   available: number
+  caseCapacity?: number
+  components?: MixedCaseComponent[]
+  packagingType?: string
+  emptyReturnedQuantity?: number
+  depositAmount?: number
+  caseDepositAmount?: number
+  containersPerCase?: number
+  containerTypeId?: string | null
+  containerTypeName?: string | null
+  availableEmptyBottles?: number
+  availableDepositBalance?: number
 }
 
 export type CustomerOrdersTab = 'ALL' | 'TO_SHIP' | 'TO_RECEIVE' | 'TO_REVIEW' | 'REPLACEMENT' | 'DELIVERED'

@@ -31,7 +31,9 @@ export type InventoryMovementRow = {
   warehouse: string
   product: string
   type: 'IN' | 'OUT'
+  sourceType: 'IN' | 'OUT' | 'RETURN'
   quantity: number
+  quantityUnit: 'BASE_UNIT'
 }
 
 export type InventoryMovementPoint = {
@@ -81,7 +83,7 @@ export type OrderReportSummary = {
   totalQuantity: number
 }
 
-const INVENTORY_MOVEMENT_TYPES = new Set(['IN', 'OUT'])
+const INVENTORY_MOVEMENT_TYPES = new Set(['IN', 'OUT', 'RETURN'])
 
 function asNumber(value: unknown) {
   const parsed = Number(value ?? 0)
@@ -170,8 +172,45 @@ export function getInventoryReservedQty(item: any) {
   return Math.max(0, asNumber(item?.reservedQuantity ?? item?.reserved_quantity))
 }
 
+export function getInventoryUnitsPerCase(item: any) {
+  return Math.max(0, asNumber(
+    item?.quantityPerCase ??
+    item?.quantity_per_case ??
+    item?.product?.quantityPerCase ??
+    item?.product?.quantity_per_case ??
+    item?.product?.quantityPerUnit ??
+    item?.product?.quantity_per_unit ??
+    item?.product?.packagingProfile?.standardUnitsPerCase ??
+    item?.product?.packaging_profile?.standard_units_per_case
+  ))
+}
+
+export function getInventoryReservedBaseUnits(item: any) {
+  const explicit = item?.reservedBaseUnits ?? item?.reserved_base_units
+  if (explicit !== undefined && explicit !== null) {
+    return Math.max(0, asNumber(explicit))
+  }
+  return getInventoryReservedQty(item) * getInventoryUnitsPerCase(item)
+}
+
+export function getInventoryAvailableBaseUnits(item: any) {
+  const unitsPerCase = getInventoryUnitsPerCase(item)
+  if (unitsPerCase <= 0) return getInventoryAvailableQty(item)
+  const looseBaseUnits = Math.max(0, asNumber(
+    item?.looseBaseUnits ?? item?.loose_base_units ?? item?.looseBottles ?? item?.loose_bottles
+  ))
+  const physicalBaseUnits = getInventoryQuantity(item) * unitsPerCase + looseBaseUnits
+  return Math.max(0, physicalBaseUnits - getInventoryReservedBaseUnits(item))
+}
+
 export function getInventoryAvailableQty(item: any) {
-  return Math.max(0, getInventoryQuantity(item) - getInventoryReservedQty(item))
+  const availablePhysicalCases = Math.max(0, getInventoryQuantity(item) - getInventoryReservedQty(item))
+  const unitsPerCase = getInventoryUnitsPerCase(item)
+  if (unitsPerCase <= 0) return availablePhysicalCases
+  return Math.min(
+    availablePhysicalCases,
+    Math.floor(getInventoryAvailableBaseUnits(item) / unitsPerCase)
+  )
 }
 
 export function getInventoryThreshold(item: any) {
@@ -182,7 +221,17 @@ export function isInventoryOverstocked(item: any, now = Date.now()) {
   if (typeof item?.overstockedFlag === 'boolean') return item.overstockedFlag
   const threshold = getInventoryThreshold(item)
   if (threshold <= 0) return false
-  return false
+  if (getInventoryAvailableQty(item) < threshold * 3) return false
+
+  const lastRestockedRaw =
+    item?.lastRestockedAt ??
+    item?.last_restocked_at ??
+    item?.updatedAt ??
+    item?.updated_at
+  const lastRestockedAt = toDate(lastRestockedRaw)
+  if (!lastRestockedAt) return false
+
+  return (now - lastRestockedAt.getTime()) >= (7 * 24 * 60 * 60 * 1000)
 }
 
 export function getInventoryAlertLevel(item: any, now = Date.now()): InventoryAlertLevel {
@@ -345,10 +394,7 @@ function isWarehouseDashboardOrder(order: any) {
 }
 
 export function summarizeWarehouseDashboardOrders(orders: any[]): WarehouseOrderStats {
-  const scopedOrders = orders.filter((order) => {
-    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
-    return !Boolean(order?.isScheduledReplacement) && !orderNumber.startsWith('RPL-')
-  })
+  const scopedOrders = orders.filter(isWarehouseDashboardOrder)
   return {
     totalOrders: scopedOrders.length,
     outForDelivery: scopedOrders.filter((order) => String(order?.status || '').toUpperCase() === 'IN_TRANSIT').length,
@@ -434,6 +480,12 @@ export function summarizeOrderItems(items: any[]) {
   const normalizedItems = Array.isArray(items) ? items : []
   const names = normalizedItems
     .map((item) => {
+      if (item?.itemType === 'MIXED_CASE') {
+        const components = (item?.components || [])
+          .map((component: any) => `${component.productName || 'Product'} ${Math.max(0, asNumber(component.quantityPerCase))}/case`)
+          .join(', ')
+        return `Mixed Case (${Math.max(0, asNumber(item?.caseCapacity))} units${components ? `: ${components}` : ''})`
+      }
       // Order items sometimes carry the size on the line item instead of the nested product object.
       const productSource = item?.product ? { ...item, ...item.product } : item
       return formatReportProductName(
@@ -487,13 +539,15 @@ export function buildOrderReportRows(
         itemSummary: summarizeOrderItems(order?.items),
         productNameWithSize: formatReportProductName(
           Array.isArray(order?.items) && order.items.length > 0
-            ? (order.items[0]?.product ? { ...order.items[0], ...order.items[0].product } : order.items[0])
+            ? (order.items[0]?.itemType === 'MIXED_CASE'
+                ? { name: `Mixed Case (${Math.max(0, asNumber(order.items[0]?.caseCapacity))} units)` }
+                : (order.items[0]?.product ? { ...order.items[0], ...order.items[0].product } : order.items[0]))
             : null,
           'N/A'
         ),
         productCategory: String(
           (Array.isArray(order?.items) && order.items.length > 0
-            ? (order.items[0]?.product?.category ?? order.items[0]?.category)
+            ? (order.items[0]?.itemType === 'MIXED_CASE' ? 'Mixed Case' : (order.items[0]?.product?.category ?? order.items[0]?.category))
             : '') || ''
         ).trim() || 'Uncategorized',
         totalQuantity,
@@ -635,8 +689,10 @@ export function buildInventoryMovementRows(
       createdAt: transaction?.createdAt,
       warehouse: String(transaction?.warehouse?.name || 'N/A'),
       product: formatReportProductName(transaction?.product, 'N/A'),
-      type: String(transaction?.type || '').toUpperCase() as 'IN' | 'OUT',
-      quantity: Math.max(0, asNumber(transaction?.quantity)),
+      type: (String(transaction?.type || '').toUpperCase() === 'RETURN' ? 'IN' : String(transaction?.type || '').toUpperCase()) as 'IN' | 'OUT',
+      sourceType: String(transaction?.type || '').toUpperCase() as 'IN' | 'OUT' | 'RETURN',
+      quantity: Math.max(0, asNumber(transaction?.baseUnitQuantity ?? transaction?.quantity)),
+      quantityUnit: 'BASE_UNIT' as const,
     }))
 }
 

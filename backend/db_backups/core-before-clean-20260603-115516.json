@@ -1,0 +1,4115 @@
+[
+{
+  "model": "core.user",
+  "pk": "ca20d2d35eb924aa280cd7f0e",
+  "fields": {
+    "email": "cadamonjohnniel@gmail.com",
+    "password": "pbkdf2_sha256$600000$16j7eZCXuTh8EkexoQDWED$3Qud/IhF7KTf+06Ni5XmMUL1hTs21O6l5LNlXKI2QQU=",
+    "name": "dfdf",
+    "phone": "09460056944",
+    "avatar": null,
+    "role": "DRIVER",
+    "license_number": "DEMO-DRIVER-BFE911",
+    "license_type": "Professional - Type B",
+    "license_expiry": "2026-06-30T00:00:00Z",
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": null,
+    "is_active": true,
+    "two_factor_enabled": false,
+    "login_alerts_enabled": true,
+    "session_timeout_minutes": 30,
+    "last_login_at": "2026-06-03T02:32:06.343Z",
+    "created_at": "2026-06-02T17:56:22.598Z",
+    "updated_at": "2026-06-03T02:32:06.344Z"
+  }
+},
+{
+  "model": "core.user",
+  "pk": "cc6eed5a637264b678b54ae5b",
+  "fields": {
+    "email": "jasonsaldua19@gmail.com",
+    "password": "pbkdf2_sha256$600000$RGNxuhYHJqCVRI4ukZ0FWq$MvS8lREzXg7X44TQp78hyqmJ1DtPFzaja12zjn0hrrg=",
+    "name": "jan",
+    "phone": "09460056944",
+    "avatar": null,
+    "role": "DRIVER",
+    "license_number": "DEMO-DRIVER-BFE912",
+    "license_type": "Professional - Type C",
+    "license_expiry": "2027-12-03T00:00:00Z",
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": null,
+    "is_active": true,
+    "two_factor_enabled": false,
+    "login_alerts_enabled": true,
+    "session_timeout_minutes": 30,
+    "last_login_at": "2026-06-03T02:31:33.500Z",
+    "created_at": "2026-06-02T17:06:51.301Z",
+    "updated_at": "2026-06-03T02:31:33.503Z"
+  }
+},
+{
+  "model": "core.user",
+  "pk": "cece32b92ccb64ce3b4d70c01",
+  "fields": {
+    "email": "jasonsaldua23@gmail.com",
+    "password": "pbkdf2_sha256$600000$IpVEqbEPf4VHgVwZ4ZAKWC$KNyx0DCXu5UgpEHykqQYEqQesaoX+iLz5Tuzrpco6PI=",
+    "name": "Shaneth",
+    "phone": null,
+    "avatar": null,
+    "role": "WAREHOUSE_STAFF",
+    "license_number": null,
+    "license_type": null,
+    "license_expiry": null,
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": null,
+    "is_active": true,
+    "two_factor_enabled": false,
+    "login_alerts_enabled": true,
+    "session_timeout_minutes": 30,
+    "last_login_at": "2026-06-03T02:32:31.603Z",
+    "created_at": "2026-06-02T16:07:39.221Z",
+    "updated_at": "2026-06-03T02:32:31.603Z"
+  }
+},
+{
+  "model": "core.user",
+  "pk": "cmorx1a9r0005v26k6x7x9xhn",
+  "fields": {
+    "email": "salduajason19@gmail.com",
+    "password": "pbkdf2_sha256$600000$SVMJfelcN3By52iNFYdiP0$FNZxbYFFP92jxrdK362tfcVDtdJo69NXa9cjuDdkTWg=",
+    "name": "Jason Saldua",
+    "phone": "09460056944",
+    "avatar": "/uploads/customers/customer-1780419444723.jfif",
+    "role": "SUPER_ADMIN",
+    "license_number": null,
+    "license_type": null,
+    "license_expiry": null,
+    "emergency_contact": null,
+    "rating": 5.0,
+    "total_deliveries": 0,
+    "hired_at": null,
+    "is_active": true,
+    "two_factor_enabled": false,
+    "login_alerts_enabled": false,
+    "session_timeout_minutes": 60,
+    "last_login_at": "2026-06-03T02:33:24.405Z",
+    "created_at": "2026-05-05T00:54:20.222Z",
+    "updated_at": "2026-06-03T02:33:24.405Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "c3dffad7bacc342a8adc253c3",
+  "fields": {
+    "email": "cadamonjohnniel@gmail.com",
+    "password": "pbkdf2_sha256$600000$JlpvdjAU7P4cVjh6h7AIPS$mPRzO+uWcEo9YmF0qbY4ver86aSpdZE/bwaGezTAwkc=",
+    "name": "Jason Saldua",
+    "phone": "09460056944",
+    "avatar": "https://lh3.googleusercontent.com/a/ACg8ocLVFarapoZA43p_UlrVoWHHdJ1D83CsoP5kpim5azirg2vH1Q=s96-c",
+    "address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "country": "Philippines",
+    "latitude": 10.7416297,
+    "longitude": 122.9731366,
+    "discount_option": "NO_DISCOUNT",
+    "discount_percent": 0.0,
+    "discount_amount_per_case": 0.0,
+    "discount_status": "REMOVED",
+    "discount_applied_by_user_id": null,
+    "discount_applied_by_name": null,
+    "discount_updated_at": null,
+    "is_active": true,
+    "created_at": "2026-06-02T17:26:19.337Z",
+    "updated_at": "2026-06-02T17:28:47.849Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "c450ad3550cec46379a056068",
+  "fields": {
+    "email": "jasonsaldua23@gmail.com",
+    "password": "pbkdf2_sha256$600000$k5lFUGSdNFJRFijACdAh4z$s4FgghT4pIqZ9tPnchatqqrq+OqGSoTCqgj2qNfv4Os=",
+    "name": "Jason Saldua",
+    "phone": "09460056944",
+    "avatar": "https://lh3.googleusercontent.com/a/ACg8ocIOERXGH0uvb74I12U2UfNp79ZXxvdq0mwyKwHZgHqiG4iSlw=s96-c",
+    "address": "Calle Roxas, Dos Hermanas, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "country": "Philippines",
+    "latitude": 10.7418706,
+    "longitude": 123.0368714,
+    "discount_option": "DISCOUNT_10",
+    "discount_percent": 10.0,
+    "discount_amount_per_case": 0.0,
+    "discount_status": "ACTIVE",
+    "discount_applied_by_user_id": "cmorx1a9r0005v26k6x7x9xhn",
+    "discount_applied_by_name": "Jason Saldua",
+    "discount_updated_at": "2026-06-02T16:56:36.320Z",
+    "is_active": true,
+    "created_at": "2026-06-02T16:47:11.913Z",
+    "updated_at": "2026-06-02T16:56:36.321Z"
+  }
+},
+{
+  "model": "core.customer",
+  "pk": "cbb5e270fd49b4c39a907293b",
+  "fields": {
+    "email": "salduajason19@gmail.com",
+    "password": "pbkdf2_sha256$600000$qEXU49oPYLUGhbLeBUNLWH$cnf2CVEnt+g119it276EVvJH9IbwvP1q917zSArabQc=",
+    "name": "Saldua, Jason A.",
+    "phone": "09460056944",
+    "avatar": "https://lh3.googleusercontent.com/a/ACg8ocIgUdQ4buBTxFyjEhQDVZdjIsS512Y4-a78nXLKRHaxBpCHvv0E=s96-c",
+    "address": "Zamora Street, Barangay IV, Silay, Negros Occidental, 6116",
+    "city": "Silay",
+    "province": "Negros Occidental",
+    "zip_code": "6116",
+    "country": "Philippines",
+    "latitude": 10.7990468,
+    "longitude": 122.9770405,
+    "discount_option": "NO_DISCOUNT",
+    "discount_percent": 0.0,
+    "discount_amount_per_case": 0.0,
+    "discount_status": "REMOVED",
+    "discount_applied_by_user_id": null,
+    "discount_applied_by_name": null,
+    "discount_updated_at": null,
+    "is_active": true,
+    "created_at": "2026-06-02T16:12:36.643Z",
+    "updated_at": "2026-06-02T16:46:35.520Z"
+  }
+},
+{
+  "model": "core.warehouse",
+  "pk": "c3800373c9b194db1b008ac0c",
+  "fields": {
+    "name": "Ann Ann's Warehouse",
+    "code": "WH-0001",
+    "address": "Gamboa, Zone 2, Talisay, Negros Occidental, Negros Island Region, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "country": "Philippines",
+    "latitude": 10.743874,
+    "longitude": 122.966712,
+    "capacity": 1000,
+    "manager_id": "cece32b92ccb64ce3b4d70c01",
+    "is_active": true,
+    "created_at": "2026-06-02T16:26:14.106Z",
+    "updated_at": "2026-06-02T16:26:14.107Z"
+  }
+},
+{
+  "model": "core.product",
+  "pk": "c36c1ccd5ccf741418879f7fc",
+  "fields": {
+    "sku": "PEPS-CAS-12OZ-N94CX",
+    "name": "Pepsi",
+    "image_url": "/uploads/products/product-1780417835710.jfif",
+    "unit": "case",
+    "weight": 16.32,
+    "price": 185.0,
+    "category": "Carbonated(Glass)",
+    "sizes": [
+      "12oz"
+    ],
+    "quantity_per_unit": 24,
+    "is_active": true,
+    "created_at": "2026-06-02T16:30:36.724Z",
+    "updated_at": "2026-06-02T16:30:36.727Z"
+  }
+},
+{
+  "model": "core.product",
+  "pk": "c6970f8a5eac043be9a84d9a7",
+  "fields": {
+    "sku": "MOUN-CAS-12OZ-UT7J7",
+    "name": "Mountain Dew",
+    "image_url": "/uploads/products/product-1780418574874.jfif",
+    "unit": "case",
+    "weight": 16.32,
+    "price": 190.0,
+    "category": "Carbonated(Glass)",
+    "sizes": [
+      "12oz"
+    ],
+    "quantity_per_unit": 24,
+    "is_active": true,
+    "created_at": "2026-06-02T16:42:55.802Z",
+    "updated_at": "2026-06-02T16:42:55.802Z"
+  }
+},
+{
+  "model": "core.product",
+  "pk": "cac95db074059448eb896429f",
+  "fields": {
+    "sku": "MILK-PAC-15LI-ZFSVI",
+    "name": "milkis",
+    "image_url": "/uploads/products/product-1780422032572.png",
+    "unit": "pack(bundle)",
+    "weight": 18.0,
+    "price": 200.0,
+    "category": "Non-Carbonated",
+    "sizes": [
+      "1.5 Liters"
+    ],
+    "quantity_per_unit": 12,
+    "is_active": true,
+    "created_at": "2026-06-02T17:40:33.561Z",
+    "updated_at": "2026-06-02T17:40:33.569Z"
+  }
+},
+{
+  "model": "core.inventory",
+  "pk": "c0ccd417982b44525b1a04f09",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "quantity": 11,
+    "loose_bottles": 23,
+    "reserved_quantity": 0,
+    "threshold": 1,
+    "last_restocked_at": "2026-06-02T20:41:47.784Z",
+    "created_at": "2026-06-02T16:30:36.985Z",
+    "updated_at": "2026-06-02T20:42:00.321Z"
+  }
+},
+{
+  "model": "core.inventory",
+  "pk": "c4ab5ebede31a40dbb5d322cc",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "quantity": 136,
+    "loose_bottles": 0,
+    "reserved_quantity": 24,
+    "threshold": 27,
+    "last_restocked_at": "2026-06-02T17:13:03.468Z",
+    "created_at": "2026-06-02T16:42:56.035Z",
+    "updated_at": "2026-06-03T02:35:03.884Z"
+  }
+},
+{
+  "model": "core.inventory",
+  "pk": "ca0ab8ec505004b56bba38aea",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "product": "cac95db074059448eb896429f",
+    "quantity": 0,
+    "loose_bottles": 0,
+    "reserved_quantity": 0,
+    "threshold": 0,
+    "last_restocked_at": "2026-06-02T17:40:33.769Z",
+    "created_at": "2026-06-02T17:40:33.770Z",
+    "updated_at": "2026-06-02T17:40:33.770Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c05d2e6391e1f4e3493789a50",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "RESERVE_CONSUMED",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c03a7e8c585214e6283df9577",
+    "notes": "Reserved quantity consumed on delivery",
+    "performed_by": "cc6eed5a637264b678b54ae5b",
+    "created_at": "2026-06-02T18:14:37.951Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c102ffb2870de4400bf59abcd",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "OUT",
+    "quantity": 24,
+    "reference_type": "order_item",
+    "reference_id": "c145d80a725af4161a35fa7d3",
+    "notes": "FEFO allocation for order ORD-2026-0006; batch BATCH-1780418661-0",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T20:17:34.541Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c179a830e64ff4ca1a96bb3ad",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "ASSIGN",
+    "quantity": 24,
+    "reference_type": "order_item_trip_assign",
+    "reference_id": "c145d80a725af4161a35fa7d3",
+    "notes": "{\"tripId\":\"ca47f661388dc46d388043f68\",\"tripNumber\":\"TRP-2026-0005\",\"orderId\":\"ca516b38fa3a14f65b4401845\"}",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T20:00:35.715Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c22a35f5183ab4791963ad33c",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "ASSIGN",
+    "quantity": 20,
+    "reference_type": "order_item_trip_assign",
+    "reference_id": "c2fad536f3b28431fa72e4052",
+    "notes": "{\"tripId\":\"c34c7e350f8bf4b5d95372d16\",\"tripNumber\":\"TRP-2026-0006\",\"orderId\":\"c7e51c77107854d788d983d20\"}",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T20:20:26.110Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c2949de05cb3741879a4b55cb",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "RESERVE_CONSUMED",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "cc690a3070fc0434596535362",
+    "notes": "Reserved quantity consumed on delivery",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T18:03:49.267Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c2cffaad1720f45e1bc3ea451",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "RESERVE",
+    "quantity": 20,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c2fad536f3b28431fa72e4052",
+    "notes": "FEFO reserve for order ORD-2026-0007",
+    "performed_by": "c3dffad7bacc342a8adc253c3",
+    "created_at": "2026-06-02T20:01:41.014Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c2e2c1a7c6b2d4fbd95d14b6b",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "IN",
+    "quantity": 100,
+    "reference_type": "stock_batch",
+    "reference_id": "cb746482d169146f3abcfdec1",
+    "notes": "Stock batch added (edited quantity)",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T17:13:03.569Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c2f9dc1785d4942488c6140b5",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "OUT",
+    "quantity": 3,
+    "reference_type": "order_item",
+    "reference_id": "c750e3a6820dd477dac7582af",
+    "notes": "FEFO allocation for order RPL-2026-0001; batch BATCH-1780418453-0",
+    "performed_by": "cc6eed5a637264b678b54ae5b",
+    "created_at": "2026-06-02T19:36:55.412Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c302683b98b544ada810b028a",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "ASSIGN",
+    "quantity": 24,
+    "reference_type": "order_item_trip_assign",
+    "reference_id": "c9fcb499166f34b97b270469d",
+    "notes": "{\"tripId\":\"cf66525808d7e49fe9b886177\",\"tripNumber\":\"TRP-2026-0001\",\"orderId\":\"cb319539b248f400886c598f7\"}",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T17:52:02.696Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c350baf87bf8140fe8d3d3754",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "OUT",
+    "quantity": 24,
+    "reference_type": "order_item",
+    "reference_id": "c03a7e8c585214e6283df9577",
+    "notes": "FEFO allocation for order ORD-2026-0001; batch BATCH-1780418661-0",
+    "performed_by": "cc6eed5a637264b678b54ae5b",
+    "created_at": "2026-06-02T18:14:37.464Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c35cf924ea0ee45318b1d12eb",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "ASSIGN",
+    "quantity": 24,
+    "reference_type": "order_item_trip_assign",
+    "reference_id": "cc690a3070fc0434596535362",
+    "notes": "{\"tripId\":\"c0ee75df5f75f4a3dbc74a99b\",\"tripNumber\":\"TRP-2026-0002\",\"orderId\":\"c63cdbc571b4846f689c07f6a\"}",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T17:59:17.345Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c38e014f69af748d3bf535122",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "RESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c145d80a725af4161a35fa7d3",
+    "notes": "FEFO reserve for order ORD-2026-0006",
+    "performed_by": "c3dffad7bacc342a8adc253c3",
+    "created_at": "2026-06-02T19:45:34.573Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c3e5172ffa49a4ee790e8851c",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "RESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c03a7e8c585214e6283df9577",
+    "notes": "FEFO reserve for order ORD-2026-0001",
+    "performed_by": "cbb5e270fd49b4c39a907293b",
+    "created_at": "2026-06-02T16:46:42.255Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c4d2aedadbdfc499f8160b056",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "IN",
+    "quantity": 12,
+    "reference_type": "stock_batch",
+    "reference_id": "c8bb81cb6007541ada95cdb7b",
+    "notes": "Bulk stock batch added",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T20:41:47.893Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c52d37cae45264f0ca1734b1c",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_item",
+    "reference_id": "cdb3de851739c48b3a689ef45",
+    "notes": "FEFO allocation for order RPL-2026-0002; batch BATCH-1780418661-0",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T18:55:05.352Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c58382e26a1eb48a7854bddb1",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "RESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c9fcb499166f34b97b270469d",
+    "notes": "FEFO reserve for order ORD-2026-0001",
+    "performed_by": "cbb5e270fd49b4c39a907293b",
+    "created_at": "2026-06-02T16:46:42.971Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c653bc67b910d4e0780c087e4",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "RESERVE_CONSUMED",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c145d80a725af4161a35fa7d3",
+    "notes": "Reserved quantity consumed on delivery",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T20:17:35.053Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c744f25bce7a949599506fd1e",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "RESERVE_CONSUMED",
+    "quantity": 20,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c2fad536f3b28431fa72e4052",
+    "notes": "Reserved quantity consumed on delivery",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T20:21:23.413Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c76b013468294415783de7920",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "OUT",
+    "quantity": 4,
+    "reference_type": "order_item",
+    "reference_id": "cbb6d28edb7ec424498aac659",
+    "notes": "FEFO allocation for order RPL-2026-0002; batch BATCH-1780418453-0",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T18:55:06.042Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c7aa184e398b64dbabfbf4f4a",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "OUT",
+    "quantity": 20,
+    "reference_type": "order_item",
+    "reference_id": "c2fad536f3b28431fa72e4052",
+    "notes": "FEFO allocation for order ORD-2026-0007; batch BATCH-1780418453-0",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T20:21:22.801Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c81e9aa79ca384b588fadb324",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "IN",
+    "quantity": 85,
+    "reference_type": "stock_batch",
+    "reference_id": "cd978db6bffaf4986a09d4a49",
+    "notes": "Bulk stock batch added",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T16:44:22.121Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c8837b9f02db14cd3a9d99048",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "RESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c72602a7deaf546898178c10f",
+    "notes": "FEFO reserve for order ORD-2026-0009",
+    "performed_by": "cbb5e270fd49b4c39a907293b",
+    "created_at": "2026-06-03T02:35:04.060Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "c8842dc68f4634943b7fd5eff",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "RESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "cc690a3070fc0434596535362",
+    "notes": "FEFO reserve for order ORD-2026-0002",
+    "performed_by": "c450ad3550cec46379a056068",
+    "created_at": "2026-06-02T16:55:21.225Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "ca6cb5ac6a733497c9f66688e",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "IN",
+    "quantity": 75,
+    "reference_type": "stock_batch",
+    "reference_id": "cfe706ccbc48b4096aa5cc070",
+    "notes": "Bulk stock batch added",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T16:40:53.837Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "ca95dec0c1ff94318ac0db444",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "RESERVE_CONSUMED",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c9fcb499166f34b97b270469d",
+    "notes": "Reserved quantity consumed on delivery",
+    "performed_by": "cc6eed5a637264b678b54ae5b",
+    "created_at": "2026-06-02T18:14:39.054Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cb8c00d5b6b714ff18ca9f7ca",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "OUT",
+    "quantity": 1,
+    "reference_type": "order_item",
+    "reference_id": "ced6d70ea5d744426b894d6d0",
+    "notes": "FEFO allocation for order RPL-2026-0003; batch BATCH-1780432907-0",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T20:41:58.278Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cc684b70cdc564c6ebd383e27",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "ASSIGN",
+    "quantity": 24,
+    "reference_type": "order_item_trip_assign",
+    "reference_id": "c03a7e8c585214e6283df9577",
+    "notes": "{\"tripId\":\"cf66525808d7e49fe9b886177\",\"tripNumber\":\"TRP-2026-0001\",\"orderId\":\"cb319539b248f400886c598f7\"}",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T17:52:02.595Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cc938717c95a8420aa375fa99",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "IN",
+    "quantity": 23,
+    "reference_type": "replacement_bottle_remainder",
+    "reference_id": "c5b70ab2cb0d3481ab37464ec",
+    "notes": "RPL bottle reconciliation for RPL-2026-0003: expected 1, deducted 24, returned remainder 23 as loose bottles",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T20:42:00.532Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cdfac1d8c16fb4fabac99ccf6",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "UNRESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c07b4141ee14d48ff85cff64b",
+    "notes": "Reserved quantity released on cancellation",
+    "performed_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T19:37:35.936Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "ce8bbc7d13e224133ac2f2ed3",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "type": "RESERVE",
+    "quantity": 24,
+    "reference_type": "order_item_reserve",
+    "reference_id": "c07b4141ee14d48ff85cff64b",
+    "notes": "FEFO reserve for order ORD-2026-0003",
+    "performed_by": "c3dffad7bacc342a8adc253c3",
+    "created_at": "2026-06-02T17:28:54.169Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cfb3665f99fa54d8fbca75c23",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "OUT",
+    "quantity": 24,
+    "reference_type": "order_item",
+    "reference_id": "c9fcb499166f34b97b270469d",
+    "notes": "FEFO allocation for order ORD-2026-0001; batch BATCH-1780418453-0",
+    "performed_by": "cc6eed5a637264b678b54ae5b",
+    "created_at": "2026-06-02T18:14:38.558Z"
+  }
+},
+{
+  "model": "core.inventorytransaction",
+  "pk": "cfc44e55ec97e475ba50c9343",
+  "fields": {
+    "warehouse": "c3800373c9b194db1b008ac0c",
+    "driver": null,
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "type": "OUT",
+    "quantity": 24,
+    "reference_type": "order_item",
+    "reference_id": "cc690a3070fc0434596535362",
+    "notes": "FEFO allocation for order ORD-2026-0002; batch BATCH-1780418453-0",
+    "performed_by": "ca20d2d35eb924aa280cd7f0e",
+    "created_at": "2026-06-02T18:03:48.247Z"
+  }
+},
+{
+  "model": "core.stockbatch",
+  "pk": "c8bb81cb6007541ada95cdb7b",
+  "fields": {
+    "batch_number": "BATCH-1780432907-0",
+    "inventory": "c0ccd417982b44525b1a04f09",
+    "quantity": 11,
+    "receipt_date": "2026-06-01T00:00:00Z",
+    "expiry_date": "2026-06-18T00:00:00Z",
+    "location_label": null,
+    "status": "ACTIVE",
+    "created_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T20:41:47.652Z",
+    "updated_at": "2026-06-02T20:41:58.055Z"
+  }
+},
+{
+  "model": "core.stockbatch",
+  "pk": "cb746482d169146f3abcfdec1",
+  "fields": {
+    "batch_number": "BATCH-1780420383-0",
+    "inventory": "c4ab5ebede31a40dbb5d322cc",
+    "quantity": 100,
+    "receipt_date": "2026-05-31T00:00:00Z",
+    "expiry_date": "2027-12-03T00:00:00Z",
+    "location_label": null,
+    "status": "ACTIVE",
+    "created_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T17:13:03.328Z",
+    "updated_at": "2026-06-02T17:13:35.799Z"
+  }
+},
+{
+  "model": "core.stockbatch",
+  "pk": "cd978db6bffaf4986a09d4a49",
+  "fields": {
+    "batch_number": "BATCH-1780418661-0",
+    "inventory": "c4ab5ebede31a40dbb5d322cc",
+    "quantity": 36,
+    "receipt_date": "2026-06-01T00:00:00Z",
+    "expiry_date": "2027-08-03T00:00:00Z",
+    "location_label": null,
+    "status": "ACTIVE",
+    "created_by": "cece32b92ccb64ce3b4d70c01",
+    "created_at": "2026-06-02T16:44:21.882Z",
+    "updated_at": "2026-06-02T20:17:34.337Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c5b70ab2cb0d3481ab37464ec",
+  "fields": {
+    "order_number": "RPL-2026-0003",
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "status": "DELIVERED",
+    "priority": "high",
+    "subtotal": 185.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": null,
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 0,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 185.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "09460056944",
+    "shipping_address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7416297,
+    "shipping_longitude": 122.9731366,
+    "notes": "Replacement delivery for RPL-2026-0003 (source ORD-2026-0007)",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780432915948.jpg",
+    "pod_submitted_at": "2026-06-02T20:41:57.287Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T20:30:29.474Z",
+    "warehouse_dispatched_at": "2026-06-02T20:40:05.006Z",
+    "created_at": "2026-06-02T20:28:46.057Z",
+    "updated_at": "2026-06-02T20:42:00.634Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c63cdbc571b4846f689c07f6a",
+  "fields": {
+    "order_number": "ORD-2026-0002",
+    "customer": "c450ad3550cec46379a056068",
+    "status": "DELIVERED",
+    "priority": "normal",
+    "subtotal": 4440.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": "No Discount",
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 24,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 4440.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "09460056944",
+    "shipping_address": "Calle Roxas, Dos Hermanas, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7418706,
+    "shipping_longitude": 123.0368714,
+    "notes": "",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780423424813.jpg",
+    "pod_submitted_at": "2026-06-02T18:03:46.399Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T17:59:37.226Z",
+    "warehouse_dispatched_at": "2026-06-02T18:00:08.989Z",
+    "created_at": "2026-06-02T16:55:20.497Z",
+    "updated_at": "2026-06-02T18:03:49.587Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "c7e51c77107854d788d983d20",
+  "fields": {
+    "order_number": "ORD-2026-0007",
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "status": "DELIVERED",
+    "priority": "normal",
+    "subtotal": 3700.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": "No Discount",
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 20,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 3700.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "09460056944",
+    "shipping_address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7416297,
+    "shipping_longitude": 122.9731366,
+    "notes": "",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780431679349.jpg",
+    "pod_submitted_at": "2026-06-02T20:21:20.248Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T20:20:42.308Z",
+    "warehouse_dispatched_at": "2026-06-02T20:20:49.670Z",
+    "created_at": "2026-06-02T20:01:40.399Z",
+    "updated_at": "2026-06-02T20:21:23.650Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "ca516b38fa3a14f65b4401845",
+  "fields": {
+    "order_number": "ORD-2026-0006",
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "status": "DELIVERED",
+    "priority": "normal",
+    "subtotal": 4560.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": "No Discount",
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 24,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 4560.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "09460056944",
+    "shipping_address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7416297,
+    "shipping_longitude": 122.9731366,
+    "notes": "",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780431452886.jpg",
+    "pod_submitted_at": "2026-06-02T20:17:33.632Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T20:16:56.745Z",
+    "warehouse_dispatched_at": "2026-06-02T20:17:05.267Z",
+    "created_at": "2026-06-02T19:45:33.885Z",
+    "updated_at": "2026-06-02T20:17:35.258Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "cb319539b248f400886c598f7",
+  "fields": {
+    "order_number": "ORD-2026-0001",
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "status": "DELIVERED",
+    "priority": "normal",
+    "subtotal": 9000.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": "No Discount",
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 48,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 9000.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Saldua, Jason A.",
+    "shipping_phone": "09460056944",
+    "shipping_address": "Zamora Street, Barangay IV, Silay, Negros Occidental, 6116",
+    "shipping_city": "Silay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6116",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7990468,
+    "shipping_longitude": 122.9770405,
+    "notes": "",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780424075847.jpg",
+    "pod_submitted_at": "2026-06-02T18:14:36.594Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T17:52:13.976Z",
+    "warehouse_dispatched_at": "2026-06-02T17:52:42.124Z",
+    "created_at": "2026-06-02T16:46:41.649Z",
+    "updated_at": "2026-06-02T18:14:39.241Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "cb75a795ac63d4a5a8bb414fc",
+  "fields": {
+    "order_number": "ORD-2026-0003",
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "status": "REJECTED",
+    "priority": "normal",
+    "subtotal": 4560.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": "No Discount",
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 24,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 4560.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "09460056944",
+    "shipping_address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7416297,
+    "shipping_longitude": 122.9731366,
+    "notes": "e deliver mayu\nOrder Rejected: whatever",
+    "special_instructions": null,
+    "pod_recipient_name": null,
+    "pod_photo_url": null,
+    "pod_submitted_at": null,
+    "warehouse_stage": "READY_TO_LOAD",
+    "ready_to_load_at": null,
+    "loaded_at": null,
+    "warehouse_dispatched_at": null,
+    "created_at": "2026-06-02T17:28:53.212Z",
+    "updated_at": "2026-06-02T19:37:36.052Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "cdb97f00a416c4311804ca4c6",
+  "fields": {
+    "order_number": "RPL-2026-0002",
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "status": "DELIVERED",
+    "priority": "high",
+    "subtotal": 930.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": null,
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 0,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 930.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Saldua, Jason A.",
+    "shipping_phone": "09460056944",
+    "shipping_address": "Zamora Street, Barangay IV, Silay, Negros Occidental, 6116",
+    "shipping_city": "Silay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6116",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7990468,
+    "shipping_longitude": 122.9770405,
+    "notes": "Replacement delivery for RPL-2026-0002 (source ORD-2026-0001)",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780426503452.jpg",
+    "pod_submitted_at": "2026-06-02T18:55:04.435Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T18:43:27.643Z",
+    "warehouse_dispatched_at": "2026-06-02T18:46:44.597Z",
+    "created_at": "2026-06-02T18:35:49.151Z",
+    "updated_at": "2026-06-02T18:55:07.796Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "ce1bfea53c9714f4a844cc211",
+  "fields": {
+    "order_number": "RPL-2026-0001",
+    "customer": "c450ad3550cec46379a056068",
+    "status": "DELIVERED",
+    "priority": "high",
+    "subtotal": 555.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": null,
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 0,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 555.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Jason Saldua",
+    "shipping_phone": "09460056944",
+    "shipping_address": "Calle Roxas, Dos Hermanas, Talisay, Negros Occidental, 6115",
+    "shipping_city": "Talisay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6115",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7418706,
+    "shipping_longitude": 123.0368714,
+    "notes": "Replacement delivery for RPL-2026-0001 (source ORD-2026-0002)",
+    "special_instructions": null,
+    "pod_recipient_name": "Customer",
+    "pod_photo_url": "/uploads/pods/pod-1780429013717.jpg",
+    "pod_submitted_at": "2026-06-02T19:36:54.500Z",
+    "warehouse_stage": "DISPATCHED",
+    "ready_to_load_at": null,
+    "loaded_at": "2026-06-02T19:35:10.669Z",
+    "warehouse_dispatched_at": "2026-06-02T19:36:29.941Z",
+    "created_at": "2026-06-02T18:08:13.561Z",
+    "updated_at": "2026-06-02T19:36:57.797Z"
+  }
+},
+{
+  "model": "core.order",
+  "pk": "cfd0be37d7df14548a5359af9",
+  "fields": {
+    "order_number": "ORD-2026-0009",
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "status": "PREPARING",
+    "priority": "normal",
+    "subtotal": 4560.0,
+    "tax": 0.0,
+    "shipping_cost": 0.0,
+    "discount": 0.0,
+    "discount_type": "NO_DISCOUNT",
+    "discount_name": "No Discount",
+    "discount_percent_applied": 0.0,
+    "discount_amount_per_case_applied": 0.0,
+    "discount_per_case_applied": 0.0,
+    "discount_cases_affected": 24,
+    "discount_applied_by_name": null,
+    "discount_status": "REMOVED",
+    "total_amount": 4560.0,
+    "payment_status": "pending",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "shipping_name": "Saldua, Jason A.",
+    "shipping_phone": "09460056944",
+    "shipping_address": "Zamora Street, Barangay IV, Silay, Negros Occidental, 6116",
+    "shipping_city": "Silay",
+    "shipping_province": "Negros Occidental",
+    "shipping_zip_code": "6116",
+    "shipping_country": "Philippines",
+    "shipping_latitude": 10.7990468,
+    "shipping_longitude": 122.9770405,
+    "notes": "",
+    "special_instructions": null,
+    "pod_recipient_name": null,
+    "pod_photo_url": null,
+    "pod_submitted_at": null,
+    "warehouse_stage": "READY_TO_LOAD",
+    "ready_to_load_at": null,
+    "loaded_at": null,
+    "warehouse_dispatched_at": null,
+    "created_at": "2026-06-03T02:35:03.150Z",
+    "updated_at": "2026-06-03T02:35:34.793Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c16158c5fdea24ee99d4a4a9a",
+  "fields": {
+    "order": "c5b70ab2cb0d3481ab37464ec",
+    "confirmed_at": "2026-06-02T20:28:46.572Z",
+    "processed_at": null,
+    "shipped_at": "2026-06-02T20:40:05.006Z",
+    "delivery_date": "2026-06-03T09:00:00Z",
+    "delivered_at": "2026-06-02T20:41:57.287Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T20:28:46.873Z",
+    "updated_at": "2026-06-02T20:42:00.841Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c6674f4166bd24160bb5fa311",
+  "fields": {
+    "order": "ce1bfea53c9714f4a844cc211",
+    "confirmed_at": "2026-06-02T18:08:14.154Z",
+    "processed_at": null,
+    "shipped_at": "2026-06-02T19:36:29.941Z",
+    "delivery_date": "2026-06-03T09:00:00Z",
+    "delivered_at": "2026-06-02T19:36:54.500Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T18:08:14.500Z",
+    "updated_at": "2026-06-02T19:36:58.196Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c68a9a5a6e99343f0a76d6914",
+  "fields": {
+    "order": "cb75a795ac63d4a5a8bb414fc",
+    "confirmed_at": null,
+    "processed_at": null,
+    "shipped_at": null,
+    "delivery_date": "2026-06-03T00:00:00Z",
+    "delivered_at": null,
+    "cancelled_at": "2026-06-02T19:37:36.293Z",
+    "created_at": "2026-06-02T17:28:54.539Z",
+    "updated_at": "2026-06-02T19:37:36.293Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c8dee706689d2437fbd7cf5bb",
+  "fields": {
+    "order": "ca516b38fa3a14f65b4401845",
+    "confirmed_at": "2026-06-02T19:46:02.861Z",
+    "processed_at": "2026-06-02T19:59:03.136Z",
+    "shipped_at": "2026-06-02T20:17:05.267Z",
+    "delivery_date": "2026-06-03T00:00:00Z",
+    "delivered_at": "2026-06-02T20:17:33.632Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T19:45:34.885Z",
+    "updated_at": "2026-06-02T20:17:35.467Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "c95402daa2a7c4ce4b3083721",
+  "fields": {
+    "order": "cb319539b248f400886c598f7",
+    "confirmed_at": null,
+    "processed_at": "2026-06-02T16:59:59.070Z",
+    "shipped_at": "2026-06-02T17:52:42.124Z",
+    "delivery_date": "2026-06-03T00:00:00Z",
+    "delivered_at": "2026-06-02T18:14:36.594Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T16:46:43.281Z",
+    "updated_at": "2026-06-02T18:14:39.432Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "cbcb763685b604905af8df6a1",
+  "fields": {
+    "order": "cfd0be37d7df14548a5359af9",
+    "confirmed_at": null,
+    "processed_at": "2026-06-03T02:35:35.146Z",
+    "shipped_at": null,
+    "delivery_date": "2026-06-03T00:00:00Z",
+    "delivered_at": null,
+    "cancelled_at": null,
+    "created_at": "2026-06-03T02:35:04.594Z",
+    "updated_at": "2026-06-03T02:35:35.146Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "ce72e3093e1db48c1860cb5ab",
+  "fields": {
+    "order": "c7e51c77107854d788d983d20",
+    "confirmed_at": null,
+    "processed_at": "2026-06-02T20:01:53.948Z",
+    "shipped_at": "2026-06-02T20:20:49.670Z",
+    "delivery_date": "2026-06-03T00:00:00Z",
+    "delivered_at": "2026-06-02T20:21:20.248Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T20:01:41.322Z",
+    "updated_at": "2026-06-02T20:21:23.888Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "ce75f1008cdc94bfbba1e2c0a",
+  "fields": {
+    "order": "c63cdbc571b4846f689c07f6a",
+    "confirmed_at": null,
+    "processed_at": "2026-06-02T16:59:51.367Z",
+    "shipped_at": "2026-06-02T18:00:08.989Z",
+    "delivery_date": "2026-06-03T00:00:00Z",
+    "delivered_at": "2026-06-02T18:03:46.399Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T16:55:21.586Z",
+    "updated_at": "2026-06-02T18:03:49.820Z"
+  }
+},
+{
+  "model": "core.ordertimeline",
+  "pk": "cf7972799fe1b4130a5ae8465",
+  "fields": {
+    "order": "cdb97f00a416c4311804ca4c6",
+    "confirmed_at": "2026-06-02T18:35:50.032Z",
+    "processed_at": null,
+    "shipped_at": "2026-06-02T18:46:44.597Z",
+    "delivery_date": "2026-06-03T09:00:00Z",
+    "delivered_at": "2026-06-02T18:55:04.435Z",
+    "cancelled_at": null,
+    "created_at": "2026-06-02T18:35:50.403Z",
+    "updated_at": "2026-06-02T18:55:07.995Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c03a7e8c585214e6283df9577",
+  "fields": {
+    "order": "cb319539b248f400886c598f7",
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "product_name": "Mountain Dew",
+    "product_sku": "MOUN-CAS-12OZ-UT7J7",
+    "product_unit": "case",
+    "quantity": 24,
+    "unit_price": 190.0,
+    "total_price": 4560.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418661-0 x24\nDelivered allocation (FEFO): BATCH-1780418661-0 x24",
+    "created_at": "2026-06-02T16:46:41.852Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c07b4141ee14d48ff85cff64b",
+  "fields": {
+    "order": "cb75a795ac63d4a5a8bb414fc",
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "product_name": "Mountain Dew",
+    "product_sku": "MOUN-CAS-12OZ-UT7J7",
+    "product_unit": "case",
+    "quantity": 24,
+    "unit_price": 190.0,
+    "total_price": 4560.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418661-0 x24",
+    "created_at": "2026-06-02T17:28:53.473Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c145d80a725af4161a35fa7d3",
+  "fields": {
+    "order": "ca516b38fa3a14f65b4401845",
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "product_name": "Mountain Dew",
+    "product_sku": "MOUN-CAS-12OZ-UT7J7",
+    "product_unit": "case",
+    "quantity": 24,
+    "unit_price": 190.0,
+    "total_price": 4560.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418661-0 x24\nDelivered allocation (FEFO): BATCH-1780418661-0 x24",
+    "created_at": "2026-06-02T19:45:34.166Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c2fad536f3b28431fa72e4052",
+  "fields": {
+    "order": "c7e51c77107854d788d983d20",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "product_name": "Pepsi",
+    "product_sku": "PEPS-CAS-12OZ-N94CX",
+    "product_unit": "case",
+    "quantity": 20,
+    "unit_price": 185.0,
+    "total_price": 3700.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418453-0 x20\nDelivered allocation (FEFO): BATCH-1780418453-0 x20",
+    "created_at": "2026-06-02T20:01:40.606Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c72602a7deaf546898178c10f",
+  "fields": {
+    "order": "cfd0be37d7df14548a5359af9",
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "product_name": "Mountain Dew",
+    "product_sku": "MOUN-CAS-12OZ-UT7J7",
+    "product_unit": "case",
+    "quantity": 24,
+    "unit_price": 190.0,
+    "total_price": 4560.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418661-0 x24",
+    "created_at": "2026-06-03T02:35:03.467Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c750e3a6820dd477dac7582af",
+  "fields": {
+    "order": "ce1bfea53c9714f4a844cc211",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "product_name": "Pepsi",
+    "product_sku": "PEPS-CAS-12OZ-N94CX",
+    "product_unit": "case",
+    "quantity": 3,
+    "unit_price": 185.0,
+    "total_price": 555.0,
+    "notes": "Replacement line from RPL-2026-0001\nReplacementUnitMode=UNIT\nReplacementRequestedBottles=72\nDelivered allocation (FEFO): BATCH-1780418453-0 x3",
+    "created_at": "2026-06-02T18:08:13.799Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "c9fcb499166f34b97b270469d",
+  "fields": {
+    "order": "cb319539b248f400886c598f7",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "product_name": "Pepsi",
+    "product_sku": "PEPS-CAS-12OZ-N94CX",
+    "product_unit": "case",
+    "quantity": 24,
+    "unit_price": 185.0,
+    "total_price": 4440.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418453-0 x24\nDelivered allocation (FEFO): BATCH-1780418453-0 x24",
+    "created_at": "2026-06-02T16:46:42.564Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "cbb6d28edb7ec424498aac659",
+  "fields": {
+    "order": "cdb97f00a416c4311804ca4c6",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "product_name": "Pepsi",
+    "product_sku": "PEPS-CAS-12OZ-N94CX",
+    "product_unit": "case",
+    "quantity": 4,
+    "unit_price": 185.0,
+    "total_price": 740.0,
+    "notes": "Replacement line from RPL-2026-0002\nReplacementUnitMode=BOTTLE\nReplacementRequestedBottles=96\nDelivered allocation (FEFO): BATCH-1780418453-0 x4",
+    "created_at": "2026-06-02T18:35:49.672Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "cc690a3070fc0434596535362",
+  "fields": {
+    "order": "c63cdbc571b4846f689c07f6a",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "product_name": "Pepsi",
+    "product_sku": "PEPS-CAS-12OZ-N94CX",
+    "product_unit": "case",
+    "quantity": 24,
+    "unit_price": 185.0,
+    "total_price": 4440.0,
+    "notes": "AllocationPolicy=FEFO\n\nReserved using FEFO: BATCH-1780418453-0 x24\nDelivered allocation (FEFO): BATCH-1780418453-0 x24",
+    "created_at": "2026-06-02T16:55:20.743Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "cdb3de851739c48b3a689ef45",
+  "fields": {
+    "order": "cdb97f00a416c4311804ca4c6",
+    "product": "c6970f8a5eac043be9a84d9a7",
+    "product_name": "Mountain Dew",
+    "product_sku": "MOUN-CAS-12OZ-UT7J7",
+    "product_unit": "case",
+    "quantity": 1,
+    "unit_price": 190.0,
+    "total_price": 190.0,
+    "notes": "Replacement line from RPL-2026-0002\nReplacementUnitMode=BOTTLE\nReplacementRequestedBottles=2\nDelivered allocation (FEFO): BATCH-1780418661-0 x1",
+    "created_at": "2026-06-02T18:35:49.433Z"
+  }
+},
+{
+  "model": "core.orderitem",
+  "pk": "ced6d70ea5d744426b894d6d0",
+  "fields": {
+    "order": "c5b70ab2cb0d3481ab37464ec",
+    "product": "c36c1ccd5ccf741418879f7fc",
+    "product_name": "Pepsi",
+    "product_sku": "PEPS-CAS-12OZ-N94CX",
+    "product_unit": "case",
+    "quantity": 1,
+    "unit_price": 185.0,
+    "total_price": 185.0,
+    "notes": "Replacement line from RPL-2026-0003\nReplacementUnitMode=BOTTLE\nReplacementRequestedBottles=1\nDelivered allocation (FEFO): BATCH-1780432907-0 x1",
+    "created_at": "2026-06-02T20:28:46.272Z"
+  }
+},
+{
+  "model": "core.vehicle",
+  "pk": "cd2ced3f2a531487187e107d9",
+  "fields": {
+    "license_plate": "3746347refguef",
+    "type": "TRUCK",
+    "capacity": 1200.0,
+    "status": "AVAILABLE",
+    "driver": "cc6eed5a637264b678b54ae5b",
+    "is_active": true,
+    "created_at": "2026-06-02T17:36:26.784Z",
+    "updated_at": "2026-06-02T17:50:37.501Z"
+  }
+},
+{
+  "model": "core.vehicle",
+  "pk": "cf3a5ec16ca9a466c8e3c5d72",
+  "fields": {
+    "license_plate": "43referegfv",
+    "type": "TRUCK",
+    "capacity": 1200.0,
+    "status": "AVAILABLE",
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "is_active": true,
+    "created_at": "2026-06-02T17:57:44.369Z",
+    "updated_at": "2026-06-02T17:57:45.442Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c07ebc3ac80634c84a22b6baa",
+  "fields": {
+    "trip_number": "TRP-2026-0004",
+    "driver": "cc6eed5a637264b678b54ae5b",
+    "vehicle": "cd2ced3f2a531487187e107d9",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T19:36:29.941Z",
+    "actual_end_at": "2026-06-02T19:36:54.500Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T18:43:07.389Z",
+    "updated_at": "2026-06-02T19:36:58.897Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c0ca3b0c7f2fa4746a1c75bab",
+  "fields": {
+    "trip_number": "TRP-2026-0007",
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "vehicle": "cf3a5ec16ca9a466c8e3c5d72",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T20:40:05.006Z",
+    "actual_end_at": "2026-06-02T20:41:57.287Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T20:30:06.768Z",
+    "updated_at": "2026-06-02T20:42:01.274Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c0ee75df5f75f4a3dbc74a99b",
+  "fields": {
+    "trip_number": "TRP-2026-0002",
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "vehicle": "cf3a5ec16ca9a466c8e3c5d72",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T18:00:08.989Z",
+    "actual_end_at": "2026-06-02T18:03:46.399Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T17:59:16.389Z",
+    "updated_at": "2026-06-02T18:03:50.287Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "c34c7e350f8bf4b5d95372d16",
+  "fields": {
+    "trip_number": "TRP-2026-0006",
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "vehicle": "cf3a5ec16ca9a466c8e3c5d72",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T20:20:59.191Z",
+    "actual_end_at": "2026-06-02T20:21:20.248Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T20:20:25.250Z",
+    "updated_at": "2026-06-02T20:21:24.370Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "ca47f661388dc46d388043f68",
+  "fields": {
+    "trip_number": "TRP-2026-0005",
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "vehicle": "cf3a5ec16ca9a466c8e3c5d72",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T20:17:05.267Z",
+    "actual_end_at": "2026-06-02T20:17:33.632Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T20:00:34.727Z",
+    "updated_at": "2026-06-02T20:17:35.872Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "cb15ed510dfc2454da4ef95b0",
+  "fields": {
+    "trip_number": "TRP-2026-0003",
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "vehicle": "cf3a5ec16ca9a466c8e3c5d72",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T18:46:44.597Z",
+    "actual_end_at": "2026-06-02T18:55:04.435Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T18:42:35.953Z",
+    "updated_at": "2026-06-02T18:55:08.386Z"
+  }
+},
+{
+  "model": "core.trip",
+  "pk": "cf66525808d7e49fe9b886177",
+  "fields": {
+    "trip_number": "TRP-2026-0001",
+    "driver": "cc6eed5a637264b678b54ae5b",
+    "vehicle": "cd2ced3f2a531487187e107d9",
+    "warehouse_id": "c3800373c9b194db1b008ac0c",
+    "created_by_user_id": "cece32b92ccb64ce3b4d70c01",
+    "status": "COMPLETED",
+    "start_latitude": null,
+    "start_longitude": null,
+    "planned_start_at": "2026-06-03T00:00:00Z",
+    "actual_start_at": "2026-06-02T17:52:42.124Z",
+    "actual_end_at": "2026-06-02T18:14:36.594Z",
+    "total_drop_points": 1,
+    "completed_drop_points": 1,
+    "notes": null,
+    "created_at": "2026-06-02T17:52:01.775Z",
+    "updated_at": "2026-06-02T18:14:39.813Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c0a256484a8a8411a87c9594e",
+  "fields": {
+    "trip": "ca47f661388dc46d388043f68",
+    "order": "ca516b38fa3a14f65b4401845",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Jason Saldua",
+    "address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.7416297,
+    "longitude": 122.9731366,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T20:17:19.317Z",
+    "actual_departure": "2026-06-02T20:17:33.632Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780431452886.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T20:00:34.864Z",
+    "updated_at": "2026-06-02T20:17:33.632Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c1a2a12c6e2c448158c6eb8f9",
+  "fields": {
+    "trip": "c0ca3b0c7f2fa4746a1c75bab",
+    "order": "c5b70ab2cb0d3481ab37464ec",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Jason Saldua",
+    "address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.7416297,
+    "longitude": 122.9731366,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T20:40:34.614Z",
+    "actual_departure": "2026-06-02T20:41:57.287Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780432915948.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T20:30:06.870Z",
+    "updated_at": "2026-06-02T20:41:57.287Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c59fb82a24d4440a6b723227b",
+  "fields": {
+    "trip": "cb15ed510dfc2454da4ef95b0",
+    "order": "cdb97f00a416c4311804ca4c6",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Saldua, Jason A.",
+    "address": "Zamora Street, Barangay IV, Silay, Negros Occidental, 6116",
+    "city": "Silay",
+    "province": "Negros Occidental",
+    "zip_code": "6116",
+    "latitude": 10.7990468,
+    "longitude": 122.9770405,
+    "contact_name": "Saldua, Jason A.",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T18:46:55.552Z",
+    "actual_departure": "2026-06-02T18:55:04.435Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780426503452.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T18:42:36.060Z",
+    "updated_at": "2026-06-02T18:55:04.435Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c694f4e4f17ea4bf0847e7c69",
+  "fields": {
+    "trip": "c07ebc3ac80634c84a22b6baa",
+    "order": "ce1bfea53c9714f4a844cc211",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Jason Saldua",
+    "address": "Calle Roxas, Dos Hermanas, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.7418706,
+    "longitude": 123.0368714,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T19:36:41.605Z",
+    "actual_departure": "2026-06-02T19:36:54.500Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780429013717.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T18:43:07.491Z",
+    "updated_at": "2026-06-02T19:36:54.500Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c89b75b51fac4445481843d5b",
+  "fields": {
+    "trip": "c0ee75df5f75f4a3dbc74a99b",
+    "order": "c63cdbc571b4846f689c07f6a",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Jason Saldua",
+    "address": "Calle Roxas, Dos Hermanas, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.7418706,
+    "longitude": 123.0368714,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T18:02:42.318Z",
+    "actual_departure": "2026-06-02T18:03:46.399Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780423424813.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T17:59:16.508Z",
+    "updated_at": "2026-06-02T18:03:46.399Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "c8aff60960bf840f99bf94a87",
+  "fields": {
+    "trip": "cf66525808d7e49fe9b886177",
+    "order": "cb319539b248f400886c598f7",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Saldua, Jason A.",
+    "address": "Zamora Street, Barangay IV, Silay, Negros Occidental, 6116",
+    "city": "Silay",
+    "province": "Negros Occidental",
+    "zip_code": "6116",
+    "latitude": 10.7990468,
+    "longitude": 122.9770405,
+    "contact_name": "Saldua, Jason A.",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T18:14:26.578Z",
+    "actual_departure": "2026-06-02T18:14:36.594Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780424075847.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T17:52:01.883Z",
+    "updated_at": "2026-06-02T18:14:36.594Z"
+  }
+},
+{
+  "model": "core.tripdroppoint",
+  "pk": "cf46e840ff7ef45fd90a9ae77",
+  "fields": {
+    "trip": "c34c7e350f8bf4b5d95372d16",
+    "order": "c7e51c77107854d788d983d20",
+    "drop_point_type": "DELIVERY",
+    "sequence": 1,
+    "status": "COMPLETED",
+    "location_name": "Jason Saldua",
+    "address": "San Esteban Street, Zone 12A, Talisay, Negros Occidental, 6115",
+    "city": "Talisay",
+    "province": "Negros Occidental",
+    "zip_code": "6115",
+    "latitude": 10.7416297,
+    "longitude": 122.9731366,
+    "contact_name": "Jason Saldua",
+    "contact_phone": "09460056944",
+    "notes": "",
+    "actual_arrival": "2026-06-02T20:21:10.685Z",
+    "actual_departure": "2026-06-02T20:21:20.248Z",
+    "recipient_name": "Customer",
+    "delivery_photo": "/uploads/pods/pod-1780431679349.jpg",
+    "failure_reason": null,
+    "failure_notes": null,
+    "created_at": "2026-06-02T20:20:25.352Z",
+    "updated_at": "2026-06-02T20:21:20.248Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c196c822a477c4d2b82d6de43",
+  "fields": {
+    "driver": "ca20d2d35eb924aa280cd7f0e",
+    "trip": "c0ca3b0c7f2fa4746a1c75bab",
+    "latitude": 10.7391794498883,
+    "longitude": 122.98407327721,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 114.0,
+    "battery": null,
+    "recorded_at": "2026-06-02T20:44:58.212Z"
+  }
+},
+{
+  "model": "core.locationlog",
+  "pk": "c8370d81cc6d24ed5beb4a7d2",
+  "fields": {
+    "driver": "cc6eed5a637264b678b54ae5b",
+    "trip": "c07ebc3ac80634c84a22b6baa",
+    "latitude": 10.7391798228457,
+    "longitude": 122.984073415362,
+    "heading": 0.0,
+    "altitude": null,
+    "accuracy": 120.0,
+    "battery": null,
+    "recorded_at": "2026-06-02T19:37:01.763Z"
+  }
+},
+{
+  "model": "core.replacement",
+  "pk": "c07cff7eba6814451b975eeac",
+  "fields": {
+    "replacement_number": "RPL-2026-0001",
+    "order": "c63cdbc571b4846f689c07f6a",
+    "customer_id": "c450ad3550cec46379a056068",
+    "reason": "Leaking",
+    "description": "[Pepsi] By Unit: 3 unit(s), Qty/Unit 24. Reason: Leaking",
+    "status": "IN_PROGRESS",
+    "requested_by": "CUSTOMER",
+    "replacement_mode": "CUSTOMER_SUBMITTED",
+    "original_order_item_id": "cc690a3070fc0434596535362",
+    "replacement_product_id": "c36c1ccd5ccf741418879f7fc",
+    "replacement_quantity": 72,
+    "damage_photo_url": "/uploads/replacement-evidence/replacement-evidence-1780423565443.png",
+    "damage_photo_urls": "[\"/uploads/replacement-evidence/replacement-evidence-1780423565443.png\"]",
+    "trip_id": null,
+    "drop_point_id": null,
+    "pickup_address": "",
+    "pickup_city": "",
+    "pickup_province": "",
+    "pickup_zip_code": "",
+    "pickup_completed": null,
+    "processed_at": null,
+    "processed_by": null,
+    "notes": "Customer-submitted replacement request\nUNDER_REVIEW: Replacement is being evaluated by staff\nAPPROVED: Replacement approved for processing\nIN_PROGRESS: Warehouse scheduled driver partial follow-up delivery on 2026-06-03\nMeta: {\"submittedBy\": \"CUSTOMER\", \"submittedAt\": \"2026-06-02T18:06:08.118911+00:00\", \"numberDamagedItems\": 72, \"damageType\": \"Leaking\", \"evidence\": [\"/uploads/replacement-evidence/replacement-evidence-1780423565443.png\"], \"damagePhotos\": [\"/uploads/replacement-evidence/replacement-evidence-1780423565443.png\"], \"quantityToReplace\": 72, \"quantityReplaced\": 0, \"statusTimeline\": [{\"status\": \"PENDING\", \"at\": \"2026-06-02T18:06:08.118911+00:00\", \"by\": \"c450ad3550cec46379a056068\"}], \"replacementLines\": [{\"originalOrderItemId\": \"cc690a3070fc0434596535362\", \"originalProductId\": \"c36c1ccd5ccf741418879f7fc\", \"originalProductName\": \"Pepsi\", \"originalProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c36c1ccd5ccf741418879f7fc\", \"replacementProductName\": \"Pepsi\", \"replacementProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"case\", \"replacementInputMode\": \"case\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 72, \"quantityReplaced\": 0, \"remainingQuantity\": 72, \"reason\": \"Leaking\", \"description\": null, \"quantityToReplaceCases\": 3, \"quantityToReplaceUnits\": 3}], \"replacementItems\": [{\"originalOrderItemId\": \"cc690a3070fc0434596535362\", \"originalProductId\": \"c36c1ccd5ccf741418879f7fc\", \"originalProductName\": \"Pepsi\", \"originalProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c36c1ccd5ccf741418879f7fc\", \"replacementProductName\": \"Pepsi\", \"replacementProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"case\", \"replacementInputMode\": \"case\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 72, \"quantityReplaced\": 0, \"remainingQuantity\": 72, \"reason\": \"Leaking\", \"description\": null, \"quantityToReplaceCases\": 3, \"quantityToReplaceUnits\": 3}], \"replacementOrderId\": \"ce1bfea53c9714f4a844cc211\", \"replacementOrderNumber\": \"RPL-2026-0001\", \"scheduledDeliveryDate\": \"2026-06-03\", \"scheduledBy\": \"cece32b92ccb64ce3b4d70c01\"}",
+    "created_at": "2026-06-02T18:06:08.119Z",
+    "updated_at": "2026-06-02T18:08:15.436Z"
+  }
+},
+{
+  "model": "core.replacement",
+  "pk": "c7e07a970f8324949ab17d9dc",
+  "fields": {
+    "replacement_number": "RPL-2026-0002",
+    "order": "cb319539b248f400886c598f7",
+    "customer_id": "cbb5e270fd49b4c39a907293b",
+    "reason": "Broken seal",
+    "description": "[Mountain Dew] By Bottle: 2 bottle(s), Qty/Unit 24. Reason: Broken seal; [Pepsi] By Unit: 4 unit(s), Qty/Unit 24. Reason: Broken seal",
+    "status": "IN_PROGRESS",
+    "requested_by": "CUSTOMER",
+    "replacement_mode": "CUSTOMER_SUBMITTED",
+    "original_order_item_id": "c03a7e8c585214e6283df9577",
+    "replacement_product_id": "c6970f8a5eac043be9a84d9a7",
+    "replacement_quantity": 98,
+    "damage_photo_url": "/uploads/replacement-evidence/replacement-evidence-1780424147363.png",
+    "damage_photo_urls": "[\"/uploads/replacement-evidence/replacement-evidence-1780424147363.png\"]",
+    "trip_id": null,
+    "drop_point_id": null,
+    "pickup_address": "",
+    "pickup_city": "",
+    "pickup_province": "",
+    "pickup_zip_code": "",
+    "pickup_completed": null,
+    "processed_at": null,
+    "processed_by": null,
+    "notes": "Customer-submitted replacement request\nUNDER_REVIEW: Replacement is being evaluated by staff\nAPPROVED: Replacement approved for processing\nIN_PROGRESS: Warehouse scheduled driver partial follow-up delivery on 2026-06-03\nMeta: {\"submittedBy\": \"CUSTOMER\", \"submittedAt\": \"2026-06-02T18:15:48.737223+00:00\", \"numberDamagedItems\": 98, \"damageType\": \"Broken seal\", \"evidence\": [\"/uploads/replacement-evidence/replacement-evidence-1780424147363.png\"], \"damagePhotos\": [\"/uploads/replacement-evidence/replacement-evidence-1780424147363.png\"], \"quantityToReplace\": 98, \"quantityReplaced\": 0, \"statusTimeline\": [{\"status\": \"PENDING\", \"at\": \"2026-06-02T18:15:48.737223+00:00\", \"by\": \"cbb5e270fd49b4c39a907293b\"}], \"replacementLines\": [{\"originalOrderItemId\": \"c03a7e8c585214e6283df9577\", \"originalProductId\": \"c6970f8a5eac043be9a84d9a7\", \"originalProductName\": \"Mountain Dew\", \"originalProductSku\": \"MOUN-CAS-12OZ-UT7J7\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c6970f8a5eac043be9a84d9a7\", \"replacementProductName\": \"Mountain Dew\", \"replacementProductSku\": \"MOUN-CAS-12OZ-UT7J7\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"bottle\", \"replacementInputMode\": \"bottle\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 2, \"quantityReplaced\": 0, \"remainingQuantity\": 2, \"reason\": \"Broken seal\", \"description\": null, \"quantityToReplaceBottles\": 2}, {\"originalOrderItemId\": \"c9fcb499166f34b97b270469d\", \"originalProductId\": \"c36c1ccd5ccf741418879f7fc\", \"originalProductName\": \"Pepsi\", \"originalProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c36c1ccd5ccf741418879f7fc\", \"replacementProductName\": \"Pepsi\", \"replacementProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"case\", \"replacementInputMode\": \"case\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 96, \"quantityReplaced\": 0, \"remainingQuantity\": 96, \"reason\": \"Broken seal\", \"description\": null, \"quantityToReplaceCases\": 4, \"quantityToReplaceUnits\": 4}], \"replacementItems\": [{\"originalOrderItemId\": \"c03a7e8c585214e6283df9577\", \"originalProductId\": \"c6970f8a5eac043be9a84d9a7\", \"originalProductName\": \"Mountain Dew\", \"originalProductSku\": \"MOUN-CAS-12OZ-UT7J7\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c6970f8a5eac043be9a84d9a7\", \"replacementProductName\": \"Mountain Dew\", \"replacementProductSku\": \"MOUN-CAS-12OZ-UT7J7\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"bottle\", \"replacementInputMode\": \"bottle\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 2, \"quantityReplaced\": 0, \"remainingQuantity\": 2, \"reason\": \"Broken seal\", \"description\": null, \"quantityToReplaceBottles\": 2}, {\"originalOrderItemId\": \"c9fcb499166f34b97b270469d\", \"originalProductId\": \"c36c1ccd5ccf741418879f7fc\", \"originalProductName\": \"Pepsi\", \"originalProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c36c1ccd5ccf741418879f7fc\", \"replacementProductName\": \"Pepsi\", \"replacementProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"case\", \"replacementInputMode\": \"case\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 96, \"quantityReplaced\": 0, \"remainingQuantity\": 96, \"reason\": \"Broken seal\", \"description\": null, \"quantityToReplaceCases\": 4, \"quantityToReplaceUnits\": 4}], \"replacementOrderId\": \"cdb97f00a416c4311804ca4c6\", \"replacementOrderNumber\": \"RPL-2026-0002\", \"scheduledDeliveryDate\": \"2026-06-03\", \"scheduledBy\": \"cece32b92ccb64ce3b4d70c01\"}",
+    "created_at": "2026-06-02T18:15:48.739Z",
+    "updated_at": "2026-06-02T18:35:51.376Z"
+  }
+},
+{
+  "model": "core.replacement",
+  "pk": "ce168897e01544597817827c4",
+  "fields": {
+    "replacement_number": "RPL-2026-0003",
+    "order": "c7e51c77107854d788d983d20",
+    "customer_id": "c3dffad7bacc342a8adc253c3",
+    "reason": "Broken seal",
+    "description": "[Pepsi] By Bottle: 1 bottle(s), Qty/Unit 24. Reason: Broken seal",
+    "status": "IN_PROGRESS",
+    "requested_by": "CUSTOMER",
+    "replacement_mode": "CUSTOMER_SUBMITTED",
+    "original_order_item_id": "c2fad536f3b28431fa72e4052",
+    "replacement_product_id": "c36c1ccd5ccf741418879f7fc",
+    "replacement_quantity": 1,
+    "damage_photo_url": "/uploads/replacement-evidence/replacement-evidence-1780431703817.jpg",
+    "damage_photo_urls": "[\"/uploads/replacement-evidence/replacement-evidence-1780431703817.jpg\"]",
+    "trip_id": null,
+    "drop_point_id": null,
+    "pickup_address": "",
+    "pickup_city": "",
+    "pickup_province": "",
+    "pickup_zip_code": "",
+    "pickup_completed": null,
+    "processed_at": null,
+    "processed_by": null,
+    "notes": "Customer-submitted replacement request\nUNDER_REVIEW: Replacement is being evaluated by staff\nAPPROVED: Replacement approved for processing\nIN_PROGRESS: Warehouse scheduled driver partial follow-up delivery on 2026-06-03\nMeta: {\"submittedBy\": \"CUSTOMER\", \"submittedAt\": \"2026-06-02T20:21:45.458231+00:00\", \"numberDamagedItems\": 1, \"damageType\": \"Broken seal\", \"evidence\": [\"/uploads/replacement-evidence/replacement-evidence-1780431703817.jpg\"], \"damagePhotos\": [\"/uploads/replacement-evidence/replacement-evidence-1780431703817.jpg\"], \"quantityToReplace\": 1, \"quantityReplaced\": 0, \"statusTimeline\": [{\"status\": \"PENDING\", \"at\": \"2026-06-02T20:21:45.458231+00:00\", \"by\": \"c3dffad7bacc342a8adc253c3\"}], \"replacementLines\": [{\"originalOrderItemId\": \"c2fad536f3b28431fa72e4052\", \"originalProductId\": \"c36c1ccd5ccf741418879f7fc\", \"originalProductName\": \"Pepsi\", \"originalProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c36c1ccd5ccf741418879f7fc\", \"replacementProductName\": \"Pepsi\", \"replacementProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"bottle\", \"replacementInputMode\": \"bottle\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 1, \"quantityReplaced\": 0, \"remainingQuantity\": 1, \"reason\": \"Broken seal\", \"description\": null, \"quantityToReplaceBottles\": 1}], \"replacementItems\": [{\"originalOrderItemId\": \"c2fad536f3b28431fa72e4052\", \"originalProductId\": \"c36c1ccd5ccf741418879f7fc\", \"originalProductName\": \"Pepsi\", \"originalProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"originalProductSize\": \"12oz\", \"replacementProductId\": \"c36c1ccd5ccf741418879f7fc\", \"replacementProductName\": \"Pepsi\", \"replacementProductSku\": \"PEPS-CAS-12OZ-N94CX\", \"replacementProductSize\": \"12oz\", \"replacementProductUnit\": \"case\", \"lineInputMode\": \"bottle\", \"replacementInputMode\": \"bottle\", \"quantityPerCase\": 24, \"qtyPerUnit\": 24, \"quantityToReplace\": 1, \"quantityReplaced\": 0, \"remainingQuantity\": 1, \"reason\": \"Broken seal\", \"description\": null, \"quantityToReplaceBottles\": 1}], \"replacementOrderId\": \"c5b70ab2cb0d3481ab37464ec\", \"replacementOrderNumber\": \"RPL-2026-0003\", \"scheduledDeliveryDate\": \"2026-06-03\", \"scheduledBy\": \"cece32b92ccb64ce3b4d70c01\"}",
+    "created_at": "2026-06-02T20:21:45.459Z",
+    "updated_at": "2026-06-02T20:28:47.804Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c004bdb0d172e43d38094a0a2",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0007 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ca3b0c7f2fa4746a1c75bab",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:30:08.214Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c0451fe215d2f4c3c8cf005ea",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order ORD-2026-0006 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ca516b38fa3a14f65b4401845",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:16:57.584Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c051aa775c44140cc8a8265f0",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0006 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c34c7e350f8bf4b5d95372d16",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:20:26.887Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c06b2eb752df445a0be451d2e",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement delivery scheduled",
+    "message": "Shaneth scheduled RPL-2026-0002 as order RPL-2026-0002 for 2026-06-03.",
+    "type": "REPLACEMENT",
+    "reference_type": "order",
+    "reference_id": "cdb97f00a416c4311804ca4c6",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:35:51.018Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c099312a1acc4477c88a9e96d",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement delivery scheduled",
+    "message": "Shaneth scheduled RPL-2026-0003 as order RPL-2026-0003 for 2026-06-03.",
+    "type": "REPLACEMENT",
+    "reference_type": "order",
+    "reference_id": "c5b70ab2cb0d3481ab37464ec",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:28:47.463Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c09b613c131614fda819f7b13",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0001 for driver jan.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cf66525808d7e49fe9b886177",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:52:03.516Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c0a94ca3b3fd84621ad641315",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:41:48.089Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c0bfb91c7400f4339b82bb5f3",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0005 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "ca47f661388dc46d388043f68",
+    "is_read": true,
+    "read_at": "2026-06-02T20:01:07.893Z",
+    "created_at": "2026-06-02T20:00:36.676Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c0f7095e3b04a44bf88d09113",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0007 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ca3b0c7f2fa4746a1c75bab",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:30:08.214Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c12e58540b52f4c579de11a6a",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order RPL-2026-0003 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c5b70ab2cb0d3481ab37464ec",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:30:31.475Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c130e1b42e7bc4009a563bbbc",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "jan moved order RPL-2026-0001 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ce1bfea53c9714f4a844cc211",
+    "is_read": true,
+    "read_at": "2026-06-02T19:35:42.335Z",
+    "created_at": "2026-06-02T19:35:12.522Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c14fa15a5de854323bf001f05",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0001 to APPROVED. Reason: Leaking. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:07:28.894Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c16d5074a33364bdfa8c945fd",
+  "fields": {
+    "user": null,
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "title": "Replacement request submitted",
+    "message": "Replacement request RPL-2026-0003 was submitted. Product: Pepsi. Reason: Broken seal. You will be notified once admin reviews and approves/rejects it.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:21:46.073Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c1848fd7403f04e96aef793b8",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order ORD-2026-0002 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c63cdbc571b4846f689c07f6a",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:59:38.049Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c19953a71fda64a89ba20aeb8",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "New product registered",
+    "message": "Jason Saldua registered milkis (MILK-PAC-15LI-ZFSVI) in Ann Ann's Warehouse with available quantity 0.",
+    "type": "INVENTORY",
+    "reference_type": "product",
+    "reference_id": "cac95db074059448eb896429f",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:40:33.968Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c1d16a980b6d4413091afb468",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Bulk Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": true,
+    "read_at": "2026-06-02T16:58:57.723Z",
+    "created_at": "2026-06-02T16:40:54.075Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c1d3dab6107864253b9efcbb3",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement delivery scheduled",
+    "message": "Shaneth scheduled RPL-2026-0001 as order RPL-2026-0001 for 2026-06-03.",
+    "type": "REPLACEMENT",
+    "reference_type": "order",
+    "reference_id": "ce1bfea53c9714f4a844cc211",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:08:15.088Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c201c4859ad8b47dfb744ae95",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0002.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ee75df5f75f4a3dbc74a99b",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:00:11.248Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c23cbcf5360b7481daee2ac7d",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0007.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ca3b0c7f2fa4746a1c75bab",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:40:09.076Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c241d52c9da8d441cad20c0d3",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0001 to UNDER_REVIEW. Reason: Leaking. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:07:08.516Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c25b9c2a14633449fbd72ea89",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0007 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c7e51c77107854d788d983d20",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:01:54.428Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c25d1e9f67eed45f5b0295353",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0002 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ee75df5f75f4a3dbc74a99b",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:59:18.301Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c27a517077a594ed0aa0bf88d",
+  "fields": {
+    "user": null,
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0003 is now IN_PROGRESS. Reason: Broken seal. Scheduled delivery date: 2026-06-03. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:28:51.923Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c2a5da567b6a44282bede3a02",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0004 for driver jan.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c07ebc3ac80634c84a22b6baa",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:43:08.823Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c2acf06d4ec484016a45f0c32",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:41:48.090Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c2c75a90b89a54c9496d038ff",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement delivery scheduled",
+    "message": "Shaneth scheduled RPL-2026-0003 as order RPL-2026-0003 for 2026-06-03.",
+    "type": "REPLACEMENT",
+    "reference_type": "order",
+    "reference_id": "c5b70ab2cb0d3481ab37464ec",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:28:47.463Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c2da0cf431c08458db6bb48a9",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order RPL-2026-0002 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cdb97f00a416c4311804ca4c6",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:43:29.798Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c2edea6db3f8c4e0ea02e1ac3",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0002 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c63cdbc571b4846f689c07f6a",
+    "is_read": true,
+    "read_at": "2026-06-02T17:09:03.793Z",
+    "created_at": "2026-06-02T16:59:51.757Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c315204af3ddc475d9d308cf9",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "jan started trip TRP-2026-0004.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c07ebc3ac80634c84a22b6baa",
+    "is_read": true,
+    "read_at": "2026-06-02T19:46:31.219Z",
+    "created_at": "2026-06-02T19:36:33.501Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c38b0c031a5a14dbb94761aad",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:13:03.777Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c39099aef030c47d5ad8871f6",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "User added",
+    "message": "Jason Saldua added user Shaneth (jasonsaldua23@gmail.com) with role WAREHOUSE_STAFF.",
+    "type": "USER",
+    "reference_type": "user",
+    "reference_id": "cece32b92ccb64ce3b4d70c01",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:07:40.633Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c3e20cb3302c34bb7abfbfb3e",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0003 to UNDER_REVIEW. Reason: Broken seal. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:22:06.016Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c3e228cd428f44105a4172d43",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse added",
+    "message": "Jason Saldua added warehouse Ann Ann's Warehouse (WH-0001).",
+    "type": "WAREHOUSE",
+    "reference_type": "warehouse",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:26:14.324Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c400cd3719b994ca387741f62",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Shaneth changed replacement RPL-2026-0003 to IN_PROGRESS. Reason: Broken seal. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:28:48.936Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c41ada48a9f2744679f2de0a9",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "jan started trip TRP-2026-0004.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c07ebc3ac80634c84a22b6baa",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T19:36:33.501Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c42fbde0d25aa461cb0d1b01f",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "jan started trip TRP-2026-0001.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cf66525808d7e49fe9b886177",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:52:46.015Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c43c7fac582604c91a6351ef5",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "User added",
+    "message": "Jason Saldua added user dfdf (cadamonjohnniel@gmail.com) with role DRIVER.",
+    "type": "USER",
+    "reference_type": "user",
+    "reference_id": "ca20d2d35eb924aa280cd7f0e",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:56:24.030Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c448e741f3acb4e5a96592e1a",
+  "fields": {
+    "user": null,
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0002 is now UNDER_REVIEW. Reason: Broken seal. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:17:12.875Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c46a8542d7e114e7295ef9ca0",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0003 to UNDER_REVIEW. Reason: Broken seal. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:22:06.016Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c482a20ccea2243cf83708d65",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:13:03.777Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c495d33096b7a47a1a8aa1050",
+  "fields": {
+    "user": null,
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "title": "Replacement request submitted",
+    "message": "Replacement request RPL-2026-0002 was submitted. Product: Mountain Dew, Pepsi. Reason: Broken seal. You will be notified once admin reviews and approves/rejects it.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:15:49.229Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c4b26dcaa40ab469fb9b164ae",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Shaneth changed replacement RPL-2026-0002 to IN_PROGRESS. Reason: Broken seal. Product Ref: Mountain Dew, Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:35:52.707Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c4ce86030914b4da587d78240",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0003 to APPROVED. Reason: Broken seal. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:22:13.594Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c519405e30e7741cca91dd311",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0003 status to REJECTED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cb75a795ac63d4a5a8bb414fc",
+    "is_read": true,
+    "read_at": "2026-06-02T19:46:31.219Z",
+    "created_at": "2026-06-02T19:37:36.768Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c54f258624dca47fa848f64b1",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "User added",
+    "message": "Jason Saldua added user jan (jasonsaldua19@gmail.com) with role DRIVER.",
+    "type": "USER",
+    "reference_type": "user",
+    "reference_id": "cc6eed5a637264b678b54ae5b",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:06:52.646Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c55fc0041f167481a8a467bbf",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "User added",
+    "message": "Jason Saldua added user jan (jasonsaldua19@gmail.com) with role DRIVER.",
+    "type": "USER",
+    "reference_type": "user",
+    "reference_id": "cc6eed5a637264b678b54ae5b",
+    "is_read": true,
+    "read_at": "2026-06-02T17:09:03.793Z",
+    "created_at": "2026-06-02T17:06:52.646Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c575ef09256f04903a442e348",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0006.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c34c7e350f8bf4b5d95372d16",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:20:59.671Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c598bf1380d5f4e3f96552431",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "New replacement request",
+    "message": "Jason Saldua submitted replacement request RPL-2026-0001 for order ORD-2026-0002. Product: Pepsi. Reason: Leaking. Details: [Pepsi] By Unit: 3 unit(s), Qty/Unit 24. Reason: Leaking.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:06:08.528Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c599a7294f377452b85d2cac5",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "User added",
+    "message": "Jason Saldua added user dfdf (cadamonjohnniel@gmail.com) with role DRIVER.",
+    "type": "USER",
+    "reference_type": "user",
+    "reference_id": "ca20d2d35eb924aa280cd7f0e",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:56:24.030Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c5cd168c3ff644dbea815d3b3",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order RPL-2026-0002 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cdb97f00a416c4311804ca4c6",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:43:29.798Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c5d1ff6fe72ef4eb2922fc9b7",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "New replacement request",
+    "message": "Saldua, Jason A. submitted replacement request RPL-2026-0002 for order ORD-2026-0001. Product: Mountain Dew, Pepsi. Reason: Broken seal. Details: [Mountain Dew] By Bottle: 2 bottle(s), Qty/Unit 24. Reason: Broken seal; [Pepsi] By Unit: 4 unit(s), Qty/Unit 24. Reason: Broken seal.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:15:48.939Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c64f6932df560454099993821",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Bulk Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": true,
+    "read_at": "2026-06-02T16:58:57.723Z",
+    "created_at": "2026-06-02T16:44:22.356Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c662e875a6af44d818e88fcbe",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "jan moved order RPL-2026-0001 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ce1bfea53c9714f4a844cc211",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T19:35:12.522Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c66d79251796a4d2f88e995b3",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Vehicle added",
+    "message": "Jason Saldua added vehicle 43referegfv (TRUCK).",
+    "type": "TRANSPORT",
+    "reference_type": "vehicle",
+    "reference_id": "cf3a5ec16ca9a466c8e3c5d72",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:57:45.681Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c67abcbe5e6cb4f4eb4567d0e",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0006 status to CONFIRMED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ca516b38fa3a14f65b4401845",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T19:46:03.330Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c68183cf34a3d4767ae4e1913",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0002 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c63cdbc571b4846f689c07f6a",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:59:51.757Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c690078549ebb41e19edb0f94",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0001 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cb319539b248f400886c598f7",
+    "is_read": true,
+    "read_at": "2026-06-02T17:09:03.793Z",
+    "created_at": "2026-06-02T16:59:59.474Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c6b3e90267bc74a98975a0da5",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Bulk Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:44:22.356Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c6b6c1902cac541e085825972",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order RPL-2026-0003 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c5b70ab2cb0d3481ab37464ec",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:30:31.475Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c6dee763f942e4cde82cc9590",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "New product registered",
+    "message": "Jason Saldua registered Pepsi (PEPS-CAS-12OZ-N94CX) in Ann Ann's Warehouse with available quantity 0.",
+    "type": "INVENTORY",
+    "reference_type": "product",
+    "reference_id": "c36c1ccd5ccf741418879f7fc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:30:37.238Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c6e867e5a9b02400a9ef175b6",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0009 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cfd0be37d7df14548a5359af9",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-03T02:35:35.630Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c6ee59d7eaaa6488aa3a50c7b",
+  "fields": {
+    "user": null,
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0002 is now APPROVED. Reason: Broken seal. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:17:30.930Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c721acf460c724f57927cc57c",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement delivery scheduled",
+    "message": "Shaneth scheduled RPL-2026-0001 as order RPL-2026-0001 for 2026-06-03.",
+    "type": "REPLACEMENT",
+    "reference_type": "order",
+    "reference_id": "ce1bfea53c9714f4a844cc211",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:08:15.088Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c727807bc1db84b09838759df",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0003 status to REJECTED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cb75a795ac63d4a5a8bb414fc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T19:37:36.768Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c776aaca029b14620b9685183",
+  "fields": {
+    "user": null,
+    "customer": "cbb5e270fd49b4c39a907293b",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0002 is now IN_PROGRESS. Reason: Broken seal. Scheduled delivery date: 2026-06-03. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:35:55.519Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c7810b02aa3a146d6b9ea3b64",
+  "fields": {
+    "user": null,
+    "customer": "c450ad3550cec46379a056068",
+    "title": "Replacement request submitted",
+    "message": "Replacement request RPL-2026-0001 was submitted. Product: Pepsi. Reason: Leaking. You will be notified once admin reviews and approves/rejects it.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:06:09.143Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c79cc4b20e45343f288dd3b83",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0005.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "ca47f661388dc46d388043f68",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:17:07.620Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c7bb8cf59090a46918a5930eb",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0001 for driver jan.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cf66525808d7e49fe9b886177",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:52:03.516Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c7d6fda2cca2941bd8cb1183e",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0006 status to CONFIRMED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ca516b38fa3a14f65b4401845",
+    "is_read": true,
+    "read_at": "2026-06-02T19:46:31.219Z",
+    "created_at": "2026-06-02T19:46:03.330Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c7e4a60d53f7f44a8abe8403e",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Vehicle added",
+    "message": "Jason Saldua added vehicle 43referegfv (TRUCK).",
+    "type": "TRANSPORT",
+    "reference_type": "vehicle",
+    "reference_id": "cf3a5ec16ca9a466c8e3c5d72",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:57:45.681Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c7fce6783afb1454e83a99752",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0002 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ee75df5f75f4a3dbc74a99b",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:59:18.301Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c805066c6cedf4cb2bbd636dc",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Shaneth changed replacement RPL-2026-0003 to IN_PROGRESS. Reason: Broken seal. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:28:48.936Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c827fd0a0a97e40a783c35b30",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "New replacement request",
+    "message": "Jason Saldua submitted replacement request RPL-2026-0001 for order ORD-2026-0002. Product: Pepsi. Reason: Leaking. Details: [Pepsi] By Unit: 3 unit(s), Qty/Unit 24. Reason: Leaking.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:06:08.528Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c89f727e1e22a48c99aaaba00",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0002.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ee75df5f75f4a3dbc74a99b",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:00:11.248Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c8dbcf40c22b44e7ab764f6ea",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0003 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cb15ed510dfc2454da4ef95b0",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:42:37.389Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c8fd2f9c9b7d141b9ba3f30b1",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0002 to APPROVED. Reason: Broken seal. Product Ref: Mountain Dew, Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:17:27.908Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c9099394fe8b749d2a0851127",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0007 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c7e51c77107854d788d983d20",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:01:54.427Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c92d6952134ee47f0ad624148",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0003.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cb15ed510dfc2454da4ef95b0",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:46:47.459Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c961f0c3595fd498792b65e1d",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "New product registered",
+    "message": "Jason Saldua registered Mountain Dew (MOUN-CAS-12OZ-UT7J7) in Ann Ann's Warehouse with available quantity 0.",
+    "type": "INVENTORY",
+    "reference_type": "product",
+    "reference_id": "c6970f8a5eac043be9a84d9a7",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:42:56.280Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c968103c9b37342e78f75bb24",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0007.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c0ca3b0c7f2fa4746a1c75bab",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:40:09.075Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c998a510054c84a6b953cd55d",
+  "fields": {
+    "user": null,
+    "customer": "c450ad3550cec46379a056068",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0001 is now IN_PROGRESS. Reason: Leaking. Scheduled delivery date: 2026-06-03. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:08:19.239Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c9d970bd5e2164a65a6e84377",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "jan moved order ORD-2026-0001 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cb319539b248f400886c598f7",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:52:15.150Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "c9ed8b2310ab44f13afa88430",
+  "fields": {
+    "user": null,
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0003 is now APPROVED. Reason: Broken seal. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:22:16.258Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ca0b3dace46a84f4ba7a071c6",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0004 for driver jan.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c07ebc3ac80634c84a22b6baa",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:43:08.823Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ca270928257b34548a42aef95",
+  "fields": {
+    "user": null,
+    "customer": "c3dffad7bacc342a8adc253c3",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0003 is now UNDER_REVIEW. Reason: Broken seal. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:22:08.841Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ca38a5b65174f434987dcd559",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0005 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "ca47f661388dc46d388043f68",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:00:36.676Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ca4ebf5032aec4c1fa1bf270f",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order ORD-2026-0007 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c7e51c77107854d788d983d20",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:20:43.001Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ca68b8fa3490849b1a047470f",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0003.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cb15ed510dfc2454da4ef95b0",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:46:47.459Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ca6f65c12ec8f48818451d41c",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0006.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c34c7e350f8bf4b5d95372d16",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:20:52.022Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "caac0af7dd0994e119d046143",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "New product registered",
+    "message": "Jason Saldua registered milkis (MILK-PAC-15LI-ZFSVI) in Ann Ann's Warehouse with available quantity 0.",
+    "type": "INVENTORY",
+    "reference_type": "product",
+    "reference_id": "cac95db074059448eb896429f",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:40:33.968Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cac5c0fe6bd684a23bec452c6",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0006 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ca516b38fa3a14f65b4401845",
+    "is_read": true,
+    "read_at": "2026-06-02T20:01:07.893Z",
+    "created_at": "2026-06-02T19:59:03.540Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cac8b2ec5f722420787330707",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "New replacement request",
+    "message": "Jason Saldua submitted replacement request RPL-2026-0003 for order ORD-2026-0007. Product: Pepsi. Reason: Broken seal. Details: [Pepsi] By Bottle: 1 bottle(s), Qty/Unit 24. Reason: Broken seal.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:21:45.714Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "caed1442b626847c8840bcdf2",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0003 to APPROVED. Reason: Broken seal. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:22:13.594Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb14424083c0e41ce96c314ba",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0006 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ca516b38fa3a14f65b4401845",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T19:59:03.539Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb1c943ec498946979e7cb4dd",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "jan moved order ORD-2026-0001 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cb319539b248f400886c598f7",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:52:15.150Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb36d9763aaaa45aeba80d470",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0005.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "ca47f661388dc46d388043f68",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:17:07.620Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb4226fd3017b40c58858119f",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0002 to UNDER_REVIEW. Reason: Broken seal. Product Ref: Mountain Dew, Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:17:10.035Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb7b39b183ca84b0dab35580e",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0002 to APPROVED. Reason: Broken seal. Product Ref: Mountain Dew, Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:17:27.908Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb7f54ff16c9e426889e39b71",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "New replacement request",
+    "message": "Jason Saldua submitted replacement request RPL-2026-0003 for order ORD-2026-0007. Product: Pepsi. Reason: Broken seal. Details: [Pepsi] By Bottle: 1 bottle(s), Qty/Unit 24. Reason: Broken seal.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "ce168897e01544597817827c4",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:21:45.714Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cb89c5bd912a244ddaf30fb7c",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Vehicle added",
+    "message": "Jason Saldua added vehicle 3746347refguef (TRUCK).",
+    "type": "TRANSPORT",
+    "reference_type": "vehicle",
+    "reference_id": "cd2ced3f2a531487187e107d9",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:36:28.437Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cbbd60cf8781645aca38ba484",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip started",
+    "message": "jan started trip TRP-2026-0001.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cf66525808d7e49fe9b886177",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:52:46.016Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cc3329f6236e54b38aa6bf040",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0006.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c34c7e350f8bf4b5d95372d16",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:20:52.022Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cc503a54bbd47404291ecd4ff",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order ORD-2026-0006 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "ca516b38fa3a14f65b4401845",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:16:57.585Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cc65ec5ddba9f4721ab4d40ce",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0001 to APPROVED. Reason: Leaking. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:07:28.894Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccbe553dd6a374e95b4f003a7",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Shaneth changed replacement RPL-2026-0001 to IN_PROGRESS. Reason: Leaking. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:08:16.611Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccc0a61f3523d4807ba8bdb4d",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0009 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cfd0be37d7df14548a5359af9",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-03T02:35:35.630Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccd2a09feac7c45c18e2b35cf",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0001 to UNDER_REVIEW. Reason: Leaking. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:07:08.516Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccea9e44d7ed14dfab88b0734",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order ORD-2026-0002 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c63cdbc571b4846f689c07f6a",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T17:59:38.049Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccecd3141b960471cac478795",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "New product registered",
+    "message": "Jason Saldua registered Mountain Dew (MOUN-CAS-12OZ-UT7J7) in Ann Ann's Warehouse with available quantity 0.",
+    "type": "INVENTORY",
+    "reference_type": "product",
+    "reference_id": "c6970f8a5eac043be9a84d9a7",
+    "is_read": true,
+    "read_at": "2026-06-02T16:58:57.723Z",
+    "created_at": "2026-06-02T16:42:56.280Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccef71c7eabc64ba8b0b11a71",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Shaneth changed replacement RPL-2026-0001 to IN_PROGRESS. Reason: Leaking. Product Ref: Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:08:16.611Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ccf1456dc76814d059ffd7b19",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Vehicle added",
+    "message": "Jason Saldua added vehicle 3746347refguef (TRUCK).",
+    "type": "TRANSPORT",
+    "reference_type": "vehicle",
+    "reference_id": "cd2ced3f2a531487187e107d9",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T17:36:28.437Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cd0efd6f8ebf0467ba531d7cb",
+  "fields": {
+    "user": null,
+    "customer": "c450ad3550cec46379a056068",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0001 is now UNDER_REVIEW. Reason: Leaking. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:07:11.186Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cd33cb425019a4eb7a619a145",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Replacement delivery scheduled",
+    "message": "Shaneth scheduled RPL-2026-0002 as order RPL-2026-0002 for 2026-06-03.",
+    "type": "REPLACEMENT",
+    "reference_type": "order",
+    "reference_id": "cdb97f00a416c4311804ca4c6",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:35:51.018Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cd3e2185133024d889a0afe92",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0003 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "cb15ed510dfc2454da4ef95b0",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:42:37.389Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cd81e74db1aa743c1987fcf88",
+  "fields": {
+    "user": null,
+    "customer": "c450ad3550cec46379a056068",
+    "title": "Replacement status updated",
+    "message": "Replacement RPL-2026-0001 is now APPROVED. Reason: Leaking. ",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c07cff7eba6814451b975eeac",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:07:31.755Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cdc2a5335207c415f8e6aebe3",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Bulk Stock In completed",
+    "message": "Shaneth completed Stock In for 1 batches in Ann Ann's Warehouse.",
+    "type": "INVENTORY",
+    "reference_type": "stock_batch",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:40:54.075Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cdfe93b517ff44927a0b00c5f",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Shaneth changed replacement RPL-2026-0002 to IN_PROGRESS. Reason: Broken seal. Product Ref: Mountain Dew, Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:35:52.707Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ce22a3cf472e84541ac4b538c",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Replacement updated",
+    "message": "Jason Saldua changed replacement RPL-2026-0002 to UNDER_REVIEW. Reason: Broken seal. Product Ref: Mountain Dew, Pepsi.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T18:17:10.035Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ce4cf9dc469774546b8a8774d",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Trip created",
+    "message": "Shaneth created trip TRP-2026-0006 for driver dfdf.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c34c7e350f8bf4b5d95372d16",
+    "is_read": true,
+    "read_at": "2026-06-03T02:33:33.425Z",
+    "created_at": "2026-06-02T20:20:26.887Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ce53c10931c5b4160a5aa176a",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Warehouse stage updated",
+    "message": "dfdf moved order ORD-2026-0007 to warehouse stage LOADED.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "c7e51c77107854d788d983d20",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:20:43.001Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ce8224e52618e4b53b9dd99b9",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Trip started",
+    "message": "dfdf started trip TRP-2026-0006.",
+    "type": "TRIP",
+    "reference_type": "trip",
+    "reference_id": "c34c7e350f8bf4b5d95372d16",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T20:20:59.670Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "ce9ec82599de84f57a5a2ce74",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "Warehouse added",
+    "message": "Jason Saldua added warehouse Ann Ann's Warehouse (WH-0001).",
+    "type": "WAREHOUSE",
+    "reference_type": "warehouse",
+    "reference_id": "c3800373c9b194db1b008ac0c",
+    "is_read": true,
+    "read_at": "2026-06-02T16:58:57.723Z",
+    "created_at": "2026-06-02T16:26:14.324Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cf02db66c17af42eba2340f43",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "User added",
+    "message": "Jason Saldua added user Shaneth (jasonsaldua23@gmail.com) with role WAREHOUSE_STAFF.",
+    "type": "USER",
+    "reference_type": "user",
+    "reference_id": "cece32b92ccb64ce3b4d70c01",
+    "is_read": true,
+    "read_at": "2026-06-02T16:58:57.723Z",
+    "created_at": "2026-06-02T16:07:40.633Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cf0fdcaf05d5f4b36ae93a571",
+  "fields": {
+    "user": "cece32b92ccb64ce3b4d70c01",
+    "customer": null,
+    "title": "Order status updated",
+    "message": "Shaneth changed order ORD-2026-0001 status to PREPARING.",
+    "type": "ORDER",
+    "reference_type": "order",
+    "reference_id": "cb319539b248f400886c598f7",
+    "is_read": false,
+    "read_at": null,
+    "created_at": "2026-06-02T16:59:59.473Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cf1640754ade74784815076bb",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "New product registered",
+    "message": "Jason Saldua registered Pepsi (PEPS-CAS-12OZ-N94CX) in Ann Ann's Warehouse with available quantity 0.",
+    "type": "INVENTORY",
+    "reference_type": "product",
+    "reference_id": "c36c1ccd5ccf741418879f7fc",
+    "is_read": true,
+    "read_at": "2026-06-02T16:58:57.723Z",
+    "created_at": "2026-06-02T16:30:37.238Z"
+  }
+},
+{
+  "model": "core.notification",
+  "pk": "cf392c8497a3b482bb5a4fe4c",
+  "fields": {
+    "user": "cmorx1a9r0005v26k6x7x9xhn",
+    "customer": null,
+    "title": "New replacement request",
+    "message": "Saldua, Jason A. submitted replacement request RPL-2026-0002 for order ORD-2026-0001. Product: Mountain Dew, Pepsi. Reason: Broken seal. Details: [Mountain Dew] By Bottle: 2 bottle(s), Qty/Unit 24. Reason: Broken seal; [Pepsi] By Unit: 4 unit(s), Qty/Unit 24. Reason: Broken seal.",
+    "type": "REPLACEMENT",
+    "reference_type": "replacement",
+    "reference_id": "c7e07a970f8324949ab17d9dc",
+    "is_read": true,
+    "read_at": "2026-06-02T19:33:46.809Z",
+    "created_at": "2026-06-02T18:15:48.939Z"
+  }
+}
+]

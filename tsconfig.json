@@ -10,6 +10,7 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "noImplicitAny": false,
     "esModuleInterop": true,
     "module": "esnext",
@@ -45,6 +46,9 @@
     "src/components/shared/LiveTrackingMap.tsx",
     "src/components/ui/chart-container.tsx",
     "tmp-auth-root.html",
+    "candidate_3f.tsx",
+    "candidate_84.tsx",
+    "prisma/seed.ts",
     ".next"
   ]
 }

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -13,8 +13,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
-import { Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-react'
+import { CheckCircle2, Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
+import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -42,14 +43,14 @@ export function CustomerLoginPage() {
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [middleName, setMiddleName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [isVerificationSending, setIsVerificationSending] = useState(false)
-  const [isVerificationConfirming, setIsVerificationConfirming] = useState(false)
-  const [emailVerificationRequested, setEmailVerificationRequested] = useState(false)
-  const [emailVerificationCode, setEmailVerificationCode] = useState('')
+  const [isOtpModalOpen, setIsOtpModalOpen] = useState(false)
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
@@ -259,6 +260,13 @@ export function CustomerLoginPage() {
       return
     }
 
+    if (!firstName.trim() || !lastName.trim()) {
+      toast.error('Please enter your first and last name.')
+      return
+    }
+
+    const fullName = [firstName.trim(), middleName.trim(), lastName.trim()].filter(Boolean).join(' ')
+
     setIsLoading(true)
 
     try {
@@ -266,7 +274,10 @@ export function CustomerLoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name,
+          firstName: firstName.trim(),
+          middleName: middleName.trim(),
+          lastName: lastName.trim(),
+          name: fullName,
           email,
           password,
           emailVerificationToken,
@@ -289,7 +300,7 @@ export function CustomerLoginPage() {
         return
       }
 
-      persistCustomerWelcomeState('new', String(data?.user?.name || name || '').trim())
+      persistCustomerWelcomeState('new', String(data?.user?.name || fullName || '').trim())
       if (data.token) setTabAuthToken(data.token)
       setConfirmPassword('')
       router.replace('/')
@@ -303,7 +314,7 @@ export function CustomerLoginPage() {
   const requestEmailVerification = async () => {
     const normalizedEmail = email.trim().toLowerCase()
     if (!normalizedEmail) {
-      toast.error('Enter your email first.')
+      toast.error('Please enter your email address first.')
       return
     }
 
@@ -318,10 +329,7 @@ export function CustomerLoginPage() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to send OTP')
       }
-      setEmailVerificationRequested(true)
-      setEmailVerificationCode('')
-      setEmailVerificationToken('')
-      setEmailVerified(false)
+      setIsOtpModalOpen(true)
       toast.success('Verification code sent to your email.')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to send OTP')
@@ -330,19 +338,8 @@ export function CustomerLoginPage() {
     }
   }
 
-  const confirmEmailVerification = async () => {
+  const handleVerifyOtp = async (otp: string): Promise<boolean> => {
     const normalizedEmail = email.trim().toLowerCase()
-    const otp = emailVerificationCode.trim()
-    if (!normalizedEmail) {
-      toast.error('Enter your email first.')
-      return
-    }
-    if (!otp) {
-      toast.error('Enter the OTP code first.')
-      return
-    }
-
-    setIsVerificationConfirming(true)
     try {
       const response = await fetch('/api/auth/email-verification/confirm', {
         method: 'POST',
@@ -351,21 +348,38 @@ export function CustomerLoginPage() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to verify OTP')
+        throw new Error(payload?.error || 'Invalid OTP code')
       }
       const token = String(payload?.verificationToken || '').trim()
       if (!token) {
-        throw new Error('Verification failed. Please try again.')
+        throw new Error('Verification token missing. Please try again.')
       }
       setEmailVerificationToken(token)
       setEmailVerified(true)
-      toast.success('Email verified successfully.')
+      toast.success('Email verified successfully!')
+      return true
     } catch (error: any) {
-      setEmailVerificationToken('')
-      setEmailVerified(false)
       toast.error(error?.message || 'Failed to verify OTP')
-    } finally {
-      setIsVerificationConfirming(false)
+      return false
+    }
+  }
+
+  const handleResendOtp = async (): Promise<boolean> => {
+    const normalizedEmail = email.trim().toLowerCase()
+    try {
+      const response = await fetch('/api/auth/email-verification/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, accountType: 'customer' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to resend OTP')
+      }
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to resend OTP')
+      return false
     }
   }
 
@@ -475,72 +489,92 @@ export function CustomerLoginPage() {
               </form>
             ) : (
               <form onSubmit={handleRegister} autoComplete="off" className="space-y-2.5 sm:space-y-4">
-                <div className="space-y-1.5 sm:space-y-2">
-                  <Label htmlFor="reg-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Full Name</Label>
-                  <Input id="reg-name" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" required className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base" />
-                </div>
-                <div className="space-y-1.5 sm:space-y-2">
-                  <Label htmlFor="reg-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email</Label>
-                  <Input
-                    id="reg-email"
-                    type="email"
-                    autoComplete="off"
-                    value={email}
-                    onChange={(e) => {
-                      const nextEmail = e.target.value
-                      setEmail(nextEmail)
-                      setEmailVerificationRequested(false)
-                      setEmailVerificationCode('')
-                      setEmailVerificationToken('')
-                      setEmailVerified(false)
-                    }}
-                    placeholder="Enter email"
-                    required
-                    className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      onClick={requestEmailVerification}
-                      disabled={isVerificationSending || isVerificationConfirming || isLoading}
-                      className="h-9 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-600"
-                    >
-                      {isVerificationSending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                      {emailVerificationRequested ? 'Resend OTP' : 'Send OTP'}
-                    </Button>
-                    {emailVerified ? <p className="text-xs font-medium text-emerald-700">Email verified</p> : null}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+                  <div className="space-y-1 sm:space-y-1.5">
+                    <Label htmlFor="reg-first-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                      First Name <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="reg-first-name"
+                      autoComplete="given-name"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="e.g. Juan"
+                      required
+                      className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:space-y-1.5">
+                    <Label htmlFor="reg-last-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                      Last Name <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="reg-last-name"
+                      autoComplete="family-name"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="e.g. Dela Cruz"
+                      required
+                      className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11"
+                    />
                   </div>
                 </div>
-                {emailVerificationRequested ? (
-                  <div className="space-y-1.5 sm:space-y-2">
-                    <Label htmlFor="reg-email-otp" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Email OTP</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="reg-email-otp"
-                        autoComplete="off"
-                        value={emailVerificationCode}
-                        onChange={(e) => {
-                          setEmailVerificationCode(e.target.value)
-                          if (emailVerified) {
-                            setEmailVerified(false)
-                            setEmailVerificationToken('')
-                          }
-                        }}
-                        placeholder="Enter OTP"
-                        className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base"
-                      />
+                <div className="space-y-1 sm:space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="reg-middle-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                      Middle Name
+                    </Label>
+                    <span className="text-[10px] text-slate-400 font-normal">(Optional)</span>
+                  </div>
+                  <Input
+                    id="reg-middle-name"
+                    autoComplete="additional-name"
+                    value={middleName}
+                    onChange={(e) => setMiddleName(e.target.value)}
+                    placeholder="e.g. Santos"
+                    className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="reg-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                      Email <span className="text-red-500">*</span>
+                    </Label>
+                    {emailVerified ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Email Verified
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="reg-email"
+                      type="email"
+                      autoComplete="off"
+                      value={email}
+                      disabled={emailVerified}
+                      onChange={(e) => {
+                        setEmail(e.target.value)
+                        setEmailVerificationToken('')
+                        setEmailVerified(false)
+                      }}
+                      placeholder="Enter email address"
+                      required
+                      className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11 sm:text-base disabled:bg-slate-100/70 disabled:text-slate-600"
+                    />
+                    {!emailVerified && (
                       <Button
                         type="button"
-                        onClick={confirmEmailVerification}
-                        disabled={isVerificationConfirming || isVerificationSending || isLoading}
-                        className="h-10 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-500 sm:h-12"
+                        onClick={requestEmailVerification}
+                        disabled={isVerificationSending || isLoading}
+                        className="h-10 shrink-0 rounded-xl bg-emerald-700 px-3.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-600 sm:h-11"
                       >
-                        {isVerificationConfirming && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                        Verify
+                        {isVerificationSending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        Send OTP
                       </Button>
-                    </div>
+                    )}
                   </div>
-                ) : null}
+                </div>
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="reg-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
                   <div className="relative">
@@ -590,6 +624,16 @@ export function CustomerLoginPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* OTP Verification Modal */}
+      <OtpVerificationModal
+        open={isOtpModalOpen}
+        onOpenChange={setIsOtpModalOpen}
+        email={email.trim().toLowerCase()}
+        onVerify={handleVerifyOtp}
+        onResendCode={handleResendOtp}
+        theme="emerald"
+      />
     </div>
   )
 }

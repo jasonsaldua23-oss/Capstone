@@ -1105,7 +1105,7 @@ export function ReportsView() {
       createdAt: row.createdAt,
       warehouse: row.warehouse,
       product: row.product,
-      type: row.type,
+      type: row.sourceType || row.type,
       quantity: row.quantity,
     }))
   }, [inventoryMovementRows])
@@ -1120,7 +1120,7 @@ export function ReportsView() {
       createdAt: toDateOnly(row.createdAt),
       customer: row.customer,
       driver: row.driver,
-      type: row.type,
+      type: row.sourceType || row.type,
       rating: row.rating,
     }))
   }, [feedbackRows])
@@ -1143,17 +1143,13 @@ export function ReportsView() {
   ]), [driverPerformanceKpi, transportDriverRows])
 
   const warehouseSummaryLines = useMemo(() => {
-    const warehousesInScope = selectedWarehouse === 'all'
-      ? warehouses.length
-      : warehouses.filter((warehouse) => String(warehouse?.id || '') === selectedWarehouse).length
-
     return [
-      `Total Warehouses: ${warehouses.length}`,
-      `Warehouses In Scope: ${warehousesInScope}`,
+      `Warehouse: ${warehouses[0]?.name || warehouses[0]?.code || 'Not registered'}`,
+      `Registration: ${warehouses.length === 1 ? 'Complete' : 'Required'}`,
       `Utilization Data Points: ${warehouseCapacityTrendPoints.length}`,
       ...warehouseCapacityTrendSummaryLines,
     ]
-  }, [warehouses, selectedWarehouse, warehouseCapacityTrendPoints.length, warehouseCapacityTrendSummaryLines])
+  }, [warehouses, warehouseCapacityTrendPoints.length, warehouseCapacityTrendSummaryLines])
 
   const warehouseCapacityTrendExportRows = useMemo(() => {
     if (warehouseCapacityTrendPoints.length === 0) return []
@@ -1709,7 +1705,7 @@ export function ReportsView() {
       }, null as any)
 
       const cards = [
-        { title: 'TOTAL WAREHOUSES', value: `${totalWarehouses}`, note: 'All warehouses', accent: blue, bg: rgb(0.95, 0.97, 1) },
+        { title: 'WAREHOUSE', value: totalWarehouses === 1 ? 'REGISTERED' : 'SETUP REQUIRED', note: 'Single warehouse', accent: blue, bg: rgb(0.95, 0.97, 1) },
         { title: 'DATA POINTS', value: `${dataPoints}`, note: 'Utilization snapshots', accent: green, bg: rgb(0.94, 0.99, 0.95) },
         { title: 'CURRENT USAGE', value: `${currentUsed.toLocaleString()} / ${currentCapacity.toLocaleString()}`, note: `${currentUtil.toFixed(1)}% utilized`, accent: orange, bg: rgb(1, 0.97, 0.93) },
         { title: 'PEAK UTILIZATION', value: `${Number(peakRow?.pct || 0).toFixed(1)}%`, note: String(peakRow?.row?.date || 'N/A'), accent: purple, bg: rgb(0.97, 0.95, 1) },
@@ -2365,19 +2361,9 @@ export function ReportsView() {
           </>
         ) : null}
         {showWarehouse ? (
-          <select
-            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-            value={selectedWarehouse}
-            onChange={(event) => setSelectedWarehouse(event.target.value)}
-            title="Filter by warehouse"
-          >
-            <option value="all">All Warehouses</option>
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.name || warehouse.code || warehouse.id}
-              </option>
-            ))}
-          </select>
+          <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">
+            Warehouse: {warehouses[0]?.name || warehouses[0]?.code || 'Not registered'}
+          </div>
         ) : null}
         {showDriver ? (
           <select
@@ -2743,9 +2729,7 @@ export function ReportsView() {
                               className={
                                 row.normalizedReportStatus === 'PENDING'
                                   ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-                                  : row.normalizedReportStatus === 'PREPARING'
-                                    ? 'bg-lime-100 text-lime-800 hover:bg-lime-100'
-                                    : row.normalizedReportStatus === 'CANCELLED'
+                                  : row.normalizedReportStatus === 'CANCELLED'
                                       ? 'bg-red-100 text-red-700 hover:bg-red-100'
                                       : row.normalizedReportStatus === 'DELIVERED'
                                         ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
@@ -3116,7 +3100,7 @@ export function ReportsView() {
                           <td className="p-3">{formatDateTime(row.createdAt)}</td>
                           <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                           <td className="p-3">{String(row.product || 'N/A')}</td>
-                          <td className="p-3">{String(row.type || 'N/A')}</td>
+                          <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
                           <td className="p-3">{String(row.quantity || 0)}</td>
                         </tr>
                       ))}
@@ -3337,7 +3321,7 @@ export function ReportsView() {
                           <td className="p-3">{formatDateTime(row.createdAt)}</td>
                           <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                           <td className="p-3">{String(row.product || 'N/A')}</td>
-                          <td className="p-3">{String(row.type || 'N/A')}</td>
+                          <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
                           <td className="p-3">{String(row.quantity || 0)}</td>
                         </tr>
                       ))}

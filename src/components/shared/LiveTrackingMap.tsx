@@ -4,6 +4,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import MapLibreNavigationMap from './MapLibreNavigationMap';
+import type { NavigationViewportInsets } from '@/lib/map-navigation';
 
 const MapContainerUnsafe = MapContainer as any;
 const TileLayerUnsafe = TileLayer as any;
@@ -315,12 +317,19 @@ const DefaultIcon = L.icon({
   shadowSize: [41, 41],
 });
 
+export type DriverLocationPopupItem = {
+  name: string;
+  qty: string;
+};
+
 export type DriverLocation = {
   id: string;
   driverName: string;
   vehiclePlate: string;
   lat: number;
   lng: number;
+  actualLat?: number;
+  actualLng?: number;
   status: string;
   markerColor?: string;
   markerLabel?: string;
@@ -331,6 +340,9 @@ export type DriverLocation = {
   markerEta?: string;
   markerEtaPhase?: 'completed' | 'next' | 'upcoming';
   accuracyMeters?: number;
+  popupCustomerName?: string;
+  popupAddress?: string;
+  popupOrderItems?: DriverLocationPopupItem[];
 };
 
 export type LiveRouteLine = {
@@ -351,7 +363,11 @@ interface LiveTrackingMapProps {
   routeLines?: LiveRouteLine[];
   restrictToNegrosOccidental?: boolean;
   navigationPerspective?: boolean;
+  is3DPerspective?: boolean;
   recenterSignal?: number;
+  zoomInSignal?: number;
+  zoomOutSignal?: number;
+  navigationViewportInsets?: NavigationViewportInsets;
   showZoomControls?: boolean;
   showDriverSelfBadge?: boolean;
   className?: string;
@@ -673,7 +689,21 @@ function dedupeConsecutivePoints(points: [number, number][]) {
   });
 }
 
-async function fetchRoadSnappedPoints(points: [number, number][], signal: AbortSignal): Promise<[number, number][]> {
+function bearingAtRouteEnd(points: [number, number][]) {
+  const end = points[points.length - 1];
+  for (let index = points.length - 2; index >= 0; index -= 1) {
+    if (approximateDistanceMeters(points[index], end) >= 12) {
+      return bearingBetweenPoints(points[index], end);
+    }
+  }
+  return null;
+}
+
+async function fetchRoadSnappedPoints(
+  points: [number, number][],
+  signal: AbortSignal,
+  initialBearing?: number | null
+): Promise<[number, number][]> {
   const uniquePoints = dedupeConsecutivePoints(points);
   if (uniquePoints.length < 2) return [];
 
@@ -681,8 +711,11 @@ async function fetchRoadSnappedPoints(points: [number, number][], signal: AbortS
     .map((point) => `${encodeURIComponent(String(point[1]))},${encodeURIComponent(String(point[0]))}`)
     .join(';');
 
+  const bearings = typeof initialBearing === 'number' && Number.isFinite(initialBearing)
+    ? `&bearings=${Math.round(normalizeAngle(initialBearing))},60${';'.repeat(uniquePoints.length - 1)}&continue_straight=true`
+    : '';
   const response = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
+    `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false${bearings}`,
     { signal }
   );
   const payload = await response.json().catch(() => ({}));
@@ -880,7 +913,11 @@ export default function LiveTrackingMap({
   routeLines = [],
   restrictToNegrosOccidental = false,
   navigationPerspective = false,
+  is3DPerspective = false,
   recenterSignal,
+  zoomInSignal,
+  zoomOutSignal,
+  navigationViewportInsets,
   showZoomControls = true,
   showDriverSelfBadge = false,
   className = "w-full h-[350px] rounded-xl overflow-hidden border shadow-sm",
@@ -923,8 +960,10 @@ export default function LiveTrackingMap({
 
   useEffect(() => {
     if (!restrictToNegrosOccidental) {
-      setNegrosBoundary(null);
-      setServiceBoundary(null);
+      window.queueMicrotask(() => {
+        setNegrosBoundary(null);
+        setServiceBoundary(null);
+      });
       return;
     }
 
@@ -977,14 +1016,20 @@ export default function LiveTrackingMap({
         .filter((line) => line.snapToRoad)
         .map(
           (line) =>
-            `${line.id}:${line.points.map((point) => `${point[0].toFixed(6)},${point[1].toFixed(6)}`).join('|')}`
+            // Fix: ignore sub-road-scale GPS jitter so an in-flight OSRM request
+            // can finish instead of being aborted for every tiny coordinate change.
+            `${line.id}:${line.points.map((point) => `${point[0].toFixed(4)},${point[1].toFixed(4)}`).join('|')}`
         )
         .join('||'),
     [safeRouteLines]
   );
 
   useEffect(() => {
-    const linesNeedingRoadSnap = safeRouteLines.filter((line) => line.snapToRoad && line.points.length > 1);
+    const linesNeedingRoadSnap = safeRouteLines
+      .filter((line) => line.snapToRoad && line.points.length > 1)
+      // Fix: snap the taken route first so its arrival tangent can constrain the
+      // upcoming route to leave from the front of the truck instead of its rear.
+      .sort((a, b) => Number(b.id.endsWith('-route-completed')) - Number(a.id.endsWith('-route-completed')));
     if (linesNeedingRoadSnap.length === 0) {
       return;
     }
@@ -994,19 +1039,38 @@ export default function LiveTrackingMap({
 
     const run = async () => {
       const nextSnappedLines: Record<string, [number, number][]> = {};
+      let sharedDriverRoadPoint: [number, number] | null = null;
+      let sharedDriverBearing: number | null = null;
       for (const line of linesNeedingRoadSnap) {
         try {
-          const snappedPoints = await fetchRoadSnappedPoints(line.points, controller.signal);
+          const isCompletedPath = line.id.endsWith('-route-completed');
+          const isUpcomingPath = line.id.endsWith('-route-upcoming');
+          const routeInputPoints = isUpcomingPath && sharedDriverRoadPoint
+            ? [sharedDriverRoadPoint, ...line.points.slice(1)]
+            : line.points;
+          const snappedPoints = await fetchRoadSnappedPoints(
+            routeInputPoints,
+            controller.signal,
+            isUpcomingPath ? sharedDriverBearing : null
+          );
+
+          if (isCompletedPath && snappedPoints.length > 1) {
+            // The completed route defines both the truck junction and the
+            // direction of travel through that junction.
+            sharedDriverRoadPoint = snappedPoints[snappedPoints.length - 1];
+            sharedDriverBearing = bearingAtRouteEnd(snappedPoints);
+          }
           if (snappedPoints.length > 1) {
             nextSnappedLines[line.id] = snappedPoints;
           }
         } catch {
-          // Fallback to original route if road snap fails.
+          // Keep the line hidden rather than drawing a shortcut across buildings.
         }
         if (cancelled) return;
       }
 
-      setSnappedRoutePointsById(nextSnappedLines);
+      // Preserve the last successful road geometry during transient OSRM errors.
+      setSnappedRoutePointsById((previous) => ({ ...previous, ...nextSnappedLines }));
     };
 
     void run();
@@ -1019,13 +1083,22 @@ export default function LiveTrackingMap({
 
   const renderedRouteLines = useMemo(
     () =>
-      safeRouteLines.map((line) => {
+      safeRouteLines.flatMap((line) => {
+        if (!line.snapToRoad) return [line];
         const snappedPoints = snappedRoutePointsById[line.id];
-        if (!line.snapToRoad || !snappedPoints || snappedPoints.length < 2) return line;
-        return { ...line, points: snappedPoints };
+        // Fix: never render raw waypoint-to-waypoint segments for road routes.
+        if (!snappedPoints || snappedPoints.length < 2) return [];
+        return [{ ...line, points: snappedPoints }];
       }),
     [safeRouteLines, snappedRoutePointsById]
   );
+
+  const completedRouteHeading = useMemo(() => {
+    const completedRoute = renderedRouteLines.find((line) => line.id.endsWith('-route-completed'));
+    return completedRoute && completedRoute.points.length > 1
+      ? bearingAtRouteEnd(completedRoute.points)
+      : null;
+  }, [renderedRouteLines]);
 
   const routeOriginPoint = useMemo<[number, number] | null>(() => {
     const routePolylines = renderedRouteLines
@@ -1064,6 +1137,11 @@ export default function LiveTrackingMap({
     return safeLocations.map((loc) => {
       if (loc.markerType !== 'truck' || snapTargetPolylines.length === 0) return loc;
 
+      // The upcoming route starts at the shared taken/upcoming road point. Use
+      // that exact point for the truck instead of independently choosing a
+      // different nearby segment of the route.
+      const authoritativeRoadPoint = preferredPolylines[0]?.points?.[0] || [loc.lat, loc.lng];
+
       let bestSnap: SnappedPointOnRoute | null = null;
       let bestPolyline: [number, number][] | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
@@ -1073,10 +1151,10 @@ export default function LiveTrackingMap({
           : null;
 
       for (const polyline of snapTargetPolylines) {
-        const candidate = nearestPointOnPolyline([loc.lat, loc.lng], polyline.points);
+        const candidate = nearestPointOnPolyline(authoritativeRoadPoint, polyline.points);
         if (!candidate) continue;
 
-        const distanceMeters = approximateDistanceMeters([loc.lat, loc.lng], candidate.point);
+        const distanceMeters = approximateDistanceMeters(authoritativeRoadPoint, candidate.point);
         const candidateForwardHeading =
           calculateBearingAlongRoute(candidate, polyline.points, TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS) ??
           (Number.isFinite(candidate.heading) ? normalizeAngle(candidate.heading) : null);
@@ -1111,8 +1189,12 @@ export default function LiveTrackingMap({
           ? normalizeAngle(bestSnap.heading)
           : null;
       const routeHeading = calculateBearingAlongRoute(bestSnap, bestPolyline, TRUCK_ROUTE_LOOKAHEAD_METERS);
+      // Fix: the taken path's arrival bearing is authoritative for the truck.
+      // This guarantees that completed geometry enters from behind the icon.
       const headingCandidate =
-        typeof localForwardHeading === 'number' && Number.isFinite(localForwardHeading)
+        typeof completedRouteHeading === 'number' && Number.isFinite(completedRouteHeading)
+          ? normalizeAngle(completedRouteHeading)
+          : typeof localForwardHeading === 'number' && Number.isFinite(localForwardHeading)
           ? normalizeAngle(localForwardHeading)
           : typeof routeHeading === 'number' && Number.isFinite(routeHeading)
             ? normalizeAngle(routeHeading)
@@ -1121,18 +1203,21 @@ export default function LiveTrackingMap({
               : typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading)
                 ? normalizeAngle(loc.markerHeading)
                 : undefined;
-      const snappedHeading = currentZoom < 14
-        ? (typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading) ? normalizeAngle(loc.markerHeading) : headingCandidate)
-        : headingCandidate;
+      // The ordered upcoming route is authoritative. GPS heading is already the
+      // final fallback in headingCandidate when no usable forward tangent exists.
+      const snappedHeading = headingCandidate;
 
       return {
         ...loc,
+        // Preserve raw GPS separately while the visible truck stays on the road.
+        actualLat: loc.lat,
+        actualLng: loc.lng,
         lat: bestSnap.point[0],
         lng: bestSnap.point[1],
         markerHeading: snappedHeading,
       };
     });
-  }, [safeLocations, renderedRouteLines, currentZoom]);
+  }, [completedRouteHeading, safeLocations, renderedRouteLines]);
 
   useEffect(() => {
     if (animationFrameRef.current !== null) {
@@ -1237,6 +1322,24 @@ export default function LiveTrackingMap({
     restrictToNegrosOccidental && Array.isArray(center) && center.length === 2
       ? clampPointToBounds(center, activeBounds)
       : center;
+
+  if (navigationPerspective) {
+    return (
+      <MapLibreNavigationMap
+        locations={snappedLocations}
+        center={resolvedCenter}
+        zoom={zoom}
+        routeLines={renderedRouteLines}
+        is3DPerspective={is3DPerspective}
+        recenterSignal={recenterSignal}
+        zoomInSignal={zoomInSignal}
+        zoomOutSignal={zoomOutSignal}
+        navigationViewportInsets={navigationViewportInsets}
+        showDriverSelfBadge={showDriverSelfBadge}
+        className={className}
+      />
+    );
+  }
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
@@ -1418,12 +1521,23 @@ export default function LiveTrackingMap({
                 </TooltipUnsafe>
               ) : null}
               <Popup>
-                <div className="text-sm">
-                  <p className="font-bold text-base mb-1">{loc.driverName}</p>
-                  <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
+                <div className="text-sm" style={{minWidth: 180, maxWidth: 260}}>
+                  <p className="font-bold text-base mb-1">{loc.popupCustomerName || loc.driverName}</p>
+                  <p className="text-gray-600">{loc.popupAddress || loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
                   <p className="text-gray-600">
-                    Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
+                    Status: <span className="capitalize">{loc.status.replace(/_/g, ' ').toLowerCase()}</span>
                   </p>
+                  {Array.isArray(loc.popupOrderItems) && loc.popupOrderItems.length > 0 ? (
+                    <div style={{marginTop: 8, borderTop: '1px solid #e5e7eb', paddingTop: 6}}>
+                      <p style={{fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4}}>Ordered Items</p>
+                      {loc.popupOrderItems.slice(0, 8).map((item, idx) => (
+                        <p key={idx} style={{fontSize: 11, color: '#6b7280', lineHeight: 1.4, margin: 0}}>{item.name} — {item.qty}</p>
+                      ))}
+                      {loc.popupOrderItems.length > 8 ? (
+                        <p style={{fontSize: 10, color: '#9ca3af', marginTop: 3}}>+{loc.popupOrderItems.length - 8} more item(s)</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </Popup>
             </MarkerUnsafe>

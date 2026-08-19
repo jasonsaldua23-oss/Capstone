@@ -4,21 +4,24 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --lan",
+    "start:lan": "expo start --lan",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.1.2",
-    "expo": "^53.0.0",
+    "expo": "^57.0.14",
     "expo-constants": "~17.1.7",
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
     "react-native": "0.79.0"
   },
   "devDependencies": {
+    "@expo/ngrok": "^4.1.0",
     "@types/react": "^19.0.10",
+    "babel-preset-expo": "~57.0.7",
     "typescript": "^5.7.3"
   }
 }

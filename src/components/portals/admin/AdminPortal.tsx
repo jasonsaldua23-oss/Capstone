@@ -2,7 +2,7 @@
 "use client";
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner';
@@ -27,7 +27,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, Recycle, Store } from 'lucide-react';
+import { WarehouseEmptyBottlesView } from '../warehouse/sections/inventory/empty-bottles-view';
+import { RetailTransactionsView } from './sections/retail-transactions-view';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts';
 import type { DashboardStats } from '@/types';
@@ -51,6 +53,7 @@ import { TrackingView } from './sections/tracking-view'
 import { FeedbackView } from './sections/feedback-view'
 import { ReportsView } from './sections/reports-view'
 import { CustomersView } from './sections/customers-view'
+import { InventoryTransactionsView } from './sections/inventory-transactions-view'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -327,7 +330,7 @@ async function downloadPdf(
   })
 
   const bytes = await pdfDoc.save()
-  const blob = new Blob([bytes], { type: 'application/pdf' })
+  const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -425,12 +428,65 @@ export function AdminPortal() {
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false)
   const [globalSearchResults, setGlobalSearchResults] = useState<Array<{ view: string; label: string; sublabel: string }>>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('inventory')
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
+  const [inventoryMenuExpanded, setInventoryMenuExpanded] = useState(true)
+  const [ordersMenuExpanded, setOrdersMenuExpanded] = useState(true)
+  const [adminOrders, setAdminOrders] = useState<any[]>([])
+  const [adminOrdersLoading, setAdminOrdersLoading] = useState(false)
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const [warehouseReady, setWarehouseReady] = useState<boolean | null>(null)
+
+  const fetchAdminOrders = useCallback(async () => {
+    setAdminOrdersLoading(true)
+    try {
+      const res = await fetch('/api/orders?pageSize=500&includeItems=full', { cache: 'no-store' })
+      const payload = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setAdminOrders(getCollection<any>(payload, ['orders']))
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAdminOrdersLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (inventorySubView === 'empties' && adminOrders.length === 0) {
+      void fetchAdminOrders()
+    }
+  }, [inventorySubView, adminOrders.length, fetchAdminOrders])
+
+  useEffect(() => {
+    let cancelled = false
+    const checkWarehouseSetup = async () => {
+      try {
+        const response = await fetch('/api/warehouses?page=1&pageSize=2', {
+          cache: 'no-store',
+          credentials: 'include',
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!cancelled) {
+          const ready = response.ok && getCollection<any>(payload, ['warehouses']).length === 1
+          setWarehouseReady(ready)
+          if (!ready) setActiveView('warehouses')
+        }
+      } catch {
+        if (!cancelled) {
+          setWarehouseReady(false)
+          setActiveView('warehouses')
+        }
+      }
+    }
+    void checkWarehouseSetup()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const isPriorityNotification = (item: PortalNotification) => {
     const title = String(item?.title || '').toLowerCase()
@@ -755,20 +811,23 @@ export function AdminPortal() {
   const SidebarContent = () => {
     const navItems = [
       { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+      { id: 'purchaseRequests', label: 'Purchase Requests', icon: ClipboardList },
       { id: 'orders', label: 'Purchase Orders', icon: ShoppingCart },
       { id: 'transportation', label: 'Transportation', icon: Truck },
       { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
       { id: 'tracking', label: 'Live Tracking', icon: MapPin },
       { id: 'inventory', label: 'Inventory', icon: Archive },
-      { id: 'warehouses', label: 'Warehouses', icon: Building2 },
+      { id: 'warehouses', label: 'Warehouse', icon: Building2 },
       { id: 'feedback', label: 'Feedback', icon: MessageSquare },
       { id: 'reports', label: 'Reports', icon: FileText },
       { id: 'customers', label: 'Clients', icon: Users },
       { id: 'users', label: 'Users', icon: Users },
       { id: 'settings', label: 'Settings', icon: Settings },
     ]
-    const primaryNavItems = navItems.filter((item) => item.id !== 'settings')
-    const settingsItem = navItems.find((item) => item.id === 'settings')
+    const primaryNavItems = navItems.filter((item) =>
+      item.id !== 'settings' && (warehouseReady !== false || item.id === 'warehouses')
+    )
+    const settingsItem = warehouseReady === false ? undefined : navItems.find((item) => item.id === 'settings')
 
     return (
       <div className="flex flex-col h-full">
@@ -795,13 +854,28 @@ export function AdminPortal() {
               <motion.div key={item.id} layout transition={{ type: 'spring', stiffness: 440, damping: 32 }}>
                 <Button
                   variant="ghost"
-                  className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${
-                    isActive
+                  className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${isActive
                       ? 'text-white'
                       : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
-                  }`}
+                    }`}
                   onClick={() => {
-                    setActiveView(item.id)
+                    if (item.id === 'inventory') {
+                      if (activeView === 'inventory') {
+                        setInventoryMenuExpanded((prev) => !prev)
+                      } else {
+                        setActiveView('inventory')
+                        setInventoryMenuExpanded(true)
+                      }
+                    } else if (item.id === 'orders') {
+                      if (activeView === 'orders') {
+                        setOrdersMenuExpanded((prev) => !prev)
+                      } else {
+                        setActiveView('orders')
+                        setOrdersMenuExpanded(true)
+                      }
+                    } else {
+                      setActiveView(item.id)
+                    }
                     setSidebarOpen(false)
                   }}
                 >
@@ -814,7 +888,119 @@ export function AdminPortal() {
                   ) : null}
                   <IconComponent className="relative z-[1] h-4 w-4" />
                   <span className="relative z-[1]">{item.label}</span>
+                  {item.id === 'inventory' ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={inventoryMenuExpanded ? 'Retract Inventory Menu' : 'Expand Inventory Menu'}
+                      className="relative z-[1] ml-auto p-1 rounded hover:bg-white/20 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setInventoryMenuExpanded((prev) => !prev)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setInventoryMenuExpanded((prev) => !prev)
+                        }
+                      }}
+                    >
+                      <ChevronDown
+                        className={`h-4 w-4 transition-transform duration-200 ${inventoryMenuExpanded ? 'rotate-180' : 'rotate-0'}`}
+                        aria-hidden="true"
+                      />
+                    </span>
+                  ) : null}
+                  {item.id === 'orders' ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={ordersMenuExpanded ? 'Retract Purchase Orders Menu' : 'Expand Purchase Orders Menu'}
+                      className="relative z-[1] ml-auto p-1 rounded hover:bg-white/20 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOrdersMenuExpanded((prev) => !prev)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setOrdersMenuExpanded((prev) => !prev)
+                        }
+                      }}
+                    >
+                      <ChevronDown
+                        className={`h-4 w-4 transition-transform duration-200 ${ordersMenuExpanded ? 'rotate-180' : 'rotate-0'}`}
+                        aria-hidden="true"
+                      />
+                    </span>
+                  ) : null}
                 </Button>
+                <AnimatePresence initial={false}>
+                  {item.id === 'inventory' && inventoryMenuExpanded ? (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="overflow-hidden"
+                    >
+                      <Button
+                        variant="ghost"
+                        className={`relative ml-4 mt-1 w-[calc(100%-1rem)] justify-start gap-3 overflow-hidden pl-9 transition-all duration-300 ${activeView === 'inventoryTransactions'
+                            ? 'text-white'
+                            : 'text-slate-600 hover:bg-white/45 hover:text-slate-950'
+                          }`}
+                        onClick={() => {
+                          setActiveView('inventoryTransactions')
+                          setSidebarOpen(false)
+                        }}
+                      >
+                        {activeView === 'inventoryTransactions' ? (
+                          <motion.span
+                            layoutId="admin-sidebar-active-pill"
+                            className="absolute inset-0 rounded-md border border-white/50 bg-linear-to-r from-sky-600/95 via-blue-600/95 to-cyan-500/95 shadow-[0_14px_30px_rgba(37,99,235,0.28)]"
+                            transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                          />
+                        ) : null}
+                        <ClipboardList className="relative z-[1] h-4 w-4" />
+                        <span className="relative z-[1]">Inventory Transactions</span>
+                      </Button>
+                    </motion.div>
+                  ) : null}
+                  {item.id === 'orders' && ordersMenuExpanded ? (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="overflow-hidden"
+                    >
+                      <Button
+                        variant="ghost"
+                        className={`relative ml-4 mt-1 w-[calc(100%-1rem)] justify-start gap-3 overflow-hidden pl-9 transition-all duration-300 ${activeView === 'retailTransactions'
+                            ? 'text-white'
+                            : 'text-slate-600 hover:bg-white/45 hover:text-slate-950'
+                          }`}
+                        onClick={() => {
+                          setActiveView('retailTransactions')
+                          setSidebarOpen(false)
+                        }}
+                      >
+                        {activeView === 'retailTransactions' ? (
+                          <motion.span
+                            layoutId="admin-sidebar-active-pill"
+                            className="absolute inset-0 rounded-md border border-white/50 bg-linear-to-r from-sky-600/95 via-blue-600/95 to-cyan-500/95 shadow-[0_14px_30px_rgba(37,99,235,0.28)]"
+                            transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                          />
+                        ) : null}
+                        <Store className="relative z-[1] h-4 w-4" />
+                        <span className="relative z-[1]">Retail Transactions</span>
+                      </Button>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </motion.div>
             )
           })}
@@ -824,11 +1010,10 @@ export function AdminPortal() {
           {settingsItem ? (
             <Button
               variant="ghost"
-              className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${
-                activeView === settingsItem.id
+              className={`relative w-full justify-start gap-3 overflow-hidden transition-all duration-300 ${activeView === settingsItem.id
                   ? 'text-white'
                   : 'text-slate-700 hover:bg-white/45 hover:text-slate-950'
-              }`}
+                }`}
               onClick={() => {
                 setActiveView(settingsItem.id)
                 setSidebarOpen(false)
@@ -859,20 +1044,32 @@ export function AdminPortal() {
   }
 
   const renderActiveView = () => {
+    if (warehouseReady === null) {
+      return <div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking warehouse setup...</div>
+    }
+    if (warehouseReady === false) {
+      return <WarehousesView onWarehouseChanged={setWarehouseReady} />
+    }
     switch (activeView) {
       case 'dashboard':
         return <DashboardView stats={stats} isLoading={isLoading} />
       case 'orders':
-        return <OrdersView onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
+        return <OrdersView mode="orders" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
+      case 'retailTransactions':
+        return <RetailTransactionsView />
+      case 'purchaseRequests':
+        return <OrdersView mode="requests" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
       case 'trips':
         return <TripsView />
       case 'transportation':
         return <TransportationView />
       case 'warehouses':
-        return <WarehousesView />
+        return <WarehousesView onWarehouseChanged={setWarehouseReady} />
+      case 'inventoryTransactions':
+        return <InventoryTransactionsView userRole={user?.role} />
       case 'inventory':
         return (
-          <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
+          <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties')} className="space-y-4">
             <TabsList className="h-auto w-full flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
               <TabsTrigger
                 value="inventory"
@@ -888,12 +1085,33 @@ export function AdminPortal() {
                 <Archive className="h-4 w-4" />
                 Stock batches
               </TabsTrigger>
+              <TabsTrigger
+                value="empties"
+                className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+              >
+                <Recycle className="h-4 w-4" />
+                Empty Bottles
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="inventory" className="mt-0">
               <InventoryView />
             </TabsContent>
             <TabsContent value="stocks" className="mt-0">
               <StocksView />
+            </TabsContent>
+            <TabsContent value="empties" className="mt-0">
+              <WarehouseEmptyBottlesView
+                orders={adminOrders}
+                formatPeso={(val) =>
+                  new Intl.NumberFormat('en-PH', {
+                    style: 'currency',
+                    currency: 'PHP',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }).format(val || 0)
+                }
+                loadingOrders={adminOrdersLoading}
+              />
             </TabsContent>
           </Tabs>
         )
@@ -1020,10 +1238,10 @@ export function AdminPortal() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   {/* DropdownMenuLabel removed */}
-                    <div>
-                      <p className="font-medium">{user?.name}</p>
-                      <p className="text-xs text-gray-500">{user?.email}</p>
-                    </div>
+                  <div>
+                    <p className="font-medium">{user?.name}</p>
+                    <p className="text-xs text-gray-500">{user?.email}</p>
+                  </div>
                   {/* DropdownMenuLabel removed */}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setActiveView('settings')}>

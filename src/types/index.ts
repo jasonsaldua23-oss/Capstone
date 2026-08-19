@@ -19,6 +19,16 @@ export interface UserWithRole {
   updatedAt: Date
 }
 
+export interface CustomerBottleBalance {
+  containerTypeId: string
+  containerTypeName: string
+  depositAmount: number
+  depositBalance: number
+  bottlesOutstanding: number
+  bottlesReturnedTotal: number
+  bottlesSoldTotal: number
+}
+
 export interface AuthUser {
   id: string
   userId?: string
@@ -28,6 +38,8 @@ export interface AuthUser {
   role: string
   type: 'staff' | 'customer'
   sessionTimeoutMinutes?: number
+  depositBalance?: number
+  bottleBalances?: CustomerBottleBalance[]
 }
 
 export interface AuthSession {
@@ -108,6 +120,15 @@ export interface OrderItemWithProduct {
   unitPrice: number
   totalPrice: number
   notes: string | null
+  isReturnableItem?: boolean
+  containerTypeId?: string | null
+  containerTypeName?: string | null
+  fullQuantity?: number
+  emptyReturnedQuantity?: number
+  depositPerUnit?: number
+  depositCharged?: number
+  depositRefunded?: number
+  netDeposit?: number
 }
 
 // ==================== TRIP TYPES ====================
@@ -178,6 +199,26 @@ export interface TripDropPointWithOrder {
   recipientName: string | null
   deliveryPhoto: string | null
   failureReason: string | null
+}
+
+export interface BottleReturnLine {
+  id: string
+  containerTypeName: string
+  quantityClaimed: number
+  quantityGradedReusable: number
+  quantityGradedDamaged: number
+}
+
+export interface BottleReturn {
+  id: string
+  returnNumber: string
+  customer: {
+    id: string
+    name: string
+  }
+  status: 'PENDING' | 'GRADED' | 'PARTIALLY_ACCEPTED' | 'ACCEPTED' | 'REJECTED'
+  createdAt: string
+  lines: BottleReturnLine[]
 }
 
 // ==================== INVENTORY TYPES ====================

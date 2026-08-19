@@ -1,0 +1,50 @@
+[
+  {
+    "file": "scratch_colors.json",
+    "size": 15285,
+    "hasTripView": false,
+    "preview": "[\n  {\n    \"lineNum\": 185,\n    \"preview\": \"{\\\"step_index\\\":141,\\\"source\\\":\\\"MODEL\\\",\\\"type\\\":\\\"GREP_SEARCH\\\",\\\"status\\\":\\\"DONE\\\",\\\"created_at\\\":\\\"2026-07-07T07:04:27Z\\\",\\\"content\\\":\\\"Created At: 2026-07-07T07:04:27Z\\\\nCompleted At: 2026-07-07T07:04:30Z\\\\n{\\\\\\\"File\\\\\\\":\\\\\\\"c:\\\\\\\\\\\\\\\\CAPSTONE\\\\\\\\\\\\\\\\sr"
+  },
+  {
+    "file": "scratch_dev3000.txt",
+    "size": 9465,
+    "hasTripView": false,
+    "preview": "﻿\r\n> nextjs_tailwind_shadcn_ts@0.2.0 dev\r\n> next dev -p 3000\r\n\r\nΓû▓ Next.js 16.1.3 (Turbopack)\r\n- Local:         http://localhost:3000\r\n- Network:       http://192.168.0.100:3000\r\n- Environments: .env\r\n\r\nΓ£ô Starting...\r\nCreating turbopack project { dir: 'C:\\\\CAPSTONE', testMode: true }\r\nΓ£ô Ready i"
+  },
+  {
+    "file": "scratch_edits.json",
+    "size": 136990,
+    "hasTripView": true,
+    "preview": "[\n  {\n    \"step\": 160,\n    \"name\": \"replace_file_content\",\n    \"args\": {\n      \"AllowMultiple\": false,\n      \"Description\": \"Expand map container to full viewport height (100dvh) on mobile to continue naturally behind the bottom delivery sheet.\",\n      \"EndLine\": 2384,\n      \"Instruction\": \"Change m"
+  },
+  {
+    "file": "scratch_git.txt",
+    "size": 6069,
+    "hasTripView": true,
+    "preview": "STASH:\n\n\nLOG:\nd8cfe1d feat: Implement pagination for trips and orders in admin and warehouse sections\n6a0e410 feat: enhance camera permission handling and error messaging in TripDetailView\na5351ea feat: update button styles across various components to use a consistent blue theme\n4c3dbf1 Add replace"
+  },
+  {
+    "file": "scratch_git_branches.txt",
+    "size": 287,
+    "hasTripView": false,
+    "preview": "BRANCHES:\n  agents/hilo-game-implementation\n  clean-main\n* deploy-main\n  fix/remove-secrets\n  fix/remove-secrets-and-gunicorn\n  main\n  remotes/origin/HEAD -> origin/main\n  remotes/origin/fix/remove-secrets\n  remotes/origin/fix/remove-secrets-and-gunicorn\n  remotes/origin/main\n\n\nREFLOG:\n"
+  },
+  {
+    "file": "scratch_matches.json",
+    "size": 143004,
+    "hasTripView": true,
+    "preview": "[\n  {\n    \"lineNum\": 141,\n    \"length\": 4224,\n    \"preview\": \"{\\\"step_index\\\":97,\\\"source\\\":\\\"MODEL\\\",\\\"type\\\":\\\"GREP_SEARCH\\\",\\\"status\\\":\\\"DONE\\\",\\\"created_at\\\":\\\"2026-07-07T05:16:55Z\\\",\\\"content\\\":\\\"Created At: 2026-07-07T05:16:55Z\\\\nCompleted At: 2026-07-07T05:16:55Z\\\\n{\\\\\\\"File\\\\\\\":\\\\\\\"c:\\\\\\\\\\\\\\"
+  },
+  {
+    "file": "scratch_recover_error.txt",
+    "size": 214,
+    "hasTripView": false,
+    "preview": "Target content for step 160 not found in file! Target prefix:           {isMobileViewport ? (\r\n          <div className=\"relative overflow-hidden bg-[#f6f1e8] md:hidden\">\r\n            <div className=\"relative h-[ca"
+  },
+  {
+    "file": "scratch_scan_results.json",
+    "size": 3509,
+    "hasTripView": true,
+    "preview": "[\n  {\n    \"file\": \"scratch_colors.json\",\n    \"size\": 15285,\n    \"hasTripView\": false,\n    \"preview\": \"[\\n  {\\n    \\\"lineNum\\\": 185,\\n    \\\"preview\\\": \\\"{\\\\\\\"step_index\\\\\\\":141,\\\\\\\"source\\\\\\\":\\\\\\\"MODEL\\\\\\\",\\\\\\\"type\\\\\\\":\\\\\\\"GREP_SEARCH\\\\\\\",\\\\\\\"status\\\\\\\":\\\\\\\"DONE\\\\\\\",\\\\\\\"created_at\\\\\\\":\\\\\\\"2026-07-07T"
+  }
+]

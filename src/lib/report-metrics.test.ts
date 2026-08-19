@@ -32,6 +32,13 @@ test('inventory availability and stock health use reserved quantities', () => {
   ]
 
   assert.equal(getInventoryAvailableQty(items[0]), 5)
+  assert.equal(getInventoryAvailableQty({
+    quantity: 2,
+    reservedQuantity: 0,
+    reservedBaseUnits: 12,
+    looseBottles: 0,
+    product: { quantityPerCase: 24 },
+  }), 1)
   assert.equal(getInventoryThreshold(items[0]), 15)
 
   const summary = summarizeStockHealth(items, Date.parse('2026-05-23T12:00:00Z'))
@@ -77,6 +84,7 @@ test('inventory movement selectors keep only in and out and chart totals match r
     { createdAt: '2026-05-22T10:00:00Z', type: 'IN', quantity: 8, warehouse: { id: 'w1', name: 'Main' }, product: { name: 'Pepzi-reg', sizes: ['250ml (8 oz)'] } },
     { createdAt: '2026-05-21T10:00:00Z', type: 'OUT', quantity: 5, warehouse: { id: 'w1', name: 'Main' }, product: { name: 'Pepzi-reg', size: '250ml (8 oz)' } },
     { createdAt: '2026-05-21T11:00:00Z', type: 'RESERVE', quantity: 99, warehouse: { id: 'w1', name: 'Main' }, product: { name: 'Pepzi-reg' } },
+    { createdAt: '2026-05-21T12:00:00Z', type: 'RETURN', quantity: 3, baseUnitQuantity: 3, warehouse: { id: 'w1', name: 'Main' }, product: { name: 'Pepzi-reg', size: '250ml (8 oz)' } },
     { createdAt: '2026-04-20T11:00:00Z', type: 'IN', quantity: 12, warehouse: { id: 'w1', name: 'Main' }, product: { name: 'Pepzi-reg' } },
   ], {
     rangeStart,
@@ -84,14 +92,15 @@ test('inventory movement selectors keep only in and out and chart totals match r
     getWarehouseIdFromRow: (row) => String(row?.warehouse?.id || ''),
   })
 
-  assert.equal(rows.length, 2)
-  assert.deepEqual(rows.map((row) => row.type), ['IN', 'OUT'])
-  assert.deepEqual(rows.map((row) => row.product), ['Pepzi-reg (250ml (8 oz))', 'Pepzi-reg (250ml (8 oz))'])
+  assert.equal(rows.length, 3)
+  assert.deepEqual(rows.map((row) => row.type), ['IN', 'OUT', 'IN'])
+  assert.deepEqual(rows.map((row) => row.sourceType), ['IN', 'OUT', 'RETURN'])
+  assert.deepEqual(rows.map((row) => row.product), ['Pepzi-reg (250ml (8 oz))', 'Pepzi-reg (250ml (8 oz))', 'Pepzi-reg (250ml (8 oz))'])
 
   const summary = summarizeInventoryMovementRows(rows)
   assert.deepEqual(summary, {
-    totalMovements: 2,
-    stockIn: 8,
+    totalMovements: 3,
+    stockIn: 11,
     stockOut: 5,
   })
 
@@ -101,7 +110,7 @@ test('inventory movement selectors keep only in and out and chart totals match r
     now: new Date('2026-05-23T00:00:00Z'),
   })
   const trend = summarizeInventoryMovementTrend(chart)
-  assert.equal(trend.totalIn, 8)
+  assert.equal(trend.totalIn, 11)
   assert.equal(trend.totalOut, 5)
 })
 

@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
-import { Loader2, Package, Search, ShoppingCart } from 'lucide-react'
+import { Layers3, Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
   customerName: string
@@ -23,6 +23,7 @@ type CustomerHomeViewProps = {
   formatPeso: (value: number) => string
   cart: any[]
   onOpenCart: () => void
+  onOpenMixedCase: () => void
 }
 
 export function CustomerHomeView({
@@ -40,6 +41,7 @@ export function CustomerHomeView({
   formatPeso,
   cart,
   onOpenCart,
+  onOpenMixedCase,
 }: CustomerHomeViewProps) {
   const [welcomeState] = useState(() => {
     const normalizedName = String(customerName || '').trim()
@@ -48,12 +50,15 @@ export function CustomerHomeView({
     try {
       const raw = window.sessionStorage.getItem('customer_welcome_state')
       if (!raw) return { open: false, message: fallbackBack }
-      const parsed = JSON.parse(raw) as { name?: string; ts?: number }
+      const parsed = JSON.parse(raw) as { mode?: 'existing' | 'new'; name?: string; ts?: number }
       const storedName = String(parsed?.name || '').trim() || normalizedName
+      const isNewAccount = parsed?.mode === 'new'
       window.sessionStorage.removeItem('customer_welcome_state')
       return {
         open: true,
-        message: storedName ? `Welcome back, ${storedName}.` : 'Welcome back!',
+        message: isNewAccount
+          ? (storedName ? `Welcome, ${storedName}.` : 'Welcome!')
+          : (storedName ? `Welcome back, ${storedName}.` : 'Welcome back!'),
       }
     } catch {
       return { open: false, message: fallbackBack }
@@ -123,13 +128,23 @@ export function CustomerHomeView({
               </select>
             </div>
 
-            <div className="mt-3">
-              <p className="text-[1.55rem] font-extrabold leading-tight tracking-[-0.02em] text-slate-900 md:text-xl">
-                Product Catalog
-              </p>
-              <p className="mt-1 text-sm text-slate-500">
-                Place your order and we&apos;ll deliver it to your store.
-              </p>
+            <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-[1.55rem] font-extrabold leading-tight tracking-[-0.02em] text-slate-900 md:text-xl">
+                  Product Catalog
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Place your order and we&apos;ll deliver it to your store.
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={onOpenMixedCase}
+                className="rounded-xl bg-sky-600 text-white hover:bg-sky-500"
+              >
+                <Layers3 className="mr-2 h-4 w-4" />
+                Build Mixed Case
+              </Button>
             </div>
 
           </div>
@@ -142,12 +157,12 @@ export function CustomerHomeView({
                 const availableQty = p ? getAvailableQty(p) : 0
                 const sizeLabel = p
                   ? (() => {
-                      const sizes = Array.isArray((p as any).sizes)
-                        ? (p as any).sizes.map((s: any) => String(s).trim()).filter(Boolean)
-                        : []
-                      if (sizes.length > 0) return sizes.join(', ')
-                      return String((p as any).sizeLabel || (p as any).size || '').trim() || 'N/A'
-                    })()
+                    const sizes = Array.isArray((p as any).sizes)
+                      ? (p as any).sizes.map((s: any) => String(s).trim()).filter(Boolean)
+                      : []
+                    if (sizes.length > 0) return sizes.join(', ')
+                    return String((p as any).sizeLabel || (p as any).size || '').trim() || 'N/A'
+                  })()
                   : 'N/A'
                 const quantityPerUnit = p
                   ? Number((p as any).quantityPerUnit ?? (p as any).quantity_per_unit ?? 0)
@@ -233,13 +248,12 @@ export function CustomerHomeView({
                                   if (!p || isDisabledPreset) return
                                   setCardQty(p.id, parsed, availableQty)
                                 }}
-                                className={`pointer-events-auto rounded px-0.5 py-1 text-center text-[10px] font-medium md:text-[11px] ${
-                                  isActive
+                                className={`pointer-events-auto rounded px-0.5 py-1 text-center text-[10px] font-medium md:text-[11px] ${isActive
                                     ? 'bg-emerald-600 text-white'
                                     : exceedsAvailable
                                       ? 'bg-slate-100 text-slate-400'
                                       : 'bg-slate-100 text-slate-600'
-                                } disabled:cursor-not-allowed disabled:opacity-50`}
+                                  } disabled:cursor-not-allowed disabled:opacity-50`}
                                 title={exceedsAvailable ? `Not enough stock (only ${availableQty} available)` : undefined}
                               >
                                 {qty}
@@ -288,6 +302,11 @@ export function CustomerHomeView({
                       {item.quantity} x {formatPeso(item.unitPrice || 0)}
                     </p>
                     <p className="text-xs text-slate-500">Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}</p>
+                    {item.itemType === 'MIXED_CASE' ? (
+                      <p className="mt-1 line-clamp-2 text-xs text-sky-700">
+                        {(item.components || []).map((component: any) => `${component.productName}: ${component.quantityPerCase}`).join(' · ')}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="text-sm font-semibold text-slate-900">
                     {formatPeso((item.quantity || 0) * (item.unitPrice || 0))}

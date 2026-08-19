@@ -18,6 +18,8 @@ type CustomerCheckoutViewProps = {
   getProductImage: (imageUrl?: string | null) => string
   formatPeso: (value: number) => string
   selectedSubtotal: number
+  selectedDepositCharged: number
+  selectedDepositRefunded: number
   discountName: string
   discountType: string
   discountPercent: number
@@ -45,6 +47,8 @@ export function CustomerCheckoutView({
   getProductImage,
   formatPeso,
   selectedSubtotal,
+  selectedDepositCharged,
+  selectedDepositRefunded,
   discountName,
   discountType,
   discountPercent,
@@ -103,11 +107,25 @@ export function CustomerCheckoutView({
             <CardContent className="space-y-3 p-4">
               {selectedCartItems.map((item) => (
                 <div key={item.productId} className="flex gap-3">
-                  <img
-                    src={getProductImage(item.imageUrl)}
-                    alt={item.name}
-                    className="h-[74px] w-[74px] rounded-md border object-cover bg-white"
-                  />
+                  {item.itemType === 'MIXED_CASE' ? (
+                    <div className="grid h-[74px] w-[74px] shrink-0 grid-cols-2 overflow-hidden rounded-md border bg-white">
+                      {/* Show the two products that make up this mixed case. */}
+                      {(item.components || []).slice(0, 2).map((component: any) => (
+                        <img
+                          key={component.productId}
+                          src={getProductImage(component.product?.imageUrl)}
+                          alt={component.productName || 'Mixed case product'}
+                          className="h-full w-full min-w-0 object-cover"
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <img
+                      src={getProductImage(item.imageUrl)}
+                      alt={item.name}
+                      className="h-[74px] w-[74px] rounded-md border object-cover bg-white"
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     {(() => {
                       const sizeLabel = String(item.sizeLabel || item.unit || '').trim() || 'case'
@@ -124,7 +142,40 @@ export function CustomerCheckoutView({
                       )
                     })()}
                     <p className="mt-1 text-xl font-semibold text-emerald-700">{formatPeso(item.unitPrice)}</p>
-                    <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
+                    <p className="text-xs text-gray-500">Qty: {item.quantity} {String(item.unit || 'case')}(s)</p>
+                    {item.packagingType === 'RETURNABLE' && !item.depositExempt && (() => {
+                      const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
+                      const containersPerCase = Math.max(1, Number(item.containersPerCase || 1))
+                      const grossDeposit = item.quantity * Number(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)
+                      const depositCredit = isCase
+                        ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase) * Number(item.caseDepositAmount || 0)
+                        : Number(item.emptyReturnedQuantity || 0) * Number(item.depositAmount || 0)
+                      const newDeposit = Math.max(0, grossDeposit - depositCredit)
+                      return (
+                        <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
+                          <p className="font-medium text-slate-700">
+                            {item.looseUnit || item.containerTypeName || 'Glass Bottle'} — Empty Containers: {item.availableEmptyBottles || 0} — Deposit Balance: {formatPeso(item.availableDepositBalance || 0)}
+                          </p>
+                          <p className={(item.emptyReturnedQuantity || 0) > 0 ? 'mt-1 text-emerald-700' : 'mt-1 text-amber-700'}>
+                            {(item.emptyReturnedQuantity || 0) > 0
+                              ? `${item.emptyReturnedQuantity} existing empties will be used.`
+                              : 'No existing empties are available.'}
+                          </p>
+                          {newDeposit > 0 ? <p className="mt-0.5 text-slate-600">New deposit charged: +{formatPeso(newDeposit)}</p> : null}
+                        </div>
+                      )
+                    })()}
+                    {item.itemType === 'MIXED_CASE' ? (
+                      <div className="mt-2 rounded-lg bg-sky-50 p-2 text-xs text-sky-800">
+                        <p className="font-semibold">{item.caseCapacity} units per case</p>
+                        {(item.components || []).map((component: any) => (
+                          <div key={component.productId} className="flex justify-between gap-3">
+                            <span>{component.productName}</span>
+                            <span>{component.quantityPerCase}/case · {formatPeso(component.componentSubtotal)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -137,7 +188,20 @@ export function CustomerCheckoutView({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium text-slate-800">{formatPeso(selectedSubtotal)}</span>
               </div>
+              {selectedDepositRefunded > 0 && (
+                <div className="flex items-center justify-between text-[13px] md:text-sm">
+                  <span className="text-slate-600">Existing empty deposits applied</span>
+                  <span className="font-medium text-emerald-600">Covers {formatPeso(selectedDepositRefunded)}</span>
+                </div>
+              )}
+              {selectedDepositCharged - selectedDepositRefunded > 0 && (
+                <div className="flex items-center justify-between text-[13px] md:text-sm">
+                  <span className="text-slate-600">New returnable-container deposit</span>
+                  <span className="font-medium text-slate-800">+{formatPeso(selectedDepositCharged - selectedDepositRefunded)}</span>
+                </div>
+              )}
               <CompactDiscountLine value={formatPeso(totalDiscount)} percent={effectiveDiscountPercent || discountPercent} />
+              <p className="text-[11px] text-slate-500">Discounts apply to orders totaling 50 cases or packs.</p>
               <div className="h-px bg-slate-100" />
               <div className="flex items-center justify-between text-[15px] font-semibold text-slate-900 md:text-base">
                 <span>Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</span>

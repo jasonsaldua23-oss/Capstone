@@ -6,6 +6,23 @@ import { ArrowLeft, CalendarDays, ClipboardList, Download, MapPin, Package, Phon
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
+const RECEIPT_BUSINESS_NAME = "Ann Ann's Beverages Trading"
+
+function resolveReceiptSellerPhone(order: any) {
+  const candidates = [
+    order?.sellerPhone,
+    order?.adminPhone,
+    order?.admin?.phone,
+    order?.adminUser?.phone,
+    order?.handledBy?.phone,
+    order?.processedBy?.phone,
+    order?.ownerPhone,
+    order?.warehousePhone,
+  ]
+
+  return String(candidates.find((value) => String(value || '').trim()) || '').trim()
+}
+
 export function CustomerReceiptDialog(props: any) {
   const {
     selectedOrder,
@@ -41,13 +58,7 @@ export function CustomerReceiptDialog(props: any) {
       return true
     })
   const deliveryLines = [...addressTokens, ...extras]
-  const sellerPhone = String(
-    selectedOrder?.sellerPhone ||
-    selectedOrder?.adminPhone ||
-    selectedOrder?.ownerPhone ||
-    selectedOrder?.warehousePhone ||
-    '+63 9460056944'
-  ).trim()
+  const sellerPhone = resolveReceiptSellerPhone(selectedOrder)
   const orderSubtotal = Number(
     selectedOrder?.subtotal ??
     (Array.isArray(selectedOrder?.items)
@@ -104,8 +115,8 @@ export function CustomerReceiptDialog(props: any) {
             className="receipt-modal flex h-full min-h-0 flex-col overflow-hidden bg-white font-['Helvetica','Arial',sans-serif]"
           >
             <div className="receipt-modal-header flex h-[60px] items-center border-b border-slate-200 bg-white px-4">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsReceiptDialogOpen(false)}>
-                <ArrowLeft className="h-5 w-5" />
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsReceiptDialogOpen(false)} aria-label="Close receipt preview">
+                <ArrowLeft aria-hidden="true" className="h-5 w-5" />
               </Button>
               <p className="flex-1 text-center text-lg font-semibold leading-none text-[#0f2347] md:text-xl">Receipt Preview</p>
               <div className="h-8 w-8" />
@@ -116,15 +127,15 @@ export function CustomerReceiptDialog(props: any) {
                 <div ref={receiptPreviewRef} className="rounded-2xl border border-slate-200 bg-white p-3 text-[11px] leading-[1.35] text-[#1f2937] shadow-[0_12px_30px_rgba(15,35,71,0.08)] sm:p-5 sm:text-xs md:text-sm">
                 <div className="grid grid-cols-[1.5fr_1fr] gap-2 border-b border-slate-200 pb-3 sm:grid-cols-[1.6fr_1fr] sm:items-start sm:gap-4">
                   <div className="flex min-w-0 items-start gap-3">
-                    <img
-                      src="/aab-trading-shop.png"
-                      alt="AAB TRADING SHOP"
+                      <img
+                        src="/aab-trading-shop.png"
+                      alt={RECEIPT_BUSINESS_NAME}
                       className="h-12 w-12 rounded-full border border-slate-200 object-cover bg-white sm:h-16 sm:w-16"
                     />
                     <div className="min-w-0">
-                    <p className="text-[14px] font-bold leading-tight tracking-[0.01em] text-[#0f2e6b] sm:text-base md:text-lg">AAB TRADING SHOP</p>
+                    <p className="text-[14px] font-bold leading-tight tracking-[0.01em] text-[#0f2e6b] sm:text-base md:text-lg">{RECEIPT_BUSINESS_NAME}</p>
                     <p className="mt-1 text-[11px] text-slate-600 sm:text-xs md:text-sm">Official Delivery Receipt</p>
-                    <p className="mt-1 text-[11px] text-slate-700 sm:text-xs md:text-sm">{sellerPhone}</p>
+                    {sellerPhone ? <p className="mt-1 text-[11px] text-slate-700 sm:text-xs md:text-sm">{sellerPhone}</p> : null}
                     </div>
                   </div>
                   <div className="pt-1 sm:pl-2 sm:text-right">
@@ -158,7 +169,7 @@ export function CustomerReceiptDialog(props: any) {
                         <Store className="h-4 w-4 sm:h-5 sm:w-5" />
                         Sold By
                       </p>
-                      <p className="mt-1 break-words">AAB TRADING SHOP</p>
+                      <p className="mt-1 break-words">{RECEIPT_BUSINESS_NAME}</p>
                     </div>
                     <div className="sm:pl-4">
                       <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.03em] text-[#0f2347] md:text-xs">
@@ -197,7 +208,7 @@ export function CustomerReceiptDialog(props: any) {
                       <div key={`receipt-mobile-${item.id}`}>
                         <div className="hidden border-b border-slate-200 px-3 py-2.5 text-sm sm:hidden">
                           <p className="font-semibold text-[#0f2347]">
-                            {item.product?.name || 'Item'} {getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}
+                            {item.itemType === 'MIXED_CASE' ? `Mixed Case — ${item.caseCapacity || 0} units` : `${item.product?.name || 'Item'} ${getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}`}
                           </p>
                           {getProductMeta(item).category !== '-' ? (
                             <p className="mt-1 text-[10px] text-slate-600">{getProductMeta(item).category}</p>
@@ -205,19 +216,37 @@ export function CustomerReceiptDialog(props: any) {
                           <div className="mt-2 grid grid-cols-3 gap-2 text-[12px] text-slate-700">
                             <p>Qty: {item.quantity}</p>
                             <p>Unit: {formatPeso(item.unitPrice)}</p>
-                            <p className="text-right">Amount: {formatPeso(Number(item.unitPrice || 0) * Number(item.quantity || 0))}</p>
+                            <p className="text-right">Amount: {formatPeso(Number(item.totalPrice ?? Number(item.unitPrice || 0) * Number(item.quantity || 0)))}</p>
                           </div>
                         </div>
                         <div className="grid min-h-[54px] grid-cols-[1fr_56px_84px_92px] items-center border-b border-slate-200 px-3 py-2 text-[11px] sm:min-h-[60px] sm:grid-cols-[1fr_64px_100px_110px] sm:px-4 sm:text-sm">
                           <div>
-                            <p>{item.product?.name || 'Item'} {getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}</p>
+                            <p>{item.itemType === 'MIXED_CASE' ? `Mixed Case — ${item.caseCapacity || 0} units` : `${item.product?.name || 'Item'} ${getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}`}</p>
+                            {item.itemType === 'MIXED_CASE' ? (
+                              <div className="mt-1 space-y-0.5 text-[9px] leading-snug text-sky-700 sm:text-[10px]">
+                                {(item.components || []).map((component: any, index: number) => {
+                                  const perCase = Math.max(0, Number(component.quantityPerCase || 0))
+                                  const caseCount = Math.max(0, Number(component.caseCount ?? item.quantity ?? 0))
+                                  const totalBaseUnits = Math.max(0, Number(component.totalBaseUnits ?? perCase * caseCount))
+                                  const unitPrice = Number(component.unitPrice || 0)
+                                  const subtotal = Number(component.componentSubtotal ?? totalBaseUnits * unitPrice)
+                                  const label = String(component.baseUnitLabel || 'unit').trim() || 'unit'
+                                  return (
+                                    <p key={component.id || component.productId || index}>
+                                      <span className="font-semibold">{component.productName || 'Product'}:</span>{' '}
+                                      {perCase} {label}(s)/case × {caseCount} = {totalBaseUnits} {label}(s) · {formatPeso(unitPrice)}/{label} · {formatPeso(subtotal)}
+                                    </p>
+                                  )
+                                })}
+                              </div>
+                            ) : null}
                             {getProductMeta(item).category !== '-' ? (
                               <p className="text-[9px] text-slate-600">{getProductMeta(item).category}</p>
                             ) : null}
                           </div>
                           <p className="text-center">{item.quantity}</p>
                           <p className="text-center">{formatPeso(item.unitPrice)}</p>
-                          <p className="text-right">{formatPeso(Number(item.unitPrice || 0) * Number(item.quantity || 0))}</p>
+                          <p className="text-right">{formatPeso(Number(item.totalPrice ?? Number(item.unitPrice || 0) * Number(item.quantity || 0)))}</p>
                         </div>
                       </div>
                     ))}

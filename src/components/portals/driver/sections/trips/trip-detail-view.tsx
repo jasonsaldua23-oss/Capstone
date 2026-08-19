@@ -17,6 +17,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
+import {
+  calculateNavigationViewportInsets,
+  type NavigationViewportInsets,
+} from '@/lib/map-navigation'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import {
@@ -25,8 +29,8 @@ import {
   DropPoint,
   isNativeCapacitorApp,
   mergeDropPointIntoTrip,
-  NEGROS_OCCIDENTAL_BOUNDS,
-  NEGROS_OCCIDENTAL_CENTER,
+  type NavigationApp,
+  openNavigation as launchExternalNavigation,
   openNativeAppSettings,
   stripPhilippinesFromAddress,
   TERMINAL_DROP_POINT_STATUSES,
@@ -35,8 +39,10 @@ import {
 import {
   Truck, Package, Home, User, LogOut, Menu, Phone, Navigation, CheckCircle, Clock, AlertCircle, Camera,
   ChevronLeft, ChevronRight, Play, Pause, Flag, MessageSquare, Loader2, Route, CalendarClock,
-  LocateFixed, Trophy, RotateCcw, Search
+  LocateFixed, Trophy, RotateCcw, Search, Volume2, VolumeX, Plus, Minus
 } from 'lucide-react'
+
+import { formatDistance, getManeuverLabel, NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -66,6 +72,7 @@ export function TripDetailView({
   const [activeDropPoint, setActiveDropPoint] = useState<DropPoint | null>(null)
   const [deliveryNote, setDeliveryNote] = useState('')
   const [podDraftByDropPoint, setPodDraftByDropPoint] = useState<Record<string, { file: File | null; preview: string | null }>>({})
+  const [returnedEmptiesByDropPoint, setReturnedEmptiesByDropPoint] = useState<Record<string, Array<{containerTypeId: string; containerTypeName: string; returnedQuantity: number}>>>({})
   const [podCaptureDropPointId, setPodCaptureDropPointId] = useState<string | null>(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const [capturedCameraPhoto, setCapturedCameraPhoto] = useState<string | null>(null)
@@ -99,9 +106,21 @@ export function TripDetailView({
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false)
   const [showMobileSheetPeek, setShowMobileSheetPeek] = useState(true)
   const [mobileMapRecenterSignal, setMobileMapRecenterSignal] = useState(0)
+  const [mobileMapZoomInSignal, setMobileMapZoomInSignal] = useState(0)
+  const [mobileMapZoomOutSignal, setMobileMapZoomOutSignal] = useState(0)
   const [mobileMapRecenterCenter, setMobileMapRecenterCenter] = useState<[number, number] | null>(null)
+  const [mobileNavigationViewportInsets, setMobileNavigationViewportInsets] = useState<NavigationViewportInsets>({
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  })
   const [isUpdating, setIsUpdating] = useState(false)
-  const [roadRoutePoints, setRoadRoutePoints] = useState<[number, number][]>([])
+  const [routeSteps, setRouteSteps] = useState<OsrmStep[]>([])
+  const [currentStepIndex, setCurrentStepIndex] = useState(0)
+  const [navigationRouteOrigin, setNavigationRouteOrigin] = useState<{ tripId: string; lat: number; lng: number } | null>(null)
+  const [is3DPerspective, setIs3DPerspective] = useState(false)
+  const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true)
   const [previewDriverLocation, setPreviewDriverLocation] = useState<DriverGpsLocation | null>(null)
   const [animatedDriverLocation, setAnimatedDriverLocation] = useState<DriverGpsLocation | null>(null)
   // Refs for camera stream lifecycle and gesture handling.
@@ -110,6 +129,11 @@ export function TripDetailView({
   const driverMarkerAnimationFrameRef = useRef<number | null>(null)
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
+  const mobileMapViewportRef = useRef<HTMLDivElement | null>(null)
+  const mobileTopOverlayRef = useRef<HTMLDivElement | null>(null)
+  const mobileDrawerRef = useRef<HTMLDivElement | null>(null)
+  const mobileSheetPeekRef = useRef<HTMLButtonElement | null>(null)
   const isMobileViewport = useIsMobile()
   // Derived drop points sorted by sequence for consistent rendering and logic.
   const sortedDropPoints = useMemo(
@@ -133,6 +157,64 @@ export function TripDetailView({
     isFailedDeliveryChoiceOpen ||
     isFailedDeliveryRescheduleOpen
 
+  useEffect(() => {
+    if (!isMobileViewport) return
+
+    const mapViewport = mobileMapViewportRef.current
+    const topOverlay = mobileTopOverlayRef.current
+    if (!mapViewport || !topOverlay) return
+
+    const updateCameraInsets = () => {
+      const bottomOverlay = isMobileSheetOpen
+        ? mobileDrawerRef.current
+        : showMobileSheetPeek
+          ? mobileSheetPeekRef.current
+          : null
+      const measured = calculateNavigationViewportInsets(
+        mapViewport.getBoundingClientRect(),
+        topOverlay.getBoundingClientRect(),
+        bottomOverlay?.getBoundingClientRect()
+      )
+      const next = {
+        top: Math.round(measured.top),
+        bottom: Math.round(measured.bottom),
+        left: Math.round(measured.left),
+        right: Math.round(measured.right),
+      }
+      setMobileNavigationViewportInsets((previous) =>
+        previous.top === next.top &&
+        previous.bottom === next.bottom &&
+        previous.left === next.left &&
+        previous.right === next.right
+          ? previous
+          : next
+      )
+    }
+
+    const resizeObserver = new ResizeObserver(updateCameraInsets)
+    resizeObserver.observe(mapViewport)
+    resizeObserver.observe(topOverlay)
+    if (mobileDrawerRef.current) resizeObserver.observe(mobileDrawerRef.current)
+    if (mobileSheetPeekRef.current) resizeObserver.observe(mobileSheetPeekRef.current)
+
+    // Vaul moves the drawer with transforms, so follow its style changes as well
+    // as element resizes to keep the usable camera viewport accurate while dragging.
+    const mutationObserver = new MutationObserver(updateCameraInsets)
+    if (mobileDrawerRef.current) {
+      mutationObserver.observe(mobileDrawerRef.current, { attributes: true, attributeFilter: ['style', 'data-state'] })
+    }
+    window.addEventListener('resize', updateCameraInsets)
+    window.visualViewport?.addEventListener('resize', updateCameraInsets)
+    updateCameraInsets()
+
+    return () => {
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
+      window.removeEventListener('resize', updateCameraInsets)
+      window.visualViewport?.removeEventListener('resize', updateCameraInsets)
+    }
+  }, [isMobileSheetOpen, isMobileViewport, mobileSheetSnapPoint, showMobileSheetPeek])
+
   // Refresh immediately after writes so status changes reflect server DB state without delay.
   const refreshTripsInBackground = () => {
     void onRefreshTrips().catch(() => {
@@ -147,6 +229,27 @@ export function TripDetailView({
       setActiveDropPoint(nextActiveDropPoint)
     }
   }, [activeDropPoint, trip.dropPoints])
+
+  // Fetch OSRM steps logic moved down below waypoints calculation
+
+  // Advance route step based on proximity.
+  useEffect(() => {
+    if (!currentLocation || routeSteps.length === 0 || currentStepIndex >= routeSteps.length - 1) return
+    const nextStep = routeSteps[currentStepIndex + 1]
+    const dist = haversineKm(currentLocation, { lat: nextStep.maneuver.location[1], lng: nextStep.maneuver.location[0] })
+    if (dist < 0.05) {
+      setCurrentStepIndex((i) => i + 1)
+    }
+  }, [currentLocation, routeSteps, currentStepIndex])
+
+  useEffect(() => {
+    // Fix: route steps refresh as the driver's GPS position changes. Keep spoken
+    // prompt keys across those refreshes so the same instruction is not repeated.
+    spokenNavigationPromptsRef.current.clear()
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
+  }, [trip.id])
 
   // Reset mobile sheet and recenter state when user switches to a different trip.
   useEffect(() => {
@@ -272,6 +375,10 @@ export function TripDetailView({
   }
 
   const getItemDisplayNameWithSize = (item: any): string => {
+    if (item?.itemType === 'MIXED_CASE') {
+      const components = (item?.components || []).map((component: any) => `${component.productName} ${component.quantityPerCase}/case`).join(', ')
+      return `Mixed Case (${item.caseCapacity || 0} units)${components ? ` — ${components}` : ''}`
+    }
     const product = item?.product || {}
     const baseName = String(product?.name || item?.productName || 'Item').trim()
     const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
@@ -292,21 +399,58 @@ export function TripDetailView({
     ).trim()
   }
 
+  const getMatchedReplacementLine = (item: any, order?: any): any | null => {
+    const scheduledReplacement = order?.scheduledReplacement || null
+    const replacementLines = Array.isArray(scheduledReplacement?.replacementLines) ? scheduledReplacement.replacementLines : []
+    const productId = String(item?.product?.id || item?.productId || '').trim()
+    const productName = String(item?.product?.name || item?.productName || '').trim().toLowerCase()
+    return replacementLines.find((line: any) => {
+      const replacementProductId = String(line?.replacementProductId || line?.originalProductId || '').trim()
+      const replacementProductName = String(line?.replacementProductName || line?.originalProductName || line?.productName || '').trim().toLowerCase()
+      return (productId && replacementProductId && productId === replacementProductId) || (productName && replacementProductName && productName === replacementProductName)
+    }) || null
+  }
+
   const getOrderQtyWithUnitLabel = (item: any, order?: any): string => {
+    if (item?.itemType === 'MIXED_CASE') {
+      const qty = Math.max(0, Number(item?.quantity || 0))
+      return `x${qty} mixed case${qty === 1 ? '' : 's'}`
+    }
     const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
     const scheduledReplacement = order?.scheduledReplacement || null
-    const replacementQtyToReplace = Math.max(0, Number(scheduledReplacement?.quantityToReplace || 0))
-    if (orderNumber.startsWith('RPL-') && replacementQtyToReplace > 0) {
-      const replacementUnitMode = String(scheduledReplacement?.unitMode || '').trim().toUpperCase()
-      if (replacementUnitMode === 'BOTTLE') {
-        return `x${replacementQtyToReplace} bottle(s)`
+    const matchedReplacementLine = getMatchedReplacementLine(item, order)
+    if (orderNumber.startsWith('RPL-') && matchedReplacementLine) {
+      const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
+      const lineQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplace || 0))
+      const lineQtyCases = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0))
+      const lineQtyBottles = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceBottles || 0))
+      const rawUnit = String(
+        matchedReplacementLine?.replacementProductUnit ||
+        matchedReplacementLine?.originalProductUnit ||
+        item?.productUnit ||
+        item?.product?.unit ||
+        ''
+      ).trim().toLowerCase()
+      const unitLabelText =
+        rawUnit.includes('pack') ? 'pack(s)'
+          : rawUnit.includes('bundle') ? 'bundle(s)'
+            : rawUnit.includes('case') ? 'case(s)'
+              : 'unit(s)'
+      if (lineInputMode === 'bottle') {
+        const qty = lineQtyBottles > 0 ? lineQtyBottles : lineQty
+        return `x${qty} bottle(s)`
       }
-      const qtyPerUnit = Math.max(1, Number(scheduledReplacement?.qtyPerUnit || 1))
-      const unitQty = replacementQtyToReplace / qtyPerUnit
-      const unitLabel = Number.isInteger(unitQty)
-        ? String(unitQty)
-        : unitQty.toFixed(2).replace(/\.00$/, '')
-      return `x${unitLabel} unit(s)`
+      if (lineQtyCases > 0) {
+        return `x${lineQtyCases} ${unitLabelText}`
+      }
+      const qtyPerUnit = Math.max(1, Number(matchedReplacementLine?.qtyPerUnit || matchedReplacementLine?.quantityPerCase || scheduledReplacement?.qtyPerUnit || 1))
+      if (lineQty > 0) {
+        const unitQty = lineQty / qtyPerUnit
+        const unitLabel = Number.isInteger(unitQty)
+          ? String(unitQty)
+          : unitQty.toFixed(2).replace(/\.00$/, '')
+        return `x${unitLabel} ${unitLabelText}`
+      }
     }
     const qty = Math.max(0, Number(item?.quantity || 0))
     const rawUnit = String(item?.productUnit || item?.product?.unit || '').trim().toLowerCase()
@@ -319,6 +463,57 @@ export function TripDetailView({
     const label = qty === 1 ? singular : plural
     return `x${qty} ${label}`
   }
+
+  const getDisplayOrderTotal = (order?: any): number => {
+    const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
+    const items = Array.isArray(order?.items) ? order.items : []
+    const scheduledReplacement = order?.scheduledReplacement || null
+    if (!orderNumber.startsWith('RPL-') || !scheduledReplacement || items.length === 0) {
+      return Number(order?.totalAmount || 0)
+    }
+
+    let computedTotal = 0
+    for (const item of items) {
+      const matchedReplacementLine = getMatchedReplacementLine(item, order)
+      const unitPrice = Number(item?.unitPrice ?? item?.price ?? item?.product?.price ?? 0)
+      if (!matchedReplacementLine || unitPrice <= 0) {
+        computedTotal += Number(item?.totalPrice ?? item?.subtotal ?? (Number(item?.quantity || 0) * unitPrice))
+        continue
+      }
+
+      const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
+      const rawUnit = String(
+        matchedReplacementLine?.replacementProductUnit ||
+        matchedReplacementLine?.originalProductUnit ||
+        item?.productUnit ||
+        item?.product?.unit ||
+        ''
+      ).trim().toLowerCase()
+      const qtyPerUnit = Math.max(
+        1,
+        Number(
+          matchedReplacementLine?.qtyPerUnit ||
+          matchedReplacementLine?.quantityPerCase ||
+          item?.quantityPerCase ||
+          item?.product?.quantityPerCase ||
+          scheduledReplacement?.qtyPerUnit ||
+          1
+        )
+      )
+
+      if (lineInputMode === 'bottle' && !rawUnit.includes('bottle')) {
+        const bottleQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceBottles || matchedReplacementLine?.quantityToReplace || 0))
+        computedTotal += unitPrice * (bottleQty / qtyPerUnit)
+        continue
+      }
+
+      const caseQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0))
+      const fallbackQty = Math.max(0, Number(item?.quantity || 0))
+      computedTotal += unitPrice * (caseQty > 0 ? caseQty : fallbackQty)
+    }
+
+    return computedTotal > 0 ? computedTotal : Number(order?.totalAmount || 0)
+  }
   const formatTripSchedule = (value: string | null | undefined) => {
     const raw = String(value || '').trim()
     if (!raw) return 'Not set'
@@ -330,6 +525,7 @@ export function TripDetailView({
       day: 'numeric',
     })
   }
+
   // Geospatial helpers used for route/movement calculations.
   const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
     const radiusKm = 6371
@@ -343,6 +539,55 @@ export function TripDetailView({
       Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return radiusKm * c
+  }
+
+  const speakNavigationPrompt = (message: string) => {
+    const text = String(message || '').trim()
+    if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return
+
+    const synthesis = window.speechSynthesis
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'en-PH'
+    utterance.rate = 1
+    utterance.pitch = 1
+    utterance.volume = 1
+
+    const voices = synthesis.getVoices()
+    const preferredVoice =
+      voices.find((voice) => /^en(-|_)?ph/i.test(voice.lang)) ||
+      voices.find((voice) => /^en(-|_)?us/i.test(voice.lang)) ||
+      voices.find((voice) => /^en/i.test(voice.lang)) ||
+      null
+    if (preferredVoice) {
+      utterance.voice = preferredVoice
+      utterance.lang = preferredVoice.lang
+    }
+
+    synthesis.cancel()
+    synthesis.speak(utterance)
+  }
+
+  const buildVoicePrompt = (
+    step: OsrmStep,
+    {
+      distanceMeters,
+      immediate = false,
+      finalPrompt = false,
+    }: {
+      distanceMeters?: number
+      immediate?: boolean
+      finalPrompt?: boolean
+    } = {}
+  ) => {
+    const label = getManeuverLabel(step.maneuver.type, step.maneuver.modifier, step.name)
+    if (finalPrompt) {
+      return `Arriving now. ${label}.`
+    }
+    if (immediate || typeof distanceMeters !== 'number') {
+      return label
+    }
+    const roundedDistance = Math.max(10, Math.round(distanceMeters / 10) * 10)
+    return `In ${formatDistance(roundedDistance)}, ${label.charAt(0).toLowerCase()}${label.slice(1)}`
   }
 
   // Starts a trip after location tracking is available and trip is still in a startable state.
@@ -393,14 +638,14 @@ export function TripDetailView({
             ...point,
             order: point.order
               ? {
-                  ...point.order,
-                  warehouseStage: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
-                    ? 'DISPATCHED'
-                    : point.order.warehouseStage,
-                  status: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
-                    ? 'OUT_FOR_DELIVERY'
-                    : (point.order as any).status,
-                }
+                ...point.order,
+                warehouseStage: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
+                  ? 'DISPATCHED'
+                  : point.order.warehouseStage,
+                status: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
+                  ? 'OUT_FOR_DELIVERY'
+                  : (point.order as any).status,
+              }
               : point.order,
           })),
         }))
@@ -471,10 +716,11 @@ export function TripDetailView({
     }
     try {
       const imageUrl = podImageFile ? await uploadPodImage(podImageFile) : existingPodPhotoUrl
+      const returnedEmpties = returnedEmptiesByDropPoint[dropPointId] || []
       const completed = await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
         recipientName: 'Customer',
         deliveryPhoto: imageUrl,
-      })
+      }, { returnedEmpties })
       if (completed) {
         setPodFileForDropPoint(dropPointId, null)
         setDeliveryNote('')
@@ -497,6 +743,7 @@ export function TripDetailView({
       rescheduleRequested?: boolean
       rescheduleWindow?: 'today' | 'tomorrow' | 'other_date'
       rescheduleDate?: string
+      returnedEmpties?: Array<{ containerTypeId: string; returnedQuantity: number }>
     }
   ): Promise<boolean> => {
     setIsUpdating(true)
@@ -513,6 +760,7 @@ export function TripDetailView({
           rescheduleRequested: options?.rescheduleRequested,
           rescheduleWindow: options?.rescheduleWindow,
           rescheduleDate: options?.rescheduleDate,
+          returnedEmpties: options?.returnedEmpties,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -527,9 +775,9 @@ export function TripDetailView({
           order:
             payload?.order && (trip.dropPoints || []).find((point) => point.id === dropPointId)?.order
               ? {
-                  ...(trip.dropPoints || []).find((point) => point.id === dropPointId)!.order!,
-                  ...payload.order,
-                }
+                ...(trip.dropPoints || []).find((point) => point.id === dropPointId)!.order!,
+                ...payload.order,
+              }
               : undefined,
         }
         onApplyTripUpdate((currentTrip) => mergeDropPointIntoTrip(currentTrip, dropPointId, dropPointPatch))
@@ -624,7 +872,7 @@ export function TripDetailView({
     if (video.srcObject !== stream) {
       video.srcObject = stream
     }
-    await video.play().catch(() => {})
+    await video.play().catch(() => { })
   }
 
   const getWebCameraPermissionState = async (): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> => {
@@ -1018,6 +1266,16 @@ export function TripDetailView({
     setActiveDropPoint(nextActionable)
   }, [trip.id, trip.dropPoints])
 
+  const toRecordedAtMs = (value: unknown) => {
+    if (value === null || value === undefined || String(value).trim() === '') return null
+    const numeric = Number(value)
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+    }
+    const parsed = new Date(String(value)).getTime()
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
   useEffect(() => {
     if (currentLocation?.lat && currentLocation?.lng) {
       setPreviewDriverLocation({
@@ -1026,7 +1284,7 @@ export function TripDetailView({
         accuracy: Number.isFinite(Number(currentLocation.accuracy)) ? Number(currentLocation.accuracy) : null,
         heading: Number.isFinite(Number(currentLocation.heading)) ? Number(currentLocation.heading) : null,
         speed: Number.isFinite(Number(currentLocation.speed)) ? Number(currentLocation.speed) : null,
-        recordedAt: Number(currentLocation.recordedAt || Date.now()),
+        recordedAt: toRecordedAtMs(currentLocation.recordedAt) ?? Date.now(),
       })
       return
     }
@@ -1058,13 +1316,101 @@ export function TripDetailView({
     return () => {
       cancelled = true
     }
-  }, [trip.id, currentLocation?.lat, currentLocation?.lng])
+  }, [
+    trip.id,
+    currentLocation?.lat,
+    currentLocation?.lng,
+    currentLocation?.accuracy,
+    currentLocation?.heading,
+    currentLocation?.speed,
+    currentLocation?.recordedAt,
+  ])
 
   const cameraPermissionSteps = getCameraPermissionSteps()
   // Normalizes unknown inputs to valid numeric coordinates or null.
   const toCoordinate = (value: unknown) => {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
+  }
+  const navigationAppChoices: Array<{ app: NavigationApp; label: string }> = [
+    { app: 'google', label: 'Google Maps' },
+    { app: 'waze', label: 'Waze' },
+    { app: 'organic', label: 'Organic Maps' },
+  ]
+  const handleOpenNavigation = async (
+    app: NavigationApp,
+    latitude: number,
+    longitude: number,
+    locationName: string
+  ) => {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      toast.error('Navigation is unavailable because this drop point has no valid coordinates.')
+      return
+    }
+    try {
+      await launchExternalNavigation({
+        latitude,
+        longitude,
+        label: locationName,
+        app,
+      })
+    } catch {
+      toast.error('Unable to open navigation right now.')
+    }
+  }
+  const renderNavigationControl = (dropPoint: DropPoint) => {
+    const latitude = toCoordinate((dropPoint as any)?.lat ?? dropPoint?.latitude)
+    const longitude = toCoordinate((dropPoint as any)?.lng ?? dropPoint?.longitude)
+    if (latitude === null || longitude === null) return null
+
+    const locationName = String(dropPoint?.locationName || `Stop ${dropPoint?.sequence || ''}`).trim() || 'Destination'
+    if (isNativeCapacitorApp()) {
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs text-sky-700 hover:bg-sky-50"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Navigation className="mr-1 h-3 w-3" />
+              Open Navigation
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" onClick={(event) => event.stopPropagation()}>
+            {navigationAppChoices.map((choice) => (
+              <DropdownMenuItem
+                key={`${dropPoint?.id || locationName}-${choice.app}`}
+                onSelect={(event) => {
+                  event.preventDefault()
+                  void handleOpenNavigation(choice.app, latitude, longitude, locationName)
+                }}
+              >
+                {choice.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
+    }
+
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs text-sky-700 hover:bg-sky-50"
+        onClick={(event) => {
+          event.stopPropagation()
+          void handleOpenNavigation('google', latitude, longitude, locationName)
+        }}
+      >
+        <Navigation className="mr-1 h-3 w-3" />
+        Open Navigation
+      </Button>
+    )
   }
   const mappableDropPoints = sortedDropPoints
     .map((point) => {
@@ -1077,6 +1423,72 @@ export function TripDetailView({
       }
     })
     .filter((point) => point.latitude !== null && point.longitude !== null)
+  const renderEmptiesReturnInput = (dropPoint: DropPoint) => {
+    const returnableItems = ((dropPoint as any)?.order?.orderItems || []).filter((item: any) => item.product?.packagingType === 'RETURNABLE')
+    if (!returnableItems || returnableItems.length === 0) return null
+
+    // Group by container type since multiple returnable products could share the same container
+    const containerTypesMap = new Map<string, { typeName: string, maxExpected: number }>()
+    for (const item of returnableItems) {
+      const cType = item.product?.containerTypeId
+      if (cType) {
+        const existing = containerTypesMap.get(cType)
+        const qty = (item.quantity || 0) * (item.product?.containersPerCase || 1)
+        if (existing) {
+          existing.maxExpected += qty
+        } else {
+          containerTypesMap.set(cType, { typeName: item.product?.containerTypeName || 'Unknown', maxExpected: qty })
+        }
+      }
+    }
+
+    if (containerTypesMap.size === 0) return null
+
+    const dropPointId = dropPoint.id!
+    const currentEmpties = returnedEmptiesByDropPoint[dropPointId] || []
+
+    const handleUpdateQuantity = (cTypeId: string, cTypeName: string, newQty: number, maxExpected: number) => {
+      const qty = Math.max(0, newQty) // allow returning more than maxExpected, but maybe warn
+      setReturnedEmptiesByDropPoint(prev => {
+        const current = prev[dropPointId] || []
+        const existingIdx = current.findIndex(e => e.containerTypeId === cTypeId)
+        let next = [...current]
+        if (existingIdx >= 0) {
+          next[existingIdx] = { ...next[existingIdx], returnedQuantity: qty }
+        } else {
+          next.push({ containerTypeId: cTypeId, containerTypeName: cTypeName, returnedQuantity: qty })
+        }
+        return { ...prev, [dropPointId]: next }
+      })
+    }
+
+    return (
+      <div className="space-y-3 border-t border-b border-slate-200 py-3 mb-3 bg-slate-50/50 -mx-4 px-4">
+        <p className="text-sm font-semibold text-slate-800">Return Empties</p>
+        {Array.from(containerTypesMap.entries()).map(([cTypeId, { typeName, maxExpected }]) => {
+          const currentVal = currentEmpties.find(e => e.containerTypeId === cTypeId)?.returnedQuantity || 0
+          return (
+            <div key={cTypeId} className="flex justify-between items-center">
+              <div>
+                <p className="text-sm font-medium text-slate-700">{typeName}</p>
+                <p className="text-xs text-slate-500">Expected: {maxExpected}</p>
+              </div>
+              <div className="flex items-center space-x-2 bg-white rounded-lg border px-1 py-1">
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal - 1, maxExpected) }} disabled={currentVal <= 0}>
+                  <Minus className="h-3.5 w-3.5" />
+                </Button>
+                <span className="w-8 text-center text-sm font-medium">{currentVal}</span>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal + 1, maxExpected) }}>
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   // Shared "done" status predicate for rendering stop progress and route segments.
   const isDropPointDone = (status: unknown) => {
     const normalized = String(status || '').toUpperCase()
@@ -1100,77 +1512,62 @@ export function TripDetailView({
     if (warehouseLat === null || warehouseLng === null) return null
     return { lat: warehouseLat, lng: warehouseLng }
   })()
-  const isWithinNegrosBounds = (lat: number, lng: number) =>
-    lat >= NEGROS_OCCIDENTAL_BOUNDS.south &&
-    lat <= NEGROS_OCCIDENTAL_BOUNDS.north &&
-    lng >= NEGROS_OCCIDENTAL_BOUNDS.west &&
-    lng <= NEGROS_OCCIDENTAL_BOUNDS.east
-  const MAX_MAP_ACCEPTABLE_ACCURACY_METERS = 150
-  const MAX_LATEST_LOCATION_AGE_MS = 15 * 60 * 1000
   const MAX_REAL_CURRENT_LOCATION_AGE_MS = 2 * 60 * 1000
-  const isReasonableGps = (lat: number, lng: number, accuracy?: number | null) =>
-    isWithinNegrosBounds(lat, lng) && (!Number.isFinite(Number(accuracy)) || Number(accuracy) <= MAX_MAP_ACCEPTABLE_ACCURACY_METERS)
+  const isValidDeviceCoordinate = (lat: number, lng: number) =>
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
   const isFreshRecordedAt = (value: unknown, maxAgeMs: number) => {
-    const ts = Number(value)
-    if (!Number.isFinite(ts) || ts <= 0) return false
+    const ts = toRecordedAtMs(value)
+    if (ts === null) return false
     return Date.now() - ts <= maxAgeMs
   }
   const normalizedTripStatus = String(trip.status || '').toUpperCase()
   const hasNearbyDropPointForWarehouseStart = warehouseRouteStart
     ? mappableDropPoints.some((point) =>
-        haversineKm(
-          { lat: warehouseRouteStart.lat, lng: warehouseRouteStart.lng },
-          { lat: Number(point.latitude), lng: Number(point.longitude) }
-        ) <= 60
-      )
+      haversineKm(
+        { lat: warehouseRouteStart.lat, lng: warehouseRouteStart.lng },
+        { lat: Number(point.latitude), lng: Number(point.longitude) }
+      ) <= 60
+    )
     : false
   const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
-  const latestLocationAgeMs = (() => {
-    const raw = (trip.latestLocation as any)?.recordedAt
-    if (raw === null || raw === undefined || String(raw).trim() === '') return Number.POSITIVE_INFINITY
-    const numeric = Number(raw)
-    if (Number.isFinite(numeric) && numeric > 0) {
-      // Accept both epoch milliseconds and epoch seconds payloads.
-      const epochMs = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
-      return Date.now() - epochMs
-    }
-    const parsed = new Date(String(raw)).getTime()
-    if (!Number.isFinite(parsed)) return Number.POSITIVE_INFINITY
-    return Date.now() - parsed
-  })()
-  const latestTripLogLocation = (() => {
+  const tripLocationHistory = (() => {
     const logs = Array.isArray((trip as any)?.locationLogs) ? (trip as any).locationLogs : []
-    const candidate = [...logs]
+    return [...logs]
       .map((log: any) => {
         const lat = toCoordinate(log?.latitude ?? log?.lat)
         const lng = toCoordinate(log?.longitude ?? log?.lng)
-        const recordedAt = Number(
+        const recordedAt = toRecordedAtMs(
           log?.recordedAt ||
           log?.recorded_at ||
           log?.createdAt ||
           log?.created_at ||
           0
         )
-        if (lat === null || lng === null || !isWithinNegrosBounds(lat, lng)) return null
+        if (lat === null || lng === null || !isValidDeviceCoordinate(lat, lng)) return null
         return {
           lat,
           lng,
           accuracy: toCoordinate(log?.accuracy),
           heading: toCoordinate(log?.heading),
           speed: toCoordinate(log?.speed),
-          recordedAt: Number.isFinite(recordedAt) && recordedAt > 0 ? recordedAt : null,
+          recordedAt,
         }
       })
       .filter(Boolean)
-      .sort((a: any, b: any) => Number(b?.recordedAt || 0) - Number(a?.recordedAt || 0))[0] as any
-    return candidate || null
+      .sort((a: any, b: any) => Number(a?.recordedAt || 0) - Number(b?.recordedAt || 0)) as any[]
   })()
+  const latestTripLogLocation = tripLocationHistory[tripLocationHistory.length - 1] || null
   const latestTripLocationAny = (() => {
     const src = (trip as any)?.latestLocation
     if (!src) return null
     const lat = toCoordinate(src?.latitude ?? src?.lat)
     const lng = toCoordinate(src?.longitude ?? src?.lng)
-    if (lat === null || lng === null || !isWithinNegrosBounds(lat, lng)) return null
+    if (lat === null || lng === null || !isValidDeviceCoordinate(lat, lng)) return null
     return {
       lat,
       lng,
@@ -1180,45 +1577,94 @@ export function TripDetailView({
       recordedAt: src?.recordedAt || src?.recorded_at || src?.createdAt || src?.created_at || null,
     }
   })()
-  const effectiveDriverLocation = (currentLocation && Number.isFinite(Number(currentLocation.lat)) && Number.isFinite(Number(currentLocation.lng))
-      && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
-      && isReasonableGps(Number(currentLocation.lat), Number(currentLocation.lng), Number(currentLocation.accuracy))
-      ? currentLocation
-      : null) ||
-    (previewDriverLocation && Number.isFinite(Number(previewDriverLocation.lat)) && Number.isFinite(Number(previewDriverLocation.lng))
+  const latestDetectedDriverLocation = [latestTripLocationAny, latestTripLogLocation]
+    .filter(Boolean)
+    .sort((a: any, b: any) => Number(toRecordedAtMs(b?.recordedAt) || 0) - Number(toRecordedAtMs(a?.recordedAt) || 0))[0] || null
+
+  // Fix: use fresh device GPS first, then retain the latest saved GPS reading.
+  // The warehouse marker below is used only when no driver position exists yet.
+  const effectiveDriverLocation = (currentLocation && isValidDeviceCoordinate(Number(currentLocation.lat), Number(currentLocation.lng))
+    && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
+    ? currentLocation
+    : null) ||
+    (previewDriverLocation && isValidDeviceCoordinate(Number(previewDriverLocation.lat), Number(previewDriverLocation.lng))
       && isFreshRecordedAt(previewDriverLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
-      && isReasonableGps(Number(previewDriverLocation.lat), Number(previewDriverLocation.lng), Number(previewDriverLocation.accuracy))
       ? previewDriverLocation
       : null) ||
-    (trip.latestLocation && Number.isFinite(Number(trip.latestLocation.latitude)) && Number.isFinite(Number(trip.latestLocation.longitude))
-      && (latestLocationAgeMs <= MAX_LATEST_LOCATION_AGE_MS || !Number.isFinite(latestLocationAgeMs))
-      && isReasonableGps(
-        Number(trip.latestLocation.latitude),
-        Number(trip.latestLocation.longitude),
-        Number(trip.latestLocation.accuracy)
-      )
-      ? {
-          lat: Number(trip.latestLocation.latitude),
-          lng: Number(trip.latestLocation.longitude),
-          accuracy: toCoordinate(trip.latestLocation.accuracy),
-          heading: toCoordinate(trip.latestLocation.heading),
-          speed: toCoordinate(trip.latestLocation.speed),
+    latestDetectedDriverLocation
+
+  useEffect(() => {
+    if (
+      !voiceGuidanceEnabled ||
+      normalizedTripStatus !== 'IN_PROGRESS' ||
+      routeSteps.length === 0
+    ) {
+      return
+    }
+
+    const currentStep = routeSteps[currentStepIndex] || null
+    const upcomingStep = routeSteps[currentStepIndex + 1] || null
+
+    if (currentStepIndex === 0 && currentStep) {
+      const startKey = `start:${trip.id}:${currentStepIndex}`
+      if (!spokenNavigationPromptsRef.current.has(startKey)) {
+        spokenNavigationPromptsRef.current.add(startKey)
+        speakNavigationPrompt(`Navigation started. ${buildVoicePrompt(currentStep, { immediate: true })}.`)
+      }
+    }
+
+    if (!effectiveDriverLocation) {
+      return
+    }
+
+    if (upcomingStep) {
+      const distanceToUpcomingMeters =
+        haversineKm(effectiveDriverLocation, {
+          lat: upcomingStep.maneuver.location[1],
+          lng: upcomingStep.maneuver.location[0],
+        }) * 1000
+
+      if (distanceToUpcomingMeters <= 180) {
+        const prepKey = `prep:${trip.id}:${currentStepIndex + 1}`
+        if (!spokenNavigationPromptsRef.current.has(prepKey)) {
+          spokenNavigationPromptsRef.current.add(prepKey)
+          speakNavigationPrompt(buildVoicePrompt(upcomingStep, { distanceMeters: distanceToUpcomingMeters }))
         }
-      : null)
-    || (latestTripLocationAny && isReasonableGps(
-        Number(latestTripLocationAny.lat),
-        Number(latestTripLocationAny.lng),
-        Number(latestTripLocationAny.accuracy)
-      )
-      ? latestTripLocationAny
-      : null)
-    || (latestTripLogLocation && isReasonableGps(
-        Number(latestTripLogLocation.lat),
-        Number(latestTripLogLocation.lng),
-        Number(latestTripLogLocation.accuracy)
-      )
-      ? latestTripLogLocation
-      : null)
+      }
+
+      if (distanceToUpcomingMeters <= 40) {
+        const nowKey = `now:${trip.id}:${currentStepIndex + 1}`
+        if (!spokenNavigationPromptsRef.current.has(nowKey)) {
+          spokenNavigationPromptsRef.current.add(nowKey)
+          speakNavigationPrompt(buildVoicePrompt(upcomingStep, { immediate: true }))
+        }
+      }
+
+      return
+    }
+
+    if (currentStep) {
+      const distanceToCurrentMeters =
+        haversineKm(effectiveDriverLocation, {
+          lat: currentStep.maneuver.location[1],
+          lng: currentStep.maneuver.location[0],
+        }) * 1000
+      if (distanceToCurrentMeters <= 50) {
+        const finalKey = `final:${trip.id}:${currentStepIndex}`
+        if (!spokenNavigationPromptsRef.current.has(finalKey)) {
+          spokenNavigationPromptsRef.current.add(finalKey)
+          speakNavigationPrompt(buildVoicePrompt(currentStep, { finalPrompt: true }))
+        }
+      }
+    }
+  }, [
+    voiceGuidanceEnabled,
+    normalizedTripStatus,
+    effectiveDriverLocation,
+    routeSteps,
+    currentStepIndex,
+    trip.id,
+  ])
 
   useEffect(() => {
     if (!effectiveDriverLocation) return
@@ -1227,7 +1673,7 @@ export function TripDetailView({
       ...effectiveDriverLocation,
       lat: Number(effectiveDriverLocation.lat),
       lng: Number(effectiveDriverLocation.lng),
-      recordedAt: Number(effectiveDriverLocation.recordedAt || Date.now()),
+      recordedAt: toRecordedAtMs(effectiveDriverLocation.recordedAt) ?? Date.now(),
     }
 
     setAnimatedDriverLocation((previous) => {
@@ -1271,7 +1717,7 @@ export function TripDetailView({
         accuracy: target.accuracy ?? null,
         heading: target.heading ?? null,
         speed: target.speed ?? null,
-        recordedAt: Number(target.recordedAt || Date.now()),
+        recordedAt: toRecordedAtMs(target.recordedAt) ?? Date.now(),
       })
       if (progress < 1) {
         driverMarkerAnimationFrameRef.current = requestAnimationFrame(tick)
@@ -1297,30 +1743,29 @@ export function TripDetailView({
     effectiveDriverLocation?.recordedAt,
   ])
   const driverMarkerHeading =
-    nextDropPoint &&
-    Number.isFinite(Number(nextDropPoint?.latitude)) &&
-    Number.isFinite(Number(nextDropPoint?.longitude)) &&
-    Number.isFinite(Number(effectiveDriverLocation?.lat)) &&
-    Number.isFinite(Number(effectiveDriverLocation?.lng))
-      ? (() => {
-          const fromLat = Number(effectiveDriverLocation?.lat)
-          const fromLng = Number(effectiveDriverLocation?.lng)
-          const toLat = Number(nextDropPoint.latitude)
-          const toLng = Number(nextDropPoint.longitude)
-          const toRad = (value: number) => (value * Math.PI) / 180
-          const toDeg = (value: number) => (value * 180) / Math.PI
-          const phi1 = toRad(fromLat)
-          const phi2 = toRad(toLat)
-          const deltaLng = toRad(toLng - fromLng)
-          const y = Math.sin(deltaLng) * Math.cos(phi2)
-          const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLng)
-          return ((toDeg(Math.atan2(y, x)) % 360) + 360) % 360
-        })()
-      : null
+    typeof effectiveDriverLocation?.heading === 'number' &&
+    Number.isFinite(effectiveDriverLocation.heading) &&
+    effectiveDriverLocation.heading >= 0
+      ? effectiveDriverLocation.heading
+      : undefined
 
   const driverLocationMarker = (() => {
-    const sourceLocation = animatedDriverLocation || effectiveDriverLocation
-    if (!sourceLocation) return null
+    const sourceLocation = effectiveDriverLocation
+    if (!sourceLocation) {
+      if (!warehouseRouteStart) return null
+      return {
+        id: `driver-start-${trip.id}`,
+        driverName: 'Driver location pending',
+        vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
+        lat: warehouseRouteStart.lat,
+        lng: warehouseRouteStart.lng,
+        status: 'WAITING_FOR_GPS',
+        markerLabel: 'Route start - waiting for live GPS',
+        markerType: 'truck' as const,
+        markerHeading: driverMarkerHeading ?? undefined,
+        markerColor: '#1d4ed8',
+      }
+    }
     const lat = toCoordinate(sourceLocation?.lat)
     const lng = toCoordinate(sourceLocation?.lng)
     if (lat === null || lng === null) return null
@@ -1384,13 +1829,41 @@ export function TripDetailView({
       markerNumber: point.sequence,
       markerEta,
       markerEtaPhase,
+      popupCustomerName: point.locationName || point.contactName || `Stop ${point.sequence}`,
+      popupAddress: stripPhilippinesFromAddress(point.address) || point.city || '',
+      popupOrderItems: (point.order?.items || []).map((item: any) => ({
+        name: getItemDisplayNameWithSize(item),
+        qty: getOrderQtyWithUnitLabel(item, point.order),
+      })),
     }
   })
 
   const mapLocations = driverLocationMarker ? [driverLocationMarker, ...dropPointMapLocations] : dropPointMapLocations
-  const exactDriverLocationLabel = driverLocationMarker
-    ? `${driverLocationMarker.lat.toFixed(6)}, ${driverLocationMarker.lng.toFixed(6)}`
+  const exactDriverLocationSource = effectiveDriverLocation
+  const exactDriverLocationLabel = exactDriverLocationSource
+    ? `${Number(exactDriverLocationSource.lat).toFixed(6)}, ${Number(exactDriverLocationSource.lng).toFixed(6)}`
     : null
+  const currentVehicleSpeedMps = toCoordinate(effectiveDriverLocation?.speed)
+  // Geolocation reports speed in m/s; keep unavailable sensor data explicit.
+  const currentVehicleSpeedLabel = currentVehicleSpeedMps !== null && currentVehicleSpeedMps >= 0
+    ? `${Math.round(currentVehicleSpeedMps * 3.6)} km/h`
+    : '-- km/h'
+
+  useEffect(() => {
+    if (!driverLocationMarker) return
+    const nextOrigin = {
+      tripId: trip.id,
+      lat: driverLocationMarker.lat,
+      lng: driverLocationMarker.lng,
+    }
+    setNavigationRouteOrigin((previous) => {
+      if (!previous || previous.tripId !== trip.id) return nextOrigin
+      const movedMeters = haversineKm(previous, nextOrigin) * 1000
+      // Fix: ignore normal GPS jitter so the instruction and ETA panel does not flicker.
+      return movedMeters >= 20 ? nextOrigin : previous
+    })
+  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng])
+
   const fullRouteWaypoints = (() => {
     const start = warehouseRouteStart ? [warehouseRouteStart] : []
     const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
@@ -1406,50 +1879,51 @@ export function TripDetailView({
     return pendingCoords
   })()
   const completedRouteWaypoints = (() => {
+    const start = warehouseRouteStart ? [warehouseRouteStart] : []
     const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    if (driverLocationMarker && completedCoords.length > 0) {
-      return [...completedCoords, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }]
+    if (driverLocationMarker) {
+      const recordedTrail = tripLocationHistory.map((point) => ({ lat: point.lat, lng: point.lng }))
+      // Fix: the taken line follows chronological GPS history and ends at the
+      // truck. Completed delivery pins are not assumed to be the driven trail.
+      if (recordedTrail.length > 0) {
+        return [...start, ...recordedTrail, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }]
+      }
+      // Preserve the prior waypoint reconstruction only when no GPS trail exists.
+      return [...start, ...completedCoords, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }]
     }
-    return completedCoords
+    return [...start, ...completedCoords]
   })()
   const routeWaypoints = fullRouteWaypoints
-  const routeWaypointsKey = routeWaypoints
+  const savedNavigationOrigin = navigationRouteOrigin
+  const stableNavigationOrigin = savedNavigationOrigin && savedNavigationOrigin.tripId === trip.id
+    ? { lat: savedNavigationOrigin.lat, lng: savedNavigationOrigin.lng }
+    : driverLocationMarker
+      ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
+      : null
+  const navigationRouteWaypoints = stableNavigationOrigin && pendingDropPoints.length > 0
+    ? [
+      stableNavigationOrigin,
+      ...pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number })),
+    ]
+    : routeWaypoints
+  const navigationWaypointsKey = `${trip.id}:` + navigationRouteWaypoints
     .map((point) => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`)
     .join('|')
-  // Finds nearest polyline index for splitting route into completed/upcoming sections.
-  const findNearestPolylineIndex = (
-    target: { lat: number; lng: number },
-    points: [number, number][]
-  ) => {
-    if (!Array.isArray(points) || points.length === 0) return 0
-    let bestIndex = 0
-    let bestDistance = Number.POSITIVE_INFINITY
-    for (let index = 0; index < points.length; index += 1) {
-      const point = points[index]
-      const latDiff = point[0] - target.lat
-      const lngDiff = point[1] - target.lng
-      const distance2 = latDiff * latDiff + lngDiff * lngDiff
-      if (distance2 < bestDistance) {
-        bestDistance = distance2
-        bestIndex = index
-      }
-    }
-    return bestIndex
-  }
 
-  // Computes road route polyline based on map locations and updates split sections.
   useEffect(() => {
-    const uniqueWaypoints = routeWaypoints.filter((point, index, list) => {
+    const uniqueWaypoints = navigationRouteWaypoints.filter((point, index, list) => {
       if (index === 0) return true
-      const prev = list[index - 1]
-      return !(Math.abs(point.lat - prev.lat) < 0.000001 && Math.abs(point.lng - prev.lng) < 0.000001)
+      const previous = list[index - 1]
+      return !(Math.abs(point.lat - previous.lat) < 0.000001 && Math.abs(point.lng - previous.lng) < 0.000001)
     })
 
     if (uniqueWaypoints.length < 2) {
-      setRoadRoutePoints([])
+      setRouteSteps([])
+      setCurrentStepIndex(0)
       return
     }
 
+    let cancelled = false
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 12000)
 
@@ -1458,106 +1932,95 @@ export function TripDetailView({
         const coordinates = uniqueWaypoints
           .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
           .join(';')
-
         const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
+          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`,
           { signal: controller.signal }
         )
         const payload = await response.json().catch(() => ({}))
-        const coords = payload?.routes?.[0]?.geometry?.coordinates
-        if (!response.ok || !Array.isArray(coords) || coords.length < 2) {
-          setRoadRoutePoints([])
-          return
+        const rawLegs = Array.isArray(payload?.routes?.[0]?.legs) ? payload.routes[0].legs : []
+        const normalizedSteps: OsrmStep[] = rawLegs
+          .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
+          .map((step: any) => ({
+            maneuver: {
+              type: String(step?.maneuver?.type || '').trim(),
+              modifier: step?.maneuver?.modifier ? String(step.maneuver.modifier).trim() : undefined,
+              location: [
+                Number(step?.maneuver?.location?.[0]),
+                Number(step?.maneuver?.location?.[1]),
+              ] as [number, number],
+            },
+            name: String(step?.name || '').trim(),
+            distance: Number(step?.distance || 0),
+            duration: Number(step?.duration || 0),
+            driving_side: step?.driving_side ? String(step.driving_side).trim() : undefined,
+          }))
+          .filter(
+            (step) =>
+              step.maneuver.type &&
+              Number.isFinite(step.maneuver.location[0]) &&
+              Number.isFinite(step.maneuver.location[1])
+          )
+
+        if (!cancelled) {
+          setRouteSteps(normalizedSteps)
+          setCurrentStepIndex(0)
         }
-        const points = coords
-          .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
-          .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
-        setRoadRoutePoints(points.length > 1 ? points : [])
       } catch {
-        setRoadRoutePoints([])
+        if (!cancelled) {
+          setRouteSteps([])
+          setCurrentStepIndex(0)
+        }
       }
     }
 
     void run()
 
     return () => {
+      cancelled = true
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [trip.id, routeWaypointsKey])
+  }, [navigationWaypointsKey])
 
-  const fallbackRoutePoints = routeWaypoints.map((point) => [point.lat, point.lng] as [number, number])
-  const upcomingFallbackPoints = upcomingRouteWaypoints.map((point) => [point.lat, point.lng] as [number, number])
-  const completedFallbackPoints = completedRouteWaypoints.map((point) => [point.lat, point.lng] as [number, number])
-  // Derived split index used to color completed vs pending route legs.
-  const roadSplitIndex = (() => {
-    if (roadRoutePoints.length < 2) return null
-    if (driverLocationMarker) {
-      return findNearestPolylineIndex(
-        { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng },
-        roadRoutePoints
-      )
-    }
-    const lastCompleted = completedDropPoints[completedDropPoints.length - 1]
-    if (lastCompleted) {
-      return findNearestPolylineIndex(
-        { lat: Number(lastCompleted.latitude), lng: Number(lastCompleted.longitude) },
-        roadRoutePoints
-      )
-    }
-    return 0
-  })()
-  const completedRoutePoints =
-    roadRoutePoints.length > 1 && roadSplitIndex !== null
-      ? roadSplitIndex > 0
-        ? roadRoutePoints.slice(0, roadSplitIndex + 1)
-        : []
-      : completedFallbackPoints
-  const upcomingRoutePoints =
-    roadRoutePoints.length > 1 && roadSplitIndex !== null
-      ? roadRoutePoints.slice(Math.max(0, roadSplitIndex))
-      : upcomingFallbackPoints.length > 1
-        ? upcomingFallbackPoints
-        : fallbackRoutePoints
+  const completedRoutePoints = completedRouteWaypoints.map(
+    (point) => [point.lat, point.lng] as [number, number]
+  )
+  const upcomingRoutePoints = upcomingRouteWaypoints.map(
+    (point) => [point.lat, point.lng] as [number, number]
+  )
   const mapRouteLines = [
     ...(completedRoutePoints.length > 1
       ? [
-          {
-            id: `trip-${trip.id}-route-completed`,
-            points: completedRoutePoints,
-            color: '#6b7280',
-            label: `${trip.tripNumber} completed path`,
-            opacity: 0.95,
-            weight: 9,
-          },
-        ]
+        {
+          id: `trip-${trip.id}-route-completed`,
+          points: completedRoutePoints,
+          color: '#6b7280',
+          label: `${trip.tripNumber} completed path`,
+          opacity: 0.95,
+          weight: 9,
+          snapToRoad: true,
+        },
+      ]
       : []),
     ...(upcomingRoutePoints.length > 1
       ? [
-          {
-            id: `trip-${trip.id}-route-upcoming`,
-            points: upcomingRoutePoints,
-            color: '#2563eb',
-            label: `${trip.tripNumber} upcoming path`,
-            opacity: 1,
-            weight: 8,
-          },
-        ]
+        {
+          id: `trip-${trip.id}-route-upcoming`,
+          points: upcomingRoutePoints,
+          color: '#2563eb',
+          label: `${trip.tripNumber} upcoming path`,
+          opacity: 1,
+          weight: 8,
+          snapToRoad: true,
+        },
+      ]
       : []),
   ]
-  // Chooses a stable map center candidate based on best available location signal.
-  const mapCenterCandidate = (driverLocationMarker
-    ? [driverLocationMarker.lat, driverLocationMarker.lng]
-    : mapLocations[0]
-    ? [mapLocations[0].lat, mapLocations[0].lng]
-    : NEGROS_OCCIDENTAL_CENTER) as [number, number]
-  const mapCenter =
-    mapCenterCandidate[0] >= NEGROS_OCCIDENTAL_BOUNDS.south &&
-    mapCenterCandidate[0] <= NEGROS_OCCIDENTAL_BOUNDS.north &&
-    mapCenterCandidate[1] >= NEGROS_OCCIDENTAL_BOUNDS.west &&
-    mapCenterCandidate[1] <= NEGROS_OCCIDENTAL_BOUNDS.east
-      ? mapCenterCandidate
-      : NEGROS_OCCIDENTAL_CENTER
+  // Fix: never invent a Bacolod/default center. The driver marker already uses
+  // the latest detected position, falling back to this trip's warehouse only.
+  const mapCenter = driverLocationMarker
+    ? [driverLocationMarker.lat, driverLocationMarker.lng] as [number, number]
+    : null
   const mobileMapCenter = mobileMapRecenterCenter || mapCenter
 
   // Best-effort live location refresh for recenter button.
@@ -1585,6 +2048,10 @@ export function TripDetailView({
 
   // Recenter behavior for mobile map view.
   const handleMobileMapRecenter = async () => {
+    // Fix: immediately restore the active 2D/3D default camera on every target
+    // button click, without waiting for an optional fresh GPS lookup.
+    setMobileMapRecenterSignal((previous) => previous + 1)
+
     const liveLat = toCoordinate(currentLocation?.lat)
     const liveLng = toCoordinate(currentLocation?.lng)
     const previewLat = toCoordinate(previewDriverLocation?.lat)
@@ -1609,7 +2076,13 @@ export function TripDetailView({
 
     const nextCenter: [number, number] = [Number(targetLat), Number(targetLng)]
     setMobileMapRecenterCenter(nextCenter)
-    setMobileMapRecenterSignal((prev) => prev + 1)
+  }
+
+  // Added: every perspective toggle resets the map camera instead of preserving
+  // a previously panned or zoomed position from the other mode.
+  const handleToggleMapPerspective = () => {
+    setIs3DPerspective((previous) => !previous)
+    setMobileMapRecenterSignal((previous) => previous + 1)
   }
 
   return (
@@ -1814,295 +2287,402 @@ export function TripDetailView({
           {!isMobileViewport ? (
             <div className="hidden rounded-2xl border border-sky-200/60 bg-white/90 p-4 pt-0 shadow-[0_14px_30px_rgba(15,23,42,0.12)] backdrop-blur md:block md:rounded-2xl md:border md:border-sky-200/60 md:bg-white/90 md:shadow-[0_14px_30px_rgba(15,23,42,0.12)] md:backdrop-blur">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="font-semibold text-slate-900">Route Map</h3>
+                <div className="flex items-center gap-3">
+                  <h3 className="font-semibold text-slate-900">Route Map</h3>
+                  <Button
+                    variant={is3DPerspective ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={handleToggleMapPerspective}
+                  >
+                    3D View
+                  </Button>
+                  <Button
+                    variant={voiceGuidanceEnabled ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setVoiceGuidanceEnabled((previous) => !previous)}
+                  >
+                    {voiceGuidanceEnabled ? <Volume2 className="mr-1 h-3.5 w-3.5" /> : <VolumeX className="mr-1 h-3.5 w-3.5" />}
+                    Voice
+                  </Button>
+                </div>
                 <p className="text-xs font-medium text-slate-700">
                   Exact Driver Location: {exactDriverLocationLabel || 'Unavailable'}
                 </p>
               </div>
-              {mapLocations.length === 0 ? (
+              {!mapCenter ? (
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500">
                   No map data for this trip yet. Add delivery coordinates to order shipping addresses.
                 </div>
               ) : (
-                <LiveTrackingMap
-                  locations={mapLocations}
-                  routeLines={mapRouteLines}
-                  center={mapCenter}
-                  zoom={13}
-                  navigationPerspective
-                  restrictToNegrosOccidental
-                  showDriverSelfBadge
-                  showZoomControls={false}
-                  className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[400px]"
-                />
+                <div className="relative">
+                  {trip.status === 'IN_PROGRESS' && routeSteps.length > 0 && (
+                    <div className="absolute left-4 top-4 z-[1000] w-80">
+                      <NavInstructionsPanel
+                        steps={routeSteps}
+                        currentStepIndex={currentStepIndex}
+                        destinationName={highlightedDropPoint?.locationName}
+                        variant="mobile-compact"
+                        onSpeak={voiceGuidanceEnabled ? speakNavigationPrompt : undefined}
+                      />
+                    </div>
+                  )}
+                  <LiveTrackingMap
+                    locations={mapLocations}
+                    routeLines={mapRouteLines}
+                    center={mapCenter}
+                    zoom={13}
+                    navigationPerspective
+                    is3DPerspective={is3DPerspective}
+                    recenterSignal={mobileMapRecenterSignal}
+                    restrictToNegrosOccidental
+                    showDriverSelfBadge
+                    showZoomControls={false}
+                    className="h-[240px] w-full overflow-hidden rounded-xl border shadow-sm md:h-[400px]"
+                  />
+                </div>
               )}
             </div>
           ) : null}
 
           {isMobileViewport ? (
-          <div className="relative overflow-hidden md:hidden">
-            <div className="relative h-[calc(100dvh-12rem)] min-h-[540px] w-full overflow-hidden bg-[#dff0ea]">
-              {mapLocations.length === 0 ? (
-                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-600">
-                  No map data for this trip yet. Add delivery coordinates to order shipping addresses.
-                </div>
-              ) : (
-                <LiveTrackingMap
-                  locations={mapLocations}
-                  routeLines={mapRouteLines}
-                  center={mobileMapCenter}
-                  zoom={13}
-                  navigationPerspective
-                  restrictToNegrosOccidental
-                  showDriverSelfBadge
-                  recenterSignal={mobileMapRecenterSignal}
-                  showZoomControls={false}
-                  className="h-full w-full overflow-hidden rounded-none border-0 shadow-none"
-                />
-              )}
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-[#f8fbfe]/95 to-transparent" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-28 bg-gradient-to-t from-[#dff0ea] to-transparent" />
-              <button
-                type="button"
-                onClick={onBack}
-                aria-label="Back to trips"
-                className="absolute left-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/92 text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <div className="absolute left-[3.6rem] top-4 z-20 rounded-full border border-white/80 bg-white/90 px-3 py-1.5 text-[12px] font-semibold text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur">
-                Route Map
-              </div>
-              <div className="absolute left-4 top-[3.35rem] z-20 max-w-[calc(100%-5rem)] rounded-full border border-white/80 bg-white/90 px-3 py-1 text-[11px] font-medium text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)] backdrop-blur">
-                Exact: {exactDriverLocationLabel || 'Unavailable'}
-              </div>
-              <button
-                type="button"
-                onClick={handleMobileMapRecenter}
-                aria-label="Recenter map to driver location"
-                className="absolute bottom-[calc(env(safe-area-inset-bottom)+6.4rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-teal-200 bg-[#d8f4f7]/95 text-teal-900 shadow-[0_8px_18px_rgba(13,76,95,0.22)] backdrop-blur"
-              >
-                <LocateFixed className="h-5 w-5" />
-              </button>
-
-              <Drawer
-                open={isMobileSheetOpen && !hasBlockingDialogOpen}
-                onOpenChange={handleMobileSheetOpenChange}
-                direction="bottom"
-                dismissible
-                handleOnly={false}
-                modal={false}
-                fixed
-                snapPoints={mobileSheetSnapPoints}
-                activeSnapPoint={mobileSheetSnapPoint}
-                setActiveSnapPoint={handleMobileSheetSnapPointChange}
-              >
-                <DrawerContent
-                  hideOverlay
-                  className="!bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
-                >
-                  <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] pt-2 pr-3">
-                    <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
-                    <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
-                        <h3 className="text-xl font-black tracking-[-0.02em] text-slate-900">{highlightedDropPoint?.locationName || 'Trip overview'}</h3>
-                        <p className="text-sm text-slate-500">
-                          {highlightedDropPoint ? `${highlightedDropPoint.sequence}/${trip.totalDropPoints} | ${highlightedDropPoint.status}` : `${effectiveCompletedDropPoints}/${trip.totalDropPoints} Completed`}
-                        </p>
-                      </div>
-                      {highlightedDropPoint ? (
-                        <Badge className={dropPointStatusColors[highlightedDropPoint.status] || 'bg-gray-100'}>
-                          {highlightedDropPoint.status}
-                        </Badge>
-                      ) : null}
+            <div className="relative overflow-hidden md:hidden">
+              <div ref={mobileMapViewportRef} className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f8fbfe]">
+                {/* Top Navigation & Status Bar */}
+                <div ref={mobileTopOverlayRef} className="pointer-events-none absolute left-0 right-0 top-0 z-[1000] flex flex-col gap-2.5 px-4 pt-4">
+                  {trip.status === 'IN_PROGRESS' && routeSteps.length > 0 && (
+                    <div className="mt-1">
+                      <NavInstructionsPanel
+                        steps={routeSteps}
+                        currentStepIndex={currentStepIndex}
+                        destinationName={highlightedDropPoint?.locationName}
+                        variant="mobile-compact"
+                        onSpeak={voiceGuidanceEnabled ? speakNavigationPrompt : undefined}
+                      />
                     </div>
+                  )}
 
-                    <div className="mt-3 space-y-3 pb-1">
-                      {sortedDropPoints.map((dropPoint) => (
-                        <Card
-                          key={dropPoint.id}
-                          className={`cursor-pointer rounded-2xl border transition-all duration-200 ${activeDropPoint?.id === dropPoint.id ? 'border-slate-900/30 bg-slate-900/5 shadow-[0_6px_16px_rgba(15,23,42,0.08)]' : 'border-slate-200/70 bg-white/90 shadow-[0_4px_12px_rgba(15,23,42,0.04)]'}`}
-                          onClick={() => setActiveDropPoint(activeDropPoint?.id === dropPoint.id ? null : dropPoint)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start gap-3">
-                              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                                dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
-                                dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
-                                'bg-gray-200 text-gray-600'
-                              }`}>
-                                {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="font-medium text-slate-900">{dropPoint.locationName}</p>
-                                    <p className="text-sm text-slate-500">{stripPhilippinesFromAddress(dropPoint.address)}</p>
-                                    {dropPoint.order ? (
-                                      <>
-                                        <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
-                                        <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
-                                          <p className="text-[11px] font-semibold text-amber-800">
-                                            Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
-                                          </p>
-                                        </div>
-                                        {(dropPoint.order.items || []).length > 0 ? (
-                                          <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
-                                            {(() => {
-                                              const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
-                                              const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
-                                              return (
-                                                <div className="mb-1 flex items-center gap-2">
-                                                  <p className="text-[11px] font-semibold text-slate-600">
-                                                    {isReplacementOrder ? 'Replacement Details' : 'Order Details'}
-                                                  </p>
-                                                  {isReplacementOrder ? (
-                                                    <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800">
-                                                      Replacement
-                                                    </span>
-                                                  ) : null}
-                                                </div>
-                                              )
-                                            })()}
-                                            <div className="mt-1 space-y-0.5">
-                                              {(dropPoint.order.items || []).map((item, index) => (
-                                                <div key={`${dropPoint.id}-mobile-item-${index}`} className="text-[11px] text-slate-600">
-                                                  <p>{getItemDisplayNameWithSize(item)} {getOrderQtyWithUnitLabel(item, dropPoint.order)}</p>
-                                                  {getItemCategoryLabel(item) ? <p className="text-[10px] text-slate-500">{getItemCategoryLabel(item)}</p> : null}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        ) : null}
-                                      </>
-                                    ) : null}
-                                  </div>
-                                  <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
-                                    {dropPoint.status}
-                                  </Badge>
+                  <div className="pointer-events-auto flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onBack}
+                      aria-label="Back to trips"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 shadow-sm transition hover:bg-slate-50"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 shadow-sm">
+                      Route Map
+                    </div>
+                    <div className="min-w-0 flex-1 truncate rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-900 shadow-sm">
+                      Exact: {exactDriverLocationLabel || 'Unavailable'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Map Area */}
+                <div className={`relative flex-1 w-full bg-slate-100 overflow-hidden transition-all duration-500 map-container-3d-wrapper ${is3DPerspective ? 'is-3d' : ''}`}>
+                  {!mobileMapCenter ? (
+                    <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-600">
+                      No map data for this trip yet. Add delivery coordinates to order shipping addresses.
+                    </div>
+                  ) : (
+                    <>
+                      <LiveTrackingMap
+                        locations={mapLocations}
+                        routeLines={mapRouteLines}
+                        center={mobileMapCenter}
+                        zoom={13}
+                        navigationPerspective
+                        is3DPerspective={is3DPerspective}
+                        restrictToNegrosOccidental
+                        showDriverSelfBadge
+                        recenterSignal={mobileMapRecenterSignal}
+                        zoomInSignal={mobileMapZoomInSignal}
+                        zoomOutSignal={mobileMapZoomOutSignal}
+                        navigationViewportInsets={mobileNavigationViewportInsets}
+                        showZoomControls={false}
+                        className="absolute inset-0 h-full w-full overflow-hidden rounded-none border-0 shadow-none"
+                      />
+                    </>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleMobileMapRecenter}
+                  aria-label="Recenter map to driver location"
+                  className="absolute bottom-[calc(env(safe-area-inset-bottom)+8.25rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.14)] backdrop-blur"
+                >
+                  <LocateFixed className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleMapPerspective}
+                  aria-label="Toggle 3D View"
+                  className={`absolute bottom-[calc(env(safe-area-inset-bottom)+11.45rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border shadow-[0_8px_18px_rgba(15,23,42,0.14)] backdrop-blur transition-all ${is3DPerspective ? 'bg-sky-600 border-sky-700 text-white' : 'bg-white/95 border-slate-200 text-slate-900'}`}
+                >
+                  <span className="text-sm font-bold">3D</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVoiceGuidanceEnabled((previous) => !previous)}
+                  aria-label={voiceGuidanceEnabled ? 'Turn voice guidance off' : 'Turn voice guidance on'}
+                  className={`absolute bottom-[calc(env(safe-area-inset-bottom)+14.65rem)] right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border shadow-[0_8px_18px_rgba(15,23,42,0.14)] backdrop-blur transition-all ${voiceGuidanceEnabled ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-white/95 border-slate-200 text-slate-900'}`}
+                >
+                  {voiceGuidanceEnabled ? <Volume2 className="h-4.5 w-4.5" /> : <VolumeX className="h-4.5 w-4.5" />}
+                </button>
+
+                {/* Added: compact zoom controls positioned directly above voice guidance. */}
+                <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+17.85rem)] right-4 z-40 flex flex-col overflow-hidden rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.14)] backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={() => setMobileMapZoomInSignal((previous) => previous + 1)}
+                    aria-label="Zoom in"
+                    className="flex h-10 w-10 items-center justify-center transition hover:bg-slate-50 active:bg-slate-100"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                  <div className="mx-2 h-px bg-slate-200" />
+                  <button
+                    type="button"
+                    onClick={() => setMobileMapZoomOutSignal((previous) => previous + 1)}
+                    aria-label="Zoom out"
+                    className="flex h-10 w-10 items-center justify-center transition hover:bg-slate-50 active:bg-slate-100"
+                  >
+                    <Minus className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <Drawer
+                  open={isMobileSheetOpen && !hasBlockingDialogOpen}
+                  onOpenChange={handleMobileSheetOpenChange}
+                  direction="bottom"
+                  dismissible
+                  handleOnly={false}
+                  modal={false}
+                  fixed
+                  snapPoints={mobileSheetSnapPoints}
+                  activeSnapPoint={mobileSheetSnapPoint}
+                  setActiveSnapPoint={handleMobileSheetSnapPointChange}
+                >
+                  <DrawerContent
+                    ref={mobileDrawerRef}
+                    hideOverlay
+                    className="!bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                  >
+                    <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] pt-2 pr-3">
+                      <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
+                      <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
+                          <h3 className="text-xl font-black tracking-[-0.02em] text-slate-900">{highlightedDropPoint?.locationName || 'Trip overview'}</h3>
+                          <p className="text-sm text-slate-500">
+                            {highlightedDropPoint ? `${highlightedDropPoint.sequence}/${trip.totalDropPoints} | ${highlightedDropPoint.status}` : `${effectiveCompletedDropPoints}/${trip.totalDropPoints} Completed`}
+                          </p>
+                        </div>
+                        {highlightedDropPoint ? (
+                          <Badge className={dropPointStatusColors[highlightedDropPoint.status] || 'bg-gray-100'}>
+                            {highlightedDropPoint.status}
+                          </Badge>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 space-y-3 pb-1">
+                        {sortedDropPoints.map((dropPoint) => (
+                          <Card
+                            key={dropPoint.id}
+                            className={`cursor-pointer rounded-2xl border transition-all duration-200 ${activeDropPoint?.id === dropPoint.id ? 'border-slate-900/30 bg-slate-900/5 shadow-[0_6px_16px_rgba(15,23,42,0.08)]' : 'border-slate-200/70 bg-white/90 shadow-[0_4px_12px_rgba(15,23,42,0.04)]'}`}
+                            onClick={() => setActiveDropPoint(activeDropPoint?.id === dropPoint.id ? null : dropPoint)}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3">
+                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
+                                    dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
+                                      'bg-gray-200 text-gray-600'
+                                  }`}>
+                                  {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
                                 </div>
-                                {dropPoint.contactPhone ? (
-                                  <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
-                                    <Phone className="h-4 w-4" />
-                                    Call Contact
-                                  </a>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
-                              <div
-                                className="mt-4 space-y-3 border-t pt-4"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
-                                  <Button
-                                    className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                                    onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
-                                    disabled={isUpdating}
-                                  >
-                                    <Navigation className="mr-2 h-4 w-4" />
-                                    Mark Arrived
-                                  </Button>
-                                )}
-                                {dropPoint.status === 'ARRIVED' && (
-                                  <div className="space-y-3">
-                                    <Textarea
-                                      placeholder="Add delivery notes..."
-                                      value={deliveryNote}
-                                      onChange={(e) => setDeliveryNote(e.target.value)}
-                                    />
-                                    <div className="space-y-2">
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="w-full"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-      openPodCameraCapture(String(dropPoint.id || ''))
-                                        }}
-                                      >
-                                        <Camera className="mr-2 h-4 w-4" />
-                                        {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? 'Retake POD Photo' : 'Capture POD Photo'}
-                                      </Button>
-                                      <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
-                                      {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
-                                        <img
-                                          src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
-                                          alt="POD preview"
-                                          className="h-36 w-full rounded-md border border-slate-200 object-cover"
-                                        />
+                                <div className="flex-1">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <p className="font-medium text-slate-900">{dropPoint.locationName}</p>
+                                      <p className="text-sm text-slate-500">{stripPhilippinesFromAddress(dropPoint.address)}</p>
+                                      {dropPoint.order ? (
+                                        <>
+                                          <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
+                                          <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                            <p className="text-[11px] font-semibold text-amber-800">
+                                              Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
+                                            </p>
+                                          </div>
+                                          {(dropPoint.order.items || []).length > 0 ? (
+                                            <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
+                                              {(() => {
+                                                const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                                const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                                return (
+                                                  <div className="mb-1 flex items-center gap-2">
+                                                    <p className="text-[11px] font-semibold text-slate-600">
+                                                      {isReplacementOrder ? 'Replacement Details' : 'Order Details'}
+                                                    </p>
+                                                    {isReplacementOrder ? (
+                                                      <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                                                        Replacement
+                                                      </span>
+                                                    ) : null}
+                                                  </div>
+                                                )
+                                              })()}
+                                              <div className="mt-1 space-y-0.5">
+                                                {(dropPoint.order.items || []).map((item, index) => (
+                                                  <div key={`${dropPoint.id}-mobile-item-${index}`} className="text-[11px] text-slate-600">
+                                                    <p>{getItemDisplayNameWithSize(item)} {getOrderQtyWithUnitLabel(item, dropPoint.order)}</p>
+                                                    {getItemCategoryLabel(item) ? <p className="text-[10px] text-slate-500">{getItemCategoryLabel(item)}</p> : null}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          ) : null}
+                                        </>
                                       ) : null}
                                     </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <Button
-                                        className="bg-emerald-600 hover:bg-emerald-700"
-                                        onClick={async (e) => {
-                                          e.stopPropagation()
-                                          openDeliveredWarning(dropPoint)
-                                        }}
-                                        disabled={isUpdating}
-                                      >
-                                        <CheckCircle className="mr-2 h-4 w-4" />
-                                        Delivered
-                                      </Button>
-                                      <Button
-                                        variant="destructive"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          openFailedDeliveryChoice(dropPoint.id)
-                                        }}
-                                        disabled={isUpdating}
-                                      >
-                                        <AlertCircle className="mr-2 h-4 w-4" />
-                                        Failed
-                                      </Button>
-                                    </div>
+                                    <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
+                                      {dropPoint.status}
+                                    </Badge>
                                   </div>
-                                )}
+                                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                                    {dropPoint.contactPhone ? (
+                                      <a href={`tel:${dropPoint.contactPhone}`} className="inline-flex items-center gap-1 text-sm text-sky-700">
+                                        <Phone className="h-4 w-4" />
+                                        Call Contact
+                                      </a>
+                                    ) : null}
+                                    {renderNavigationControl(dropPoint)}
+                                  </div>
+                                </div>
                               </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                </DrawerContent>
-              </Drawer>
-            </div>
 
-            <AnimatePresence mode="wait">
-              {!hasBlockingDialogOpen && !isMobileSheetOpen && showMobileSheetPeek ? (
-                <motion.button
-                  key="mobile-sheet-peek"
-                  type="button"
-                  initial={{ opacity: 0, y: 20, scale: 0.985 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 16, scale: 0.985 }}
-                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                  className="fixed inset-x-0 bottom-0 z-[1250] w-full max-w-none rounded-t-[24px] border border-white/85 bg-white/96 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)]"
-                  onClick={openMobileSheet}
-                  onTouchStart={handleMobileSheetPeekTouchStart}
-                  onTouchMove={handleMobileSheetPeekTouchMove}
-                  onTouchEnd={handleMobileSheetPeekTouchEnd}
-                >
-                  <span className="mx-auto mb-2 block h-1.5 w-14 rounded-full bg-slate-300" />
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
-                      <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                              {activeDropPoint?.id === dropPoint.id && trip.status === 'IN_PROGRESS' && (
+                                <div
+                                  className="mt-4 space-y-3 border-t pt-4"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
+                                    <Button
+                                      className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                                      onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
+                                      disabled={isUpdating}
+                                    >
+                                      <Navigation className="mr-2 h-4 w-4" />
+                                      Mark Arrived
+                                    </Button>
+                                  )}
+                                  {dropPoint.status === 'ARRIVED' && (
+                                    <div className="space-y-3">
+                                      {renderEmptiesReturnInput(dropPoint)}
+                                      <Textarea
+                                        placeholder="Add delivery notes..."
+                                        value={deliveryNote}
+                                        onChange={(e) => setDeliveryNote(e.target.value)}
+                                      />
+                                      <div className="space-y-2">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className="w-full"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openPodCameraCapture(String(dropPoint.id || ''))
+                                          }}
+                                        >
+                                          <Camera className="mr-2 h-4 w-4" />
+                                          {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? 'Retake POD Photo' : 'Capture POD Photo'}
+                                        </Button>
+                                        <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
+                                        {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
+                                          <img
+                                            src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
+                                            alt="POD preview"
+                                            className="h-36 w-full rounded-md border border-slate-200 object-cover"
+                                          />
+                                        ) : null}
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <Button
+                                          className="bg-emerald-600 hover:bg-emerald-700"
+                                          onClick={async (e) => {
+                                            e.stopPropagation()
+                                            openDeliveredWarning(dropPoint)
+                                          }}
+                                          disabled={isUpdating}
+                                        >
+                                          <CheckCircle className="mr-2 h-4 w-4" />
+                                          Delivered
+                                        </Button>
+                                        <Button
+                                          variant="destructive"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openFailedDeliveryChoice(dropPoint.id)
+                                          }}
+                                          disabled={isUpdating}
+                                        >
+                                          <AlertCircle className="mr-2 h-4 w-4" />
+                                          Failed
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
                     </div>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                      {effectiveCompletedDropPoints}/{trip.totalDropPoints} Delivered
-                    </span>
-                  </div>
-                </motion.button>
-              ) : null}
-            </AnimatePresence>
-          </div>
+                  </DrawerContent>
+                </Drawer>
+              </div>
+
+              <AnimatePresence mode="wait">
+                {!hasBlockingDialogOpen && !isMobileSheetOpen && showMobileSheetPeek ? (
+                  <motion.button
+                    ref={mobileSheetPeekRef}
+                    key="mobile-sheet-peek"
+                    type="button"
+                    initial={{ opacity: 0, y: 20, scale: 0.985 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 16, scale: 0.985 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    className="fixed inset-x-0 bottom-0 z-[1250] w-full max-w-none rounded-t-[24px] border border-white/85 bg-white/96 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)]"
+                    onClick={openMobileSheet}
+                    onTouchStart={handleMobileSheetPeekTouchStart}
+                    onTouchMove={handleMobileSheetPeekTouchMove}
+                    onTouchEnd={handleMobileSheetPeekTouchEnd}
+                  >
+                    <span className="mx-auto mb-2 block h-1.5 w-14 rounded-full bg-slate-300" />
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
+                        <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <p className="text-xs font-black text-slate-900">
+                          {currentVehicleSpeedLabel}
+                        </p>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                          {effectiveCompletedDropPoints}/{trip.totalDropPoints} Delivered
+                        </span>
+                      </div>
+                    </div>
+                  </motion.button>
+                ) : null}
+              </AnimatePresence>
+            </div>
           ) : null}
 
           {/* Drop Points List */}
@@ -2117,11 +2697,10 @@ export function TripDetailView({
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
-                        dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
-                        'bg-gray-200 text-gray-600'
-                      }`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${dropPoint.status === 'COMPLETED' ? 'bg-green-500 text-white' :
+                          dropPoint.status === 'FAILED' ? 'bg-red-500 text-white' :
+                            'bg-gray-200 text-gray-600'
+                        }`}>
                         {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
                       </div>
                       <div className="flex-1">
@@ -2134,7 +2713,7 @@ export function TripDetailView({
                                 <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
                                 <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
                                   <p className="text-[11px] font-semibold text-amber-800">
-                                    Total Price: {formatCurrency(Number(dropPoint.order.totalAmount || 0))}
+                                    Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
                                   </p>
                                 </div>
                                 {(dropPoint.order.items || []).length > 0 ? (
@@ -2182,12 +2761,15 @@ export function TripDetailView({
                             {dropPoint.status}
                           </Badge>
                         </div>
-                        {dropPoint.contactPhone && (
-                          <a href={`tel:${dropPoint.contactPhone}`} className="mt-2 inline-flex items-center gap-1 text-sm text-sky-700">
-                            <Phone className="h-4 w-4" />
-                            Call Contact
-                          </a>
-                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          {dropPoint.contactPhone && (
+                            <a href={`tel:${dropPoint.contactPhone}`} className="inline-flex items-center gap-1 text-sm text-sky-700">
+                              <Phone className="h-4 w-4" />
+                              Call Contact
+                            </a>
+                          )}
+                          {renderNavigationControl(dropPoint)}
+                        </div>
                       </div>
                     </div>
 
@@ -2209,6 +2791,7 @@ export function TripDetailView({
                         )}
                         {dropPoint.status === 'ARRIVED' && (
                           <div className="space-y-2 md:space-y-3">
+                            {renderEmptiesReturnInput(dropPoint)}
                             <Textarea
                               className="min-h-[72px] text-sm md:min-h-[88px]"
                               placeholder="Add delivery notes..."
@@ -2599,12 +3182,12 @@ export function TripDetailView({
                           failedDeliveryReceiveAgain === 'other_date'
                             ? selectedOtherDateIso
                             : (() => {
-                                const scheduled = new Date()
-                                if (failedDeliveryReceiveAgain === 'tomorrow') {
-                                  scheduled.setDate(scheduled.getDate() + 1)
-                                }
-                                return scheduled.toISOString()
-                              })(),
+                              const scheduled = new Date()
+                              if (failedDeliveryReceiveAgain === 'tomorrow') {
+                                scheduled.setDate(scheduled.getDate() + 1)
+                              }
+                              return scheduled.toISOString()
+                            })(),
                       }
                     )
                     if (completed) {
@@ -2659,7 +3242,7 @@ export function TripDetailView({
                 <p><span className="font-medium text-slate-900">Order Status:</span> {selectedDropPointForDetails?.order?.status || 'Not set'}</p>
                 <p><span className="font-medium text-slate-900">Warehouse Stage:</span> {selectedDropPointForDetails?.order?.warehouseStage || 'Not set'}</p>
                 <p><span className="font-medium text-slate-900">Created At:</span> {formatDateTime(selectedDropPointForDetails?.order?.createdAt)}</p>
-                <p><span className="font-medium text-slate-900">Total Amount:</span> {formatCurrency(Number(selectedDropPointForDetails?.order?.totalAmount || 0))}</p>
+                <p><span className="font-medium text-slate-900">Total Amount:</span> {formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))}</p>
               </div>
 
               <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2.5">
@@ -2668,7 +3251,12 @@ export function TripDetailView({
                   {(selectedDropPointForDetails?.order?.items || []).length > 0 ? (
                     (selectedDropPointForDetails?.order?.items || []).map((item: any, index: number) => (
                       <div key={`detail-po-item-${index}`} className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
-                        <p className="font-medium text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
+                        {item?.itemType === 'MIXED_CASE' ? (
+                          <div className="text-sky-700">
+                            {(item.components || []).map((component: any) => <p key={component.id || component.productId}>{component.productName}: {component.quantityPerCase}/case</p>)}
+                          </div>
+                        ) : null}
                         <p>Quantity: {Number(item?.quantity || 0)}</p>
                         <p>Price: {formatCurrency(Number(item?.price || item?.unitPrice || 0))}</p>
                         <p>Subtotal: {formatCurrency(Number(item?.subtotal || (Number(item?.quantity || 0) * Number(item?.price || item?.unitPrice || 0))))}</p>

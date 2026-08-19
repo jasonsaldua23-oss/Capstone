@@ -227,6 +227,16 @@ export function CustomerOrderDetailsDialog(props: any) {
   }, [selectedOrder, hasCompletedReplacementRequest, hasActiveReplacementRequest])
 
   const selectableOrderItems = Array.isArray(selectedOrder?.items) ? selectedOrder.items : []
+  const selectableReplacementItems = selectableOrderItems.flatMap((orderItem: any) => {
+    if (orderItem?.itemType !== 'MIXED_CASE') {
+      return [{ selectionId: String(orderItem?.id || ''), orderItem, component: null }]
+    }
+    return (orderItem?.components || []).map((component: any) => ({
+      selectionId: `${orderItem.id}::${component.id || component.productId}`,
+      orderItem,
+      component,
+    }))
+  })
   const addReplacementLine = () => {
     setReplacementLines((prev) => [
       ...prev,
@@ -255,12 +265,15 @@ export function CustomerOrderDetailsDialog(props: any) {
     const value = Number(item?.quantity ?? item?.orderedQuantity ?? 0)
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
   }
+  const getSelectedReplacementItem = (selectionId: string) =>
+    selectableReplacementItems.find((entry: any) => entry.selectionId === String(selectionId || ''))
   const getMaxReplacementQtyForLine = (line: { productId: string; inputMode: 'case' | 'bottle' }) => {
-    const selectedItem = selectableOrderItems.find((item: any) => String(item?.id || '') === String(line.productId || ''))
-    if (!selectedItem) return 0
-    const orderedCases = getOrderedCaseQtyForItem(selectedItem)
+    const selected = getSelectedReplacementItem(line.productId)
+    if (!selected) return 0
+    if (selected.component) return Math.max(0, Number(selected.component.totalBaseUnits || 0))
+    const orderedCases = getOrderedCaseQtyForItem(selected.orderItem)
     if (line.inputMode === 'case') return orderedCases
-    return orderedCases * getQuantityPerCaseForItem(selectedItem)
+    return orderedCases * getQuantityPerCaseForItem(selected.orderItem)
   }
   const getSelectableItemsForLine = (lineKey: string) => {
     const selectedByOtherLines = new Set(
@@ -269,9 +282,13 @@ export function CustomerOrderDetailsDialog(props: any) {
         .map((line) => line.productId)
         .filter(Boolean)
     )
-    return selectableOrderItems.filter((item: any) => !selectedByOtherLines.has(String(item.id || '')))
+    return selectableReplacementItems.filter((entry: any) => !selectedByOtherLines.has(entry.selectionId))
   }
-  const getReplacementOptionLabel = (item: any) => {
+  const getReplacementOptionLabel = (entry: any) => {
+    if (entry.component) {
+      return `${entry.component.productName || 'Mixed Case component'} - ${entry.component.totalBaseUnits || 0} ${entry.component.baseUnitLabel || 'unit'}(s)`
+    }
+    const item = entry.orderItem
     const productName = String(item?.product?.name || item?.productName || 'Item').trim()
     const sizeText = Array.isArray(item?.product?.sizes) && item.product.sizes.length
       ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean).join(', ')
@@ -411,8 +428,15 @@ export function CustomerOrderDetailsDialog(props: any) {
                       />
                       <div className="min-w-0">
                         <p className="text-slate-800 break-words leading-snug">
-                          {item.product?.name || 'Item'} {String(item.product?.sizeLabel || item.product?.size || '').trim()}
+                          {item.itemType === 'MIXED_CASE' ? `Mixed Case — ${item.caseCapacity || 0} units` : `${item.product?.name || 'Item'} ${String(item.product?.sizeLabel || item.product?.size || '').trim()}`}
                         </p>
+                        {item.itemType === 'MIXED_CASE' ? (
+                          <div className="mt-1 space-y-0.5 text-[9px] text-sky-700 md:text-[10px]">
+                            {(item.components || []).map((component: any) => (
+                              <p key={component.id || component.productId}>{component.productName}: {component.quantityPerCase}/case ({component.totalBaseUnits} total)</p>
+                            ))}
+                          </div>
+                        ) : null}
                         {String(item.product?.category?.name || item.product?.category || '').trim() ? (
                           <p className="text-[9px] text-slate-500 md:text-[10px] break-words leading-snug">
                             {String(item.product?.category?.name || item.product?.category || '').trim()}
@@ -548,7 +572,12 @@ export function CustomerOrderDetailsDialog(props: any) {
                 </button>
               </div>
               <div className="mb-2 inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
-                <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}>
+                <button
+                  type="button"
+                  disabled={Boolean(getSelectedReplacementItem(line.productId)?.component)}
+                  className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`}
+                  onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}
+                >
                   By Unit
                 </button>
                 <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
@@ -561,13 +590,20 @@ export function CustomerOrderDetailsDialog(props: any) {
                   <select
                     className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
                     value={line.productId}
-                    onChange={(e) => updateReplacementLine(line.key, { productId: e.target.value })}
+                    onChange={(e) => {
+                      const selected = getSelectedReplacementItem(e.target.value)
+                      updateReplacementLine(line.key, {
+                        productId: e.target.value,
+                        inputMode: selected?.component ? 'bottle' : line.inputMode,
+                        quantity: '1',
+                      })
+                    }}
                     aria-label={`Replacement product ${index + 1}`}
                     title={`Replacement product ${index + 1}`}
                   >
                     <option value="">Select product</option>
-                    {getSelectableItemsForLine(line.key).map((item: any) => (
-                      <option key={item.id} value={item.id}>{getReplacementOptionLabel(item)}</option>
+                    {getSelectableItemsForLine(line.key).map((entry: any) => (
+                      <option key={entry.selectionId} value={entry.selectionId}>{getReplacementOptionLabel(entry)}</option>
                     ))}
                   </select>
                 </div>
@@ -651,19 +687,24 @@ export function CustomerOrderDetailsDialog(props: any) {
               setIsSubmittingReplacement(true)
               try {
                 const submittedLines = validLines.map((line) => {
-                  const selectedItem = selectableOrderItems.find((item: any) => item.id === line.productId)
-                  const product = selectedItem?.product || {}
-                  const productName = product?.name || selectedItem?.productName || 'Product'
-                  const quantityPerCase = getQuantityPerCaseForItem(selectedItem)
+                  const selected = getSelectedReplacementItem(line.productId)
+                  const selectedItem = selected?.orderItem
+                  const component = selected?.component
+                  const product = component?.product || selectedItem?.product || {}
+                  const productName = component?.productName || product?.name || selectedItem?.productName || 'Product'
+                  const quantityPerCase = component ? 1 : getQuantityPerCaseForItem(selectedItem)
                   const inputQty = Math.max(Number(line.quantity || 0), 0)
                   const orderedCases = getOrderedCaseQtyForItem(selectedItem)
-                  const maxInputQty = line.inputMode === 'case' ? orderedCases : orderedCases * quantityPerCase
+                  const effectiveInputMode = component ? 'bottle' : line.inputMode
+                  const maxInputQty = component
+                    ? Number(component.totalBaseUnits || 0)
+                    : effectiveInputMode === 'case' ? orderedCases : orderedCases * quantityPerCase
                   if (inputQty > maxInputQty) {
                     throw new Error(
-                      `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${line.inputMode === 'case' ? 'unit(s)' : 'bottle(s)'})`
+                      `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? 'unit(s)' : 'base unit(s)'})`
                     )
                   }
-                  const quantityToReplace = line.inputMode === 'case'
+                  const quantityToReplace = effectiveInputMode === 'case'
                     ? inputQty * quantityPerCase
                     : inputQty
                   const sizeLabel = Array.isArray(product?.sizes) && product.sizes.length
@@ -672,22 +713,23 @@ export function CustomerOrderDetailsDialog(props: any) {
 
                   return {
                     originalOrderItemId: String(selectedItem?.id || line.productId),
-                    originalProductId: String(product?.id || selectedItem?.productId || '').trim() || undefined,
-                    replacementProductId: String(product?.id || selectedItem?.productId || '').trim() || undefined,
+                    mixedCaseComponentId: component?.id ? String(component.id) : undefined,
+                    originalProductId: String(component?.productId || product?.id || selectedItem?.productId || '').trim() || undefined,
+                    replacementProductId: String(component?.productId || product?.id || selectedItem?.productId || '').trim() || undefined,
                     originalProductName: productName,
-                    originalProductSku: String(product?.sku || selectedItem?.productSku || '').trim() || undefined,
+                    originalProductSku: String(component?.productSku || product?.sku || selectedItem?.productSku || '').trim() || undefined,
                     originalProductSize: sizeLabel || undefined,
                     replacementProductName: productName,
-                    replacementProductSku: String(product?.sku || selectedItem?.productSku || '').trim() || undefined,
+                    replacementProductSku: String(component?.productSku || product?.sku || selectedItem?.productSku || '').trim() || undefined,
                     replacementProductSize: sizeLabel || undefined,
-                    inputMode: line.inputMode,
-                    lineInputMode: line.inputMode,
+                    inputMode: effectiveInputMode,
+                    lineInputMode: effectiveInputMode,
                     quantityPerCase,
                     qtyPerUnit: quantityPerCase,
                     quantityToReplace,
-                    quantityToReplaceCases: line.inputMode === 'case' ? inputQty : undefined,
-                    quantityToReplaceUnits: line.inputMode === 'case' ? inputQty : undefined,
-                    quantityToReplaceBottles: line.inputMode === 'bottle' ? inputQty : undefined,
+                    quantityToReplaceCases: effectiveInputMode === 'case' ? inputQty : undefined,
+                    quantityToReplaceUnits: effectiveInputMode === 'case' ? inputQty : undefined,
+                    quantityToReplaceBottles: effectiveInputMode === 'bottle' ? inputQty : undefined,
                     reason: line.reason,
                     description: line.description || undefined,
                   }

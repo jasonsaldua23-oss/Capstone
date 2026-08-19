@@ -1,7 +1,7 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/app/page'
 import { toast } from 'sonner'
 import { HistoryView } from './sections/history/history-view'
@@ -14,10 +14,12 @@ import { useDriverPortalState } from './sections/layout/portal-state'
 import { ProfileView } from './sections/profile/profile-view'
 import { TripDetailView } from './sections/trips/trip-detail-view'
 import { TripsListView } from './sections/trips/trips-list-view'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 // Driver portal shell: delegates business logic to hook and section components.
 export function DriverPortal() {
   const { user, logout } = useAuth()
+  const isMobileViewport = useIsMobile()
   const {
     activeView,
     setActiveView,
@@ -39,6 +41,11 @@ export function DriverPortal() {
     startLocationTracking,
     openNativeCameraAppSettings,
   } = useDriverPortalState()
+  const [headerUnreadCount, setHeaderUnreadCount] = useState(0)
+  const notifInitialSubViewRef = useRef<'real-notifications' | 'menu'>('menu')
+  const [profileViewKey, setProfileViewKey] = useState(0)
+  const isTripDetailOpen = activeView === 'trips' && Boolean(selectedTripId)
+  const hidePortalHeader = isMobileViewport && isTripDetailOpen
 
   const handleLogout = async () => {
     await logout()
@@ -79,19 +86,27 @@ export function DriverPortal() {
         </div>
 
         {/* Header handles top-level navigation shortcuts and logout */}
-        <DriverPortalHeader
-          isTracking={isTracking}
-          onOpenHome={() => {
-            setActiveView('home')
-            setSelectedTripId(null)
-          }}
-          onOpenTrips={() => {
-            setActiveView('trips')
-            setSelectedTripId(null)
-          }}
-          onOpenProfile={() => setActiveView('profile')}
-          onLogout={handleLogout}
-        />
+        {!hidePortalHeader ? (
+          <DriverPortalHeader
+            isTracking={isTracking}
+            onOpenHome={() => {
+              setActiveView('home')
+              setSelectedTripId(null)
+            }}
+            onOpenTrips={() => {
+              setActiveView('trips')
+              setSelectedTripId(null)
+            }}
+            onOpenProfile={() => setActiveView('profile')}
+            onLogout={handleLogout}
+            onOpenNotifications={() => {
+              notifInitialSubViewRef.current = 'real-notifications'
+              setProfileViewKey((k) => k + 1)
+              setActiveView('profile')
+            }}
+            unreadCount={headerUnreadCount}
+          />
+        ) : null}
 
         <div className="flex min-h-0 flex-1">
           {!(activeView === 'trips' && selectedTripId) ? (
@@ -190,7 +205,16 @@ export function DriverPortal() {
                 />
               )}
 
-              {activeView === 'profile' && <ProfileView user={user} />}
+              {activeView === 'profile' && (
+                <ProfileView
+                  key={profileViewKey}
+                  user={user}
+                  onLogout={handleLogout}
+                  initialSubView={notifInitialSubViewRef.current}
+                  onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
+                  onDidMount={() => { notifInitialSubViewRef.current = 'menu' }}
+                />
+              )}
             </motion.main>
           </AnimatePresence>
           </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -19,9 +19,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { CheckCircle2, Eye, EyeOff, Loader2, XCircle } from 'lucide-react'
-import { validatePasswordPolicy } from '@/lib/password-policy'
+import {
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Loader2,
+  XCircle,
+  Mail,
+  MailCheck,
+  ChevronDown,
+} from 'lucide-react'
+
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
+import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
@@ -41,31 +51,58 @@ function resolveRoleCode(value: any): string {
   return String(value?.roleId || value?.role?.id || value?.role?.name || value?.role || '').trim().toUpperCase()
 }
 
+interface FormState {
+  lastName: string
+  firstName: string
+  middleName: string
+  suffix: string
+  email: string
+  phone: string
+  roleId: string
+  password: string
+  confirmPassword: string
+  isActive: boolean
+}
+
+const initialFormState: FormState = {
+  lastName: '',
+  firstName: '',
+  middleName: '',
+  suffix: '',
+  email: '',
+  phone: '',
+  roleId: '',
+  password: '',
+  confirmPassword: '',
+  isActive: true,
+}
+
+function isFormEmpty(form: FormState): boolean {
+  return !form.lastName && !form.firstName && !form.middleName && !form.suffix &&
+    !form.email && !form.phone && !form.roleId && !form.password && !form.confirmPassword
+}
+
 export function UsersView() {
   const [users, setUsers] = useState<any[]>([])
   const [roles, setRoles] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isVerificationSending, setIsVerificationSending] = useState(false)
-  const [isVerificationConfirming, setIsVerificationConfirming] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any | null>(null)
-  const [emailVerificationRequested, setEmailVerificationRequested] = useState(false)
-  const [emailVerificationCode, setEmailVerificationCode] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    roleId: '',
-    password: '',
-    confirmPassword: '',
-    isActive: true,
-  })
+  const [otpModalOpen, setOtpModalOpen] = useState(false)
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
+  const [pendingCloseAction, setPendingCloseAction] = useState<(() => void) | null>(null)
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [form, setForm] = useState<FormState>({ ...initialFormState })
+
   const hasPassword = form.password.length > 0
   const passwordRequirements = [
     { id: 'length', label: 'At least 8 characters', met: form.password.length >= 8 },
@@ -77,6 +114,32 @@ export function UsersView() {
   ]
   const passwordPolicySatisfied = passwordRequirements.every((rule) => rule.met)
   const passwordsMatch = form.password !== '' && form.password === form.confirmPassword
+
+  const isValidEmail = useCallback((email: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  }, [])
+
+  const isValidPhone = useCallback((phone: string): boolean => {
+    if (!phone) return false
+    return isValidPhilippinePhone(phone)
+  }, [])
+
+  const canSendCode = useMemo(() => {
+    return form.email.trim() !== '' && isValidEmail(form.email.trim())
+  }, [form.email, isValidEmail])
+
+  const canSave = useMemo(() => {
+    return (
+      form.lastName.trim() !== '' &&
+      form.firstName.trim() !== '' &&
+      isValidEmail(form.email.trim()) &&
+      emailVerified &&
+      isValidPhone(form.phone) &&
+      form.roleId !== '' &&
+      passwordPolicySatisfied &&
+      passwordsMatch
+    )
+  }, [form, emailVerified, isValidEmail, isValidPhone, passwordPolicySatisfied, passwordsMatch])
 
   const fetchUsers = async () => {
     setIsLoading(true)
@@ -121,28 +184,23 @@ export function UsersView() {
   }, [])
 
   const resetForm = () => {
-    setForm({
-      name: '',
-      email: '',
-      phone: '',
-      roleId: '',
-      password: '',
-      confirmPassword: '',
-      isActive: true,
-    })
-    setEmailVerificationRequested(false)
-    setEmailVerificationCode('')
+    setForm({ ...initialFormState })
     setEmailVerified(false)
     setEmailVerificationToken('')
     setShowPassword(false)
     setEditingUser(null)
+    setFormErrors({})
+    setTouched({})
   }
 
   const openEdit = (user: any) => {
     const resolvedRoleId = resolveRoleCode(user)
     setEditingUser(user)
     setForm({
-      name: user.name || '',
+      lastName: user.lastName || user.name?.split(' ').slice(-1)[0] || '',
+      firstName: user.firstName || user.name?.split(' ')[0] || '',
+      middleName: user.middleName || '',
+      suffix: user.suffix || '',
       email: user.email || '',
       phone: user.phone || '',
       roleId: resolvedRoleId,
@@ -150,36 +208,51 @@ export function UsersView() {
       confirmPassword: '',
       isActive: !!user.isActive,
     })
+    setFormErrors({})
+    setTouched({})
     setEditOpen(true)
   }
 
-  const saveUser = async (mode: 'create' | 'edit') => {
-    if (!form.name.trim() || !form.email.trim() || !form.roleId) {
-      toast.error('Name, email and role are required')
-      return
-    }
-    if (mode === 'create' && !form.password) {
-      toast.error('Password is required for new user')
-      return
-    }
-    if (mode === 'create') {
-      const passwordError = validatePasswordPolicy(form.password)
-      if (passwordError) {
-        toast.error(passwordError)
-        return
+  const validateField = (field: string, value: string): string => {
+    switch (field) {
+      case 'lastName':
+        return !value.trim() ? 'This field is required.' : ''
+      case 'firstName':
+        return !value.trim() ? 'This field is required.' : ''
+      case 'email': {
+        if (!value.trim()) return 'This field is required.'
+        if (!isValidEmail(value.trim())) return 'Please enter a valid email address.'
+        return ''
       }
+      case 'phone': {
+        if (!value) return 'This field is required.'
+        if (!isValidPhilippinePhone(value)) return 'Please enter a valid phone number.'
+        return ''
+      }
+      case 'roleId':
+        return !value ? 'Please select a role.' : ''
+      default:
+        return ''
     }
-    if (mode === 'create' && form.password !== form.confirmPassword) {
-      toast.error('Passwords do not match.')
-      return
-    }
-    if (mode === 'create' && !emailVerified) {
-      toast.error('Verify the Gmail address before creating the user')
-      return
-    }
+  }
 
-    if (mode === 'edit' && !form.isActive) {
-      setDeleteConfirmOpen(true)
+  const handleBlur = (field: string) => {
+    setTouched((prev) => ({ ...prev, [field]: true }))
+    const error = validateField(field, form[field as keyof FormState] as string)
+    setFormErrors((prev) => ({ ...prev, [field]: error }))
+  }
+
+  const updateField = (field: keyof FormState, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }))
+    // Clear errors on change
+    if (formErrors[field]) {
+      setFormErrors((prev) => ({ ...prev, [field]: '' }))
+    }
+  }
+
+  const saveUser = async (mode: 'create' | 'edit') => {
+    if (mode === 'create' && !canSave) {
+      toast.error('Please complete all required fields.')
       return
     }
 
@@ -187,11 +260,20 @@ export function UsersView() {
     try {
       const endpoint = mode === 'create' ? '/api/users' : `/api/users/${editingUser.id}`
       const method = mode === 'create' ? 'POST' : 'PUT'
+
+      const fullName = [form.firstName.trim(), form.middleName.trim(), form.lastName.trim()]
+        .filter(Boolean)
+        .join(' ') + (form.suffix.trim() ? `, ${form.suffix.trim()}` : '')
+
       const response = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.name.trim(),
+          name: fullName || form.firstName.trim() + ' ' + form.lastName.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          middleName: form.middleName.trim() || null,
+          suffix: form.suffix.trim() || null,
           email: form.email.trim(),
           phone: form.phone.trim() || null,
           roleId: form.roleId,
@@ -204,9 +286,10 @@ export function UsersView() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to save user')
       }
-      toast.success(mode === 'create' ? 'User added' : 'User updated')
+      toast.success(mode === 'create' ? 'User account created successfully.' : 'User updated')
       setAddOpen(false)
       setEditOpen(false)
+      setSaveConfirmOpen(false)
       resetForm()
       await fetchUsers()
     } catch (error: any) {
@@ -245,14 +328,15 @@ export function UsersView() {
       toast.error('Enter an email address first')
       return
     }
-    if (!email.endsWith('@gmail.com') || email.split('@').length !== 2) {
-      toast.error('Enter a full Gmail address, like name@gmail.com')
+    if (!isValidEmail(email)) {
+      toast.error('Please enter a valid email address.')
       return
     }
     if (!form.roleId) {
       toast.error('Select a role first')
       return
     }
+
     setIsVerificationSending(true)
     try {
       const response = await fetch('/api/auth/email-verification/request', {
@@ -264,11 +348,8 @@ export function UsersView() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to send verification code')
       }
-      setEmailVerificationRequested(true)
-      setEmailVerificationCode('')
-      setEmailVerified(false)
-      setEmailVerificationToken('')
-      toast.success('Verification code sent to the Gmail address')
+      setOtpModalOpen(true)
+      toast.success('Verification code sent to your email')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to send verification code')
     } finally {
@@ -276,30 +357,74 @@ export function UsersView() {
     }
   }
 
-  const confirmEmailVerification = async () => {
+  const handleVerifyOtp = async (otp: string): Promise<boolean> => {
     const email = form.email.trim().toLowerCase()
-    if (!emailVerificationCode.trim()) {
-      toast.error('Enter the verification code first')
-      return
-    }
-    setIsVerificationConfirming(true)
     try {
       const response = await fetch('/api/auth/email-verification/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, accountType: 'staff', otp: emailVerificationCode.trim() }),
+        body: JSON.stringify({ email, accountType: 'staff', otp }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to verify email')
+        return false
       }
       setEmailVerificationToken(String(payload?.verificationToken || '').trim())
       setEmailVerified(true)
       toast.success('Email verified successfully')
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to verify email')
-    } finally {
-      setIsVerificationConfirming(false)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const handleResendOtp = async (): Promise<boolean> => {
+    const email = form.email.trim().toLowerCase()
+    try {
+      const response = await fetch('/api/auth/email-verification/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, accountType: 'staff', roleId: form.roleId }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        return false
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const handleAddOpenChange = (open: boolean) => {
+    if (!open && !isFormEmpty(form)) {
+      setPendingCloseAction(() => () => {
+        setAddOpen(false)
+        resetForm()
+      })
+      setDiscardConfirmOpen(true)
+    } else if (!open) {
+      setAddOpen(false)
+      resetForm()
+    }
+  }
+
+  const handleDiscardConfirm = () => {
+    pendingCloseAction?.()
+    setDiscardConfirmOpen(false)
+    setPendingCloseAction(null)
+  }
+
+  const handleCancelSave = () => {
+    if (!isFormEmpty(form)) {
+      setPendingCloseAction(() => () => {
+        setAddOpen(false)
+        resetForm()
+      })
+      setDiscardConfirmOpen(true)
+    } else {
+      setAddOpen(false)
+      resetForm()
     }
   }
 
@@ -311,7 +436,6 @@ export function UsersView() {
           <p className="text-gray-500">Manage staff accounts and permissions</p>
         </div>
         <Button className="gap-2 bg-blue-600 text-white hover:bg-blue-700" onClick={() => setAddOpen(true)}>
-          {/* <Users className="h-4 w-4" /> */}
           Add User
         </Button>
       </div>
@@ -322,7 +446,6 @@ export function UsersView() {
             <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
           ) : users.length === 0 ? (
             <div className="text-center py-12">
-              {/* <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" /> */}
               <p className="text-gray-500">No users found</p>
             </div>
           ) : (
@@ -344,10 +467,10 @@ export function UsersView() {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
                             <AvatarFallback className="bg-blue-600 text-white text-sm">
-                              {user.name?.charAt(0).toUpperCase()}
+                              {(user.firstName || user.name || '?').charAt(0).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="font-medium">{user.name}</span>
+                          <span className="font-medium">{user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim()}</span>
                         </div>
                       </td>
                       <td className="p-4 text-gray-500">{user.email}</td>
@@ -371,41 +494,387 @@ export function UsersView() {
         </CardContent>
       </Card>
 
-      <Dialog open={addOpen} onOpenChange={(open) => { if (open) resetForm(); setAddOpen(open); }}>
-        <DialogContent className="max-w-2xl w-full sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Add User</DialogTitle>
-            <DialogDescription>Create a new staff account.</DialogDescription>
+      {/* Add User Modal */}
+      <Dialog open={addOpen} onOpenChange={handleAddOpenChange}>
+        <DialogContent className="max-w-[95vw] sm:max-w-md w-full p-3 pt-4">
+          <DialogHeader className="pb-0">
+            <DialogTitle className="text-base font-semibold text-gray-900">Add User</DialogTitle>
+            <DialogDescription className="text-[11px] text-gray-500">Create a new staff account.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Last Name */}
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Name</label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+              <label className="text-xs font-medium text-gray-700">
+                Last Name <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="Last Name"
+                value={form.lastName}
+                onChange={(e) => updateField('lastName', e.target.value)}
+                onBlur={() => handleBlur('lastName')}
+                className={`h-8 text-sm ${touched.lastName && formErrors.lastName ? 'border-red-400 ring-red-200' : ''}`}
+              />
+              {touched.lastName && formErrors.lastName && (
+                <p className="text-[10px] text-red-500">{formErrors.lastName}</p>
+              )}
             </div>
+
+            {/* First Name */}
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Email</label>
-              <div className="flex items-end gap-2">
-                <Input
-                  type="email"
-                  autoComplete="off"
-                  value={form.email}
-                  onChange={(e) => {
-                    const nextEmail = e.target.value
-                    setForm((f) => ({ ...f, email: nextEmail }))
-                    setEmailVerificationRequested(false)
-                    setEmailVerificationCode('')
-                    setEmailVerified(false)
-                    setEmailVerificationToken('')
-                  }}
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" onClick={requestEmailVerification} disabled={isVerificationSending}>
-                  {isVerificationSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                  Send Code
+              <label className="text-xs font-medium text-gray-700">
+                First Name <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="First Name"
+                value={form.firstName}
+                onChange={(e) => updateField('firstName', e.target.value)}
+                onBlur={() => handleBlur('firstName')}
+                className={`h-8 text-sm ${touched.firstName && formErrors.firstName ? 'border-red-400 ring-red-200' : ''}`}
+              />
+              {touched.firstName && formErrors.firstName && (
+                <p className="text-[10px] text-red-500">{formErrors.firstName}</p>
+              )}
+            </div>
+
+            {/* Middle Name */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">Middle Name</label>
+              <Input
+                placeholder="Middle Name"
+                value={form.middleName}
+                onChange={(e) => updateField('middleName', e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+
+            {/* Suffix */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">Suffix</label>
+              <Input
+                placeholder="Jr., Sr., III"
+                value={form.suffix}
+                onChange={(e) => updateField('suffix', e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+
+            {/* Email */}
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-xs font-medium text-gray-700">
+                Email <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-row items-center gap-1.5">
+                <div className="flex-1 relative">
+                  <Input
+                    type="email"
+                    autoComplete="off"
+                    placeholder="email@example.com"
+                    value={form.email}
+                    onChange={(e) => {
+                      updateField('email', e.target.value)
+                      if (emailVerified) {
+                        setEmailVerified(false)
+                        setEmailVerificationToken('')
+                      }
+                    }}
+                    onBlur={() => handleBlur('email')}
+                    className={`h-8 text-sm w-full pr-8 ${touched.email && formErrors.email ? 'border-red-400 ring-red-200' : ''} ${emailVerified ? 'border-green-400 ring-green-200' : ''}`}
+                  />
+                  {emailVerified ? (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                      <MailCheck className="h-4 w-4 text-green-500" />
+                    </div>
+                  ) : (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                      <Mail className="h-4 w-4 text-gray-400" />
+                    </div>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={requestEmailVerification}
+                  disabled={!canSendCode || isVerificationSending || emailVerified}
+                  className="h-8 text-xs whitespace-nowrap px-3 shrink-0"
+                >
+                  {isVerificationSending ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : emailVerified ? (
+                    <CheckCircle2 className="h-3 w-3 mr-1 text-green-500" />
+                  ) : null}
+                  {emailVerified ? 'Verified' : 'Send Code'}
                 </Button>
               </div>
+              {touched.email && formErrors.email && (
+                <p className="text-[10px] text-red-500">{formErrors.email}</p>
+              )}
+              {emailVerified && (
+                <div className="flex items-center gap-1 text-[10px] text-green-600 font-medium">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Email verified
+                </div>
+              )}
             </div>
+
+            {/* Phone */}
             <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">
+                Phone <span className="text-red-500">*</span>
+              </label>
+              <Input
+                autoComplete="off"
+                placeholder="09XX XXX XXXX"
+                maxLength={13}
+                value={form.phone}
+                onChange={(e) => updateField('phone', formatPhilippinePhoneInput(e.target.value))}
+                onBlur={() => handleBlur('phone')}
+                className={`h-8 text-sm ${touched.phone && formErrors.phone ? 'border-red-400 ring-red-200' : ''}`}
+              />
+              {touched.phone && formErrors.phone && (
+                <p className="text-[10px] text-red-500">{formErrors.phone}</p>
+              )}
+            </div>
+
+            {/* Role */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">
+                Role <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  className={`w-full h-8 rounded-md border border-input bg-background px-2.5 text-xs appearance-none cursor-pointer
+                    ${touched.roleId && formErrors.roleId ? 'border-red-400 ring-red-200' : 'border-gray-300'}
+                    focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 transition-all`}
+                  title="User Role"
+                  value={form.roleId}
+                  onChange={(e) => {
+                    updateField('roleId', e.target.value)
+                    if (emailVerified) {
+                      setEmailVerified(false)
+                      setEmailVerificationToken('')
+                    }
+                  }}
+                  onBlur={() => handleBlur('roleId')}
+                >
+                  <option value="">Select role</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                  <ChevronDown className="h-3 w-3 text-gray-400" />
+                </div>
+              </div>
+              {touched.roleId && formErrors.roleId && (
+                <p className="text-[10px] text-red-500">{formErrors.roleId}</p>
+              )}
+            </div>
+
+            {/* Password */}
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-xs font-medium text-gray-700">
+                Password <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  placeholder="Create a strong password"
+                  value={form.password}
+                  onChange={(e) => updateField('password', e.target.value)}
+                  className="h-8 pr-9 w-full text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-gray-400 transition-colors hover:text-gray-700"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5">
+                {passwordRequirements.map((rule) => (
+                  <div key={rule.id} className="flex items-center gap-1.5 text-[10px]">
+                    {rule.met ? (
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                    ) : (
+                      <XCircle className="h-3 w-3 text-red-400 shrink-0" />
+                    )}
+                    <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Confirm Password */}
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-xs font-medium text-gray-700">
+                Confirm Password <span className="text-red-500">*</span>
+              </label>
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="Re-enter password"
+                value={form.confirmPassword}
+                onChange={(e) => updateField('confirmPassword', e.target.value)}
+                className={`h-8 w-full text-sm ${form.confirmPassword && form.password !== form.confirmPassword ? 'border-red-400 ring-red-200' : ''}`}
+              />
+              {form.confirmPassword && form.password !== form.confirmPassword ? (
+                <p className="text-[10px] text-red-500">Passwords do not match.</p>
+              ) : form.confirmPassword && form.password === form.confirmPassword ? (
+                <p className="text-[10px] text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-2.5 w-2.5" /> Passwords match
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-row gap-2 pt-2 mt-1 border-t border-gray-100">
+            <Button
+              variant="outline"
+              className="flex-1 h-8 text-sm order-2 sm:order-1"
+              onClick={handleCancelSave}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 h-8 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed order-1 sm:order-2"
+              onClick={() => setSaveConfirmOpen(true)}
+              disabled={!canSave || isSubmitting}
+            >
+              {isSubmitting ? (
+                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+              ) : null}
+              Save User
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Confirmation Modal */}
+      <AlertDialog open={saveConfirmOpen} onOpenChange={setSaveConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Account Creation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to create this staff account?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel asChild>
+              <Button variant="outline" disabled={isSubmitting}>Cancel</Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                className="bg-blue-600 text-white hover:bg-blue-700"
+                disabled={isSubmitting}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void saveUser('create')
+                }}
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Confirm
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Discard Changes Modal */}
+      <AlertDialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any information you entered will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel asChild>
+              <Button variant="outline" onClick={() => { setDiscardConfirmOpen(false); setPendingCloseAction(null); }}>
+                Continue Editing
+              </Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={(event) => {
+                  event.preventDefault()
+                  handleDiscardConfirm()
+                }}
+              >
+                Discard
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* OTP Verification Modal */}
+      <OtpVerificationModal
+        open={otpModalOpen}
+        onOpenChange={setOtpModalOpen}
+        email={form.email.trim().toLowerCase()}
+        onVerify={handleVerifyOtp}
+        onResendCode={handleResendOtp}
+        onBack={() => {}}
+      />
+
+      {/* Edit User Modal */}
+      <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>
+        <DialogContent className="max-w-[90vw] sm:max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold text-gray-900">Edit User</DialogTitle>
+            <DialogDescription className="text-gray-500">Update account profile, role and status.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Last Name</label>
+              <Input
+                value={form.lastName}
+                onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">First Name</label>
+              <Input
+                value={form.firstName}
+                onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Middle Name</label>
+              <Input
+                value={form.middleName}
+                onChange={(e) => setForm((f) => ({ ...f, middleName: e.target.value }))}
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Suffix</label>
+              <Input
+                placeholder="Jr., Sr., III"
+                value={form.suffix}
+                onChange={(e) => setForm((f) => ({ ...f, suffix: e.target.value }))}
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Email</label>
+              <Input
+                type="email"
+                autoComplete="off"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Phone</label>
               <Input
                 autoComplete="off"
@@ -413,24 +882,16 @@ export function UsersView() {
                 maxLength={13}
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+                className="h-10"
               />
-              {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
-                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
-              )}
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Role</label>
               <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm appearance-none cursor-pointer border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
                 title="User Role"
                 value={form.roleId}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, roleId: e.target.value }))
-                  setEmailVerificationRequested(false)
-                  setEmailVerificationCode('')
-                  setEmailVerified(false)
-                  setEmailVerificationToken('')
-                }}
+                onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
               >
                 <option value="">Select role</option>
                 {roles.map((role) => (
@@ -438,141 +899,30 @@ export function UsersView() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Password</label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(e) => {
-                    setForm((f) => ({ ...f, password: e.target.value }))
-                  }}
-                  className="pr-11"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 transition-colors hover:text-gray-700"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <div className="space-y-2">
-                <div className="space-y-1">
-                  {passwordRequirements.map((rule) => (
-                    <div key={rule.id} className="flex items-start gap-2 text-xs">
-                      {rule.met ? (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden="true" />
-                      ) : (
-                        <XCircle className="mt-0.5 h-4 w-4 text-red-500" aria-hidden="true" />
-                      )}
-                      <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Confirm Password</label>
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="new-password"
-                value={form.confirmPassword}
-                onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
-                placeholder="Confirm Password"
-              />
-              {form.confirmPassword && form.password !== form.confirmPassword ? (
-                <p className="text-sm text-red-600">Passwords do not match</p>
-              ) : null}
-            </div>
-            {emailVerificationRequested && !emailVerified ? (
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">Verification Code</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={emailVerificationCode}
-                    onChange={(e) => setEmailVerificationCode(e.target.value)}
-                    placeholder="Enter the code sent to the Gmail address"
-                  />
-                  <Button type="button" className="bg-blue-600 text-white hover:bg-blue-700" onClick={confirmEmailVerification} disabled={isVerificationConfirming || !emailVerificationCode.trim()}>
-                    {isVerificationConfirming ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                    Confirm
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button
-              className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
-              onClick={() => saveUser('create')}
-              disabled={isSubmitting || !emailVerified || !passwordPolicySatisfied || !passwordsMatch}
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Save User
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>
-        <DialogContent className="max-w-2xl w-full sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>Update account profile, role and status.</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Name</label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Email</label>
-              <Input type="email" autoComplete="off" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input
-                autoComplete="off"
-                placeholder="09XX XXX XXXX"
-                maxLength={13}
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
-              />
-              {form.phone && form.phone.length > 0 && !isValidPhilippinePhone(form.phone) && (
-                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567)</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Role</label>
-              <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="User Role" value={form.roleId} onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}>
-                <option value="">Select role</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1 md:col-span-2">
+            <div className="sm:col-span-2 space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Status</label>
-              <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="User Status" value={form.isActive ? 'ACTIVE' : 'DELETE'} onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.value === 'ACTIVE' }))}>
+              <select
+                className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm appearance-none cursor-pointer border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+                title="User Status"
+                value={form.isActive ? 'ACTIVE' : 'INACTIVE'}
+                onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.value === 'ACTIVE' }))}
+              >
                 <option value="ACTIVE">Active</option>
-                <option value="DELETE">Delete User</option>
+                <option value="INACTIVE">Inactive</option>
               </select>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button className={`flex-1 ${form.isActive ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-red-600 text-white hover:bg-red-700'}`} onClick={() => saveUser('edit')} disabled={isSubmitting}>
+          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-gray-100">
+            <Button variant="outline" className="flex-1 h-11" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button className="flex-1 h-11 bg-blue-600 text-white hover:bg-blue-700" onClick={() => saveUser('edit')} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              {form.isActive ? 'Save Changes' : 'Delete User'}
+              Save Changes
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* Delete Confirmation Modal */}
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

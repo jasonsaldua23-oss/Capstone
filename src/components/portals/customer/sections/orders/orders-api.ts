@@ -75,6 +75,7 @@ export async function submitCustomerReplacementRequest(body: {
   evidence: string[]
   replacementLines?: Array<{
     originalOrderItemId: string
+    mixedCaseComponentId?: string
     originalProductId?: string
     replacementProductId?: string
     originalProductName?: string
@@ -113,6 +114,47 @@ export async function fetchCustomerTracking() {
 
 export async function createCustomerOrder(body: any) {
   const response = await fetch('/api/customer/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  const data = await response.json().catch(() => ({}))
+  return { response, data }
+}
+
+export async function quoteMixedCase(body: {
+  caseCapacity: number
+  quantity: number
+  components: Array<{ productId: string; quantity: number }>
+}) {
+  const response = await fetch('/api/mixed-cases/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  const data = await response.json().catch(() => ({}))
+  return { response, data }
+}
+
+export async function fetchPackagingProfiles() {
+  const response = await fetch('/api/packaging-profiles', {
+    cache: 'no-store',
+    credentials: 'include',
+  })
+  const data = await response.json().catch(() => ({}))
+  return { response, data }
+}
+
+export async function receiveReplacementReturn(
+  replacementId: string,
+  body: {
+    requestId: string
+    returnedLines: Array<{ replacementLineId: string; quantityBaseUnits: number }>
+  }
+) {
+  const response = await fetch(`/api/replacements/${replacementId}/receive-return`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',

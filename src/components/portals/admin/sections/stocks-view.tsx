@@ -57,9 +57,8 @@ export function StocksView() {
   }, [])
 
   const filteredStockBatches = useMemo(() => {
-    if (selectedWarehouseId === 'all') return stockBatches
-    return stockBatches.filter((batch) => String(batch?.inventory?.warehouse?.id || '').trim() === selectedWarehouseId)
-  }, [selectedWarehouseId, stockBatches])
+    return stockBatches
+  }, [stockBatches])
 
   const getDaysLeft = (expiryDate: string | null) => {
     if (!expiryDate) return null
@@ -94,19 +93,9 @@ export function StocksView() {
             <CardDescription>Batch-based stock-in records with manufactured date, expiry date, and days left.</CardDescription>
           </div>
           <div className="w-full sm:w-64">
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedWarehouseId}
-              onChange={(event) => setSelectedWarehouseId(event.target.value)}
-              title="Filter by warehouse"
-            >
-              <option value="all">All Warehouses</option>
-              {warehouses.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.name || warehouse.code || warehouse.id}
-                </option>
-              ))}
-            </select>
+            <div className="flex h-10 items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-600">
+              Warehouse: {warehouses[0]?.name || warehouses[0]?.code || 'Not registered'}
+            </div>
           </div>
         </div>
       </CardHeader>

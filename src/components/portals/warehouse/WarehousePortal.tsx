@@ -35,6 +35,9 @@ import { WarehouseOrdersView } from './sections/orders/orders-view'
 import { WarehouseReplacementsView } from './sections/replacements/replacements-view'
 import { WarehouseStocksView } from './sections/stocks/stocks-view'
 import { WarehouseWarehousesView } from './sections/warehouses/warehouses-view'
+import { WarehouseEmptyBottlesView } from './sections/inventory/empty-bottles-view'
+import { WarehouseRetailPosView } from './sections/retail-pos/retail-pos-view'
+import { WarehouseInventoryTransactionsView } from './sections/inventory/transactions-view'
 import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -68,7 +71,9 @@ import {
   Car,
   CalendarClock,
   Camera,
-  XCircle
+  XCircle,
+  Recycle,
+  Store,
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
@@ -181,6 +186,7 @@ interface InventoryTransactionItem {
   createdAt: string
   type?: string
   quantity?: number
+  stockUnitLabel?: string | null
   referenceType?: string | null
   referenceId?: string | null
   warehouse?: {
@@ -538,11 +544,13 @@ function getStockHealthDotClass(name: string) {
 
 const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Boxes },
+  { id: 'retailPos', label: 'Retail / POS', icon: Store },
   { id: 'orders', label: 'Purchase Orders', icon: PackageCheck },
   { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
   { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
   { id: 'liveTracking', label: 'Live Tracking', icon: MapPin },
   { id: 'inventory', label: 'Inventory', icon: Package },
+  { id: 'transactions', label: 'Inventory Transactions', icon: ClipboardList },
   { id: 'warehouses', label: 'Warehouse', icon: Warehouse },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -580,7 +588,7 @@ export function WarehousePortal() {
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
   const [editingTripState, setEditingTripState] = useState<TripEditorState | null>(null)
-  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks'>('inventory')
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [loadingWarehouses, setLoadingWarehouses] = useState(true)
   const [loadingBatches, setLoadingBatches] = useState(true)
@@ -4068,17 +4076,17 @@ export function WarehousePortal() {
         return Boolean(catalogName && catalogName === replacementBaseName.trim().toLowerCase())
       })
       const originalCategory = originalCategoryRaw || String(
-        matchedOriginalOrderItem?.product?.category?.name ||
-        matchedOriginalOrderItem?.product?.category ||
-        matchedOriginalCatalogProduct?.category?.name ||
-        matchedOriginalCatalogProduct?.category ||
+        (matchedOriginalOrderItem?.product as any)?.category?.name ||
+        (matchedOriginalOrderItem?.product as any)?.category ||
+        (matchedOriginalCatalogProduct as any)?.category?.name ||
+        (matchedOriginalCatalogProduct as any)?.category ||
         ''
       ).trim()
       const replacementCategory = replacementCategoryRaw || String(
-        matchedReplacementOrderItem?.product?.category?.name ||
-        matchedReplacementOrderItem?.product?.category ||
-        matchedReplacementCatalogProduct?.category?.name ||
-        matchedReplacementCatalogProduct?.category ||
+        (matchedReplacementOrderItem?.product as any)?.category?.name ||
+        (matchedReplacementOrderItem?.product as any)?.category ||
+        (matchedReplacementCatalogProduct as any)?.category?.name ||
+        (matchedReplacementCatalogProduct as any)?.category ||
         ''
       ).trim()
       const quantityToReplace = Number(line?.quantityToReplace ?? line?.damagedQuantity ?? fallbackLine.quantityToReplace ?? 0)
@@ -4220,6 +4228,33 @@ export function WarehousePortal() {
     }
   }
 
+  const receiveReplacementReturn = async (
+    replacementId: string,
+    returnedLines: Array<{ replacementLineId: string; quantityBaseUnits: number }>
+  ) => {
+    try {
+      const response = await fetch(`/api/replacements/${replacementId}/receive-return`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          requestId: `ret-${Date.now()}`,
+          returnedLines,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || payload?.message || 'Failed to process replacement return')
+      }
+      toast.success('Replacement return received successfully')
+      emitDataSync(['replacements', 'inventory', 'stock-batches'])
+      void Promise.all([fetchReplacementsData(), fetchInventoryData()])
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to process replacement return')
+      throw error
+    }
+  }
+
   return (
     <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
@@ -4318,31 +4353,19 @@ export function WarehousePortal() {
             />
           )}
 
+          {activeView === 'retailPos' && assignedWarehouse?.id && (
+            <WarehouseRetailPosView warehouseId={assignedWarehouse.id} />
+          )}
+
           {activeView === 'orders' && (
             <WarehouseOrdersView
               loadingOrders={loadingOrders}
-              scopedOrders={scopedOrders}
-              orderStatusFilter={orderStatusFilter}
-              setOrderStatusFilter={setOrderStatusFilter}
-              orderStatusOptions={orderStatusOptions}
-              orderDatePreset={orderDatePreset}
-              setOrderDatePreset={setOrderDatePreset}
-              orderCustomDateFilter={orderCustomDateFilter}
-              setOrderCustomDateFilter={setOrderCustomDateFilter}
-              orderMinPriceFilter={orderMinPriceFilter}
-              setOrderMinPriceFilter={setOrderMinPriceFilter}
-              orderMaxPriceFilter={orderMaxPriceFilter}
-              setOrderMaxPriceFilter={setOrderMaxPriceFilter}
-              filteredOrders={filteredOrders}
+              purchaseOrders={scopedOrders}
               formatPeso={formatPeso}
-              formatWarehouseOrderStatus={formatWarehouseOrderStatus}
               openOrderDetail={openOrderDetail}
-              updateWarehouseOrderStatus={updateWarehouseOrderStatus}
+              updateWarehouseOrderStatus={updateWarehouseOrderStatus as any}
               updatingOrderId={updatingOrderId}
-              openRejectDialog={(order) => {
-                setRejectReason('')
-                setRejectOrder(order)
-              }}
+              onOpenTransportation={() => setActiveView('trips')}
             />
           )}
 
@@ -4395,6 +4418,7 @@ export function WarehousePortal() {
               selectedReplacement={selectedReplacement}
               setSelectedReplacement={setSelectedReplacement}
               buildReplacementLines={buildReplacementLines}
+              receiveReplacementReturn={receiveReplacementReturn}
             />
           )}
 
@@ -4416,7 +4440,7 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'inventory' && (
-            <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks')} className="space-y-4">
+            <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties')} className="space-y-4">
               <TabsList className="h-auto w-full flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
                 <TabsTrigger
                   value="inventory"
@@ -4432,6 +4456,13 @@ export function WarehousePortal() {
                   <Archive className="h-4 w-4" />
                   Stock batches
                 </TabsTrigger>
+                <TabsTrigger
+                  value="empties"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+                >
+                  <Recycle className="h-4 w-4" />
+                  Empty Bottles
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="inventory" className="mt-0">
@@ -4443,15 +4474,6 @@ export function WarehousePortal() {
                   getAvailableQty={getAvailableQty}
                   formatPeso={formatPeso}
                   openEditDialog={openEditDialog}
-                  transactionDateFrom={transactionDateFrom}
-                  setTransactionDateFrom={setTransactionDateFrom}
-                  transactionDatePreset={transactionDatePreset}
-                  setTransactionDatePreset={setTransactionDatePreset}
-                  transactionTypeFilter={transactionTypeFilter}
-                  setTransactionTypeFilter={setTransactionTypeFilter}
-                  availableInventoryTransactionTypes={availableInventoryTransactionTypes}
-                  loadingInventoryTransactions={loadingInventoryTransactions}
-                  filteredInventoryTransactions={filteredInventoryTransactions}
                 />
               </TabsContent>
 
@@ -4463,7 +4485,21 @@ export function WarehousePortal() {
                   openBatchQuantityDialog={openBatchQuantityDialog}
                 />
               </TabsContent>
+
+              <TabsContent value="empties" className="mt-0">
+                <WarehouseEmptyBottlesView
+                  orders={orders}
+                  formatPeso={formatPeso}
+                  openOrderDetail={openOrderDetail}
+                  loadingOrders={loadingOrders}
+                />
+              </TabsContent>
             </Tabs>
+          )}
+
+          {/* Use the comprehensive inventory transactions table just like admin */}
+          {activeView === 'transactions' && (
+            <WarehouseInventoryTransactionsView userRole={user?.role || 'WAREHOUSE_STAFF'} />
           )}
 
           {activeView === 'warehouses' && (
@@ -4472,15 +4508,6 @@ export function WarehousePortal() {
               assignedWarehouse={assignedWarehouse}
               warehouseOverviewStats={warehouseOverviewStats}
               getStockHealthDotClass={getStockHealthDotClass}
-            />
-          )}
-
-          {activeView === 'transactions' && (
-            <WarehouseStocksView
-              loadingBatches={loadingBatches}
-              stockBatches={stockBatches}
-              getDaysLeft={getDaysLeft}
-              openBatchQuantityDialog={openBatchQuantityDialog}
             />
           )}
 

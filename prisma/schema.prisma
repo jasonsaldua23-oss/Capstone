@@ -34,6 +34,10 @@ model User {
   email        String     @unique
   password     String
   name         String
+  firstName    String?
+  lastName     String?
+  middleName   String?
+  suffix       String?
   phone        String?
   avatar       String?
   roleId       String
@@ -53,6 +57,10 @@ model Customer {
   email        String   @unique
   password     String
   name         String
+  firstName    String?
+  lastName     String?
+  middleName   String?
+  suffix       String?
   phone        String?
   avatar       String?
   address      String?

@@ -12,12 +12,16 @@ import { CustomerProfileView } from './sections/profile/profile-view'
 import { CustomerFeedbackView } from './sections/feedback/feedback-view'
 import { CustomerHomeView } from './sections/home/home-view'
 import { CustomerCartView } from './sections/cart/cart-view'
+import { MixedCaseBuilderDialog } from './sections/cart/mixed-case-builder-dialog'
 import { CustomerCheckoutView } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
+import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
+import { CustomerPurchaseRequestView } from './sections/purchase-requests/purchase-request-view'
 import { CustomerTrackView } from './sections/track/track-view'
 import { CustomerProfileDialog } from './sections/profile/profile-dialog'
 import { CustomerAvatarCropDialog } from './sections/profile/avatar-crop-dialog'
 import { CustomerAddressDialog } from './sections/checkout/address-dialog'
+import { CustomerEditAddressPage } from './sections/profile/edit-address-page'
 import { CustomerOrderDetailsDialog } from './sections/orders/order-details-dialog'
 import { CustomerReceiptDialog } from './sections/orders/receipt-dialog'
 import { CustomerRatingDialog } from './sections/orders/rating-dialog'
@@ -43,6 +47,7 @@ import {
   fetchCustomerTracking,
   fetchReplacementsMeta,
   fetchLegacyCustomerReplacements,
+  quoteMixedCase,
   submitCustomerReplacementRequest,
   uploadReplacementEvidence,
 } from './sections/orders/orders-api'
@@ -101,6 +106,11 @@ const parseDateOnly = (value: string) => {
   return new Date(year, month - 1, day)
 }
 
+const createClientRequestId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
 
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
@@ -119,9 +129,36 @@ export function CustomerPortal() {
   const [orderFilterStatus, setOrderFilterStatus] = useState('ALL')
   const [orderFilterDateFrom, setOrderFilterDateFrom] = useState('')
   const [orderFilterDateTo, setOrderFilterDateTo] = useState('')
+  const [backView, setBackView] = useState<string>('orders')
+  const [backAddressView, setBackAddressView] = useState<string>('profile')
+  const [headerUnreadCount, setHeaderUnreadCount] = useState(0)
+  const notifInitialSubViewRef = useRef<'real-notifications' | 'menu'>('menu')
+  const [profileViewKey, setProfileViewKey] = useState(0)
+
+  // Navigate to the full-page order detail from any view
+  const openOrderDetail = (order: any, fromView = 'orders') => {
+    setSelectedOrder(order)
+    setBackView(fromView)
+    setActiveView('order-detail')
+  }
+
+  const openEditAddressPage = (fromView = activeView) => {
+    setIsAddressDialogOpen(false)
+    setBackAddressView(fromView !== 'edit-address' ? fromView : 'profile')
+    setActiveView('edit-address')
+  }
+
+  const handleSetIsAddressDialogOpen = (open: boolean) => {
+    if (open) {
+      openEditAddressPage()
+    } else {
+      setIsAddressDialogOpen(false)
+    }
+  }
   const manualAddressPinDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const manualAddressPinAbortRef = useRef<AbortController | null>(null)
   const lastManualAddressQueryRef = useRef('')
+  const checkoutRequestRef = useRef<{ payloadKey: string; requestId: string } | null>(null)
   const {
     activeView,
     setActiveView,
@@ -148,6 +185,10 @@ export function CustomerPortal() {
     setPendingCartQty,
     cart,
     setCart,
+    isMixedCaseBuilderOpen,
+    setIsMixedCaseBuilderOpen,
+    editingMixedCase,
+    setEditingMixedCase,
     selectedCartIds,
     setSelectedCartIds,
     isPlacingOrder,
@@ -423,7 +464,7 @@ export function CustomerPortal() {
 
       if (response?.status === 401 || response?.status === 403) {
         clearTabAuthToken()
-        ;({ response, data } = await requestOrders())
+          ; ({ response, data } = await requestOrders())
       }
 
       if (!response?.ok || data?.success === false) {
@@ -493,7 +534,7 @@ export function CustomerPortal() {
     setDeliveryIssueRecords(replacements)
   }, [])
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async (): Promise<Product[] | null> => {
     setIsProductsLoading(true)
     try {
       const { response, data: payload } = await fetchCustomerProducts()
@@ -503,29 +544,38 @@ export function CustomerPortal() {
         : Array.isArray(payload?.data)
           ? payload.data
           : []
-      setProducts(
-        sourceProducts.filter((p) => {
-          if ((p as any)?.isActive === false) return false
-          const explicitAvailable = Number((p as any)?.availableQuantity)
-          if (Number.isFinite(explicitAvailable)) return explicitAvailable > 0
-          const inventory = Array.isArray(p.inventory) ? p.inventory : []
-          if (inventory.length === 0) return true
-          const available = inventory.reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
-          return available > 0
-        })
-      )
+      const visibleProducts = sourceProducts.filter((p) => {
+        if ((p as any)?.isActive === false) return false
+        const rawAvailable = (p as any)?.availableQuantity
+        const rawBaseUnits = (p as any)?.availableBaseUnits
+        const explicitAvailable = Number(rawAvailable)
+        const explicitBaseUnits = Number(rawBaseUnits)
+        const hasExplicitAvailable = rawAvailable !== undefined && rawAvailable !== null && Number.isFinite(explicitAvailable)
+        const hasExplicitBaseUnits = rawBaseUnits !== undefined && rawBaseUnits !== null && Number.isFinite(explicitBaseUnits)
+        if (hasExplicitAvailable || hasExplicitBaseUnits) {
+          return (hasExplicitAvailable && explicitAvailable > 0) ||
+            (hasExplicitBaseUnits && explicitBaseUnits > 0)
+        }
+        const inventory = Array.isArray(p.inventory) ? p.inventory : []
+        if (inventory.length === 0) return true
+        const available = inventory.reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
+        return available > 0
+      })
+      setProducts(visibleProducts)
+      return visibleProducts
     } catch (error) {
       console.warn('Failed to load products:', error)
+      return null
     } finally {
       setIsProductsLoading(false)
     }
-  }
+  }, [setIsProductsLoading, setProducts])
 
   useEffect(() => {
     fetchOrders()
     fetchProducts()
     fetchOrderMeta()
-  }, [fetchOrderMeta, fetchOrders])
+  }, [fetchOrderMeta, fetchOrders, fetchProducts])
 
   useEffect(() => {
     const refreshOrders = async (includeMeta = false) => {
@@ -544,17 +594,20 @@ export function CustomerPortal() {
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes || []
       const shouldRefreshTrack = activeView === 'track' && !isSelectedTrackingOrderDelivered
-      const shouldRefreshOrdersView = activeView === 'orders'
+      const shouldRefreshOrdersView = activeView === 'orders' || activeView === 'purchase-requests'
       if (
         (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('replacements')) &&
         (shouldRefreshOrdersView || shouldRefreshTrack)
       ) {
         void refreshOrders(true)
       }
+      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'packaging-profiles'].includes(scope))) {
+        void fetchProducts()
+      }
     })
 
     const onFocus = () => {
-      if (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered)) {
+      if (activeView === 'orders' || activeView === 'purchase-requests' || (activeView === 'track' && !isSelectedTrackingOrderDelivered)) {
         refreshOrders(true)
       }
     }
@@ -562,7 +615,7 @@ export function CustomerPortal() {
     const onVisibilityChange = () => {
       if (
         document.visibilityState === 'visible' &&
-        (activeView === 'orders' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
+        (activeView === 'orders' || activeView === 'purchase-requests' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
       ) {
         refreshOrders(true)
       }
@@ -576,7 +629,7 @@ export function CustomerPortal() {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [activeView, fetchOrderMeta, fetchOrders, isSelectedTrackingOrderDelivered])
+  }, [activeView, fetchOrderMeta, fetchOrders, fetchProducts, isSelectedTrackingOrderDelivered])
 
   const submitReplacementRequest = useCallback(async (
     orderId: string,
@@ -822,6 +875,28 @@ export function CustomerPortal() {
     return fallback || String((product as any)?.unit || '').trim() || 'case'
   }
 
+  const applyAutomaticEmptyCredit = (item: CartItem, quantity: number): CartItem => {
+    if (item.packagingType !== 'RETURNABLE' || item.depositExempt) {
+      return { ...item, quantity, emptyReturnedQuantity: 0, availableEmptyBottles: 0, availableDepositBalance: 0 }
+    }
+    const customerBalance = Array.isArray(user?.bottleBalances)
+      ? user.bottleBalances.find((row) => String(row.containerTypeId) === String(item.containerTypeId))
+      : undefined
+    const availableEmpties = Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0)))
+    const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
+    const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
+    const emptyReturnedQuantity = isCase
+      ? Math.min(quantity, Math.floor(availableEmpties / containersPerCase)) * containersPerCase
+      : Math.min(quantity, availableEmpties)
+    return {
+      ...item,
+      quantity,
+      availableEmptyBottles: availableEmpties,
+      availableDepositBalance: Math.max(0, Number(customerBalance?.depositBalance || 0)),
+      emptyReturnedQuantity,
+    }
+  }
+
   const addToCart = (product: Product, requestedQty = 1) => {
     const available = getAvailableQty(product)
     const qty = Math.max(1, Math.floor(Number(requestedQty || 1)))
@@ -833,38 +908,58 @@ export function CustomerPortal() {
     setCart((prev) => {
       const existing = prev.find((i) => i.productId === product.id)
       if (!existing) {
+        const newItem: CartItem = {
+          productId: product.id,
+          name: product.name,
+          sku: product.sku,
+          imageUrl: product.imageUrl || null,
+          unit: product.unit,
+          sizeLabel: getProductSizeLabel(product),
+          category: String((product as any)?.category?.name || (product as any)?.category || '').trim() || undefined,
+          containerPackagingType: product.containerPackagingType,
+          looseUnit: product.looseUnit,
+          packagingCompatibilityKey: product.packagingCompatibilityKey,
+          depositExempt: product.depositExempt,
+          unitPrice: product.price,
+          quantity: Math.min(qty, available),
+          available,
+          packagingType: product.packagingType,
+          containerTypeId: product.containerTypeId,
+          containerTypeName: product.containerTypeName,
+          containersPerCase: product.containersPerCase,
+          depositAmount: product.depositAmount,
+          caseDepositAmount: product.caseDepositAmount,
+        }
         return [
           ...prev,
-          {
-            productId: product.id,
-            name: product.name,
-            sku: product.sku,
-            imageUrl: product.imageUrl || null,
-            unit: product.unit,
-            sizeLabel: getProductSizeLabel(product),
-            category: String((product as any)?.category?.name || (product as any)?.category || '').trim() || undefined,
-            unitPrice: product.price,
-            quantity: Math.min(qty, available),
-            available,
-          },
+          applyAutomaticEmptyCredit(newItem, newItem.quantity),
         ]
       }
       if (existing.quantity >= available) return prev
       return prev.map((i) =>
         i.productId === product.id
-          ? {
-              ...i,
-              quantity: Math.min(existing.quantity + qty, available),
-              available,
-              imageUrl: i.imageUrl || product.imageUrl || null,
-              sizeLabel: i.sizeLabel || getProductSizeLabel(product),
-              category:
-                String((i as any)?.category || '').trim() ||
-                String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
-                undefined,
-            }
+          ? applyAutomaticEmptyCredit({
+            ...i,
+            available,
+            imageUrl: i.imageUrl || product.imageUrl || null,
+            sizeLabel: i.sizeLabel || getProductSizeLabel(product),
+            category:
+              String((i as any)?.category || '').trim() ||
+              String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
+              undefined,
+            containerPackagingType: product.containerPackagingType,
+            looseUnit: product.looseUnit,
+            packagingCompatibilityKey: product.packagingCompatibilityKey,
+            depositExempt: product.depositExempt,
+          }, Math.min(existing.quantity + qty, available))
           : i
       )
+    })
+    setSelectedCartIds((prev) => {
+      if (prev.has(product.id)) return prev
+      const next = new Set(prev)
+      next.add(product.id)
+      return next
     })
   }
 
@@ -872,22 +967,44 @@ export function CustomerPortal() {
     if (!Array.isArray(products) || products.length === 0) return
     setCart((prev) =>
       prev.map((item) => {
+        if (item.itemType === 'MIXED_CASE') {
+          // Refresh component product data so persisted mixed cases retain both product images.
+          return {
+            ...item,
+            components: (item.components || []).map((component) => ({
+              ...component,
+              product: products.find((product) => String(product.id) === String(component.productId)) || component.product || null,
+            })),
+          }
+        }
         const currentSize = String((item as any)?.sizeLabel || '').trim()
         const product = products.find((p) => String(p.id) === String(item.productId))
         const nextCategory =
           String((item as any)?.category || '').trim() ||
           String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
           undefined
-        if (currentSize && currentSize.toUpperCase() !== 'N/A') {
-          return { ...item, category: nextCategory }
-        }
         if (!product) {
           return { ...item, sizeLabel: String(item.unit || 'case').trim() || 'case', category: nextCategory }
         }
-        return { ...item, sizeLabel: getProductSizeLabel(product), category: nextCategory }
+        const refreshedItem = {
+          ...item,
+          sizeLabel: currentSize && currentSize.toUpperCase() !== 'N/A' ? currentSize : getProductSizeLabel(product),
+          category: nextCategory,
+          containerPackagingType: product.containerPackagingType,
+          looseUnit: product.looseUnit,
+          packagingCompatibilityKey: product.packagingCompatibilityKey,
+          depositExempt: product.depositExempt,
+          packagingType: product.packagingType,
+          containerTypeId: product.containerTypeId,
+          containerTypeName: product.containerTypeName,
+          containersPerCase: product.containersPerCase,
+          depositAmount: product.depositAmount,
+          caseDepositAmount: product.caseDepositAmount,
+        }
+        return applyAutomaticEmptyCredit(refreshedItem, item.quantity)
       })
     )
-  }, [products, setCart])
+  }, [products, setCart, user?.bottleBalances])
 
   const openAddToCartDialog = (product: Product) => {
     const available = getAvailableQty(product)
@@ -933,22 +1050,98 @@ export function CustomerPortal() {
   const updateCartQty = (productId: string, qty: number) => {
     setCart((prev) =>
       prev
-        .map((i) => (i.productId === productId ? { ...i, quantity: Math.max(0, Math.min(qty, i.available)) } : i))
+        .map((i) => {
+          if (i.productId !== productId) return i
+          if (i.itemType === 'MIXED_CASE') return qty <= 0 ? { ...i, quantity: 0 } : i
+          const newQty = Math.max(0, Math.min(qty, i.available))
+          return applyAutomaticEmptyCredit(i, newQty)
+        })
         .filter((i) => i.quantity > 0)
     )
   }
 
+  const openMixedCaseBuilder = (item: CartItem | null = null) => {
+    setEditingMixedCase(item)
+    setIsMixedCaseBuilderOpen(true)
+  }
+
+  const saveMixedCase = (item: CartItem) => {
+    setCart((prev) => {
+      const existing = prev.some((row) => row.productId === item.productId)
+      return existing
+        ? prev.map((row) => (row.productId === item.productId ? item : row))
+        : [...prev, item]
+    })
+    setSelectedCartIds((prev) => {
+      const next = new Set(prev)
+      next.add(item.productId)
+      return next
+    })
+    setEditingMixedCase(null)
+  }
+
   const cartCount = useMemo(() => cart.reduce((sum, i) => sum + i.quantity, 0), [cart])
   const selectedCartItems = useMemo(
-    () => cart.filter((item) => selectedCartIds.has(item.productId)),
-    [cart, selectedCartIds]
+    () => {
+      const remainingByContainer = new Map<string, number>()
+      return cart
+        .filter((item) => selectedCartIds.has(item.productId))
+        .map((item) => {
+          if (item.packagingType !== 'RETURNABLE' || item.depositExempt || !item.containerTypeId) return item
+          const containerKey = String(item.containerTypeId)
+          if (!remainingByContainer.has(containerKey)) {
+            const customerBalance = Array.isArray(user?.bottleBalances)
+              ? user.bottleBalances.find((row) => String(row.containerTypeId) === containerKey)
+              : undefined
+            remainingByContainer.set(containerKey, Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0))))
+          }
+          const remaining = remainingByContainer.get(containerKey) || 0
+          const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
+          const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
+          const emptiesUsed = isCase
+            ? Math.min(item.quantity, Math.floor(remaining / containersPerCase)) * containersPerCase
+            : Math.min(item.quantity, remaining)
+          remainingByContainer.set(containerKey, remaining - emptiesUsed)
+          return { ...item, emptyReturnedQuantity: emptiesUsed }
+        })
+    },
+    [cart, selectedCartIds, user?.bottleBalances]
   )
   const selectedSubtotal = useMemo(
     () => selectedCartItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
     [selectedCartItems]
   )
+  const selectedDepositCharged = useMemo(
+    () => selectedCartItems.reduce((sum, i) => {
+      if (i.packagingType !== 'RETURNABLE' || i.depositExempt) return sum
+      const isCase = String(i.unit || '').trim().toLowerCase() === 'case'
+      const deposit = isCase ? Number(i.caseDepositAmount || 0) : Number(i.depositAmount || 0)
+      return sum + (i.quantity * deposit)
+    }, 0),
+    [selectedCartItems]
+  )
+  const selectedDepositRefunded = useMemo(
+    () => selectedCartItems.reduce((sum, i) => {
+      if (i.packagingType !== 'RETURNABLE' || i.depositExempt) return sum
+      const isCase = String(i.unit || '').trim().toLowerCase() === 'case'
+      if (isCase) {
+        const coveredCases = Math.floor((i.emptyReturnedQuantity || 0) / Math.max(1, i.containersPerCase || 1))
+        return sum + (coveredCases * Number(i.caseDepositAmount || 0))
+      }
+      return sum + ((i.emptyReturnedQuantity || 0) * Number(i.depositAmount || 0))
+    }, 0),
+    [selectedCartItems]
+  )
   const discountCasesAffected = useMemo(
-    () => selectedCartItems.reduce((sum, i) => sum + Math.max(0, Number(i.quantity || 0)), 0),
+    () => selectedCartItems.reduce((sum, item) => {
+      const isMixedCase = item.itemType === 'MIXED_CASE'
+      const normalizedUnit = String(item.unit || '').trim().toLowerCase()
+      // Packs count toward the discount minimum alongside standard and mixed cases.
+      const isCaseOrPack = normalizedUnit === 'case' || normalizedUnit === 'pack(bundle)'
+      return isMixedCase || isCaseOrPack
+        ? sum + Math.max(0, Number(item.quantity || 0))
+        : sum
+    }, 0),
     [selectedCartItems]
   )
   const checkoutDiscountBreakdown = useMemo(() => {
@@ -990,20 +1183,24 @@ export function CustomerPortal() {
     const totalDiscountRaw = discountType === 'AMOUNT_PER_CASE'
       ? (amountPerCase * discountCasesAffected)
       : percentageDiscountTotal
-    const totalDiscount = isActive ? Math.min(selectedSubtotal, Math.max(0, totalDiscountRaw)) : 0
+    // The configured discount becomes eligible at the 50-case minimum.
+    const isDiscountEligible = discountCasesAffected >= 50
+    const totalDiscount = isActive && isDiscountEligible
+      ? Math.min(selectedSubtotal, Math.max(0, totalDiscountRaw))
+      : 0
     return {
-      name,
-      discountType,
-      discountPercent,
-      amountPerCase,
-      perCaseDiscount: isActive
+      name: isDiscountEligible ? name : 'No Discount',
+      discountType: isDiscountEligible ? discountType : 'NO_DISCOUNT',
+      discountPercent: isDiscountEligible ? discountPercent : 0,
+      amountPerCase: isDiscountEligible ? amountPerCase : 0,
+      perCaseDiscount: isActive && isDiscountEligible
         ? (discountType === 'AMOUNT_PER_CASE'
           ? perCaseDiscount
           : (discountCasesAffected > 0 ? totalDiscount / discountCasesAffected : 0))
         : 0,
-      casesAffected: discountCasesAffected,
+      casesAffected: isDiscountEligible ? discountCasesAffected : 0,
       totalDiscount,
-      finalTotal: Math.max(0, selectedSubtotal - totalDiscount),
+      finalTotal: Math.max(0, selectedSubtotal - totalDiscount) + selectedDepositCharged - selectedDepositRefunded,
     }
   }, [
     customerDiscountOption,
@@ -1013,6 +1210,8 @@ export function CustomerPortal() {
     discountCasesAffected,
     selectedCartItems,
     selectedSubtotal,
+    selectedDepositCharged,
+    selectedDepositRefunded,
   ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
   const canPlaceOrder = useMemo(
@@ -1037,9 +1236,7 @@ export function CustomerPortal() {
       for (const id of prev) {
         if (existing.has(id)) next.add(id)
       }
-      for (const item of cart) {
-        if (!prev.has(item.productId)) next.add(item.productId)
-      }
+      if (next.size === prev.size) return prev
       return next
     })
   }, [cart])
@@ -1186,7 +1383,10 @@ export function CustomerPortal() {
     if (!query) return tabFilteredOrders
 
     return tabFilteredOrders.filter((order) => {
-      const itemNames = (order.items || []).map((item) => item.product?.name || '').join(' ')
+      const itemNames = (order.items || []).map((item) => [
+        item.itemType === 'MIXED_CASE' ? 'Mixed Case' : item.product?.name || '',
+        ...(item.components || []).flatMap((component) => [component.productName, component.productSku || '']),
+      ].join(' ')).join(' ')
       const orderStatus = formatOrderStatus(order.status, order.paymentStatus).toLowerCase()
       const orderDate = new Date(order.createdAt).toLocaleDateString().toLowerCase()
       return (
@@ -1278,7 +1478,7 @@ export function CustomerPortal() {
     const cartSnapshot = [...cart]
     const selectedIdsSnapshot = new Set(selectedCartIds)
     try {
-      const { response, data } = await createCustomerOrder({
+      const orderPayload = {
         shippingName,
         shippingPhone,
         shippingAddress: composedShippingAddress,
@@ -1299,7 +1499,37 @@ export function CustomerPortal() {
           casesAffected: checkoutDiscountBreakdown.casesAffected,
           totalDiscount: checkoutDiscountBreakdown.totalDiscount,
         },
-        items: selectedCartItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        items: selectedCartItems.map((item) =>
+          item.itemType === 'MIXED_CASE'
+            ? {
+              itemType: 'MIXED_CASE',
+              caseCapacity: item.caseCapacity,
+              quantity: item.quantity,
+              components: (item.components || []).map((component) => ({
+                productId: component.productId,
+                quantity: component.quantityPerCase,
+              })),
+            }
+            : {
+              itemType: 'STANDARD_CASE',
+              productId: item.productId,
+              quantity: item.quantity,
+              // Server recalculates this from the live balance; sending it keeps
+              // the request transparent for receipts and debugging.
+              emptyReturnedQuantity: item.emptyReturnedQuantity || 0,
+            }
+        ),
+      }
+      const payloadKey = JSON.stringify(orderPayload)
+      if (!checkoutRequestRef.current || checkoutRequestRef.current.payloadKey !== payloadKey) {
+        checkoutRequestRef.current = {
+          payloadKey,
+          requestId: createClientRequestId(),
+        }
+      }
+      const { response, data } = await createCustomerOrder({
+        ...orderPayload,
+        requestId: checkoutRequestRef.current.requestId,
       })
       if (!response.ok || data?.success === false) {
         const errorMessage = String(data?.error || data?.message || '').trim()
@@ -1308,7 +1538,7 @@ export function CustomerPortal() {
       setLastPlacedOrderNumber(String(data?.order?.orderNumber || data?.order?.id || '').trim())
       setIsOrderConfirmationOpen(true)
       if (data?.order) {
-        setOrders((prev) => [data.order, ...prev])
+        setOrders((prev) => [data.order, ...prev.filter((order) => order.id !== data.order.id)])
       }
       const selectedIds = new Set(selectedCartItems.map((item) => item.productId))
       setCart((prev) => prev.filter((item) => !selectedIds.has(item.productId)))
@@ -1319,9 +1549,11 @@ export function CustomerPortal() {
       })
       // Refresh once in background via shared sync channel.
       emitDataSync(['orders'])
+      void fetchProducts()
       setOrdersTab('ALL')
       setOrdersSearch('')
       setActiveView('orders')
+      checkoutRequestRef.current = null
     } catch (e: any) {
       setCart(cartSnapshot)
       setSelectedCartIds(selectedIdsSnapshot)
@@ -1360,7 +1592,7 @@ export function CustomerPortal() {
     toast.success('Added to cart', { duration: 1000 })
   }
 
-  const buyAgainFromOrder = (order: any) => {
+  const buyAgainFromOrder = async (order: any) => {
     const orderItems = Array.isArray(order?.items) ? order.items : []
     if (orderItems.length === 0) {
       toast.error('No items found in this order')
@@ -1372,33 +1604,114 @@ export function CustomerPortal() {
     let missingProductRefCount = 0
     let productNotFoundCount = 0
     let outOfStockCount = 0
+    const catalogProducts = (await fetchProducts()) || products
 
-    orderItems.forEach((item: any) => {
+    for (const item of orderItems) {
+      const itemType = String(item?.itemType || item?.item_type || '').trim().toUpperCase()
+      if (itemType === 'MIXED_CASE') {
+        const components = Array.isArray(item?.components) ? item.components : []
+        const caseCapacity = Math.max(0, Math.floor(Number(item?.caseCapacity || item?.case_capacity || 0)))
+        const qty = Math.max(1, Math.floor(Number(item?.quantity || 1)))
+        if (caseCapacity <= 0 || components.length < 2) {
+          skippedCount += 1
+          missingProductRefCount += 1
+          continue
+        }
+
+        try {
+          const { response, data } = await quoteMixedCase({
+            caseCapacity,
+            quantity: qty,
+            components: components.map((component: any) => ({
+              productId: String(component?.productId || component?.product?.id || ''),
+              quantity: Math.max(0, Math.floor(Number(component?.quantityPerCase || component?.quantity || 0))),
+            })),
+          })
+          if (!response.ok || data?.success === false || !data?.quote) {
+            throw new Error(data?.error || 'Mixed Case is unavailable')
+          }
+
+          const quote = data.quote
+          const quoteComponents = Array.isArray(quote?.components) ? quote.components : []
+          const componentProducts = quoteComponents.map((component: any) =>
+            catalogProducts.find((product) => String(product.id) === String(component?.productId))
+          )
+          if (quoteComponents.length < 2 || componentProducts.some((product: Product | undefined) => !product)) {
+            skippedCount += 1
+            productNotFoundCount += 1
+            continue
+          }
+
+          const maxCases = Math.min(...quoteComponents.map((component: any) => {
+            const product = catalogProducts.find((row) => String(row.id) === String(component?.productId))
+            return Math.floor(
+              Number(product?.availableBaseUnits || 0) /
+              Math.max(1, Number(component?.quantityPerCase || 1))
+            )
+          }))
+          if (!Number.isFinite(maxCases) || maxCases < qty) {
+            skippedCount += 1
+            outOfStockCount += 1
+            continue
+          }
+
+          const cartKey = `mixed:${createClientRequestId()}`
+          const firstProduct = componentProducts[0]
+          // Store each selected product with the quote for the mixed-case image pair.
+          const mixedComponents = quoteComponents.map((component: any, index: number) => ({
+            ...component,
+            product: componentProducts[index] || null,
+          }))
+          const mixedItem: CartItem = {
+            productId: cartKey,
+            itemType: 'MIXED_CASE',
+            name: `Mixed Case — ${Number(quote.caseCapacity || caseCapacity)} units`,
+            sku: 'MIXED-CASE',
+            imageUrl: firstProduct?.imageUrl || null,
+            unit: 'mixed case',
+            sizeLabel: `${Number(quote.caseCapacity || caseCapacity)} units`,
+            unitPrice: Number(quote.unitPrice || 0),
+            quantity: Number(quote.caseCount || qty),
+            available: maxCases,
+            caseCapacity: Number(quote.caseCapacity || caseCapacity),
+            components: mixedComponents,
+          }
+          setCart((prev) => [...prev, mixedItem])
+          setSelectedCartIds((prev) => new Set(prev).add(cartKey))
+          addedCount += 1
+        } catch (error: any) {
+          skippedCount += 1
+          if (/out of stock|insufficient|inventory/i.test(String(error?.message || ''))) outOfStockCount += 1
+          else productNotFoundCount += 1
+        }
+        continue
+      }
+
       const productId = String(item?.product?.id || item?.productId || '').trim()
-      const qty = Math.max(1, Number(item?.quantity || 1))
+      const qty = Math.max(1, Math.floor(Number(item?.quantity || 1)))
       if (!productId) {
         skippedCount += 1
         missingProductRefCount += 1
-        return
+        continue
       }
 
-      const catalogProduct = products.find((p) => String(p.id) === productId)
+      const catalogProduct = catalogProducts.find((p) => String(p.id) === productId)
       if (!catalogProduct) {
         skippedCount += 1
         productNotFoundCount += 1
-        return
+        continue
       }
 
       const available = getAvailableQty(catalogProduct)
       if (available <= 0) {
         skippedCount += 1
         outOfStockCount += 1
-        return
+        continue
       }
 
       addToCart(catalogProduct, Math.min(qty, available))
       addedCount += 1
-    })
+    }
 
     if (addedCount === 0) {
       if (outOfStockCount > 0 && productNotFoundCount === 0 && missingProductRefCount === 0) {
@@ -1654,29 +1967,29 @@ export function CustomerPortal() {
       const houseNumber = String(addr.house_number || '').trim()
       const streetName = String(
         addr.road ||
-          addr.residential ||
-          addr.pedestrian ||
-          addr.path ||
-          addr.footway ||
-          addr.street ||
-          displayParts[0] ||
-          ''
+        addr.residential ||
+        addr.pedestrian ||
+        addr.path ||
+        addr.footway ||
+        addr.street ||
+        displayParts[0] ||
+        ''
       ).trim()
       let subdivision = String(
         addr.subdivision ||
-          // Keep optional subdivision conservative: only explicit subdivision-like fields.
-          addr.allotments ||
-          addr.village ||
-          ''
+        // Keep optional subdivision conservative: only explicit subdivision-like fields.
+        addr.allotments ||
+        addr.village ||
+        ''
       ).trim()
       if (subdivision && !isSubdivisionLike(subdivision)) {
         subdivision = ''
       }
       let city = String(
         addr.city ||
-          addr.town ||
-          addr.municipality ||
-          ''
+        addr.town ||
+        addr.municipality ||
+        ''
       ).trim()
       let province = String(addr.state || addr.region || '').trim()
       const postcode = String(addr.postcode || postcodeFromDisplay || '').trim()
@@ -1716,13 +2029,13 @@ export function CustomerPortal() {
 
       let barangay = String(
         addr.barangay ||
-          addr.suburb ||
-          addr.neighbourhood ||
-          addr.quarter ||
-          addr.city_district ||
-          addr.hamlet ||
-          barangayFromDisplay ||
-          ''
+        addr.suburb ||
+        addr.neighbourhood ||
+        addr.quarter ||
+        addr.city_district ||
+        addr.hamlet ||
+        barangayFromDisplay ||
+        ''
       ).trim()
 
       // Prefer explicit barangay tokens from display name when available.
@@ -1786,13 +2099,13 @@ export function CustomerPortal() {
             ''
           const coarseCandidate = String(
             coarseAddr.barangay ||
-              coarseAddr.suburb ||
-              coarseAddr.neighbourhood ||
-              coarseAddr.quarter ||
-              coarseAddr.city_district ||
-              coarseAddr.hamlet ||
-              coarseBarangayFromDisplay ||
-              ''
+            coarseAddr.suburb ||
+            coarseAddr.neighbourhood ||
+            coarseAddr.quarter ||
+            coarseAddr.city_district ||
+            coarseAddr.hamlet ||
+            coarseBarangayFromDisplay ||
+            ''
           ).trim()
           if (
             coarseCandidate &&
@@ -2232,443 +2545,556 @@ export function CustomerPortal() {
   return (
     <div className={`${poppins.className} h-[100dvh] overflow-hidden bg-[#d7dce3] md:bg-[#d8dce2]`}>
       <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/35 blur-3xl" />
-        <div className="absolute -bottom-16 -right-16 h-72 w-72 rounded-full bg-lime-200/30 blur-3xl" />
-      </div>
-      <div className="relative z-[1] flex h-full min-h-0 flex-col">
-      <CustomerPortalHeader
-        activeView={activeView}
-        setActiveView={setActiveView}
-        cartCount={cartCount}
-        avatarPreviewUrl={avatarPreviewUrl}
-        profileName={profileName}
-        user={user}
-        setIsAddressDialogOpen={setIsAddressDialogOpen}
-        handleLogout={handleLogout}
-      />
-
-      <div className="flex min-h-0 flex-1">
-      <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} />
-      <AnimatePresence mode="wait" initial={false}>
-      <motion.main
-        key={activeView}
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex-1 min-h-0 w-full overflow-y-auto space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
-      >
-        {activeView === 'home' && (
-          <CustomerHomeView
-            customerName={String(user?.name || profileName || '').trim()}
-            productSearch={productSearch}
-            setProductSearch={setProductSearch}
-            productCategoryFilter={productCategoryFilter}
-            setProductCategoryFilter={setProductCategoryFilter}
-            productCategoryOptions={productCategoryOptions}
-            isProductsLoading={isProductsLoading}
-            filteredProducts={filteredProducts}
-            getAvailableQty={getAvailableQty}
-            addToCartDirect={addToCartDirect}
-            getProductImage={getProductImage}
-            formatPeso={formatPeso}
-            cart={cart}
-            onOpenCart={() => setActiveView('cart')}
-          />
-        )}
-
-        {activeView === 'cart' && (
-          <CustomerCartView
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/35 blur-3xl" />
+          <div className="absolute -bottom-16 -right-16 h-72 w-72 rounded-full bg-lime-200/30 blur-3xl" />
+        </div>
+        <div className="relative z-[1] flex h-full min-h-0 flex-col">
+          <CustomerPortalHeader
+            activeView={activeView}
             setActiveView={setActiveView}
-            cart={cart}
-            setIsAddressDialogOpen={setIsAddressDialogOpen}
-            shippingBarangay={shippingBarangay}
-            shippingCity={shippingCity}
-            shippingProvince={shippingProvince}
-            selectedCartIds={selectedCartIds}
-            setSelectedCartIds={setSelectedCartIds}
-            getProductImage={getProductImage}
-            updateCartQty={updateCartQty}
-            allCartSelected={allCartSelected}
-            selectedCount={selectedCount}
-            selectedSubtotal={selectedSubtotal}
-            formatPeso={formatPeso}
-          />
-        )}
-
-        {activeView === 'checkout' && (
-          <CustomerCheckoutView
-            setActiveView={setActiveView}
-            selectedCartItems={selectedCartItems}
-            shippingName={shippingName}
-            setIsAddressDialogOpen={setIsAddressDialogOpen}
-            shippingPhone={shippingPhone}
-            composedShippingAddress={composedShippingAddress}
-            getProductImage={getProductImage}
-            formatPeso={formatPeso}
-            selectedSubtotal={selectedSubtotal}
-            discountName={checkoutDiscountBreakdown.name}
-            discountType={checkoutDiscountBreakdown.discountType}
-            discountPercent={checkoutDiscountBreakdown.discountPercent}
-            discountAmountPerCase={checkoutDiscountBreakdown.amountPerCase}
-            discountPerCase={checkoutDiscountBreakdown.perCaseDiscount}
-            discountCasesAffected={checkoutDiscountBreakdown.casesAffected}
-            totalDiscount={checkoutDiscountBreakdown.totalDiscount}
-            finalTotal={checkoutDiscountBreakdown.finalTotal}
-            notes={notes}
-            setNotes={setNotes}
-            deliveryDate={deliveryDate}
-            setDeliveryDate={setDeliveryDate}
-            placeOrder={placeOrder}
-            isPlacingOrder={isPlacingOrder}
-            canPlaceOrder={canPlaceOrder}
-          />
-        )}
-
-        {activeView === 'orders' && (
-          <CustomerOrdersView
-            ordersSearch={ordersSearch}
-            setOrdersSearch={setOrdersSearch}
-            ordersTabOptions={ordersTabOptions}
-            ordersTab={ordersTab}
-            setOrdersTab={setOrdersTab}
-            isLoading={isLoading}
-            visibleReplacementRecords={visibleReplacementRecords}
-            orders={orders}
-            getReplacementStatusLabel={getReplacementStatusLabel}
-            getReplacementBadgeClass={getReplacementBadgeClass}
-            visibleOrders={visibleOrders}
-            deliveryIssuesByOrderId={deliveryIssuesByOrderId}
-            deliveryIssueRecords={deliveryIssueRecords}
-            normalizeDeliveryStatus={normalizeDeliveryStatus}
-            reviewedOrderIds={reviewedOrderIds}
-            orderRatings={orderRatings}
-            formatOrderStatus={formatOrderStatus}
-            isOrderCancellable={isOrderCancellable}
-            cancelOrder={requestCancelOrder}
-            openRatingDialog={openRatingDialog}
-            reviewByOrderId={reviewByOrderId}
-            openReviewDetails={(order: Order) => setReviewDetailsOrder(order)}
-            setSelectedOrder={setSelectedOrder}
-            isOrderTrackable={isOrderTrackable}
-            openTrackView={openTrackView}
-            buyAgainFromOrder={buyAgainFromOrder}
-            getProductImage={getProductImage}
-            formatPeso={formatPeso}
-            openFilterDialog={() => setIsFilterDialogOpen(true)}
-          />
-        )}
-
-        {activeView === 'track' && (
-          <CustomerTrackView
-            orders={orders}
-            selectedTrackingOrderId={selectedTrackingOrderId}
-            setActiveView={setActiveView}
-            trackingByOrderId={trackingByOrderId}
-            normalizeDeliveryStatus={normalizeDeliveryStatus}
-            getOrderStageIndex={getOrderStageIndex}
-            formatOrderStatus={formatOrderStatus}
-            isTrackingLoading={isTrackingLoading}
-            formatPeso={formatPeso}
-          />
-        )}
-
-        {activeView === 'feedback' && <CustomerFeedbackView />}
-
-        {activeView === 'profile' && (
-          <CustomerProfileView
+            cartCount={cartCount}
             avatarPreviewUrl={avatarPreviewUrl}
             profileName={profileName}
+            user={user}
+            setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
+            handleLogout={handleLogout}
+            onOpenNotifications={() => {
+              notifInitialSubViewRef.current = 'real-notifications'
+              setProfileViewKey((k) => k + 1)
+              setActiveView('profile')
+            }}
+            unreadCount={headerUnreadCount}
+          />
+
+          <div className="flex min-h-0 flex-1">
+            <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} setSelectedOrder={setSelectedOrder} />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.main
+                key={activeView}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.22, ease: 'easeOut' }}
+                className="flex-1 min-h-0 w-full overflow-y-auto space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
+              >
+                {activeView === 'home' && (
+                  <CustomerHomeView
+                    customerName={String(user?.name || profileName || '').trim()}
+                    productSearch={productSearch}
+                    setProductSearch={setProductSearch}
+                    productCategoryFilter={productCategoryFilter}
+                    setProductCategoryFilter={setProductCategoryFilter}
+                    productCategoryOptions={productCategoryOptions}
+                    isProductsLoading={isProductsLoading}
+                    filteredProducts={filteredProducts}
+                    getAvailableQty={getAvailableQty}
+                    addToCartDirect={addToCartDirect}
+                    getProductImage={getProductImage}
+                    formatPeso={formatPeso}
+                    cart={cart}
+                    onOpenCart={() => setActiveView('cart')}
+                    onOpenMixedCase={() => openMixedCaseBuilder()}
+                  />
+                )}
+
+                {activeView === 'cart' && (
+                  <CustomerCartView
+                    setActiveView={setActiveView}
+                    cart={cart}
+                    setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
+                    shippingBarangay={shippingBarangay}
+                    shippingCity={shippingCity}
+                    shippingProvince={shippingProvince}
+                    selectedCartIds={selectedCartIds}
+                    setSelectedCartIds={setSelectedCartIds}
+                    getProductImage={getProductImage}
+                    updateCartQty={updateCartQty}
+                    allCartSelected={allCartSelected}
+                    selectedCount={selectedCount}
+                    selectedSubtotal={selectedSubtotal}
+                    formatPeso={formatPeso}
+                    onEditMixedCase={(item) => openMixedCaseBuilder(item)}
+                  />
+                )}
+
+                {activeView === 'checkout' && (
+                  <CustomerCheckoutView
+                    setActiveView={setActiveView}
+                    selectedCartItems={selectedCartItems}
+                    shippingName={shippingName}
+                    setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
+                    shippingPhone={shippingPhone}
+                    composedShippingAddress={composedShippingAddress}
+                    getProductImage={getProductImage}
+                    formatPeso={formatPeso}
+                    selectedSubtotal={selectedSubtotal}
+                    selectedDepositCharged={selectedDepositCharged}
+                    selectedDepositRefunded={selectedDepositRefunded}
+                    discountName={checkoutDiscountBreakdown.name}
+                    discountType={checkoutDiscountBreakdown.discountType}
+                    discountPercent={checkoutDiscountBreakdown.discountPercent}
+                    discountAmountPerCase={checkoutDiscountBreakdown.amountPerCase}
+                    discountPerCase={checkoutDiscountBreakdown.perCaseDiscount}
+                    discountCasesAffected={checkoutDiscountBreakdown.casesAffected}
+                    totalDiscount={checkoutDiscountBreakdown.totalDiscount}
+                    finalTotal={checkoutDiscountBreakdown.finalTotal}
+                    notes={notes}
+                    setNotes={setNotes}
+                    deliveryDate={deliveryDate}
+                    setDeliveryDate={setDeliveryDate}
+                    placeOrder={placeOrder}
+                    isPlacingOrder={isPlacingOrder}
+                    canPlaceOrder={canPlaceOrder}
+                  />
+                )}
+
+                {activeView === 'purchase-requests' && (
+                  <CustomerPurchaseRequestView
+                    orders={orders}
+                    isLoading={isLoading}
+                    formatPeso={formatPeso}
+                    setActiveView={setActiveView}
+                    setSelectedOrder={(order: any) => openOrderDetail(order, 'purchase-requests')}
+                  />
+                )}
+
+                {activeView === 'order-detail' && selectedOrder && (
+                  <CustomerOrderDetailPage
+                    order={selectedOrder}
+                    onBack={() => {
+                      setSelectedOrder(null)
+                      setActiveView(backView)
+                    }}
+                    setIsReceiptDialogOpen={setIsReceiptDialogOpen}
+                    formatOrderStatus={formatOrderStatus}
+                    orderStages={orderStages}
+                    getOrderStageIndex={getOrderStageIndex}
+                    getProductImage={getProductImage}
+                    formatPeso={formatPeso}
+                    deliveryIssueRecords={deliveryIssueRecords}
+                    getReplacementStatusLabel={getReplacementStatusLabel}
+                    getReplacementBadgeClass={getReplacementBadgeClass}
+                    isOrderDelivered={isOrderDelivered}
+                    isOrderTrackable={isOrderTrackable}
+                    openTrackView={openTrackView}
+                    buyAgainFromOrder={buyAgainFromOrder}
+                    isOrderCancellable={isOrderCancellable}
+                    cancelOrder={requestCancelOrder}
+                    reviewedOrderIds={reviewedOrderIds}
+                    openRatingDialog={openRatingDialog}
+                    openReviewDetails={(order: Order) => setReviewDetailsOrder(order)}
+                    submitReplacementRequest={submitReplacementRequest}
+                  />
+                )}
+
+                {activeView === 'edit-address' && (
+                  <CustomerEditAddressPage
+                    onBack={() => setActiveView(backAddressView)}
+                    setShippingHouseNumber={setShippingHouseNumber}
+                    setShippingStreetName={setShippingStreetName}
+                    setShippingSubdivision={setShippingSubdivision}
+                    setShippingBarangay={setShippingBarangay}
+                    setShippingCity={setShippingCity}
+                    setShippingProvince={setShippingProvince}
+                    setShippingZipCode={setShippingZipCode}
+                    setShippingLatitude={setShippingLatitude}
+                    setShippingLongitude={setShippingLongitude}
+                    setAddressSearch={setAddressSearch}
+                    setAddressSearchResults={setAddressSearchResults}
+                    shippingName={shippingName}
+                    setShippingName={setShippingName}
+                    shippingPhone={shippingPhone}
+                    setShippingPhone={setShippingPhone}
+                    handlePinnedLocation={handlePinnedLocation}
+                    shippingHouseNumber={shippingHouseNumber}
+                    shippingStreetName={shippingStreetName}
+                    shippingSubdivision={shippingSubdivision}
+                    shippingBarangay={shippingBarangay}
+                    shippingCity={shippingCity}
+                    shippingProvince={shippingProvince}
+                    shippingZipCode={shippingZipCode}
+                    shippingCountry={shippingCountry}
+                    composedShippingAddress={composedShippingAddress}
+                    useCurrentLocation={useCurrentLocation}
+                    shippingLatitude={shippingLatitude}
+                    shippingLongitude={shippingLongitude}
+                    isResolvingPinnedAddress={isResolvingPinnedAddress}
+                    saveAddressToProfile={saveAddressToProfile}
+                    isSavingAddress={isSavingAddress}
+                  />
+                )}
+
+                {activeView === 'orders' && (
+                  <CustomerOrdersView
+                    ordersSearch={ordersSearch}
+                    setOrdersSearch={setOrdersSearch}
+                    ordersTabOptions={ordersTabOptions}
+                    ordersTab={ordersTab}
+                    setOrdersTab={setOrdersTab}
+                    isLoading={isLoading}
+                    visibleReplacementRecords={visibleReplacementRecords}
+                    orders={orders}
+                    getReplacementStatusLabel={getReplacementStatusLabel}
+                    getReplacementBadgeClass={getReplacementBadgeClass}
+                    visibleOrders={visibleOrders}
+                    deliveryIssuesByOrderId={deliveryIssuesByOrderId}
+                    deliveryIssueRecords={deliveryIssueRecords}
+                    normalizeDeliveryStatus={normalizeDeliveryStatus}
+                    reviewedOrderIds={reviewedOrderIds}
+                    orderRatings={orderRatings}
+                    formatOrderStatus={formatOrderStatus}
+                    isOrderCancellable={isOrderCancellable}
+                    cancelOrder={requestCancelOrder}
+                    openRatingDialog={openRatingDialog}
+                    reviewByOrderId={reviewByOrderId}
+                    openReviewDetails={(order: Order) => setReviewDetailsOrder(order)}
+                    setSelectedOrder={setSelectedOrder}
+                    openOrderDetail={(order: any) => openOrderDetail(order, 'orders')}
+                    isOrderTrackable={isOrderTrackable}
+                    openTrackView={openTrackView}
+                    buyAgainFromOrder={buyAgainFromOrder}
+                    getProductImage={getProductImage}
+                    formatPeso={formatPeso}
+                    openFilterDialog={() => setIsFilterDialogOpen(true)}
+                  />
+                )}
+
+                {activeView === 'track' && (
+                  <CustomerTrackView
+                    orders={orders}
+                    selectedTrackingOrderId={selectedTrackingOrderId}
+                    setActiveView={setActiveView}
+                    trackingByOrderId={trackingByOrderId}
+                    normalizeDeliveryStatus={normalizeDeliveryStatus}
+                    getOrderStageIndex={getOrderStageIndex}
+                    formatOrderStatus={formatOrderStatus}
+                    isTrackingLoading={isTrackingLoading}
+                    formatPeso={formatPeso}
+                  />
+                )}
+
+                {activeView === 'feedback' && <CustomerFeedbackView />}
+
+                {activeView === 'profile' && (
+                  <CustomerProfileView
+                    key={profileViewKey}
+                    avatarPreviewUrl={avatarPreviewUrl}
+                    profileName={profileName}
+                    setProfileName={setProfileName}
+                    profileEmail={profileEmail}
+                    setProfileEmail={setProfileEmail}
+                    profilePhone={profilePhone}
+                    setProfilePhone={setProfilePhone}
+                    composedShippingAddress={composedShippingAddress}
+                    shippingCity={shippingCity}
+                    shippingProvince={shippingProvince}
+                    shippingZipCode={shippingZipCode}
+                    user={user}
+                    isSavingProfile={isSavingProfile}
+                    avatarInputRef={avatarInputRef}
+                    openAvatarCropDialog={openAvatarCropDialog}
+                    setIsProfileDialogOpen={setIsProfileDialogOpen}
+                    setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
+                    onLogout={handleLogout}
+                    saveProfile={saveProfile}
+                    initialSubView={notifInitialSubViewRef.current}
+                    onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
+                    onDidMount={() => { notifInitialSubViewRef.current = 'menu' }}
+                  />
+                )}
+              </motion.main>
+            </AnimatePresence>
+          </div>
+
+          <CustomerProfileDialog
+            isProfileDialogOpen={isProfileDialogOpen}
+            setIsProfileDialogOpen={setIsProfileDialogOpen}
+            profileName={profileName}
+            setProfileName={setProfileName}
             profileEmail={profileEmail}
+            setProfileEmail={setProfileEmail}
             profilePhone={profilePhone}
+            setProfilePhone={setProfilePhone}
             composedShippingAddress={composedShippingAddress}
             shippingCity={shippingCity}
             shippingProvince={shippingProvince}
             shippingZipCode={shippingZipCode}
-            user={user}
+            setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
+            saveProfile={saveProfile}
             isSavingProfile={isSavingProfile}
+            avatarPreviewUrl={avatarPreviewUrl}
+            user={user}
             avatarInputRef={avatarInputRef}
             openAvatarCropDialog={openAvatarCropDialog}
-            setIsProfileDialogOpen={setIsProfileDialogOpen}
           />
-        )}
-      </motion.main>
-      </AnimatePresence>
-      </div>
 
-      <CustomerProfileDialog
-        isProfileDialogOpen={isProfileDialogOpen}
-        setIsProfileDialogOpen={setIsProfileDialogOpen}
-        profileName={profileName}
-        setProfileName={setProfileName}
-        profileEmail={profileEmail}
-        setProfileEmail={setProfileEmail}
-        profilePhone={profilePhone}
-        setProfilePhone={setProfilePhone}
-        composedShippingAddress={composedShippingAddress}
-        shippingCity={shippingCity}
-        shippingProvince={shippingProvince}
-        shippingZipCode={shippingZipCode}
-        setIsAddressDialogOpen={setIsAddressDialogOpen}
-        saveProfile={saveProfile}
-        isSavingProfile={isSavingProfile}
-        avatarPreviewUrl={avatarPreviewUrl}
-        user={user}
-        avatarInputRef={avatarInputRef}
-        openAvatarCropDialog={openAvatarCropDialog}
-      />
+          <MixedCaseBuilderDialog
+            open={isMixedCaseBuilderOpen}
+            onOpenChange={(open) => {
+              setIsMixedCaseBuilderOpen(open)
+              if (!open) setEditingMixedCase(null)
+            }}
+            products={products}
+            editingItem={editingMixedCase}
+            onSave={saveMixedCase}
+            formatPeso={formatPeso}
+          />
 
-      <CustomerAvatarCropDialog
-        isAvatarCropDialogOpen={isAvatarCropDialogOpen}
-        setIsAvatarCropDialogOpen={setIsAvatarCropDialogOpen}
-        avatarCropSource={avatarCropSource}
-        setAvatarCropSource={setAvatarCropSource}
-        setAvatarCropFile={setAvatarCropFile}
-        isDraggingCrop={isDraggingCrop}
-        handleCropPointerDown={handleCropPointerDown}
-        handleCropPointerMove={handleCropPointerMove}
-        handleCropPointerUp={handleCropPointerUp}
-        avatarCropImageRef={avatarCropImageRef}
-        avatarCropZoom={avatarCropZoom}
-        setAvatarCropZoom={setAvatarCropZoom}
-        isSavingProfile={isSavingProfile}
-        createCroppedAvatarFile={createCroppedAvatarFile}
-        avatarCropFile={avatarCropFile}
-        handleAvatarUpload={handleAvatarUpload}
-      />
+          <CustomerAvatarCropDialog
+            isAvatarCropDialogOpen={isAvatarCropDialogOpen}
+            setIsAvatarCropDialogOpen={setIsAvatarCropDialogOpen}
+            avatarCropSource={avatarCropSource}
+            setAvatarCropSource={setAvatarCropSource}
+            setAvatarCropFile={setAvatarCropFile}
+            isDraggingCrop={isDraggingCrop}
+            handleCropPointerDown={handleCropPointerDown}
+            handleCropPointerMove={handleCropPointerMove}
+            handleCropPointerUp={handleCropPointerUp}
+            avatarCropImageRef={avatarCropImageRef}
+            avatarCropZoom={avatarCropZoom}
+            setAvatarCropZoom={setAvatarCropZoom}
+            isSavingProfile={isSavingProfile}
+            createCroppedAvatarFile={createCroppedAvatarFile}
+            avatarCropFile={avatarCropFile}
+            handleAvatarUpload={handleAvatarUpload}
+          />
 
-      <CustomerAddressDialog
-        isAddressDialogOpen={isAddressDialogOpen}
-        setIsAddressDialogOpen={setIsAddressDialogOpen}
-        setShippingHouseNumber={setShippingHouseNumber}
-        setShippingStreetName={setShippingStreetName}
-        setShippingSubdivision={setShippingSubdivision}
-        setShippingBarangay={setShippingBarangay}
-        setShippingCity={setShippingCity}
-        setShippingProvince={setShippingProvince}
-        setShippingZipCode={setShippingZipCode}
-        setShippingLatitude={setShippingLatitude}
-        setShippingLongitude={setShippingLongitude}
-        setAddressSearch={setAddressSearch}
-        setAddressSearchResults={setAddressSearchResults}
-        shippingName={shippingName}
-        setShippingName={setShippingName}
-        shippingPhone={shippingPhone}
-        setShippingPhone={setShippingPhone}
-        addressSearch={addressSearch}
-        isSearchingAddress={isSearchingAddress}
-        searchAddressInNegrosOccidental={searchAddressInNegrosOccidental}
-        addressSearchResults={addressSearchResults}
-        handlePinnedLocation={handlePinnedLocation}
-        shippingHouseNumber={shippingHouseNumber}
-        shippingStreetName={shippingStreetName}
-        shippingSubdivision={shippingSubdivision}
-        shippingBarangay={shippingBarangay}
-        shippingCity={shippingCity}
-        shippingProvince={shippingProvince}
-        shippingZipCode={shippingZipCode}
-        shippingCountry={shippingCountry}
-        composedShippingAddress={composedShippingAddress}
-        useCurrentLocation={useCurrentLocation}
-        shippingLatitude={shippingLatitude}
-        shippingLongitude={shippingLongitude}
-        isResolvingPinnedAddress={isResolvingPinnedAddress}
-        saveAddressToProfile={saveAddressToProfile}
-        isSavingAddress={isSavingAddress}
-      />
+          {activeView !== 'edit-address' && (
+            <CustomerAddressDialog
+              isAddressDialogOpen={isAddressDialogOpen}
+              setIsAddressDialogOpen={setIsAddressDialogOpen}
+              setShippingHouseNumber={setShippingHouseNumber}
+              setShippingStreetName={setShippingStreetName}
+              setShippingSubdivision={setShippingSubdivision}
+              setShippingBarangay={setShippingBarangay}
+              setShippingCity={setShippingCity}
+              setShippingProvince={setShippingProvince}
+              setShippingZipCode={setShippingZipCode}
+              setShippingLatitude={setShippingLatitude}
+              setShippingLongitude={setShippingLongitude}
+              setAddressSearch={setAddressSearch}
+              setAddressSearchResults={setAddressSearchResults}
+              shippingName={shippingName}
+              setShippingName={setShippingName}
+              shippingPhone={shippingPhone}
+              setShippingPhone={setShippingPhone}
+              addressSearch={addressSearch}
+              isSearchingAddress={isSearchingAddress}
+              searchAddressInNegrosOccidental={searchAddressInNegrosOccidental}
+              addressSearchResults={addressSearchResults}
+              handlePinnedLocation={handlePinnedLocation}
+              shippingHouseNumber={shippingHouseNumber}
+              shippingStreetName={shippingStreetName}
+              shippingSubdivision={shippingSubdivision}
+              shippingBarangay={shippingBarangay}
+              shippingCity={shippingCity}
+              shippingProvince={shippingProvince}
+              shippingZipCode={shippingZipCode}
+              shippingCountry={shippingCountry}
+              composedShippingAddress={composedShippingAddress}
+              useCurrentLocation={useCurrentLocation}
+              shippingLatitude={shippingLatitude}
+              shippingLongitude={shippingLongitude}
+              isResolvingPinnedAddress={isResolvingPinnedAddress}
+              saveAddressToProfile={saveAddressToProfile}
+              isSavingAddress={isSavingAddress}
+            />
+          )}
 
-      <CustomerOrderDetailsDialog
-        selectedOrder={selectedOrder}
-        setSelectedOrder={setSelectedOrder}
-        setIsReceiptDialogOpen={setIsReceiptDialogOpen}
-        downloadReceipt={downloadReceipt}
-        formatOrderStatus={formatOrderStatus}
-        orderStages={orderStages}
-        getOrderStageIndex={getOrderStageIndex}
-        getProductImage={getProductImage}
-        formatPeso={formatPeso}
-        deliveryIssueRecords={deliveryIssueRecords}
-        getReplacementStatusLabel={getReplacementStatusLabel}
-        getReplacementBadgeClass={getReplacementBadgeClass}
-        isOrderTrackable={isOrderTrackable}
-        openTrackView={openTrackView}
-        isOrderCancellable={isOrderCancellable}
-        cancelOrder={requestCancelOrder}
-        isOrderDelivered={isOrderDelivered}
-        submitReplacementRequest={submitReplacementRequest}
-      />
+          {activeView !== 'order-detail' && (
+            <CustomerOrderDetailsDialog
+              selectedOrder={selectedOrder}
+              setSelectedOrder={setSelectedOrder}
+              setIsReceiptDialogOpen={setIsReceiptDialogOpen}
+              downloadReceipt={downloadReceipt}
+              formatOrderStatus={formatOrderStatus}
+              orderStages={orderStages}
+              getOrderStageIndex={getOrderStageIndex}
+              getProductImage={getProductImage}
+              formatPeso={formatPeso}
+              deliveryIssueRecords={deliveryIssueRecords}
+              getReplacementStatusLabel={getReplacementStatusLabel}
+              getReplacementBadgeClass={getReplacementBadgeClass}
+              isOrderTrackable={isOrderTrackable}
+              openTrackView={openTrackView}
+              isOrderCancellable={isOrderCancellable}
+              cancelOrder={requestCancelOrder}
+              isOrderDelivered={isOrderDelivered}
+              submitReplacementRequest={submitReplacementRequest}
+            />
+          )}
 
-      <CustomerReceiptDialog
-        selectedOrder={selectedOrder}
-        isReceiptDialogOpen={isReceiptDialogOpen}
-        setIsReceiptDialogOpen={setIsReceiptDialogOpen}
-        isOrderDelivered={isOrderDelivered}
-        formatPeso={formatPeso}
-        downloadReceipt={downloadReceipt}
-      />
+          <CustomerReceiptDialog
+            selectedOrder={selectedOrder}
+            isReceiptDialogOpen={isReceiptDialogOpen}
+            setIsReceiptDialogOpen={setIsReceiptDialogOpen}
+            isOrderDelivered={isOrderDelivered}
+            formatPeso={formatPeso}
+            downloadReceipt={downloadReceipt}
+          />
 
-      <CustomerRatingDialog
-        ratingDialogOrder={ratingDialogOrder}
-        setRatingDialogOrder={setRatingDialogOrder}
-        deliveryRatingValue={deliveryRatingValue}
-        setDeliveryRatingValue={setDeliveryRatingValue}
-        ratingComment={ratingComment}
-        setRatingComment={setRatingComment}
-        isSubmittingRating={isSubmittingRating}
-        submitRating={submitRating}
-      />
+          <CustomerRatingDialog
+            ratingDialogOrder={ratingDialogOrder}
+            setRatingDialogOrder={setRatingDialogOrder}
+            deliveryRatingValue={deliveryRatingValue}
+            setDeliveryRatingValue={setDeliveryRatingValue}
+            ratingComment={ratingComment}
+            setRatingComment={setRatingComment}
+            isSubmittingRating={isSubmittingRating}
+            submitRating={submitRating}
+          />
 
-      <Dialog open={!!reviewDetailsOrder} onOpenChange={(open) => !open && setReviewDetailsOrder(null)}>
-        {reviewDetailsOrder ? (() => {
-          const review = reviewByOrderId[reviewDetailsOrder.id] || null
-          const ratingValue = Number(review?.rating || orderRatings[reviewDetailsOrder.id] || 0)
-          const stars = Math.max(0, Math.min(5, Math.round(ratingValue)))
-          const createdAtText = review?.createdAt ? new Date(review.createdAt).toLocaleString() : 'N/A'
-          const subject = String(review?.subject || '').trim()
-          const message = String(review?.message || '').trim()
-          return (
+          <Dialog open={!!reviewDetailsOrder} onOpenChange={(open) => !open && setReviewDetailsOrder(null)}>
+            {reviewDetailsOrder ? (() => {
+              const review = reviewByOrderId[reviewDetailsOrder.id] || null
+              const ratingValue = Number(review?.rating || orderRatings[reviewDetailsOrder.id] || 0)
+              const stars = Math.max(0, Math.min(5, Math.round(ratingValue)))
+              const createdAtText = review?.createdAt ? new Date(review.createdAt).toLocaleString() : 'N/A'
+              const subject = String(review?.subject || '').trim()
+              const message = String(review?.message || '').trim()
+              return (
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Review Details - {reviewDetailsOrder.orderNumber}</DialogTitle>
+                    <DialogDescription>Submitted review details</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 text-sm">
+                    <div className="rounded-md border bg-slate-50 px-3 py-2">
+                      <p className="text-xs text-slate-500">Rating</p>
+                      <p className="font-semibold text-slate-900">
+                        {'★'.repeat(stars)}{'☆'.repeat(Math.max(5 - stars, 0))} ({stars}/5)
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Submitted: {createdAtText}</p>
+                    </div>
+                    <div className="rounded-md border bg-white px-3 py-2">
+                      <p className="text-xs text-slate-500">Your Feedback</p>
+                      {subject ? <p className="font-medium text-slate-900">{subject}</p> : null}
+                      <p className="mt-1 whitespace-pre-wrap text-slate-800">{message || 'No feedback message'}</p>
+                    </div>
+                  </div>
+                </DialogContent>
+              )
+            })() : null}
+          </Dialog>
+
+          <AlertDialog
+            open={Boolean(pendingCancelOrder)}
+            onOpenChange={(open) => {
+              if (!open) setPendingCancelOrder(null)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel Order?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You are about to cancel {pendingCancelOrder?.orderNumber || 'this order'}. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isCancellingOrder}>Keep Order</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(event) => {
+                    event.preventDefault()
+                    void confirmCancelOrder()
+                  }}
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={isCancellingOrder}
+                >
+                  {isCancellingOrder ? 'Cancelling...' : 'Yes, Cancel Order'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <Dialog open={isOrderConfirmationOpen} onOpenChange={setIsOrderConfirmationOpen}>
+            <DialogContent className="w-[92vw] max-w-[360px] rounded-2xl border border-emerald-100 bg-white p-4 shadow-xl md:max-w-sm md:p-6">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold text-emerald-700">Order Placed Successfully</DialogTitle>
+                <DialogDescription className="text-sm text-slate-600">
+                  {lastPlacedOrderNumber
+                    ? `Your order ${lastPlacedOrderNumber} has been submitted and is now being processed.`
+                    : 'Your order has been submitted and is now being processed.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button className="h-9 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => setIsOrderConfirmationOpen(false)}>
+                  OK
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isFilterDialogOpen} onOpenChange={setIsFilterDialogOpen}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Review Details - {reviewDetailsOrder.orderNumber}</DialogTitle>
-                <DialogDescription>Submitted review details</DialogDescription>
+                <DialogTitle>Filter Orders</DialogTitle>
+                <DialogDescription>Refine the list by status and date range.</DialogDescription>
               </DialogHeader>
-              <div className="space-y-3 text-sm">
-                <div className="rounded-md border bg-slate-50 px-3 py-2">
-                  <p className="text-xs text-slate-500">Rating</p>
-                  <p className="font-semibold text-slate-900">
-                    {'★'.repeat(stars)}{'☆'.repeat(Math.max(5 - stars, 0))} ({stars}/5)
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Submitted: {createdAtText}</p>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Status</label>
+                  <select
+                    value={orderFilterStatus}
+                    onChange={(event) => setOrderFilterStatus(event.target.value)}
+                    className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                    title="Order status filter"
+                  >
+                    <option value="ALL">All statuses</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="PROCESSING">Processing</option>
+                    <option value="OUT_FOR_DELIVERY">Out for delivery</option>
+                    <option value="DELIVERED">Delivered</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
                 </div>
-                <div className="rounded-md border bg-white px-3 py-2">
-                  <p className="text-xs text-slate-500">Your Feedback</p>
-                  {subject ? <p className="font-medium text-slate-900">{subject}</p> : null}
-                  <p className="mt-1 whitespace-pre-wrap text-slate-800">{message || 'No feedback message'}</p>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-700">Date from</label>
+                    <input
+                      type="date"
+                      value={orderFilterDateFrom}
+                      onChange={(event) => setOrderFilterDateFrom(event.target.value)}
+                      className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-700">Date to</label>
+                    <input
+                      type="date"
+                      value={orderFilterDateTo}
+                      onChange={(event) => setOrderFilterDateTo(event.target.value)}
+                      className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
+                    onClick={() => {
+                      setOrderFilterStatus('ALL')
+                      setOrderFilterDateFrom('')
+                      setOrderFilterDateTo('')
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    className="h-9 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-500"
+                    onClick={() => setIsFilterDialogOpen(false)}
+                  >
+                    Apply
+                  </button>
                 </div>
               </div>
             </DialogContent>
-          )
-        })() : null}
-      </Dialog>
+          </Dialog>
 
-      <AlertDialog
-        open={Boolean(pendingCancelOrder)}
-        onOpenChange={(open) => {
-          if (!open) setPendingCancelOrder(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel Order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You are about to cancel {pendingCancelOrder?.orderNumber || 'this order'}. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isCancellingOrder}>Keep Order</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault()
-                void confirmCancelOrder()
-              }}
-              className="bg-red-600 hover:bg-red-700"
-              disabled={isCancellingOrder}
-            >
-              {isCancellingOrder ? 'Cancelling...' : 'Yes, Cancel Order'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog open={isOrderConfirmationOpen} onOpenChange={setIsOrderConfirmationOpen}>
-        <DialogContent className="w-[92vw] max-w-[360px] rounded-2xl border border-emerald-100 bg-white p-4 shadow-xl md:max-w-sm md:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-emerald-700">Order Placed Successfully</DialogTitle>
-            <DialogDescription className="text-sm text-slate-600">
-              {lastPlacedOrderNumber
-                ? `Your order ${lastPlacedOrderNumber} has been submitted and is now being processed.`
-                : 'Your order has been submitted and is now being processed.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button className="h-9 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => setIsOrderConfirmationOpen(false)}>
-              OK
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isFilterDialogOpen} onOpenChange={setIsFilterDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Filter Orders</DialogTitle>
-            <DialogDescription>Refine the list by status and date range.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Status</label>
-              <select
-                value={orderFilterStatus}
-                onChange={(event) => setOrderFilterStatus(event.target.value)}
-                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
-                title="Order status filter"
-              >
-                <option value="ALL">All statuses</option>
-                <option value="PENDING">Pending</option>
-                <option value="PROCESSING">Processing</option>
-                <option value="OUT_FOR_DELIVERY">Out for delivery</option>
-                <option value="DELIVERED">Delivered</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Date from</label>
-                <input
-                  type="date"
-                  value={orderFilterDateFrom}
-                  onChange={(event) => setOrderFilterDateFrom(event.target.value)}
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Date to</label>
-                <input
-                  type="date"
-                  value={orderFilterDateTo}
-                  onChange={(event) => setOrderFilterDateTo(event.target.value)}
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
-                onClick={() => {
-                  setOrderFilterStatus('ALL')
-                  setOrderFilterDateFrom('')
-                  setOrderFilterDateTo('')
-                }}
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="h-9 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-500"
-                onClick={() => setIsFilterDialogOpen(false)}
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      </div>
+        </div>
       </div>
     </div>
   )

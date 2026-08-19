@@ -19,20 +19,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Download, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from './shared'
-import { getInventoryAlertLevel } from '@/lib/report-metrics'
+import {
+  getInventoryAlertLevel,
+  getInventoryAvailableQty,
+  getInventoryReservedBaseUnits,
+  getInventoryUnitsPerCase,
+} from '@/lib/report-metrics'
+import { PackagingProfileDialog, type PackagingProfileRow } from './packaging-profile-dialog'
+import { BEVERAGE_CATEGORIES, formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
   { value: 'pack(bundle)', label: 'pack(bundle)' },
-]
-
-const PRODUCT_CATEGORY_OPTIONS = [
-  'Carbonated(Glass)',
-  'Carbonated(PET/PLASTIC)',
-  'Carbonated(Cans)',
-  'Non-Carbonated',
 ]
 
 const CASE_SIZE_OPTIONS = [
@@ -42,32 +42,46 @@ const CASE_SIZE_OPTIONS = [
 ]
 
 const PACK_SIZE_OPTIONS = [
-    '7oz',
-    '8oz',
-    '12oz',
-    '195ml',
-    '237ml',
-    '240ml',
-    '250ml',
-    '290ml',
-    '300ml',
-    '320ml',
-    '350ml',
-    '355ml',
-    '450ml',
-    '500ml',
-    '600ml',
-    '900ml',
-    '1 Liter',
-    '1.5 Liters',
-    '2 Liters',
-    '320g',
-    '640g',
+  '7oz',
+  '8oz',
+  '12oz',
+  '195ml',
+  '237ml',
+  '240ml',
+  '250ml',
+  '290ml',
+  '300ml',
+  '320ml',
+  '350ml',
+  '355ml',
+  '450ml',
+  '500ml',
+  '600ml',
+  '900ml',
+  '1 Liter',
+  '1.5 Liters',
+  '2 Liters',
+  '320g',
+  '640g',
 ]
 
 const SIZE_OPTIONS = {
   case: CASE_SIZE_OPTIONS,
+  bottle: CASE_SIZE_OPTIONS,
   'pack(bundle)': PACK_SIZE_OPTIONS,
+}
+
+const GLASS_DEPOSIT_BY_SIZE: Record<string, { bottle: number; case: number }> = {
+  '12oz': { bottle: 2, case: 90 },
+  '1 Liter': { bottle: 6, case: 124 },
+}
+
+const getGlassDepositPreset = (category: unknown, sizes: unknown, unit: unknown) => {
+  const spec = getBeverageCategorySpec(category)
+  // Glass packaging and deposit eligibility are separate; Alcohol is always exempt.
+  if (!spec?.depositAllowed || String(unit || '').trim().toLowerCase() !== 'case') return null
+  const selectedSize = Array.isArray(sizes) ? String(sizes[0] || '').trim() : ''
+  return GLASS_DEPOSIT_BY_SIZE[selectedSize] || null
 }
 
 const WEIGHT_BY_SIZE_PACK: Record<string, number> = {
@@ -110,13 +124,19 @@ export function InventoryView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [products, setProducts] = useState<any[]>([])
+  const [packagingProfiles, setPackagingProfiles] = useState<PackagingProfileRow[]>([])
+  const [packagingProfilesOpen, setPackagingProfilesOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [editName, setEditName] = useState('')
   const [editSku, setEditSku] = useState('')
+  const [editCategory, setEditCategory] = useState('')
   const [editUnit, setEditUnit] = useState('case')
   const [editQuantityPerUnit, setEditQuantityPerUnit] = useState('')
+  const [editPackagingProfileId, setEditPackagingProfileId] = useState('')
   const [editPrice, setEditPrice] = useState('')
+  const [editRetailUnitPrice, setEditRetailUnitPrice] = useState('')
+  const [editCasePrice, setEditCasePrice] = useState('')
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeletingEdit, setIsDeletingEdit] = useState(false)
@@ -128,24 +148,33 @@ export function InventoryView() {
   const [productUnit, setProductUnit] = useState('case')
   const [productQuantityPerUnit, setProductQuantityPerUnit] = useState('')
   const [productPrice, setProductPrice] = useState('')
+  const [productRetailUnitPrice, setProductRetailUnitPrice] = useState('')
+  const [productCasePrice, setProductCasePrice] = useState('')
   const [productCategory, setProductCategory] = useState('')
   const [productSizes, setProductSizes] = useState<string[]>([])
   const [productImageFile, setProductImageFile] = useState<File | null>(null)
   const [productSkuSeed, setProductSkuSeed] = useState('')
   const [productWarehouseId, setProductWarehouseId] = useState('')
+  const [productPackagingProfileId, setProductPackagingProfileId] = useState('')
   const createSkuSeed = () => Math.random().toString(36).slice(2, 7).toUpperCase()
 
   const selectedProductSize = productSizes[0] ?? ''
+  const selectedCategorySpec = getBeverageCategorySpec(productCategory)
+  const editingCategorySpec = getBeverageCategorySpec(editCategory)
   const selectedProductBaseWeight = selectedProductSize
-    ? (productUnit === 'case' ? WEIGHT_BY_SIZE_CASE[selectedProductSize] : WEIGHT_BY_SIZE_PACK[selectedProductSize])
+    ? (productUnit === 'pack(bundle)' ? WEIGHT_BY_SIZE_PACK[selectedProductSize] : WEIGHT_BY_SIZE_CASE[selectedProductSize])
     : null
   const selectedProductQuantityPerUnit = Number(productQuantityPerUnit)
   const selectedProductWeight =
     selectedProductBaseWeight !== null &&
-    Number.isFinite(selectedProductQuantityPerUnit) &&
-    selectedProductQuantityPerUnit > 0
+      Number.isFinite(selectedProductQuantityPerUnit) &&
+      selectedProductQuantityPerUnit > 0
       ? selectedProductBaseWeight * selectedProductQuantityPerUnit
       : null
+  const selectedGlassDeposit = getGlassDepositPreset(productCategory, productSizes, productUnit)
+  const editingGlassDeposit = editingItem
+    ? getGlassDepositPreset(editCategory, editingItem.product?.sizes, editUnit)
+    : null
 
   const autoGeneratedSku = useMemo(() => {
     if (!productSkuSeed) return ''
@@ -215,9 +244,20 @@ export function InventoryView() {
     }
   }
 
+  const fetchPackagingProfiles = async () => {
+    try {
+      const result = await safeFetchJson('/api/packaging-profiles', { cache: 'no-store' })
+      if (result.ok) {
+        setPackagingProfiles(getCollection<PackagingProfileRow>(result.data, ['packagingProfiles']))
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   useEffect(() => {
     const refreshSharedData = () => {
-      void Promise.all([fetchInventory(), fetchWarehouses(), fetchProducts()])
+      void Promise.all([fetchInventory(), fetchWarehouses(), fetchProducts(), fetchPackagingProfiles()])
     }
 
     refreshSharedData()
@@ -248,7 +288,16 @@ export function InventoryView() {
   }, [])
 
   const getReservedQty = (item: any) => Number(item.reservedQuantity ?? item.reserved_quantity ?? 0)
-  const getAvailableQty = (item: any) => Math.max(0, (item.quantity ?? 0) - getReservedQty(item))
+  const getAvailableQty = (item: any) => getInventoryAvailableQty(item)
+  const getReservedBaseQty = (item: any) => getInventoryReservedBaseUnits(item)
+  const getQuantityPerCase = (item: any) => getInventoryUnitsPerCase(item)
+  const getBaseUnitLabel = (item: any) => String(
+    item?.product?.looseUnit ||
+    getBeverageCategorySpec(item?.product?.category)?.looseUnit ||
+    item?.product?.packagingProfile?.baseUnitLabel ||
+    item?.product?.packaging_profile?.base_unit_label ||
+    'unit'
+  ).trim() || 'unit'
   const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? item.min_stock ?? 0)
   const getStockStatus = (item: any) => {
     const level = getInventoryAlertLevel(item)
@@ -256,9 +305,73 @@ export function InventoryView() {
     return level === 'healthy' ? 'healthy' : 'restock'
   }
   const filteredInventory = useMemo(() => {
-    if (selectedWarehouseId === 'all') return inventory
-    return inventory.filter((item) => getWarehouseIdFromRow(item) === selectedWarehouseId)
-  }, [inventory, selectedWarehouseId])
+    return inventory
+  }, [inventory])
+
+  const exportInventoryCsv = () => {
+    if (filteredInventory.length === 0) {
+      toast.error('No inventory records to export')
+      return
+    }
+
+    const escapeCsv = (value: any) => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const headers = [
+      'SKU',
+      'Product',
+      'Category',
+      'Unit',
+      'Sizes',
+      'Price',
+      'Threshold',
+      'Qty Per Case/Pack',
+      'Loose Base Units',
+      'Available Cases',
+      'Reserved Cases',
+      'Reserved Base Units',
+      'Base Unit Label',
+      'Warehouse',
+      'Status',
+    ]
+
+    const rows = filteredInventory.map((item) => {
+      const status = getStockStatus(item)
+      const sizes = Array.isArray(item.product?.sizes) && item.product.sizes.length > 0
+        ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean).join(', ')
+        : 'N/A'
+      return [
+        item.product?.sku ?? '',
+        item.product?.name ?? '',
+        String(item.product?.category?.name || item.product?.category || '').trim(),
+        item.product?.looseUnit || getBeverageCategorySpec(item.product?.category)?.looseUnit || item.product?.unit || 'case',
+        sizes,
+        item.product?.price ?? 0,
+        getThreshold(item),
+        getQuantityPerCase(item),
+        Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0),
+        getAvailableQty(item),
+        getReservedQty(item),
+        getReservedBaseQty(item),
+        getBaseUnitLabel(item),
+        item.warehouse?.name || item.warehouse?.code || 'N/A',
+        status.replace(/_/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase()),
+      ]
+    })
+
+    const csv = [headers, ...rows]
+      .map((line) => line.map(escapeCsv).join(','))
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const warehouseLabel = (warehouses[0]?.name || warehouses[0]?.code || 'warehouse').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    link.href = url
+    link.download = `inventory-${warehouseLabel}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
 
   const uploadProductImage = async (file: File) => {
     const formData = new FormData()
@@ -275,9 +388,13 @@ export function InventoryView() {
     setEditingItem(item)
     setEditName(item.product?.name || '')
     setEditSku(item.product?.sku || '')
+    setEditCategory(getBeverageCategorySpec(item.product?.category)?.category || '')
     setEditUnit(item.product?.unit || 'case')
     setEditQuantityPerUnit(String(item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? ''))
+    setEditPackagingProfileId(String(item.product?.packagingProfile?.id || ''))
     setEditPrice(String(item.product?.price ?? 0))
+    setEditRetailUnitPrice(String(item.product?.retailUnitPrice ?? ''))
+    setEditCasePrice(String(item.product?.casePrice ?? item.product?.price ?? 0))
     setEditImageFile(null)
   }
 
@@ -287,10 +404,14 @@ export function InventoryView() {
       return
     }
     const nextPrice = Number(editPrice)
+    const nextRetailUnitPrice = Number(editRetailUnitPrice)
+    const nextCasePrice = Number(editCasePrice)
     const nextQuantityPerUnit = Number(editQuantityPerUnit)
     if (!Number.isFinite(nextPrice) || nextPrice < 0) return toast.error('Invalid price')
+    if (!Number.isFinite(nextRetailUnitPrice) || nextRetailUnitPrice < 0) return toast.error('Invalid retail unit price')
+    if (!Number.isFinite(nextCasePrice) || nextCasePrice < 0) return toast.error('Invalid retail case/pack price')
     if (!Number.isFinite(nextQuantityPerUnit) || nextQuantityPerUnit <= 0) return toast.error('Quantity per unit is required')
-    if (!editName.trim() || !editSku.trim() || !editUnit.trim()) return toast.error('Name, SKU, and unit are required')
+    if (!editName.trim() || !editSku.trim() || !editUnit.trim() || !editCategory) return toast.error('Name, SKU, category, and order format are required')
 
     setIsSavingEdit(true)
     try {
@@ -301,11 +422,15 @@ export function InventoryView() {
         body: JSON.stringify({
           name: editName.trim(),
           sku: editSku.trim(),
+          category: editCategory,
           unit: editUnit.trim(),
           quantityPerUnit: Math.floor(nextQuantityPerUnit),
           quantityPerCase: Math.floor(nextQuantityPerUnit),
+          packagingProfileId: editPackagingProfileId || null,
           imageUrl: uploadedImageUrl,
           price: nextPrice,
+          retailUnitPrice: nextRetailUnitPrice,
+          casePrice: nextCasePrice,
         }),
       })
       const productPayload = await productResponse.json().catch(() => ({}))
@@ -352,14 +477,22 @@ export function InventoryView() {
 
   const registerProduct = async () => {
     const nextPrice = Number(productPrice)
+    const nextRetailUnitPrice = Number(productRetailUnitPrice)
+    const nextCasePrice = Number(productCasePrice)
     const nextQuantityPerUnit = Number(productQuantityPerUnit)
     const nextSku = (autoGeneratedSku || productSku || '').trim()
 
     if (!productName.trim() || !nextSku || !productUnit.trim()) {
-      return toast.error('Name, SKU, and unit are required')
+      return toast.error('Name, SKU, and order format are required')
     }
     if (!Number.isFinite(nextPrice) || nextPrice < 0) {
       return toast.error('Invalid price')
+    }
+    if (!Number.isFinite(nextRetailUnitPrice) || nextRetailUnitPrice < 0) {
+      return toast.error('Invalid retail unit price')
+    }
+    if (!Number.isFinite(nextCasePrice) || nextCasePrice < 0) {
+      return toast.error('Invalid retail case/pack price')
     }
     if (!Number.isFinite(nextQuantityPerUnit) || nextQuantityPerUnit <= 0) {
       return toast.error('Quantity per unit is required')
@@ -369,9 +502,6 @@ export function InventoryView() {
     }
     if (!productImageFile) {
       return toast.error('Product image is required')
-    }
-    if (!productWarehouseId) {
-      return toast.error('Please select a warehouse')
     }
     if (!productCategory) {
       return toast.error('Please select a category')
@@ -388,15 +518,18 @@ export function InventoryView() {
           unit: productUnit.trim(),
           quantityPerUnit: Math.floor(nextQuantityPerUnit),
           quantityPerCase: Math.floor(nextQuantityPerUnit),
+          packagingProfileId: productPackagingProfileId || null,
           weight:
             selectedProductBaseWeight !== null
               ? Number((selectedProductBaseWeight * Math.floor(nextQuantityPerUnit)).toFixed(2))
               : null,
           category: productCategory,
           price: nextPrice,
+          retailUnitPrice: nextRetailUnitPrice,
+          casePrice: nextCasePrice,
+          warehouseId: productWarehouseId || warehouses[0]?.id,
           sizes: productSizes,
           imageUrl: uploadedImageUrl,
-          warehouseId: productWarehouseId,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -412,10 +545,13 @@ export function InventoryView() {
       setProductUnit('case')
       setProductQuantityPerUnit('')
       setProductPrice('')
+      setProductRetailUnitPrice('')
+      setProductCasePrice('')
       setProductCategory('')
       setProductSizes([])
       setProductImageFile(null)
       setProductWarehouseId('')
+      setProductPackagingProfileId('')
       await Promise.all([fetchInventory(), fetchProducts()])
       emitDataSync(['inventory', 'products'])
     } catch (error: any) {
@@ -434,19 +570,19 @@ export function InventoryView() {
               <CardTitle>Inventory</CardTitle>
             </div>
             <div className="flex w-full flex-wrap items-center justify-end gap-2">
-              <select
-                className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm sm:w-[260px] sm:flex-none"
-                value={selectedWarehouseId}
-                onChange={(event) => setSelectedWarehouseId(event.target.value)}
-                title="Filter by warehouse"
+              <div className="flex h-10 min-w-0 flex-1 items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-600 sm:w-[260px] sm:flex-none">
+                Warehouse: {warehouses[0]?.name || warehouses[0]?.code || 'Not registered'}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0 whitespace-nowrap border-slate-300 text-slate-700 hover:bg-slate-50"
+                onClick={exportInventoryCsv}
+                disabled={filteredInventory.length === 0}
               >
-                <option value="all">All Warehouses</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name || warehouse.code || warehouse.id}
-                  </option>
-                ))}
-              </select>
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
               <Button
                 onClick={() => {
                   setProductSkuSeed(createSkuSeed())
@@ -473,9 +609,9 @@ export function InventoryView() {
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap min-w-[190px]">Product</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Price</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Threshold</th>
-                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case</th>
-                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Bottles</th>
-                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Available</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case/Pack</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Base Units</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Available Cases</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Reserved</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Location</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Status</th>
@@ -486,10 +622,12 @@ export function InventoryView() {
                   {filteredInventory.map((item) => {
                     const status = getStockStatus(item)
                     const reservedQty = getReservedQty(item)
+                    const reservedBaseQty = getReservedBaseQty(item)
                     const availableQty = getAvailableQty(item)
-                    const caseQty = Math.max(Number(item.quantity ?? 0), 0)
-                    const quantityPerCase = Math.max(Number(item.quantityPerCase ?? item.product?.quantityPerCase ?? item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? 0), 0)
+                    const quantityPerCase = getQuantityPerCase(item)
                     const looseBottles = Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0)
+                    const baseUnitLabel = getBaseUnitLabel(item)
+                    const categoryLabel = String(item.product?.category?.name || item.product?.category || '').trim()
                     return (
                       <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="p-2.5 text-center font-medium text-gray-900">{item.product?.sku ?? 'N/A'}</td>
@@ -511,17 +649,21 @@ export function InventoryView() {
                                 {(Array.isArray(item.product?.sizes) && item.product.sizes.length > 0
                                   ? item.product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
                                   : 'N/A')
-                                } • {item.product?.unit || 'case'}
+                                } • {item.product?.looseUnit || getBeverageCategorySpec(item.product?.category)?.looseUnit || item.product?.unit || 'case'}
                               </p>
+                              {categoryLabel ? <p className="text-[11px] text-gray-400">{categoryLabel}</p> : null}
                             </div>
                           </div>
                         </td>
                         <td className="p-2.5 text-center font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{getThreshold(item)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{quantityPerCase}</td>
-                        <td className="p-2.5 text-center font-semibold text-gray-900">{looseBottles}</td>
+                        <td className="p-2.5 text-center font-semibold text-gray-900">{formatLooseQuantity(looseBottles, baseUnitLabel)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{availableQty}</td>
-                        <td className="p-2.5 text-center font-semibold text-orange-600">{reservedQty}</td>
+                        <td className="p-2.5 text-center font-semibold text-orange-600">
+                          <p>{reservedQty} case(s)</p>
+                          <p className="text-[11px] font-medium text-orange-500">{reservedBaseQty} {baseUnitLabel}(s)</p>
+                        </td>
                         <td className="p-2.5 text-center text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
                         <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
@@ -567,16 +709,31 @@ export function InventoryView() {
                   <Input value={editSku} onChange={(e) => setEditSku(e.target.value)} />
                 </div>
                 <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Category</label>
+                  <select
+                    aria-label="Product category"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={editCategory}
+                    onChange={(event) => setEditCategory(event.target.value)}
+                  >
+                    <option value="">Select a category</option>
+                    {BEVERAGE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Photo</label>
                   <Input type="file" accept="image/*" onChange={(e) => setEditImageFile(e.target.files?.[0] || null)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Unit</label>
+                  <label className="text-sm font-medium text-gray-700">Order Format</label>
                   <select
                     aria-label="Product unit"
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={editUnit}
-                    onChange={(e) => setEditUnit(e.target.value)}
+                    onChange={(e) => {
+                      setEditUnit(e.target.value)
+                      if (e.target.value === 'bottle') setEditQuantityPerUnit('1')
+                    }}
                   >
                     {PRODUCT_UNIT_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -585,14 +742,65 @@ export function InventoryView() {
                     ))}
                   </select>
                 </div>
+                <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Packaging Type</p>
+                    <p className="text-sm font-semibold text-slate-800">{editingCategorySpec?.packagingType || 'Select a category'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Unit</p>
+                    <p className="text-sm font-semibold text-slate-800">{editingCategorySpec?.looseUnit || 'Select a category'}</p>
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Price</label>
                   <Input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 rounded-lg border border-sky-100 bg-sky-50/60 p-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-sky-950">Retail Loose Unit Price (PHP)</label>
+                    <Input type="number" min="0" step="0.01" value={editRetailUnitPrice} onChange={(e) => setEditRetailUnitPrice(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-sky-950">Retail Case/Pack Price (PHP)</label>
+                    <Input type="number" min="0" step="0.01" value={editCasePrice} onChange={(e) => setEditCasePrice(e.target.value)} />
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
                   <Input type="number" step="1" min="1" value={editQuantityPerUnit} onChange={(e) => setEditQuantityPerUnit(e.target.value)} placeholder="Required" />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Packaging Profile</label>
+                  <select
+                    aria-label="Packaging profile"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={editPackagingProfileId}
+                    onChange={(event) => {
+                      const id = event.target.value
+                      setEditPackagingProfileId(id)
+                      const profile = packagingProfiles.find((row) => row.id === id)
+                      if (profile) setEditQuantityPerUnit(String(profile.standardUnitsPerCase))
+                    }}
+                  >
+                    <option value="">Standard cases only</option>
+                    {packagingProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                  </select>
+                </div>
+                {editingGlassDeposit ? (
+                  <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
+                      <Input value={editingGlassDeposit.bottle.toFixed(2)} readOnly />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
+                      <Input value={editingGlassDeposit.case.toFixed(2)} readOnly />
+                    </div>
+                  </div>
+                ) : editingCategorySpec?.depositExempt ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
+                ) : null}
                 <div className="flex gap-2 pt-1">
                   <Button
                     variant="destructive"
@@ -654,20 +862,10 @@ export function InventoryView() {
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <div className="md:col-span-2 space-y-1">
-              <label className="text-sm font-medium text-gray-700">Select Warehouse *</label>
-              <select
-                aria-label="Warehouse"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={productWarehouseId}
-                onChange={(e) => setProductWarehouseId(e.target.value)}
-              >
-                <option value="">-- Choose a warehouse --</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name || warehouse.code || warehouse.id}
-                  </option>
-                ))}
-              </select>
+              <label className="text-sm font-medium text-gray-700">Warehouse</label>
+              <div className="rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                {warehouses[0]?.name || warehouses[0]?.code || 'Warehouse setup required'}
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Product Name</label>
@@ -686,7 +884,7 @@ export function InventoryView() {
                 onChange={(e) => setProductCategory(e.target.value)}
               >
                 <option value="">Select a category</option>
-                {PRODUCT_CATEGORY_OPTIONS.map((category) => (
+                {BEVERAGE_CATEGORIES.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -702,7 +900,7 @@ export function InventoryView() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Unit</label>
+              <label className="text-sm font-medium text-gray-700">Order Format</label>
               <select
                 aria-label="Product unit"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -710,6 +908,7 @@ export function InventoryView() {
                 onChange={(e) => {
                   setProductUnit(e.target.value)
                   setProductSizes([])
+                  if (e.target.value === 'bottle') setProductQuantityPerUnit('1')
                 }}
               >
                 {PRODUCT_UNIT_OPTIONS.map((option) => (
@@ -718,6 +917,16 @@ export function InventoryView() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div>
+                <p className="text-xs text-slate-500">Packaging Type</p>
+                <p className="text-sm font-semibold text-slate-800">{selectedCategorySpec?.packagingType || 'Select a category'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Unit</p>
+                <p className="text-sm font-semibold text-slate-800">{selectedCategorySpec?.looseUnit || 'Select a category'}</p>
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Price (PHP)</label>
@@ -729,6 +938,30 @@ export function InventoryView() {
                 placeholder="0.00"
               />
             </div>
+            <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-sky-100 bg-sky-50/60 p-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-sky-950">Retail Loose Unit Price (PHP)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={productRetailUnitPrice}
+                  onChange={(e) => setProductRetailUnitPrice(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-sky-950">Retail Case/Pack Price (PHP)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={productCasePrice}
+                  onChange={(e) => setProductCasePrice(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
               <Input
@@ -739,6 +972,26 @@ export function InventoryView() {
                 onChange={(e) => setProductQuantityPerUnit(e.target.value)}
                 placeholder="Required"
               />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium text-gray-700">Packaging Profile</label>
+                <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setPackagingProfilesOpen(true)}>Manage</button>
+              </div>
+              <select
+                aria-label="Packaging profile"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={productPackagingProfileId}
+                onChange={(event) => {
+                  const id = event.target.value
+                  setProductPackagingProfileId(id)
+                  const profile = packagingProfiles.find((row) => row.id === id)
+                  if (profile) setProductQuantityPerUnit(String(profile.standardUnitsPerCase))
+                }}
+              >
+                <option value="">Standard cases only</option>
+                {packagingProfiles.filter((profile) => profile.isActive).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+              </select>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Available Sizes</label>
@@ -764,6 +1017,21 @@ export function InventoryView() {
                 placeholder=""
               />
             </div>
+            {selectedGlassDeposit ? (
+              <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
+                  <Input value={selectedGlassDeposit.bottle.toFixed(2)} readOnly />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
+                  <Input value={selectedGlassDeposit.case.toFixed(2)} readOnly />
+                </div>
+                <p className="col-span-2 text-xs text-emerald-800">Automatically configured for this supported glass-bottle size.</p>
+              </div>
+            ) : selectedCategorySpec?.depositExempt ? (
+              <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
+            ) : null}
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Photo</label>
               <Input
@@ -788,6 +1056,7 @@ export function InventoryView() {
                   setProductSizes([])
                   setProductImageFile(null)
                   setProductWarehouseId('')
+                  setProductPackagingProfileId('')
                 }}
                 disabled={isSubmittingProduct}
               >
@@ -805,6 +1074,12 @@ export function InventoryView() {
           </div>
         </DialogContent>
       </Dialog>
+      <PackagingProfileDialog
+        open={packagingProfilesOpen}
+        onOpenChange={setPackagingProfilesOpen}
+        profiles={packagingProfiles}
+        onSaved={fetchPackagingProfiles}
+      />
     </div>
   )
 }

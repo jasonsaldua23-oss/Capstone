@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "styleseed-design-review": {
+      "source": "bitjaru/styleseed",
+      "sourceType": "github",
+      "skillPath": "skills/styleseed-design-review/SKILL.md",
+      "computedHash": "a147441c198563cacff277f14de6dfce253dd6a21ad38c6df974d91ef9c3f97f"
+    }
+  }
+}

@@ -20,6 +20,7 @@ type CustomerCartViewProps = {
   selectedCount: number
   selectedSubtotal: number
   formatPeso: (value: number) => string
+  onEditMixedCase: (item: any) => void
 }
 
 export function CustomerCartView(props: CustomerCartViewProps) {
@@ -38,6 +39,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
     selectedCount,
     selectedSubtotal,
     formatPeso,
+    onEditMixedCase,
   } = props
 
   return (
@@ -91,11 +93,25 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                         >
                           <CheckCircle className="h-3.5 w-3.5" />
                         </button>
-                        <img
-                          src={getProductImage(item.imageUrl)}
-                          alt={item.name}
-                          className="h-[96px] w-[96px] rounded-xl border border-slate-200 object-cover bg-white"
-                        />
+                        {item.itemType === 'MIXED_CASE' ? (
+                          <div className="grid h-[96px] w-[96px] shrink-0 grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            {/* A mixed case uses the images of its first two selected products. */}
+                            {(item.components || []).slice(0, 2).map((component: any) => (
+                              <img
+                                key={component.productId}
+                                src={getProductImage(component.product?.imageUrl)}
+                                alt={component.productName || 'Mixed case product'}
+                                className="h-full w-full min-w-0 object-cover"
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <img
+                            src={getProductImage(item.imageUrl)}
+                            alt={item.name}
+                            className="h-[96px] w-[96px] rounded-xl border border-slate-200 object-cover bg-white"
+                          />
+                        )}
                         <div className="min-w-0 flex-1 space-y-1">
                           <p className="truncate text-[1.05rem] font-semibold text-slate-900">
                             {item.name}{' '}
@@ -117,6 +133,26 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                                 <Plus className="h-3.5 w-3.5" />
                               </Button>
                             </div>
+                            
+                            {item.packagingType === 'RETURNABLE' && !item.depositExempt && (
+                              <div className="mt-3 rounded-xl bg-slate-50 p-3 border border-slate-100">
+                                <p className="text-sm font-semibold text-slate-700">{item.looseUnit || item.containerTypeName || 'Glass Bottle'}</p>
+                                <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+                                  <p className="text-slate-600">
+                                    Empty Bottles: <span className="font-bold text-slate-900">{item.availableEmptyBottles || 0}</span>
+                                  </p>
+                                  <p className="text-slate-600">
+                                    Total Deposit: <span className="font-bold text-emerald-700">{formatPeso(item.availableDepositBalance || 0)}</span>
+                                  </p>
+                                </div>
+                                <p className={`mt-2 text-xs font-medium ${(item.emptyReturnedQuantity || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                  {(item.emptyReturnedQuantity || 0) > 0
+                                    ? `${item.emptyReturnedQuantity} existing empties will be used automatically.`
+                                    : 'A new bottle/case deposit will be charged.'}
+                                </p>
+                              </div>
+                            )}
+
                           </div>
                         </div>
                       </div>

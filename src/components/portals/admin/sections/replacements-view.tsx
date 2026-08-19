@@ -160,7 +160,34 @@ export function ReplacementsView() {
       return `${baseWithoutTrailingSize || normalizedBaseName} (${normalizedSize})`
     }
     const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
+      const productNameForLine = String(line?.originalProductName || line?.replacementProductName || line?.productName || '').trim()
+      const productNameLookup = productNameForLine.replace(/\s*\([^)]*\)\s*$/, '').trim() || productNameForLine
+      const inferLineModeFromDescription = () => {
+        const rawDescription = String(replacement?.description || '')
+        if (!productNameLookup || !rawDescription) return ''
+        const escapedProductName = escapeRegex(productNameLookup)
+        const segmentMatch = rawDescription.match(new RegExp(`\\[${escapedProductName}\\]([\\s\\S]*?)(?=\\s*\\[[^\\]]+\\]|$)`, 'i'))
+        const segmentText = String(segmentMatch?.[1] || '').toLowerCase()
+        if (!segmentText) return ''
+        if (/\bby\s*bottle\b/.test(segmentText)) return 'bottle'
+        if (/\bby\s*pack\b/.test(segmentText)) return 'pack'
+        if (/\bby\s*bundle\b/.test(segmentText)) return 'bundle'
+        if (/\bby\s*case\b/.test(segmentText)) return 'case'
+        if (/\bby\s*unit\b/.test(segmentText)) return 'case'
+        return ''
+      }
+      const lineInputMode = String(line?.lineInputMode || line?.replacementInputMode || inferLineModeFromDescription()).trim().toLowerCase()
+      const unitHint = String(
+        line?.productUnit ||
+        line?.replacementProductUnit ||
+        line?.originalProductUnit ||
+        line?.unit ||
+        ''
+      ).trim().toLowerCase()
       const contextText = `${String(replacement?.description || '')} ${String(replacement?.reason || '')} ${String(replacement?.notes || '')}`.toLowerCase()
+      const byPackText = /\bby\s*pack\b/.test(contextText)
+      const byBundleText = /\bby\s*bundle\b/.test(contextText)
+      const byCaseText = /\bby\s*case\b/.test(contextText)
       const byBottleText = /\bby\s*bottle\b/.test(contextText)
       const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*unit\s*[:\-]?\s*(\d+)/i)
       const qtyPerCaseMatch = contextText.match(/qty\s*\/\s*case\s*[:\-]?\s*(\d+)/i)
@@ -172,17 +199,26 @@ export function ReplacementsView() {
       const qtyPerCase = Number.isFinite(qtyPerCaseFromFields) && qtyPerCaseFromFields > 0 ? qtyPerCaseFromFields : (qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN)
       const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
       const qtyPerBundle = qtyPerBundleMatch ? Number(qtyPerBundleMatch[1]) : NaN
+      const unitLabel =
+        unitHint.includes('pack') || byPackText ? 'pack(s)'
+          : unitHint.includes('bundle') || byBundleText ? 'bundle(s)'
+            : unitHint.includes('case') || byCaseText ? 'case(s)'
+              : 'unit(s)'
 
-      // Mirror getModalQtyDisplay from warehouse portal
-      if (byBottleText) {
-        const bottleQty = Number(
-          mode === 'toReplace'
-            ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles ?? line?.quantityToReplace)
-            : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles ?? line?.quantityReplaced)
-        )
+      const bottleQty = Number(
+        mode === 'toReplace'
+          ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles ?? line?.quantityToReplace)
+          : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles ?? line?.quantityReplaced)
+      )
+      if (lineInputMode === 'bottle') {
+        if (Number.isFinite(bottleQty) && bottleQty >= 0) return `${bottleQty} bottle(s)`
+        const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
+        return fallback > 0 ? `${fallback} bottle(s)` : '0 bottle(s)'
+      }
+      if (!lineInputMode && byBottleText) {
         if (Number.isFinite(bottleQty)) return `${bottleQty} bottle(s)`
         const fallback = Math.max(0, Number.isFinite(fallbackNumeric) ? fallbackNumeric : 0)
-        return fallback > 0 ? `${fallback} bottle(s)` : '0'
+        return fallback > 0 ? `${fallback} bottle(s)` : '0 bottle(s)'
       }
 
       const directUnitQty = Number(
@@ -190,7 +226,7 @@ export function ReplacementsView() {
           ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases ?? line?.unitsToReplace ?? line?.quantityToReplaceUnits)
           : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases ?? line?.unitsReplaced ?? line?.quantityReplacedUnits)
       )
-      if (Number.isFinite(directUnitQty) && directUnitQty >= 0) return `${directUnitQty} unit(s)`
+      if (Number.isFinite(directUnitQty) && directUnitQty > 0) return `${directUnitQty} ${unitLabel}`
 
       // Pick effective qtyPerUnit across all unit types
       const effectiveQtyPerUnit = Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 ? qtyPerUnit
@@ -204,9 +240,9 @@ export function ReplacementsView() {
       if (Number.isFinite(effectiveQtyPerUnit) && effectiveQtyPerUnit > 0 && fallback > 0) {
         const units = fallback / effectiveQtyPerUnit
         const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
-        return `${unitsText} unit(s)`
+        return `${unitsText} ${unitLabel}`
       }
-      return fallback > 0 ? `${fallback} unit(s)` : '0'
+      return fallback > 0 ? `${fallback} ${unitLabel}` : `0 ${unitLabel}`
     }
 
     const sourceLines = Array.isArray(replacement?.replacementLines) && replacement.replacementLines.length
@@ -434,12 +470,7 @@ export function ReplacementsView() {
   }
 
   const getReplacementDetailsText = (entry: any, meta: any) => {
-    const lines =
-      (Array.isArray(entry?.replacementLines) && entry.replacementLines.length ? entry.replacementLines : null) ||
-      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
-      (Array.isArray(entry?.replacementItems) && entry.replacementItems.length ? entry.replacementItems : null) ||
-      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
-      []
+    const lines = buildReplacementLines(entry, meta)
     const first = lines[0] || {}
     const productName = String(
       first?.originalProductName ||
@@ -533,9 +564,10 @@ export function ReplacementsView() {
         }
       }
     }
-    const base = `${productLabel} ${modeLabel}: ${displayQty}`
-    if (qtyPerUnit) return `${base}\nQty/Unit: ${qtyPerUnit}`
-    return `${base}.`
+    const formattedLines = lines.length > 0
+      ? lines.map((line: any) => String(line?.quantityToReplaceDisplay ?? displayQty ?? 'N/A').trim())
+      : [String(displayQty || 'N/A').trim()]
+    return `Quantity to replace: ${formattedLines.filter(Boolean).join(', ')}`
   }
 
   const hasOutstandingReplacementQty = (entry: any, meta: any): boolean => {
@@ -636,8 +668,19 @@ export function ReplacementsView() {
         throw new Error(payload?.error || 'Failed to update replacement')
       }
 
-      setReplacements((prev) => prev.map((item) => (item.id === replacementId ? { ...item, status } : item)))
-      setSelectedReplacement((prev: any) => (prev && prev.id === replacementId ? { ...prev, status } : prev))
+      const updatedReplacement = payload?.replacement
+      setReplacements((prev) =>
+        prev.map((item) =>
+          item.id === replacementId
+            ? (updatedReplacement ? { ...item, ...updatedReplacement } : { ...item, status })
+            : item
+        )
+      )
+      setSelectedReplacement((prev: any) =>
+        prev && prev.id === replacementId
+          ? (updatedReplacement ? { ...prev, ...updatedReplacement } : { ...prev, status })
+          : prev
+      )
       toast.success(`Replacement updated to ${status.replace(/_/g, ' ')}`)
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
@@ -647,12 +690,8 @@ export function ReplacementsView() {
   }
 
   const warehouseFilteredReplacements = useMemo(() => {
-    if (selectedWarehouseId === 'all') return replacements
-    return replacements.filter((item) => {
-      const warehouseId = String(item?.warehouseId || item?.order?.warehouseId || '').trim()
-      return warehouseId === selectedWarehouseId
-    })
-  }, [replacements, selectedWarehouseId])
+    return replacements
+  }, [replacements])
 
   const filteredReplacements = useMemo(() => {
     if (selectedStatus === 'all') return warehouseFilteredReplacements
@@ -801,21 +840,8 @@ export function ReplacementsView() {
           <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
           <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
         </div>
-        <div className="w-full max-w-[420px]">
+        <div className="w-full max-w-[220px]">
           <div className="flex w-full gap-2">
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedWarehouseId}
-              onChange={(event) => setSelectedWarehouseId(event.target.value)}
-              title="Filter by warehouse"
-            >
-              <option value="all">All Warehouses</option>
-              {warehouses.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.name || warehouse.code || warehouse.id}
-                </option>
-              ))}
-            </select>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={selectedStatus}
@@ -1046,6 +1072,14 @@ export function ReplacementsView() {
             const meta = parseMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
+            const replacementPod = selectedReplacement?.replacementDeliveryPod || null
+            const showReplacementPod = Boolean(
+              String(replacementPod?.deliveryPhoto || '').trim() ||
+              String(replacementPod?.recipientName || '').trim() ||
+              String(replacementPod?.submittedAt || '').trim() ||
+              String(selectedReplacement?.linkedReplacementOrderId || selectedReplacement?.replacementOrderId || '').trim() ||
+              String(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber || '').trim()
+            )
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
             const sourceLines =
@@ -1116,9 +1150,6 @@ export function ReplacementsView() {
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
             const hasOutstanding = hasOutstandingReplacementQty(selectedReplacement, meta)
             const isScheduledReplacement = hasStrictScheduledFollowUp(selectedReplacement)
-            const baseResolution = getReplacementDetailsText(selectedReplacement, meta).trim()
-            const effectiveResolution = baseResolution || 'N/A'
-            const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
             const isResolvedCase = Boolean(
               selectedReplacement?.isClosed ||
               ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstanding) ||
@@ -1134,8 +1165,6 @@ export function ReplacementsView() {
               ['Status', formatIssueStatus(selectedReplacement)],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
-              ['Resolution', effectiveResolution],
-              ['Replacement Mode', rawMode.replace(/_/g, ' ')],
             ] as Array<[string, string]>
             return (
               <>
@@ -1148,7 +1177,7 @@ export function ReplacementsView() {
                   {details.map(([label, value]) => (
                     <div key={label} className="rounded-md border bg-slate-50 px-3 py-2">
                       <p className="text-xs font-medium text-slate-500">{label}</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
+                      <p className="mt-1 whitespace-pre-line break-words text-sm font-semibold leading-6 text-slate-900">{value}</p>
                     </div>
                   ))}
                 </div>
@@ -1213,6 +1242,42 @@ export function ReplacementsView() {
                         />
                       ))}
                     </div>
+                  </div>
+                ) : null}
+                {showReplacementPod ? (
+                  <div className="rounded-md border bg-white px-3 py-2">
+                    <p className="text-xs font-medium text-slate-500">Proof of Delivery (POD)</p>
+                    <div className="mt-2 space-y-2">
+                      {(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber) ? (
+                        <p className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Replacement Order:</span>{' '}
+                          {selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber}
+                        </p>
+                      ) : null}
+                      {String(replacementPod?.recipientName || '').trim() ? (
+                        <p className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Received By:</span>{' '}
+                          {replacementPod.recipientName}
+                        </p>
+                      ) : null}
+                      {String(replacementPod?.submittedAt || '').trim() ? (
+                        <p className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Submitted At:</span>{' '}
+                          {new Date(replacementPod.submittedAt).toLocaleString()}
+                        </p>
+                      ) : null}
+                    </div>
+                    {String(replacementPod?.deliveryPhoto || '').trim() ? (
+                      <div className="mt-3">
+                        <img
+                          src={String(replacementPod.deliveryPhoto || '')}
+                          alt="Replacement proof of delivery"
+                          className="max-h-[360px] w-full rounded-md border object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-500">No POD uploaded yet.</p>
+                    )}
                   </div>
                 ) : null}
                 </div>

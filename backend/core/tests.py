@@ -29,6 +29,7 @@ from .models import (
     Warehouse,
     WarehouseStage,
 )
+from .views_api import _create_scheduled_replacement_order, _mark_order_delivered
 
 
 class _RoleValue(str):
@@ -296,6 +297,102 @@ class NotificationsApiContractTests(TestCase):
         self.assertTrue(n2.is_read)
 
 
+class PurchaseRequestWorkflowTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.warehouse = Warehouse.objects.create(
+            name="Central Warehouse",
+            code="WH-001",
+            address="Burgos Street",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
+        self.staff = User.objects.create(
+            email="warehouse.staff@example.com",
+            password="hashed",
+            name="Warehouse Staff",
+            role="WAREHOUSE_STAFF",
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="customer@example.com",
+            password="hashed",
+            name="Portal Customer",
+            phone="09123456789",
+            address="Main Street",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
+        self.token = create_token(
+            {
+                "userId": self.staff.id,
+                "email": self.staff.email,
+                "name": self.staff.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+        self.order = Order.objects.create(
+            order_number="ORD-2026-9001",
+            purchase_request_number="PR-2026-9001",
+            customer=self.customer,
+            status=OrderStatus.PENDING,
+            request_status="PENDING_APPROVAL",
+            subtotal=100.0,
+            total_amount=100.0,
+            payment_status="pending",
+            warehouse_id=self.warehouse.id,
+            shipping_name=self.customer.name,
+            shipping_phone=self.customer.phone,
+            shipping_address=self.customer.address,
+            shipping_city=self.customer.city,
+            shipping_province=self.customer.province,
+            shipping_zip_code=self.customer.zip_code,
+        )
+        OrderTimeline.objects.create(order=self.order)
+
+    def test_warehouse_approval_creates_purchase_order_metadata(self) -> None:
+        response = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data='{"status":"CONFIRMED"}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.request_status, "APPROVED")
+        self.assertEqual(self.order.status, OrderStatus.CONFIRMED)
+        self.assertEqual(self.order.purchase_order_stage, "APPROVED")
+        self.assertTrue(str(self.order.purchase_order_number or "").startswith("PO-"))
+        self.assertEqual(self.order.approved_by_name, self.staff.name)
+        self.assertIsNotNone(self.order.approved_at)
+
+    def test_reject_pending_request_requires_reason_and_does_not_create_purchase_order(self) -> None:
+        missing_reason = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data='{"status":"REJECTED"}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+
+        response = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data='{"status":"REJECTED","reason":"Insufficient stock confirmation"}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.request_status, "REJECTED")
+        self.assertEqual(self.order.status, OrderStatus.REJECTED)
+        self.assertFalse(bool(self.order.purchase_order_number))
+        self.assertEqual(self.order.rejection_reason, "Insufficient stock confirmation")
+
 class CustomerTrackingApiContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
@@ -425,6 +522,7 @@ class CustomerOrdersApiContractTests(TestCase):
             email="orders.staff@example.com",
             password="hashed",
             name="Orders Staff",
+            phone="+63 9171234567",
             role=self.staff_role,
             is_active=True,
         )
@@ -468,6 +566,8 @@ class CustomerOrdersApiContractTests(TestCase):
         self.assertEqual(order_row["id"], own_order.id)
         self.assertEqual(order_row["orderNumber"], own_order.order_number)
         self.assertEqual(order_row["customer"]["id"], self.customer.id)
+        self.assertEqual(order_row["adminPhone"], self.staff_user.phone)
+        self.assertEqual(order_row["sellerPhone"], self.staff_user.phone)
         self.assertIn("items", order_row)
         self.assertIn("logistics", order_row)
         self.assertIn("timeline", order_row)
@@ -1138,6 +1238,21 @@ class OrderStatusTransitionApiContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "OUT_FOR_DELIVERY is set automatically when the trip starts")
+
+    def test_preparing_status_updates_order_and_timeline(self) -> None:
+        order = self._create_order(status=OrderStatus.PENDING)
+
+        response = self._patch_status(order.id, {"status": "PREPARING"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["order"]["status"], OrderStatus.PREPARING)
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+
+        timeline = OrderTimeline.objects.get(order=order)
+        self.assertIsNotNone(timeline.processed_at)
 
 
 class OrderWarehouseStageTransitionApiContractTests(TestCase):
@@ -3437,6 +3552,72 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["transactions"][0]["warehouse"]["id"], self.primary_warehouse.id)
 
+    def test_inventory_detail_put_appends_manual_quantity_adjustment_transaction(self) -> None:
+        response = self.client.put(
+            f"/api/inventory/{self.primary_inventory.id}",
+            data=json.dumps({"quantity": 14}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.primary_inventory.refresh_from_db()
+        self.assertEqual(self.primary_inventory.quantity, 14)
+
+        tx = InventoryTransaction.objects.filter(
+            reference_type="inventory_manual_edit",
+            reference_id=self.primary_inventory.id,
+        ).latest("created_at")
+        self.assertEqual(tx.type, "IN")
+        self.assertEqual(tx.quantity, 4)
+        self.assertEqual(tx.previous_stock, 10)
+        self.assertEqual(tx.updated_stock, 14)
+        self.assertEqual(tx.performed_by, self.warehouse_user.id)
+
+    def test_stock_batch_quantity_edit_appends_adjustment_transaction_without_mutating_original_entry(self) -> None:
+        self.primary_inventory.quantity = 10
+        self.primary_inventory.save(update_fields=["quantity", "updated_at"])
+        batch = StockBatch.objects.create(
+            batch_number="BATCH-ADJUST-001",
+            inventory=self.primary_inventory,
+            quantity=10,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        original_tx = InventoryTransaction.objects.create(
+            warehouse=self.primary_warehouse,
+            product=self.product_a,
+            type="IN",
+            quantity=10,
+            previous_stock=0,
+            updated_stock=10,
+            reference_type="stock_batch",
+            reference_id=batch.id,
+        )
+
+        response = self.client.put(
+            "/api/stock-batches",
+            data=json.dumps({"batchId": batch.id, "quantity": 6}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        original_tx.refresh_from_db()
+        self.assertEqual(original_tx.quantity, 10)
+
+        self.primary_inventory.refresh_from_db()
+        self.assertEqual(self.primary_inventory.quantity, 6)
+
+        adjustment_tx = InventoryTransaction.objects.filter(
+            reference_type="stock_batch_adjustment",
+            reference_id=batch.id,
+        ).latest("created_at")
+        self.assertEqual(adjustment_tx.type, "OUT")
+        self.assertEqual(adjustment_tx.quantity, 4)
+        self.assertEqual(adjustment_tx.previous_stock, 10)
+        self.assertEqual(adjustment_tx.updated_stock, 6)
+        self.assertEqual(adjustment_tx.performed_by, self.warehouse_user.id)
+
     def test_orders_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_orders(self) -> None:
         Order.objects.create(
             order_number="ORD-SCOPE-001",
@@ -3762,6 +3943,199 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(serialized["replacementLines"][1]["originalProductName"], "Return Product B")
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
+
+    def test_scheduled_bottle_replacement_prices_only_requested_bottles(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Bottle Replacement Warehouse",
+            code="WH-BOTTLE-REPL-001",
+            address="Replacement Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        self.order.warehouse_id = warehouse.id
+        self.order.save(update_fields=["warehouse_id", "updated_at"])
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=self.product_b,
+            quantity=1,
+            reserved_quantity=0,
+            threshold=1,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-BOTTLE-REPL-PRICE",
+            inventory=inventory,
+            quantity=1,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        replacement = Replacement.objects.create(
+            replacement_number="RPL-BOTTLE-PRICE-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Leaking",
+            description="Customer requested by bottle",
+            status="APPROVED",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=3,
+            original_order_item_id=self.order_item_b.id,
+            replacement_product_id=self.product_b.id,
+            notes=(
+                "Customer-submitted replacement request\n"
+                "Meta: "
+                + json.dumps(
+                    {
+                        "replacementLines": [
+                            {
+                                "originalOrderItemId": self.order_item_b.id,
+                                "replacementProductId": self.product_b.id,
+                                "replacementProductName": self.product_b.name,
+                                "replacementProductUnit": "case",
+                                "lineInputMode": "bottle",
+                                "replacementInputMode": "bottle",
+                                "quantityPerCase": 12,
+                                "qtyPerUnit": 12,
+                                "quantityToReplace": 3,
+                                "quantityReplaced": 0,
+                                "quantityToReplaceBottles": 3,
+                            }
+                        ]
+                    }
+                )
+            ),
+        )
+
+        scheduled_order = _create_scheduled_replacement_order(
+            replacement,
+            scheduled_date=timezone.localdate(),
+            staff_user_id=None,
+        )
+
+        item = scheduled_order.items.get()
+        self.assertEqual(item.quantity, 1)
+        self.assertAlmostEqual(item.total_price, 5.0)
+        self.assertAlmostEqual(scheduled_order.total_amount, 5.0)
+
+    def test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Mixed Replacement Warehouse",
+            code="WH-MIXED-REPL-001",
+            address="Replacement Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        self.order.warehouse_id = warehouse.id
+        self.order.save(update_fields=["warehouse_id", "updated_at"])
+        inventory_a = Inventory.objects.create(
+            warehouse=warehouse,
+            product=self.product_a,
+            quantity=5,
+            loose_bottles=0,
+            reserved_quantity=0,
+            threshold=1,
+        )
+        inventory_b = Inventory.objects.create(
+            warehouse=warehouse,
+            product=self.product_b,
+            quantity=2,
+            loose_bottles=0,
+            reserved_quantity=0,
+            threshold=1,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-MIXED-REPL-A",
+            inventory=inventory_a,
+            quantity=5,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-MIXED-REPL-B",
+            inventory=inventory_b,
+            quantity=2,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        replacement = Replacement.objects.create(
+            replacement_number="RPL-MIXED-REPL-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Mixed replacement",
+            description="One case line and one bottle line",
+            status="APPROVED",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=15,
+            notes=(
+                "Customer-submitted replacement request\n"
+                "Meta: "
+                + json.dumps(
+                    {
+                        "replacementLines": [
+                            {
+                                "originalOrderItemId": self.order_item_a.id,
+                                "replacementProductId": self.product_a.id,
+                                "replacementProductName": self.product_a.name,
+                                "replacementProductUnit": "case",
+                                "lineInputMode": "case",
+                                "replacementInputMode": "case",
+                                "quantityPerCase": 6,
+                                "qtyPerUnit": 6,
+                                "quantityToReplace": 12,
+                                "quantityReplaced": 0,
+                                "quantityToReplaceCases": 2,
+                                "quantityToReplaceUnits": 2,
+                            },
+                            {
+                                "originalOrderItemId": self.order_item_b.id,
+                                "replacementProductId": self.product_b.id,
+                                "replacementProductName": self.product_b.name,
+                                "replacementProductUnit": "case",
+                                "lineInputMode": "bottle",
+                                "replacementInputMode": "bottle",
+                                "quantityPerCase": 12,
+                                "qtyPerUnit": 12,
+                                "quantityToReplace": 3,
+                                "quantityReplaced": 0,
+                                "quantityToReplaceBottles": 3,
+                            },
+                        ]
+                    }
+                )
+            ),
+        )
+
+        scheduled_order = _create_scheduled_replacement_order(
+            replacement,
+            scheduled_date=timezone.localdate(),
+            staff_user_id=None,
+        )
+        self.assertEqual(scheduled_order.items.count(), 2)
+        bottle_item = scheduled_order.items.get(product=self.product_b)
+        self.assertIn("ReplacementUnitMode=BOTTLE", bottle_item.notes)
+        self.assertIn("ReplacementRequestedBottles=3", bottle_item.notes)
+
+        _mark_order_delivered(scheduled_order, performed_by="warehouse-test")
+
+        inventory_a.refresh_from_db()
+        inventory_b.refresh_from_db()
+        self.assertEqual(inventory_a.quantity, 3)
+        self.assertEqual(inventory_a.loose_bottles, 0)
+        self.assertEqual(inventory_b.quantity, 1)
+        self.assertEqual(inventory_b.loose_bottles, 9)
+        self.assertTrue(
+            InventoryTransaction.objects.filter(
+                type="OUT",
+                quantity_unit="BASE_UNIT",
+                reference_type="order_item",
+                reference_id=bottle_item.id,
+                quantity=3,
+            ).exists()
+        )
 
     def test_customer_replacement_request_rejects_order_delivered_more_than_3_days_ago(self) -> None:
         OrderTimeline.objects.create(

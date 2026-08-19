@@ -8,9 +8,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql='ALTER TABLE "OrderItem" ALTER COLUMN "product_id" DROP NOT NULL;',
-            reverse_sql='ALTER TABLE "OrderItem" ALTER COLUMN "product_id" SET NOT NULL;',
+        migrations.RunPython(
+            code=lambda apps, schema_editor: schema_editor.connection.cursor().execute('ALTER TABLE "OrderItem" ALTER COLUMN "product_id" DROP NOT NULL;') if schema_editor.connection.vendor == 'postgresql' else None,
+            reverse_code=lambda apps, schema_editor: schema_editor.connection.cursor().execute('ALTER TABLE "OrderItem" ALTER COLUMN "product_id" SET NOT NULL;') if schema_editor.connection.vendor == 'postgresql' else None,
         ),
         migrations.AlterField(
             model_name="orderitem",

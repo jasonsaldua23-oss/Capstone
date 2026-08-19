@@ -2,6 +2,8 @@
 
 # dependencies
 node_modules
+mobile/driver-app/.expo/
+mobile/driver-app/.export-check/
 /.pnp
 .pnp.*
 .yarn/*

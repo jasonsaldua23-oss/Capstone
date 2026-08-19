@@ -57,7 +57,7 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
-export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { onOpenTransportation?: () => void; globalSearchQuery?: string } = {}) {
+export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' }: { mode?: string; onOpenTransportation?: () => void; globalSearchQuery?: string } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
   const [warehouseDirectory, setWarehouseDirectory] = useState<any[]>([])
@@ -110,6 +110,15 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
   const isReplacementOrder = (order: any): boolean => {
     const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
     return Boolean(order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
+  }
+
+  // Purchase requests remain separate until an approved purchase order exists.
+  const isPurchaseRequestOrder = (order: any): boolean => {
+    const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
+    const requestNumber = order?.purchaseRequestNumber || order?.purchase_request_number
+    const purchaseOrderNumber = order?.purchaseOrderNumber || order?.purchase_order_number
+    const purchaseOrderStage = order?.purchaseOrderStage || order?.purchase_order_stage
+    return requestStatus === 'PENDING_APPROVAL' || Boolean(requestNumber && !purchaseOrderNumber && !purchaseOrderStage)
   }
 
   useEffect(() => {
@@ -537,6 +546,9 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
 
     return orders.filter((order) => {
       if (isReplacementOrder(order)) return false
+      // Keep requests hidden from Purchase Orders and completed orders hidden from Purchase Requests.
+      if (mode === 'requests' && !isPurchaseRequestOrder(order)) return false
+      if (mode === 'orders' && isPurchaseRequestOrder(order)) return false
 
       const search = orderSearchQuery.trim().toLowerCase()
       if (search) {
@@ -578,7 +590,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
 
       return true
     })
-  }, [orders, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery])
+  }, [orders, mode, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery])
   const totalOrdersPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize))
   const paginatedOrders = useMemo(() => {
     const start = (ordersPage - 1) * ordersPageSize
@@ -587,7 +599,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
 
   useEffect(() => {
     setOrdersPage(1)
-  }, [warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery, orders.length])
+  }, [mode, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery, orders.length])
 
   useEffect(() => {
     if (ordersPage > totalOrdersPages) {
@@ -786,8 +798,12 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
-          <p className="text-gray-700">View customer purchase orders and fulfillment status</p>
+          <h1 className="text-2xl font-bold text-gray-900">{mode === 'requests' ? 'Purchase Requests' : 'Purchase Orders'}</h1>
+          <p className="text-gray-700">
+            {mode === 'requests'
+              ? 'Review customer purchase requests'
+              : 'View customer purchase orders and fulfillment status'}
+          </p>
         </div>
       </div>
 
@@ -882,7 +898,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
 
       <Card>
         <CardHeader className="pb-0">
-          <CardTitle className="text-base">Purchase Orders</CardTitle>
+          <CardTitle className="text-base">{mode === 'requests' ? 'Purchase Requests' : 'Purchase Orders'}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
@@ -890,7 +906,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
           ) : orders.length === 0 ? (
             <div className="text-center py-12">
               {/* <Package className="h-12 w-12 text-gray-300 mx-auto mb-4" /> */}
-              <p className="text-gray-500">No orders found</p>
+              <p className="text-gray-500">{mode === 'requests' ? 'No purchase requests found' : 'No purchase orders found'}</p>
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="text-center py-12">
@@ -1022,7 +1038,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:h-11 sm:w-11">
                     <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
                   </span>
-                  <span>Order Progress - {selectedOrder.orderNumber}</span>
+                  <span>{mode === 'requests' ? 'Purchase Request Details' : 'Order Progress'} - {selectedOrder.orderNumber}</span>
                 </DialogTitle>
               </DialogHeader>
               <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-7 sm:py-6">
@@ -1064,6 +1080,7 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                 </div>
 
                 {(() => {
+                  if (mode !== 'orders') return null
                   const summary = deriveOrderFulfillmentSummary(selectedOrder)
                   const isMultiWarehouse = summary.totalLegs > 1
                   if (!isMultiWarehouse) return null
@@ -1190,7 +1207,8 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                 </div>
 
                 {(() => {
-                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (mode !== 'orders') return null
+                  const hasTrip = !isPurchaseRequestOrder(selectedOrder) && (selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId)
                   if (!hasTrip) return null
                   return (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
@@ -1229,7 +1247,8 @@ export function OrdersView({ onOpenTransportation, globalSearchQuery = '' }: { o
                 })()}
 
                 {(() => {
-                  const hasTrip = selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId
+                  if (mode !== 'orders') return null
+                  const hasTrip = !isPurchaseRequestOrder(selectedOrder) && (selectedOrder.progress?.trip || selectedOrder.assignedTripId || selectedOrder.tripId)
                   const orderStatus = String(selectedOrder.status || '').toUpperCase()
                   const dropPointStatus = String(selectedOrder.progress?.dropPoint?.status || '').toUpperCase()
                   const isDelivered = ['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(orderStatus)

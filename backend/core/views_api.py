@@ -54,6 +54,7 @@ from .models import (
     Replacement,
     ReplacementStatus,
     RoleType,
+    SalesChannel,
     StockBatch,
     Trip,
     TripDropPoint,
@@ -62,6 +63,17 @@ from .models import (
     Vehicle,
     VehicleStatus,
     Warehouse,
+)
+from .retail_pos import (
+    cancel_retail_sale,
+    create_retail_sale,
+    money,
+    quote_retail_cart,
+    serialize_retail_product,
+    serialize_retail_quote,
+    serialize_retail_sale,
+    update_retail_payment,
+    update_retail_pickup_status,
 )
 
 
@@ -1584,6 +1596,10 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
         "userId": customer.id,
         "email": customer.email,
         "name": customer.name,
+        "firstName": customer.first_name,
+        "middleName": customer.middle_name,
+        "lastName": customer.last_name,
+        "suffix": customer.suffix,
         "avatar": customer.avatar,
         "role": "CUSTOMER",
         "type": "customer",
@@ -4142,12 +4158,33 @@ def auth_staff_google(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def auth_register(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
+    first_name = str(body.get("firstName") or body.get("first_name") or "").strip()
+    middle_name = str(body.get("middleName") or body.get("middle_name") or "").strip()
+    last_name = str(body.get("lastName") or body.get("last_name") or "").strip()
+    suffix = str(body.get("suffix") or "").strip()
+
     name = str(body.get("name", "")).strip()
+    if first_name and last_name:
+        name_parts = [first_name]
+        if middle_name:
+            name_parts.append(middle_name)
+        name_parts.append(last_name)
+        if suffix:
+            name_parts.append(suffix)
+        constructed_name = " ".join(name_parts)
+        if not name:
+            name = constructed_name
+    elif name and not first_name and not last_name:
+        parts = name.split()
+        first_name = parts[0] if parts else ""
+        last_name = parts[-1] if len(parts) > 1 else ""
+        middle_name = " ".join(parts[1:-1]) if len(parts) > 2 else ""
+
     email = str(body.get("email", "")).strip().lower()
     password = str(body.get("password", ""))
     email_verification_token = str(body.get("emailVerificationToken", "")).strip()
-    if not name or not email or not password:
-        return _err("Name, email and password are required")
+    if not (first_name and last_name or name) or not email or not password:
+        return _err("First name, last name, email and password are required")
     password_error = _validate_password_strength(password)
     if password_error:
         return _err(password_error)
@@ -4170,6 +4207,10 @@ def auth_register(request: HttpRequest) -> JsonResponse:
         email=email,
         password=hash_password(password),
         name=name,
+        first_name=first_name,
+        middle_name=middle_name or None,
+        last_name=last_name,
+        suffix=suffix or None,
         phone=body.get("phone"),
         address=body.get("address"),
         city=body.get("city"),
@@ -5142,6 +5183,17 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
     tx_type = str(request.GET.get("type") or "").strip().upper()
     if tx_type and tx_type != "ALL":
         qs = qs.filter(type__iexact=tx_type)
+
+    search = str(request.GET.get("search") or "").strip()
+    if search:
+        qs = qs.filter(
+            Q(product__name__icontains=search)
+            | Q(product__sku__icontains=search)
+            | Q(performed_by_name__icontains=search)
+            | Q(notes__icontains=search)
+            | Q(id__icontains=search)
+            | Q(reference_id__icontains=search)
+        )
 
     date_from_raw = str(request.GET.get("dateFrom") or "").strip()
     if date_from_raw:
@@ -8573,6 +8625,285 @@ def upload_replacement_evidence(request: HttpRequest) -> JsonResponse:
     return _handle_evidence_upload(request, "replacement-evidence", "replacement-evidence")
 
 
+RETAIL_QUOTE_SIGNING_SALT = "retail-pos-quote"
+RETAIL_QUOTE_MAX_AGE_SECONDS = 600
+
+
+def _require_retail_warehouse(request: HttpRequest) -> tuple[dict[str, Any] | None, Warehouse | None, JsonResponse | None]:
+    """Restrict Retail / POS to active warehouse staff and administrators."""
+    payload, error = _require_staff(request)
+    if error:
+        return None, None, error
+    role = str(payload.get("role") or "").strip().upper()
+    if role not in (RoleType.WAREHOUSE_STAFF, RoleType.ADMIN):
+        return None, None, _err("Retail / POS is available only to warehouse staff and administrators", 403)
+    staff_id = str(payload.get("userId") or "").strip()
+    if role == RoleType.ADMIN:
+        requested_id = str(request.GET.get("warehouseId") or "").strip()
+        if request.method != "GET":
+            requested_id = str(_json_body(request).get("warehouseId") or requested_id).strip()
+        warehouse = Warehouse.objects.filter(id=requested_id).first() if requested_id else None
+        return payload, warehouse, None
+    if not User.objects.filter(id=staff_id, role=RoleType.WAREHOUSE_STAFF, is_active=True).exists():
+        return None, None, _err("Warehouse staff account is unavailable", 403)
+    allowed_ids = _get_allowed_warehouse_ids_for_staff(staff_id)
+    requested_id = str(request.GET.get("warehouseId") or "").strip()
+    if request.method != "GET":
+        requested_id = str(_json_body(request).get("warehouseId") or requested_id).strip()
+    if requested_id and requested_id not in allowed_ids:
+        return None, None, _err("You are not assigned to the selected warehouse", 403)
+    warehouse_id = requested_id or next(iter(sorted(allowed_ids)), "")
+    warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+    if warehouse is None:
+        return None, None, _err("No warehouse is assigned to this staff account", 403)
+    return payload, warehouse, None
+
+
+def _retail_error(exc: ValueError) -> JsonResponse:
+    message = str(exc)
+    conflict_markers = ("insufficient", "changed", "unavailable", "refresh")
+    status = 409 if any(marker in message.lower() for marker in conflict_markers) else 400
+    return _err(message, status)
+
+
+def _retail_sale_queryset(warehouse: Warehouse | None = None):
+    qs = (
+        Order.objects.select_related("customer", "created_by_user", "warehouse")
+        .prefetch_related("items__product", "items__mixed_case_components__product", "bottle_returns")
+        .filter(sales_channel=SalesChannel.RETAIL_POS)
+    )
+    if warehouse is not None:
+        qs = qs.filter(warehouse_id=warehouse.id)
+    return qs
+
+
+@require_GET
+def retail_products(request: HttpRequest) -> JsonResponse:
+    _payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    if warehouse is None:
+        warehouse = Warehouse.objects.first()
+        if warehouse is None:
+            return _err("No warehouse registered", 404)
+    page, size, offset = _pagination(request)
+    size = min(size, 100)
+    products = _real_products(Product.objects.filter(is_active=True)).select_related("packaging_profile")
+    search = str(request.GET.get("search") or "").strip()
+    if search:
+        products = products.filter(Q(name__icontains=search) | Q(sku__icontains=search))
+    total = products.count()
+    rows = list(products[offset : offset + size])
+    inventories = {
+        inv.product_id: inv
+        for inv in Inventory.objects.filter(
+            warehouse_id=warehouse.id, product_id__in=[product.id for product in rows]
+        )
+    }
+    return _ok({
+        "success": True,
+        "products": [serialize_retail_product(product, inventories.get(product.id)) for product in rows],
+        "total": total,
+        "page": page,
+        "pageSize": size,
+        "totalPages": (total + size - 1) // size,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def retail_quote(request: HttpRequest) -> JsonResponse:
+    _payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    if warehouse is None:
+        return _err("warehouseId is required for retail quotes", 400)
+    body = _json_body(request)
+    if str(body.get("customerType") or "WALK_IN").strip().upper() == "EXISTING":
+        customer_id = str(body.get("customerId") or "").strip()
+        if not Customer.objects.filter(id=customer_id, is_active=True).exists():
+            return _err("The selected customer is unavailable; refresh or use Walk-in Customer", 409)
+    try:
+        quote = quote_retail_cart(warehouse=warehouse, payload=body)
+    except ValueError as exc:
+        return _retail_error(exc)
+    quote_token = signing.dumps(
+        {"fingerprint": quote["fingerprint"], "warehouseId": warehouse.id},
+        salt=RETAIL_QUOTE_SIGNING_SALT,
+        compress=True,
+    )
+    return _ok({"success": True, "quote": serialize_retail_quote(quote), "quoteToken": quote_token})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def retail_sales_collection(request: HttpRequest) -> JsonResponse:
+    payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    if request.method == "POST":
+        if warehouse is None:
+            return _err("warehouseId is required to create a retail sale", 400)
+        body = _json_body(request)
+        request_id = str(body.get("idempotencyKey") or "").strip()
+        if not request_id:
+            return _err("idempotencyKey is required")
+        existing_sale = _retail_sale_queryset(warehouse).filter(retail_request_id=request_id).first()
+        if existing_sale is not None:
+            return _ok({"success": True, "sale": serialize_retail_sale(existing_sale), "created": False})
+        quote_token = str(body.get("quoteToken") or "").strip()
+        if not quote_token:
+            return _err("quoteToken is required")
+        try:
+            signed_quote = signing.loads(
+                quote_token,
+                salt=RETAIL_QUOTE_SIGNING_SALT,
+                max_age=RETAIL_QUOTE_MAX_AGE_SECONDS,
+            )
+        except signing.BadSignature:
+            return _err("Quote expired or invalid; refresh the quote", 409)
+        if str(signed_quote.get("warehouseId") or "") != warehouse.id:
+            return _err("Quote belongs to a different warehouse; refresh the quote", 409)
+        staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
+        if staff is None:
+            return _err("Staff account is unavailable", 403)
+        try:
+            sale, created = create_retail_sale(
+                warehouse=warehouse,
+                staff=staff,
+                payload=body,
+                expected_fingerprint=str(signed_quote.get("fingerprint") or ""),
+            )
+        except IntegrityError:
+            existing = Order.objects.filter(
+                retail_request_id=str(body.get("idempotencyKey") or "").strip(),
+                sales_channel=SalesChannel.RETAIL_POS,
+                warehouse_id=warehouse.id,
+            ).first()
+            if existing is None:
+                return _err("The retail sale could not be saved", 409)
+            sale, created = existing, False
+        except ValueError as exc:
+            return _retail_error(exc)
+        sale = _retail_sale_queryset(warehouse).get(id=sale.id)
+        return _ok({"success": True, "sale": serialize_retail_sale(sale), "created": created}, 201 if created else 200)
+
+    page, size, offset = _pagination(request)
+    queryset = _retail_sale_queryset(warehouse)
+    search = str(request.GET.get("search") or "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(retail_transaction_number__icontains=search)
+            | Q(customer__name__icontains=search)
+            | Q(walk_in_name__icontains=search)
+            | Q(walk_in_contact__icontains=search)
+        )
+    field_filters = {
+        "paymentStatus": "payment_status",
+        "fulfillmentType": "fulfillment_type",
+        "pickupStatus": "pickup_status",
+        "transactionStatus": "retail_status",
+    }
+    for query_name, model_name in field_filters.items():
+        value = str(request.GET.get(query_name) or "").strip().upper()
+        if value:
+            queryset = queryset.filter(**{model_name: value})
+    for query_name, lookup in (("dateFrom", "created_at__date__gte"), ("dateTo", "created_at__date__lte")):
+        value = str(request.GET.get(query_name) or "").strip()
+        if value:
+            try:
+                parsed_date = date.fromisoformat(value)
+            except ValueError:
+                return _err(f"{query_name} must use YYYY-MM-DD")
+            queryset = queryset.filter(**{lookup: parsed_date})
+    queryset = queryset.order_by("-created_at")
+    total = queryset.count()
+    rows = list(queryset[offset : offset + size])
+    return _ok({
+        "success": True,
+        "sales": [serialize_retail_sale(row) for row in rows],
+        "total": total,
+        "page": page,
+        "pageSize": size,
+        "totalPages": (total + size - 1) // size,
+    })
+
+
+@require_GET
+def retail_sale_detail(request: HttpRequest, sale_id: str) -> JsonResponse:
+    _payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    sale = _retail_sale_queryset(warehouse).filter(id=sale_id).first()
+    if sale is None:
+        return _err("Retail transaction not found", 404)
+    return _ok({"success": True, "sale": serialize_retail_sale(sale)})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def retail_sale_payment(request: HttpRequest, sale_id: str) -> JsonResponse:
+    payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    sale = _retail_sale_queryset(warehouse).filter(id=sale_id).first()
+    if sale is None:
+        return _err("Retail transaction not found", 404)
+    staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
+    if staff is None:
+        return _err("Staff account is unavailable", 403)
+    try:
+        sale = update_retail_payment(sale, _json_body(request).get("amountPaid"), staff)
+    except ValueError as exc:
+        return _retail_error(exc)
+    sale = _retail_sale_queryset(warehouse).get(id=sale.id)
+    return _ok({"success": True, "sale": serialize_retail_sale(sale)})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def retail_sale_pickup_status(request: HttpRequest, sale_id: str) -> JsonResponse:
+    payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    sale = _retail_sale_queryset(warehouse).filter(id=sale_id).first()
+    if sale is None:
+        return _err("Retail transaction not found", 404)
+    staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
+    if staff is None:
+        return _err("Staff account is unavailable", 403)
+    try:
+        sale = update_retail_pickup_status(sale, _json_body(request).get("pickupStatus"), staff)
+    except ValueError as exc:
+        return _retail_error(exc)
+    sale = _retail_sale_queryset(warehouse).get(id=sale.id)
+    return _ok({"success": True, "sale": serialize_retail_sale(sale)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def retail_sale_cancel(request: HttpRequest, sale_id: str) -> JsonResponse:
+    payload_data, warehouse, error = _require_retail_warehouse(request)
+    if error:
+        return error
+    sale = _retail_sale_queryset(warehouse).filter(id=sale_id).first()
+    if sale is None:
+        return _err("Retail transaction not found", 404)
+    staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
+    if staff is None:
+        return _err("Staff account is unavailable", 403)
+    try:
+        sale = cancel_retail_sale(
+            order=sale,
+            performed_by=staff.name or staff.email or "Warehouse Staff",
+            reason=str(_json_body(request).get("reason") or "").strip() or None,
+        )
+    except ValueError as exc:
+        return _retail_error(exc)
+    sale = _retail_sale_queryset(warehouse).get(id=sale.id)
+    return _ok({"success": True, "sale": serialize_retail_sale(sale)})
+
+
 def ensure_demo_accounts() -> None:
     User.objects.get_or_create(email="admin@logistics.com", defaults={"name": "Admin User", "password": hash_password("admin123"), "phone": "+1-555-0100", "role": "SUPER_ADMIN", "is_active": True})
     driver_user, _ = User.objects.get_or_create(email="driver@logistics.com", defaults={"name": "Demo Driver", "password": hash_password("driver123"), "phone": "+1-555-0103", "role": "DRIVER", "is_active": True})
@@ -8584,6 +8915,7 @@ def ensure_demo_accounts() -> None:
         license_expiry=timezone.now() + timedelta(days=1500),
         hired_at=timezone.now(),
     )
+
 
 
 

@@ -558,7 +558,9 @@ export function WarehouseDashboardView({
                       </td>
                       <td className="p-4">{entry.product?.name || 'N/A'}</td>
                       <td className="p-4">{entry.product?.sku || 'N/A'}</td>
-                      <td className="p-4 font-semibold">{Number(entry.quantity || 0).toLocaleString()}</td>
+                      <td className="p-4 font-semibold">
+                        {Number(entry.quantity || 0).toLocaleString()} {entry.stockUnitLabel || ''}
+                      </td>
                       <td className="p-4 text-gray-600">
                         {entry.referenceType || 'N/A'}
                         {entry.referenceId ? ` #${entry.referenceId}` : ''}

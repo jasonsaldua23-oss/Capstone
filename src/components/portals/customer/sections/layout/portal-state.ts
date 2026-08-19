@@ -19,6 +19,8 @@ export function useCustomerPortalState(user: any) {
   const [cart, setCart] = useState<any[]>([])
   const [selectedCartIds, setSelectedCartIds] = useState<Set<string>>(new Set())
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
+  const [isMixedCaseBuilderOpen, setIsMixedCaseBuilderOpen] = useState(false)
+  const [editingMixedCase, setEditingMixedCase] = useState<any | null>(null)
 
   const [shippingName, setShippingName] = useState(user?.name || '')
   const [shippingPhone, setShippingPhone] = useState('')
@@ -126,6 +128,10 @@ export function useCustomerPortalState(user: any) {
     setSelectedCartIds,
     isPlacingOrder,
     setIsPlacingOrder,
+    isMixedCaseBuilderOpen,
+    setIsMixedCaseBuilderOpen,
+    editingMixedCase,
+    setEditingMixedCase,
     shippingName,
     setShippingName,
     shippingPhone,

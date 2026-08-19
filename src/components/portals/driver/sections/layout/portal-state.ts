@@ -128,7 +128,7 @@ export type DriverGpsLocation = {
 // Security and GPS filtering constants used by tracking flow.
 const isSecureWebContext = typeof window !== 'undefined' ? window.isSecureContext : true
 const DRIVER_GPS_GOOD_ACCURACY_METERS = 35
-const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 80
+const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 250
 const DRIVER_GPS_MAX_JUMP_METERS = 180
 const DRIVER_GPS_MAX_REALISTIC_SPEED_MPS = 45
 const DRIVER_HEARTBEAT_INTERVAL_MS = 5000
@@ -665,7 +665,7 @@ export function useDriverPortalState() {
     const now = Date.now()
     if (!shouldUseGpsLocation(next, latestGpsRef.current)) {
       const fallbackAccuracy = Number(next.accuracy ?? Number.POSITIVE_INFINITY)
-      const shouldSendFallback = now - lastLocationUploadAtRef.current > 30000 && fallbackAccuracy <= 150
+      const shouldSendFallback = now - lastLocationUploadAtRef.current > 30000 && fallbackAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS
       if (shouldSendFallback) {
         void sendLocationUpdate(next, tripId)
         lastLocationUploadAtRef.current = now

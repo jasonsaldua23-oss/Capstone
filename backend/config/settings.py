@@ -1,4 +1,4 @@
-﻿import os
+import os
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -74,7 +74,8 @@ def _parse_database_url(url: str) -> dict:
         "HOST": parsed.hostname or "",
         "PORT": str(parsed.port or "5432"),
         "CONN_MAX_AGE": int(query.get("conn_max_age", ["0"])[0]),
-        "CONN_HEALTH_CHECKS": False,
+        # Reconnect cleanly when the remote Postgres pooler closes an idle connection.
+        "CONN_HEALTH_CHECKS": True,
         "OPTIONS": options,
     }
 
@@ -144,13 +145,10 @@ DATABASE_URL = _normalize_runtime_database_url(os.getenv("DATABASE_URL", ""))
 APP_DB_TARGET = _normalize_db_target(os.getenv("APP_DB_TARGET", ""))
 REMOTE_POSTGRES_DB = _parse_database_url(DATABASE_URL) if DATABASE_URL else None
 
-if APP_DB_TARGET and APP_DB_TARGET != "supa":
-    raise RuntimeError("Only Supabase/Postgres is supported. Set APP_DB_TARGET=supa or remove it.")
-
 if not REMOTE_POSTGRES_DB:
-    raise RuntimeError("DATABASE_URL is required. SQLite fallback has been removed.")
+    raise ValueError("DATABASE_URL environment variable is required. SQLite has been completely removed.")
 
-ACTIVE_DB_ALIAS = "supabase"
+ACTIVE_DB_ALIAS = "default"
 DATABASES = {
     "default": REMOTE_POSTGRES_DB,
     "supabase": REMOTE_POSTGRES_DB,

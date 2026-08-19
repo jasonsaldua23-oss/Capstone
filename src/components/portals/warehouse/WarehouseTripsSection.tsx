@@ -317,8 +317,13 @@ export function WarehouseTripsSection({
         const allocatedQty = Math.max(0, Number(getItemAllocatedQtyForAssignedWarehouse(item) || 0))
         const assignedToTripQty = Math.max(0, Number(getItemAllocatedQtyForTripWarehouse(item) || 0))
         const pendingQty = Math.max(0, allocatedQty - assignedToTripQty)
-        const name = String(item?.product?.name || 'Item').trim()
+        const name = item?.itemType === 'MIXED_CASE'
+          ? `Mixed Case (${Number(item?.caseCapacity || 0)} units)`
+          : String(item?.product?.name || 'Item').trim()
         const size = (() => {
+          if (item?.itemType === 'MIXED_CASE') {
+            return (item?.components || []).map((component: any) => `${component.productName} ${component.quantityPerCase}/case`).join(', ')
+          }
           const product = item?.product || {}
           const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
             ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
@@ -332,6 +337,20 @@ export function WarehouseTripsSection({
   }, [allocatingPoint, selectedTrip, activeWarehouseId, activeWarehouseName])
   const formatPeso = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(amount)
+  const getOrderItemName = (item: any) =>
+    item?.itemType === 'MIXED_CASE'
+      ? `Mixed Case (${Number(item?.caseCapacity || 0)} units)`
+      : String(item?.product?.name || 'Item').trim()
+  const getOrderItemSize = (item: any) => {
+    if (item?.itemType === 'MIXED_CASE') {
+      return (item?.components || []).map((component: any) => `${component.productName} ${component.quantityPerCase}/case`).join(', ') || 'Mixed Case'
+    }
+    const product = item?.product || {}
+    const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
+      ? product.sizes.map((size: any) => String(size || '').trim()).filter(Boolean).join(', ')
+      : ''
+    return fromSizes || String(product?.size || product?.sizeLabel || item?.size || '').trim() || 'N/A'
+  }
   const formatTripSchedule = (value: string | null | undefined) => {
     const raw = String(value || '').trim()
     if (!raw) return 'Not set'
@@ -987,7 +1006,7 @@ export function WarehouseTripsSection({
                         return (
                       <div key={`warehouse-dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                          <p className="font-semibold text-slate-900">{getOrderItemName(item)}</p>
                           {isMultiWarehouseOrder && (
                             <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                               isOtherWarehouseAllocation
@@ -1009,14 +1028,7 @@ export function WarehouseTripsSection({
                           )}
                         </div>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          Size: {(() => {
-                            const product = item?.product || {}
-                            const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
-                              ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
-                              : ''
-                            const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-                            return fromSizes || fromField || 'N/A'
-                          })()}
+                          {item?.itemType === 'MIXED_CASE' ? 'Contents' : 'Size'}: {getOrderItemSize(item)}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                         {isMultiWarehouseOrder && (
@@ -1102,16 +1114,9 @@ export function WarehouseTripsSection({
                             const needsQty = Math.max(0, allocatedQty - assignedToTripQty)
                             return (
                               <>
-                          <p className="font-medium text-slate-900">{item?.product?.name || 'Item'}</p>
+                          <p className="font-medium text-slate-900">{getOrderItemName(item)}</p>
                           <p className="text-slate-600">
-                            Size: {(() => {
-                              const product = item?.product || {}
-                              const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
-                                ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
-                                : ''
-                              const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-                              return fromSizes || fromField || 'N/A'
-                            })()}
+                            {item?.itemType === 'MIXED_CASE' ? 'Contents' : 'Size'}: {getOrderItemSize(item)}
                           </p>
                           <p className="text-slate-600">Order Qty: {orderQty}</p>
                           <p className="text-slate-700">Already Allocated (this warehouse): {allocatedQty}</p>

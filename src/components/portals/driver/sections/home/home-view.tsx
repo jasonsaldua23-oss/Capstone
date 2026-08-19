@@ -118,6 +118,11 @@ export function HomeView({
   }
   const formatWarehouseStage = (stage: string | null | undefined) => String(stage || 'READY_TO_LOAD').toUpperCase().replace(/_/g, ' ')
   const getItemDisplayNameWithSize = (item: NonNullable<AssignedOrderRow['order']['items']>[number]) => {
+    const mixedItem: any = item
+    if (mixedItem?.itemType === 'MIXED_CASE') {
+      const components = (mixedItem.components || []).map((component: any) => `${component.productName} ${component.quantityPerCase}/case`).join(', ')
+      return `Mixed Case (${mixedItem.caseCapacity || 0} units)${components ? ` — ${components}` : ''}`
+    }
     const product: any = item?.product || {}
     const baseName = String(product?.name || 'Product').trim()
     const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
@@ -141,20 +146,53 @@ export function HomeView({
     order: AssignedOrderRow['order'],
     item: NonNullable<AssignedOrderRow['order']['items']>[number],
   ) => {
+    if ((item as any)?.itemType === 'MIXED_CASE') {
+      const qty = Math.max(Number(item?.quantity || 0), 0)
+      return `Qty ${qty} mixed case(s)`
+    }
     const replacementMeta: any = (order as any)?.scheduledReplacement || null
-    const replacementQty = Math.max(Number(replacementMeta?.quantityToReplace || 0), 0)
-    const replacementUnitMode = String(replacementMeta?.unitMode || '').trim().toUpperCase()
-    if (replacementQty > 0 && String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')) {
-      if (replacementUnitMode === 'BOTTLE') {
-        return `Qty ${replacementQty} bottle(s)`
+    const replacementLines = Array.isArray(replacementMeta?.replacementLines) ? replacementMeta.replacementLines : []
+    const productId = String((item as any)?.product?.id || (item as any)?.productId || '').trim()
+    const productName = String((item as any)?.product?.name || (item as any)?.productName || '').trim().toLowerCase()
+    const matchedReplacementLine = replacementLines.find((line: any) => {
+      const replacementProductId = String(line?.replacementProductId || line?.originalProductId || '').trim()
+      const replacementProductName = String(line?.replacementProductName || line?.originalProductName || line?.productName || '').trim().toLowerCase()
+      return (productId && replacementProductId && productId === replacementProductId) || (productName && replacementProductName && productName === replacementProductName)
+    })
+    if (matchedReplacementLine && String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')) {
+      const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
+      const lineQty = Math.max(Number(matchedReplacementLine?.quantityToReplace || 0), 0)
+      const lineQtyCases = Math.max(Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0), 0)
+      const lineQtyBottles = Math.max(Number(matchedReplacementLine?.quantityToReplaceBottles || 0), 0)
+      const rawUnit = String(
+        matchedReplacementLine?.replacementProductUnit ||
+        matchedReplacementLine?.originalProductUnit ||
+        (item as any)?.productUnit ||
+        (item as any)?.unit ||
+        (item as any)?.product?.unit ||
+        ''
+      ).trim().toLowerCase()
+      const unitLabel =
+        rawUnit.includes('pack') ? 'pack(s)'
+          : rawUnit.includes('bundle') ? 'bundle(s)'
+            : rawUnit.includes('case') ? 'case(s)'
+              : 'unit(s)'
+      if (lineInputMode === 'bottle') {
+        const qty = lineQtyBottles > 0 ? lineQtyBottles : lineQty
+        return `Qty ${qty} bottle(s)`
       }
-      const qtyPerUnit = Math.max(Number(replacementMeta?.qtyPerUnit || 0), 0)
-      if (qtyPerUnit > 0) {
-        const unitQty = replacementQty / qtyPerUnit
+      if (lineQtyCases > 0) {
+        return `Qty ${lineQtyCases} ${unitLabel}`
+      }
+      const qtyPerUnit = Math.max(Number(matchedReplacementLine?.qtyPerUnit || matchedReplacementLine?.quantityPerCase || replacementMeta?.qtyPerUnit || 0), 0)
+      if (qtyPerUnit > 0 && lineQty > 0) {
+        const unitQty = lineQty / qtyPerUnit
         const unitText = Number.isInteger(unitQty) ? String(unitQty) : unitQty.toFixed(2).replace(/\.00$/, '')
-        return `Qty ${unitText} unit(s)`
+        return `Qty ${unitText} ${unitLabel}`
       }
-      return `Qty ${replacementQty} unit(s)`
+      if (lineQty > 0) {
+        return `Qty ${lineQty} ${unitLabel}`
+      }
     }
     const qty = Math.max(Number(item?.quantity || 0), 0)
     const product: any = item?.product || {}

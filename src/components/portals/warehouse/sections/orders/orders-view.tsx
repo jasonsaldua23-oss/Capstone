@@ -1,273 +1,282 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { CircleCheck, Eye, Loader2, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Eye, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseOrdersViewProps } from '../shared/types'
 
+type OrderAction = 'processing' | 'ready' | 'assign' | 'delivered' | 'completed' | 'cancel'
+
+const orderBadgeClass: Record<string, string> = {
+  APPROVED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
+  PROCESSING: 'bg-sky-100 text-sky-800 hover:bg-sky-100',
+  READY_FOR_DELIVERY: 'bg-violet-100 text-violet-800 hover:bg-violet-100',
+  FOR_DELIVERY: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-100',
+  OUT_FOR_DELIVERY: 'bg-orange-100 text-orange-800 hover:bg-orange-100',
+  DELIVERED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
+  COMPLETED: 'bg-emerald-200 text-emerald-950 hover:bg-emerald-200',
+  CANCELLED: 'bg-slate-200 text-slate-700 hover:bg-slate-200',
+}
+
+function formatStage(value: string) {
+  return String(value || 'APPROVED').replace(/_/g, ' ')
+}
+
+function isMixedCaseItem(item: any) {
+  return String(item?.itemType || item?.item_type || '').toUpperCase() === 'MIXED_CASE'
+}
+
+function formatOrderItemContents(item: any) {
+  if (!isMixedCaseItem(item)) return String(item?.productName || item?.product?.name || 'Product')
+  const caseCount = Math.max(0, Number(item?.quantity || 0))
+  const capacity = Math.max(0, Number(item?.caseCapacity || item?.case_capacity || 0))
+  const components = (Array.isArray(item?.components) ? item.components : []).map((component: any) => {
+    const perCase = Math.max(0, Number(component?.quantityPerCase || 0))
+    const total = Math.max(0, Number(component?.totalBaseUnits ?? perCase * caseCount))
+    const label = String(component?.baseUnitLabel || 'unit').trim() || 'unit'
+    return `${component?.productName || component?.product?.name || 'Product'} ${perCase} ${label}(s)/case (${total} total)`
+  })
+  return `Mixed Case (${capacity} units) x${caseCount}${components.length > 0 ? `: ${components.join('; ')}` : ''}`
+}
+
 export function WarehouseOrdersView({
   loadingOrders,
-  scopedOrders,
-  orderStatusFilter,
-  setOrderStatusFilter,
-  orderStatusOptions,
-  orderDatePreset,
-  setOrderDatePreset,
-  orderCustomDateFilter,
-  setOrderCustomDateFilter,
-  orderMinPriceFilter,
-  setOrderMinPriceFilter,
-  orderMaxPriceFilter,
-  setOrderMaxPriceFilter,
-  filteredOrders,
+  purchaseOrders,
   formatPeso,
-  formatWarehouseOrderStatus,
   openOrderDetail,
   updateWarehouseOrderStatus,
   updatingOrderId,
-  openRejectDialog,
+  onOpenTransportation,
 }: WarehouseOrdersViewProps) {
-  const [ordersPage, setOrdersPage] = useState(1)
-  const ordersPageSize = 10
-  const isRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
-  const getOrderStatusBadgeClass = (status: string) => {
-    const value = String(status || '').trim().toUpperCase()
-    if (value === 'PENDING') return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-    if (value === 'PREPARING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
-    if (value === 'CANCELLED') return 'bg-red-100 text-red-700 hover:bg-red-100'
-    if (value === 'DELIVERED') return 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-    return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
-  }
-  const totalOrdersPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize))
-  const paginatedOrders = useMemo(() => {
-    const start = (ordersPage - 1) * ordersPageSize
-    return filteredOrders.slice(start, start + ordersPageSize)
-  }, [filteredOrders, ordersPage])
+  const [search, setSearch] = useState('')
+  const [warehouseFilter, setWarehouseFilter] = useState('all')
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all')
+  const [dateApprovedFilter, setDateApprovedFilter] = useState('')
+  const [minAmount, setMinAmount] = useState('')
+  const [maxAmount, setMaxAmount] = useState('')
+  const [actionState, setActionState] = useState<{ order: any; action: OrderAction } | null>(null)
 
-  useEffect(() => {
-    setOrdersPage(1)
-  }, [orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, filteredOrders.length])
+  const warehouseOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        purchaseOrders
+          .map((order) => String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b))
+  }, [purchaseOrders])
 
-  useEffect(() => {
-    if (ordersPage > totalOrdersPages) {
-      setOrdersPage(totalOrdersPages)
+  const filteredOrders = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    const min = Number(minAmount)
+    const max = Number(maxAmount)
+    return purchaseOrders.filter((order) => {
+      const purchaseOrderStage = String(order?.purchaseOrderStage || 'APPROVED').toUpperCase()
+      const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
+      const amount = Number(order?.totalAmount || 0)
+      const dateApproved = String(order?.dateApproved || order?.approvedAt || '').slice(0, 10)
+      const productText = Array.isArray(order?.items)
+        ? order.items.map((item: any) => [
+            formatOrderItemContents(item),
+            ...(Array.isArray(item?.components)
+              ? item.components.flatMap((component: any) => [component?.productName, component?.productSku])
+              : []),
+          ].join(' ')).join(' ')
+        : ''
+
+      if (orderStatusFilter !== 'all' && purchaseOrderStage !== orderStatusFilter) return false
+      if (dateApprovedFilter && dateApproved !== dateApprovedFilter) return false
+      if (minAmount.trim() && Number.isFinite(min) && amount < min) return false
+      if (maxAmount.trim() && Number.isFinite(max) && amount > max) return false
+      if (!query) return true
+
+      return [
+        order?.purchaseOrderNumber,
+        order?.purchaseRequestNumber,
+        order?.customer?.name,
+        warehouseLabel,
+        purchaseOrderStage,
+        productText,
+      ].some((value) => String(value || '').toLowerCase().includes(query))
+    })
+  }, [purchaseOrders, search, orderStatusFilter, dateApprovedFilter, minAmount, maxAmount])
+
+  const submitAction = async () => {
+    if (!actionState) return
+    const { order, action } = actionState
+
+    if (action === 'assign' && !order?.assignedTripId && !order?.progress?.trip?.id) {
+      onOpenTransportation()
+      setActionState(null)
+      return
     }
-  }, [ordersPage, totalOrdersPages])
+
+    const nextStatus =
+      action === 'processing'
+        ? 'PREPARING'
+        : action === 'ready'
+          ? 'READY_FOR_DELIVERY'
+          : action === 'assign'
+            ? 'FOR_DELIVERY'
+            : action === 'delivered'
+              ? 'DELIVERED'
+              : action === 'completed'
+                ? 'COMPLETED'
+                : 'CANCELLED'
+
+    await updateWarehouseOrderStatus(order.id, nextStatus)
+    setActionState(null)
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Purchase Orders</CardTitle>
-        <CardDescription>Purchase order records relevant to warehouse operations.</CardDescription>
-      </CardHeader>
-      <CardContent className="p-0">
-        {loadingOrders ? (
-          <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
-        ) : scopedOrders.length === 0 ? (
-          <div className="h-40 flex items-center justify-center text-gray-500">No orders found</div>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-2 border-b bg-gray-50/70 p-3 md:grid-cols-6">
-              <select
-                aria-label="Filter orders by status"
-                value={orderStatusFilter}
-                onChange={(event) => setOrderStatusFilter(event.target.value)}
-                className="h-9 rounded-md border border-input bg-white px-3 text-sm"
-              >
-                <option value="all">All statuses</option>
-                {orderStatusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Filter orders by date range"
-                value={orderDatePreset}
-                onChange={(event) => setOrderDatePreset(event.target.value)}
-                className="h-9 rounded-md border border-input bg-white px-3 text-sm"
-              >
-                <option value="all">All dates</option>
-                <option value="past_7_days">Past 7 days</option>
-                <option value="past_14_days">Past 14 days</option>
-                <option value="past_1_month">Past 1 month</option>
-                <option value="past_3_months">Past 3 months</option>
-                <option value="past_6_months">Past 6 months</option>
-                <option value="past_1_year">Past 1 year</option>
-                <option value="custom">Custom date</option>
-              </select>
-              <Input
-                type="date"
-                value={orderCustomDateFilter}
-                onChange={(event) => setOrderCustomDateFilter(event.target.value)}
-                className="h-9"
-                disabled={orderDatePreset !== 'custom'}
-              />
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Min price"
-                value={orderMinPriceFilter}
-                onChange={(event) => setOrderMinPriceFilter(event.target.value)}
-                className="h-9"
-              />
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Max price"
-                value={orderMaxPriceFilter}
-                onChange={(event) => setOrderMaxPriceFilter(event.target.value)}
-                className="h-9"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9"
-                onClick={() => {
-                  setOrderStatusFilter('all')
-                  setOrderDatePreset('all')
-                  setOrderCustomDateFilter('')
-                  setOrderMinPriceFilter('')
-                  setOrderMaxPriceFilter('')
-                }}
-              >
-                Reset Filters
-              </Button>
+    <>
+      <Card className="rounded-3xl border-slate-200 shadow-sm">
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-2xl text-slate-900">Purchase Orders</CardTitle>
+          <CardDescription>View approved purchase orders and fulfillment status.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search PO, request, customer, product..." />
+            <select value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)} className="h-10 rounded-md border border-input bg-white px-3 text-sm">
+              <option value="all">All order statuses</option>
+              <option value="APPROVED">Approved</option>
+              <option value="PROCESSING">Processing</option>
+              <option value="READY_FOR_DELIVERY">Ready for Delivery</option>
+              <option value="FOR_DELIVERY">For Delivery</option>
+              <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+              <option value="DELIVERED">Delivered</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+            <Input type="date" value={dateApprovedFilter} onChange={(event) => setDateApprovedFilter(event.target.value)} />
+            <Input type="number" min="0" step="0.01" value={minAmount} onChange={(event) => setMinAmount(event.target.value)} placeholder="Minimum amount" />
+          </div>
+          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+            <Input type="number" min="0" step="0.01" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} placeholder="Maximum amount" />
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearch('')
+                setOrderStatusFilter('all')
+                setDateApprovedFilter('')
+                setMinAmount('')
+                setMaxAmount('')
+              }}
+            >
+              Reset Filters
+            </Button>
+          </div>
+
+          {loadingOrders ? (
+            <PortalTableSkeleton rows={5} columns={9} className="border-0 shadow-none" />
+          ) : filteredOrders.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
+              <p className="text-base font-semibold text-slate-700">No purchase orders found.</p>
+              <p className="mt-1 text-sm text-slate-500">Approved purchase requests will appear here.</p>
             </div>
-            {filteredOrders.length === 0 ? (
-              <div className="h-24 flex items-center justify-center text-gray-500">No orders match the selected filters</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="text-left p-4 font-medium text-gray-600">Order #</th>
-                      <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                      <th className="text-left p-4 font-medium text-gray-600">Delivery Date</th>
-                      <th className="text-left p-4 font-medium text-gray-600">Total</th>
-                      <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                      <th className="text-left p-4 font-medium text-gray-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedOrders.map((order) => (
-                      <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4">
-                          <div className="space-y-1">
-                            <p className="font-medium">{order.orderNumber}</p>
-                            {isRescheduledOrder(order) ? (
-                              <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Rescheduled Order</Badge>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="min-w-[1100px] w-full">
+                <thead className="bg-slate-50 text-left text-sm text-slate-600">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Purchase Order ID</th>
+                    <th className="px-4 py-3 font-semibold">Request ID</th>
+                    <th className="px-4 py-3 font-semibold">Customer Name</th>
+                    <th className="px-4 py-3 font-semibold">Warehouse</th>
+                    <th className="px-4 py-3 font-semibold">Products</th>
+                    <th className="px-4 py-3 font-semibold">Total Quantity</th>
+                    <th className="px-4 py-3 font-semibold">Total Amount</th>
+                    <th className="px-4 py-3 font-semibold">Order Status</th>
+                    <th className="px-4 py-3 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOrders.map((order) => {
+                    const stage = String(order?.purchaseOrderStage || 'APPROVED').toUpperCase()
+                    const totalQuantity = Array.isArray(order?.items)
+                      ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
+                      : 0
+                    const productLabel = Array.isArray(order?.items) && order.items.length > 0
+                      ? order.items.map((item: any) => formatOrderItemContents(item)).join(', ')
+                      : 'No products'
+                    return (
+                      <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
+                        <td className="px-4 py-3 font-semibold text-slate-900">{order.purchaseOrderNumber || 'Pending PO ID'}</td>
+                        <td className="px-4 py-3">{order.purchaseRequestNumber || order.orderNumber}</td>
+                        <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
+                        <td className="px-4 py-3">{order.warehouseName || order.warehouseCode || 'Unassigned'}</td>
+                        <td className="px-4 py-3 max-w-[260px] text-slate-600">{productLabel}</td>
+                        <td className="px-4 py-3">{totalQuantity}</td>
+                        <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
+                        <td className="px-4 py-3">
+                          <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => void openOrderDetail(order)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </Button>
+                            {(stage === 'APPROVED' || stage === 'PROCESSING') ? (
+                              <Button size="sm" className="bg-violet-600 hover:bg-violet-700" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: stage === 'APPROVED' ? 'processing' : 'ready' })}>
+                                {updatingOrderId === order.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                {stage === 'APPROVED' ? 'Start Processing' : 'Mark as Ready for Delivery'}
+                              </Button>
+                            ) : null}
+                            {stage === 'READY_FOR_DELIVERY' ? (
+                              <Button size="sm" variant="outline" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'assign' })}>
+                                Assign Delivery
+                              </Button>
+                            ) : null}
+                            {stage !== 'COMPLETED' && stage !== 'CANCELLED' ? (
+                              <Button size="sm" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'cancel' })}>
+                                Cancel Order
+                              </Button>
                             ) : null}
                           </div>
-                        </td>
-                        <td className="p-4">{order.customer?.name || 'N/A'}</td>
-                        <td className="p-4">
-                          {new Date(order.deliveryDate || order.createdAt).toLocaleDateString()}
-                        </td>
-                        <td className="p-4 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
-                        <td className="p-4">
-                          <div className="space-y-1">
-                            {(() => {
-                              const displayStatus = String((order as any)?._displayStatus || formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes))
-                              return <Badge className={getOrderStatusBadgeClass(displayStatus)}>{displayStatus}</Badge>
-                            })()}
-                            {isRescheduledOrder(order) ? (
-                              <p className="text-[11px] font-medium text-amber-700">Rescheduled Order</p>
-                            ) : null}
-                            {(() => {
-                              const summary = (order as any)?._fulfillmentSummary
-                              // Only show for multi-warehouse orders (more than 1 leg)
-                              if (!summary || Number(summary.totalLegs || 0) <= 1) return null
-                              return (
-                                <p className="text-[11px] text-slate-500">
-                                  Legs: {Number(summary.deliveredLegs || 0)}/{Number(summary.totalLegs || 0)} delivered
-                                  {Number(summary.unassignedTripCount || 0) > 0 ? ` | ${Number(summary.unassignedTripCount)} without trip` : ''}
-                                </p>
-                              )
-                            })()}
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          {(() => {
-                            const orderStatus = String(order.status || '').toUpperCase()
-                            const isPendingApproval = String(order.paymentStatus || '').toLowerCase() === 'pending_approval'
-                            const canReject = isPendingApproval || orderStatus === 'PENDING'
-                            return (
-                              <div className="flex items-center gap-3">
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  onClick={() => void openOrderDetail(order)}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                  onClick={() => updateWarehouseOrderStatus(order.id, 'PREPARING')}
-                                  disabled={(!['PENDING', 'CONFIRMED'].includes(orderStatus) && !isPendingApproval) || updatingOrderId === order.id}
-                                  title="Confirm Order"
-                                >
-                                  {updatingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleCheck className="h-4 w-4" />}
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                                  onClick={() => openRejectDialog(order)}
-                                  disabled={!canReject || updatingOrderId === order.id}
-                                  title="Reject Order"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            )
-                          })()}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="flex items-center justify-between border-t px-4 py-3">
-                  <p className="text-xs text-slate-500">
-                    Showing {(ordersPage - 1) * ordersPageSize + 1}-{Math.min(ordersPage * ordersPageSize, filteredOrders.length)} of {filteredOrders.length}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={ordersPage <= 1}
-                      onClick={() => setOrdersPage((prev) => Math.max(1, prev - 1))}
-                    >
-                      Previous
-                    </Button>
-                    <span className="text-sm text-slate-600">Page {ordersPage} of {totalOrdersPages}</span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={ordersPage >= totalOrdersPages}
-                      onClick={() => setOrdersPage((prev) => Math.min(totalOrdersPages, prev + 1))}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && setActionState(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {actionState?.action === 'processing' && 'Start Purchase Order Processing'}
+              {actionState?.action === 'ready' && 'Mark Purchase Order as Ready for Delivery'}
+              {actionState?.action === 'assign' && 'Assign Delivery'}
+              {actionState?.action === 'cancel' && 'Cancel Purchase Order'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {actionState?.action === 'processing' && 'Move this approved purchase order into processing.'}
+              {actionState?.action === 'ready' && 'Are you sure you want to mark this purchase order as ready for delivery?'}
+              {actionState?.action === 'assign' && (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id
+                ? 'This purchase order still needs a transportation assignment. Continue to the Transportation module to assign delivery.'
+                : 'Confirm delivery assignment for this purchase order.' )}
+              {actionState?.action === 'cancel' && 'Cancel this purchase order and stop further delivery processing.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void submitAction()}>
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

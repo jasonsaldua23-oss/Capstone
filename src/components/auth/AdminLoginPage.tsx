@@ -134,7 +134,8 @@ export function AdminLoginPage() {
       }
 
       persistAdminWelcomeState(data.user)
-      if (data.token) setTabAuthToken(data.token)
+      // Keep the client token in persistent storage only when the user opted in.
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
@@ -170,7 +171,8 @@ export function AdminLoginPage() {
         return
       }
       persistAdminWelcomeState(data.user)
-      if (data.token) setTabAuthToken(data.token)
+      // The 2FA challenge preserves the same remember-me choice on the server and client.
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       router.replace('/')
     } catch {
       toast.error('Unable to verify code. Please try again.')

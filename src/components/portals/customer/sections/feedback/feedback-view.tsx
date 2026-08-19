@@ -21,9 +21,9 @@ export function CustomerFeedbackView() {
   useEffect(() => {
     const loadFeedback = async () => {
       try {
-        const data = await fetchFeedbackMeta()
-        if (data?.results) {
-          setFeedbackItems(data.results)
+        const result = await fetchFeedbackMeta()
+        if (result.data?.results) {
+          setFeedbackItems(result.data.results)
         }
       } catch (error) {
         console.error('Failed to load feedback:', error)

@@ -223,7 +223,7 @@ export function DriverLoginPage() {
       }
 
       persistDriverWelcomeState(data.user)
-      if (data.token) setTabAuthToken(data.token)
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

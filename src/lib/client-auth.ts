@@ -1,6 +1,7 @@
 'use client'
 
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
+const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
 const FETCH_PATCH_FLAG = '__tabAuthFetchPatched__'
 
 function isApiRequest(input: RequestInfo | URL): boolean {
@@ -17,16 +18,28 @@ function isApiRequest(input: RequestInfo | URL): boolean {
   }
 }
 
-export function setTabAuthToken(token: string) {
+export function setTabAuthToken(token: string, options?: { persistent?: boolean }) {
+  const persistent = Boolean(options?.persistent)
+
+  if (persistent) {
+    localStorage.setItem(PERSISTENT_TAB_AUTH_TOKEN_KEY, token)
+    sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
+    return
+  }
+
   sessionStorage.setItem(TAB_AUTH_TOKEN_KEY, token)
+  localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
 export function getTabAuthToken(): string | null {
-  return sessionStorage.getItem(TAB_AUTH_TOKEN_KEY)
+  const sessionToken = sessionStorage.getItem(TAB_AUTH_TOKEN_KEY)
+  if (sessionToken) return sessionToken
+  return localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
 export function clearTabAuthToken() {
   sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
+  localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
 export function installTabAuthFetchInterceptor() {

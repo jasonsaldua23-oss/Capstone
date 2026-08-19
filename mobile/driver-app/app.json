@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "LogiTrack Driver",
+    "name": "AAB TRADING DRIVER",
     "slug": "logitrack-driver-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,11 +8,51 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "plugins": [
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow AAB TRADING DRIVER to capture proof of delivery photos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow AAB TRADING DRIVER to select proof of delivery photos."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow AAB TRADING DRIVER to access your location while you are delivering orders.",
+          "locationAlwaysAndWhenInUsePermission": "Allow AAB TRADING DRIVER to share your route while an assigned delivery trip is active.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ],
     "android": {
-      "package": "com.logitrack.driver"
+      "package": "com.logitrack.driver",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "CAMERA"
+      ]
     },
     "ios": {
-      "bundleIdentifier": "com.logitrack.driver"
+      "bundleIdentifier": "com.logitrack.driver",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Allow AAB TRADING DRIVER to access your location while you are delivering orders.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow AAB TRADING DRIVER to share your route while an assigned delivery trip is active."
+      }
     },
     "extra": {
       "apiBaseUrl": "http://10.0.2.2:8000"

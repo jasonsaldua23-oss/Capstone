@@ -11,7 +11,7 @@ const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
   1: ['Missing items', 'Damaged unit', 'Wrong order', 'Poor driver attitude'],
   2: ['Packaging issue', 'Incomplete order', 'Hard to contact driver', 'Item condition problem'],
   3: ['Minor packaging issue', 'Communication could improve', 'Acceptable service', 'Minor inconvenience'],
-  4: ['Friendly driver', 'Good unitS', 'Accurate order', 'Smooth transaction'],
+  4: ['Friendly driver', 'Good unit', 'Accurate order', 'Smooth transaction'],
   5: ['Professional driver', 'Perfect packaging', 'Complete order', 'Great overall experience'],
 }
 
@@ -56,7 +56,7 @@ export function CustomerRatingDialog(props: any) {
   return (
     <Dialog open={!!ratingDialogOrder} onOpenChange={(open) => !open && setRatingDialogOrder(null)}>
       {ratingDialogOrder && (
-        <DialogContent showCloseButton={false} className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-md p-3 md:w-full md:max-h-[92vh] md:p-6">
+        <DialogContent className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-md p-3 md:w-full md:max-h-[92vh] md:p-6">
           <motion.div
             initial={{ opacity: 0, y: 8, scale: 0.99 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -65,9 +65,8 @@ export function CustomerRatingDialog(props: any) {
           >
             {/* Close button */}
             <button
-              type="button"
               onClick={() => setRatingDialogOrder(null)}
-              className="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-md border-0 bg-transparent p-0 text-slate-400 shadow-none outline-none ring-0 hover:bg-slate-100 hover:text-slate-600 focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"
               disabled={isSubmittingRating}
             >
               <X className="h-4 w-4 md:h-5 md:w-5" />

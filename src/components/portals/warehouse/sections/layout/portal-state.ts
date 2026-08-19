@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 
 export type WarehouseView =
   | 'dashboard'
+  | 'retailPos'
+  | 'purchaseRequests'
   | 'orders'
   | 'trips'
   | 'replacements'

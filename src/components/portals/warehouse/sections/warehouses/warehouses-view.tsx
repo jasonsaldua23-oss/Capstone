@@ -18,14 +18,14 @@ export function WarehouseWarehousesView({
     <div className="space-y-5">
       <Card>
         <CardHeader>
-          <CardTitle>Assigned Warehouse</CardTitle>
-          <CardDescription>Operational details for your assigned warehouse.</CardDescription>
+          <CardTitle>Warehouse</CardTitle>
+          <CardDescription>Operational details for the registered warehouse.</CardDescription>
         </CardHeader>
         <CardContent>
           {loadingWarehouses ? (
             <PortalCardsSkeleton cards={2} compact />
           ) : !assignedWarehouse ? (
-            <div className="h-40 flex items-center justify-center text-gray-500">No assigned warehouse found</div>
+            <div className="h-40 flex items-center justify-center text-gray-500">Warehouse setup is required</div>
           ) : (
             <div className="rounded-lg border bg-white p-4">
               <div className="flex items-start justify-between gap-3">

@@ -1,0 +1,1967 @@
+{
+  "success": true,
+  "fsckOutput": "dangling blob 6b00755a9a8733f0fb171a47b25d0d7b4c70dee8\ndangling tree 7180b2e81437fba3597d5a166c5a3299930d59e3\ndangling blob a8808137d59abbd6ab078121ffa1f2781872f742\ndangling blob f98053135007739d8a017846a2fc3d299f947411\ndangling blob 0681b199c2f0539763eb115596acd82ca9c53bf3\ndangling blob da4149248b69ccd3a682f4854965cae11c6b697e\ndangling blob 3e02fd6587a0edd84851048f03f1da3d1a3084c0\ndangling blob 5c42706a0d53c5e8b96818d9c29a292d1504f720\ndangling blob bac280b4cfd8424caa5e76e862ed4f89c930419f\ndangling blob 5dc36132c5bbe5028bffc818751526de25a16434\ndangling tree 6183c0ea0a1c4f9e4e5a391a6e9e192c148bcdf5\ndangling blob a9c36c225c748a890161cf0317e4f99790870145\ndangling tree d103582eb436881cbab30b58903277b11c718451\ndangling blob da835ee82d5cc31be9fa9792512930f7ae3fb5ce\ndangling blob 1bc4843137045c03b107ee474ec5475d8a31c827\ndangling blob 228476e7d6257a248f821bd9abe695733ffc0e0a\ndangling tree 3084512c54e0b85e50ae0486516e1b819663ba8c\ndangling tree 5d84940801681077b31582728381316b3b5a3250\ndangling blob f1041e34ef365926f5670b896f5bb23e553ac36d\ndangling tree 11c57d809a7f56623459ad913787fa242bbdb666\ndangling blob 5305c2d9d9865d6a59d2fdeb2d089563168cc496\ndangling tree 62c5af836bd8d7a1c24efbde9914f53b587c1d49\ndangling blob eb457c029941d3d162110298bd34dad00cdea24d\ndangling tree 58c6d3b91357c18342c29561149381e8007c99f0\ndangling tree 6b86033d9b5f152f6ce3630460158037753816d9\ndangling tree 91c648f3b8e485de235e44835527b5b415699beb\ndangling blob 9e86f1b2be0d431cd3c250ddeaf4efabdbcb088b\ndangling blob ab06d32d388e19e5be2977bc1e729a3a96d06211\ndangling tree ce4604176905698cea8d85bd6d760d8a05f88fab\ndangling tree d486558c52ccb750ee0e17e227d870687f9e5ca3\ndangling blob 15070003998de1905f618b5f498c3972a49b4df9\ndangling blob 24c7a8fd25e5ab7f748398a899c74a8665501740\ndangling blob 2ec7eabcf1c9fdc68edcfc4ed732ac46b2a43c79\ndangling tree 40078c8726dfc622fed32d8e8a5ac411c810f150\ndangling tree 4947702414c0c33bd58efd7874c05cf39990af77\ndangling tree 5207730cb03896f97512fb85aabe7adcbe0d1fb3\ndangling blob 6fc74c0d32369926052cd31c94ccecbfdaf5f014\ndangling tree 7e0789821bb85968889d5511c2b991662aa55348\ndangling blob d087af230d677701f95f3482a4a09f2a4c21011c\ndangling blob dd079e603f5770176212776a1d565b108875cf64\ndangling blob e90756c563e1c150ffe08c85ad31acf58a38b7a6\ndangling tree ec47b0c9ff1a5cbd92b4921d5846a5dad2c52276\ndangling tree 2a0862c9f3c5904ae2529531c726b75336b595b0\ndangling tree 3dc8e799de2a43b4ec389c2a98cb00dc02e7f41c\ndangling blob 4248bf7a39c793c9f319bae7d09f92983efe5368\ndangling tree 5ec8924894b9b247603894123f1b9d610e466a0b\ndangling blob 6ac81b06b7a3ef916d677953084ae225504a77bc\ndangling tree 7608927b283643319e007ab4fdc0e83a2c627840\ndangling blob 8788f8753a5df5e40c7b3268a25bd38094f6c6c1\ndangling tree 8ec8e8a509dda4302c9cf7c67a60b81e1cfbc22f\ndangling blob bec848214e20a2105ea820e191976ed58039116f\ndangling tree c908c6a30e7c6814723e479da99eb969fd324186\ndangling blob 0b499290793c25ff09645c59b0489e0a2a6a9b8b\ndangling blob 5289ce13539bf70b922893a676b5d9047e7ec0af\ndangling blob 56497467120b52b742756379959d4b2536be6df7\ndangling blob 980996fe8565368a8dcc87b112fed59749f8914d\ndangling tree ac894fe4317122e31eab573eb3486298168818bf\ndangling blob db092ece7e21de98f87bd81471578259a1bc642f\ndangling tree eb89aef69864d71847111f1fa218fd1f871ad2b1\ndangling tree f1094550d4ea4174f1b48b4e8c8dc8be569b4664\ndangling blob f8896e4a024db8821ea0b1bc51321eaf7e910c99\ndangling blob 1b4adae13fdb783bbe412f72530d59877d8a8b27\ndangling blob 218a96f31d24566e0ef73f343320e07cebfacf84\ndangling blob 530ac334a63eb7d0efa3605d394a8ebdb6e9a786\ndangling tree 658a5cccc138d58fe00bb4aa8c130a07b87c1dcf\ndangling tree 840a1167fb11191d02931976cf13f015e9f75ad9\ndangling blob 864a02dfbe11d889295ffd50170e6f8117ad250f\ndangling blob b4ca031f8a756551a12fa8e296d3b2764cc8b067\ndangling blob d4cad6605c8d3d12a1662e0d2b12fa864e88b409\ndangling blob 278b1620084cfd20fc4023bf8ca9cf7ce5260022\ndangling tree 384b899f58bd96108238adfb4e79e66c7fd29942\ndangling blob 424b8ba8d1f9ebb22ba72cdd174c8a2ade0ecf89\ndangling blob 55cb1990212c5f3e0bfbeafc84636c187d1784f5\ndangling tree 858b1467653649953ce0d3a8edc4a12a9164cf76\ndangling blob 898bf0a9cdf15c1c5e4d3dc9fce0263c05e022e6\ndangling tree a04b3214a30a154d3b501713ce3928ae49150777\ndangling tree c00b82e6dc03b2179e45d320113d5962594ec13f\ndangling blob d04bc8e06dfd7370d39c29d10c7c968d17860d43\ndangling tree e00b03bd8c8535b0d26dc15d8cfc6737aa2528db\ndangling tree ea4bc312e30b2c20d636d0869efb57767a6374c4\ndangling blob fb0bea895f03af466f4c5f6534672f2943b7a9ba\ndangling tree 154c4e0c4a9dd7a38b65d78b581d7674aa4f816b\ndangling blob 364c6a9b8df6e252bb5ae39e2ca031fcbfc4e8a5\ndangling tree 438cf145f9d3892f5919be3c8f2347c686b4dac6\ndangling tree 4c4cf9a48c30b71608da336f5efeb2576e4c7316\ndangling blob 508c5891faba622051a8d5566c118de7892d95bf\ndangling blob 680cf15400cd57ce2bf17a58ecd29caa0d8a8422\ndangling blob 8a8c18ba2d5caa7e60a365e77ae0d1b872141bb0\ndangling blob d58ca079a929834cc9a800fcc07ce63626959516\ndangling tree e38c5b3e96743ee8431fafd28857a5c92482e870\ndangling tree 170d54f73256f5b55a8b23b11674169098cf89c3\ndangling blob 33cd86c797ee9d1c129fa1e721b3540f9caac364\ndangling tree 5f8d61b74d5aeb388a066bcff9abb087ce112878\ndangling blob bfcdceb7cb901b946fbe0bc6691f5f64fa862f05\ndangling blob ea8db6a7be518a029b5ac3ee75fa737329da1ac7\ndangling tree 028ee08c439598bd811bdae0d12d4a6dfc797411\ndangling blob 1d8ebc1e27a3552d5af920dab14b6145dcb62e45\ndangling tree 210e01f55fb9e8ea24f4a0cf58ea76701d2b0720\ndangling blob ecce3054c99c226e78f60535434215b76af7ee9c\ndangling blob f44e39dea4bfbcec7d2223a11d0f3680964bae9b\ndangling blob 858f61ebc6973becb71dd9cf40eeb90e833f1eff\ndangling commit 98cf59a8e95d7d050e75f69545f6df5b00ffb9e4\ndangling blob b4cf23e356918d30f4bbd3ed3ee7a47c1ab5c13d\ndangling blob c20f3bf14720d34247e8e1302dc3c40f7b832099\ndangling blob eccfb236a8ff9f3895d6e3e9c8afd0929f5a26b1\ndangling tree ed4f94205b430917a17bb39eb854a654c8fad602\ndangling blob 1d50ab4ec75a57febee2450583982cae23d1668b\ndangling tree 5e5000af82a93ad2f2f8ce87091a38705449c639\ndangling blob 6e507d33cc56aa0644382701eadf10cc0e551355\ndangling tree 955065f3de2e04993aca78b55f4a835b5f5b8bf1\ndangling blob cd505176dd1c18c8ed1a445d0e26fef31ec2f8b5\ndangling blob e690597481432dd4196c11ff493ad3720c46ed10\ndangling tree 3251f960d61bbd46ef687ea7847974ba9203c4da\ndangling blob 9e51ca176f903013b6edd36b7e3a06b0c157cf8a\ndangling blob ee512957b09ab590f84400a766af4f14807a7c49\ndangling blob 35d2c98da4180e9b0f8be34a614dea66a93bf9d1\ndangling tree 9c9235a10b2187df06e9d5a5648870a7a331499f\ndangling tree 9f1226ae8079eec3d60042e1283e6fe822b2bfaa\ndangling blob e3927442236ed3c79531c2b585b9c3c8b0721495\ndangling blob 049335c57ccd7e4f45510030c9573a144d806226\ndangling blob 0f13678d80a762375223f060e23b56c7b2eac89e\ndangling tree 11135f376dd164e14c65a30363f1be9cac354672\ndangling blob 1b132c21483eae2d1665026acf0ebb69aca25096\ndangling blob 3353aee2d6c08a0e1a4bb9edef3c48bc2c7ca3e5\ndangling blob 62139ffde252fe3fe302fe5a1f4c36488c3c9c7b\ndangling blob 67531913885d110213b16e4cdf7d1259a34f7df7\ndangling blob 89531537792a7e86571597cb422d1b7a735d26c6\ndangling blob a553c45d86adfe1f10b8943f15101dac5fda5c34\ndangling blob b0133ccb077c69065b2ad07166ded58a5a4dd442\ndangling blob b1930678f87a07835d053d55fd1c476d604a5627\ndangling tree c013c68837fab6b5e28fc6346d8ee8bdf06c4932\ndangling blob da13b92825b0caea42b872368a356f32f7a02484\ndangling blob e093ef7a9d23ee02ef04257ff2431d586c4dcdf3\ndangling tree 1c54149f691760e4aeae6f63a0555a45f4f2bb49\ndangling tree 1cd423add7a01941431904ef4e9506bc05982b0a\ndangling blob 1e5453945ededac43297078965ca9f1eecfe42a6\ndangling blob 2a14480395e7ce934740050d8a92297d6ad2d17f\ndangling tree 4e946c758ba12407bf33dcad6deb7041dfb6391a\ndangling tree 505482360c5c255899e06afff13dc68fa4e68dff\ndangling blob 57d42f00a410f839332dc1610f4ededfbac54305\ndangling blob 6454ef9a94d52512e4905df61280a3fd1dafc0a4\ndangling tree 6914184329edcbd6dfbabc9d0340e6de2fba32a7\ndangling blob 6bd4c1cf4f50e44405ea3afe664a748d0a87a701\ndangling blob 7dd43f761de3b49a510aead134a6ac7417252285\ndangling blob 8854a67211bfa1af6d265106ce32fc4a0a436972\ndangling tree 94541f4ff4995d1c6cf9266301ea381cd69f7bd8\ndangling blob 0a15c01e300e56547c00bad62374e8d15f1aee9e\ndangling blob 6315c5c060e95da387502ba4c2bd8268e58a82eb\ndangling blob 66d5b1e2dba6d1b3dbcb290fa6ef1699980435e6\ndangling blob 3dd6cf625a740398c2a4dc8abbe18e25e0ac5e9f\ndangling blob 55160e4b32a6bacbbe6fb04e9a943c926a5d2ab9\ndangling tree 7356573026dbb3fd874564498f131128330ea00c\ndangling blob 7596f320f3c0fa72e6bcfe4e5d703deb88d14eee\ndangling tree dd56be43e8f23885a21bb88230b88d04d96f6672\ndangling tree 0e176ed4b1dc39743b220ebe2d5b2270737c80da\ndangling blob 0a185ab6ed0c2dd9b383a403c56c909bbab8b9a1\ndangling tree 1d18e1841aed02f082a07e4086704e1dd250d286\ndangling blob 3298539f62205893e07bb5f9b337cbee18b602b9\ndangling blob 3418421be126755aa58d7e9162c4989836f68084\ndangling blob 4e989e18a94df66ea2970b1e57c45f2d205691d4\ndangling tree 5698adc6e965201240508583642f032480d69f10\ndangling blob 70d8945dc2d1b0fcc3f8b37a0351b88e6adb18d0\ndangling blob 9dd95c09ee9bd66b1d23eae6b9dd5c1e2038f441\ndangling tree ad9905368b29ae312a798616b166020b8a2634da\ndangling blob fed9d15b7f504e14ac82793d79db2d7ad83d56ed\ndangling blob fed95f8fbceb8427ae16ba73e8183156033e3b16\ndangling blob 5a9a88f756274cd81c15919983abbdfad23d1ddc\ndangling blob 9b1a8a4eb86cf1426f95549718781d5a147f48bb\ndangling blob b5dace0ef98998ba6ba55b781ef9c549c11b5f97\ndangling blob c55ab42224874608473643de0a85736b7fec0730\ndangling blob e49af232229a8af726193004907096f848113b36\ndangling tree 051bd3dc91eaa5d10416762d2406e397f90c59f5\ndangling blob 471b2a202ec2e2f7bb0bf40b111f4d5be07ea5bd\ndangling blob 9c5b7a633411c2313ce839f748e4623bb0a70efe\ndangling blob e69b436ba799295c5f13cfb086d8913b4bd6341c\ndangling blob f69be6471d48710bf1cd80672fbe00f9e7be2a53\ndangling commit 455c021e51eb3167212956fd150dbe6ebad13178\ndangling tree 53dc9350bb49b163167eec9000c8fe65eaf2eb96\ndangling blob 6e5c6fa0377767f9ca96e2d107628d7bbec09939\ndangling blob bf9c56272f9c7a372e6581127d292728ccea046d\ndangling tree dbdc06c3d0f9a6b92c1fa29774b03fd1cac740e6\ndangling tree f75cb03e4abf276d4046ec06c50b4575c4f26a37\ndangling blob 191d96a9802135ff7f05f4cf137fea0e5ad1d455\ndangling blob 2bddce29214882eb9fdf2be8a50ed5bdd0c69dfc\ndangling tree 559d5a94393b336a424fd76605e069dc07c08cb7\ndangling blob b25d176dd43702983fab9a26ad96ab19d3af8dfd\ndangling tree d15d5c472ea6df5b630d086ab45f715b930d1288\ndangling tree 515e9d85964cfcbb663f217a35ed02b5ee38d681\ndangling blob a6de9d2733d3f0eea12ae87b24122495df1f0928\ndangling tree ef1e60627d417c1dbbc465802e44bae2e5816944\ndangling blob f01e00951ef664f8d73d5cc98897108cc75c3ef9\ndangling blob fc9e5d6cc4e19f0f8ba0ffec17a753f597833fe5\ndangling blob 069f26427a49650a4eacb0eb439b5bce7750af53\ndangling blob 2fdfd0b860d40ed722d32da6b96807083f02beea\ndangling blob 6e1f1afed7268a4a07252187831cc78f5ab73522\ndangling blob f65f777730d82162f4248f03c703b1b85fda5fe2\ndangling blob 17e07b24173a54e62492c42402dbf1f0fa203a38\ndangling tree 1b201c1080f1b22874848e030e57b13eead1da8a\ndangling tree 4c209cb969cd60c995593827983c531c897c9f7e\ndangling blob 4d602de371329dfaaee485bf3a16d19d80f4f0ea\ndangling blob 5760878c367dbf75d093429fec19b4e8c892f8b7\ndangling blob 8360525042eeea22db8f6bae4e8356152b4e155f\ndangling tree 98a02e7ab06c8ffbb58d46219d0b894a51abdd5c\ndangling blob ac60252262534e7b87523fd04d252f085b38bec0\ndangling blob c7608c204a1ffa44a12431c919043cf26f7bd137\ndangling blob 1e6185be35b11b989e767e75d830db11b9f1e882\ndangling blob 2a610a90b30234dc39548a201aa3462cfc6b2e43\ndangling blob 492141fa9022cb6dbcd960766392c6153322d203\ndangling blob 8821dd183caf9c8c3b809e0e2d9e0df56c4e9ed9\ndangling blob 8f21a13d71b872ff004daf30c88e94f012bc1c87\ndangling blob f321d333a5e6ef98cbdfeeeaa334923e4cfc8a6c\ndangling blob 1022b2e30d09f685add562793ba5d7e1147c90b8\ndangling blob 216294f9faa74a14a38ad128cb6cba8ad2b76155\ndangling blob 36a2f4686b05fa707fcedbfb30e73afd7cd663c3\ndangling tree 5fe263ade1f30e7e52ca904f08e87cc66e24c557\ndangling blob 7ea2f635c262e992cd17f45c2c90b52c46c06c06\ndangling tree b722f77b08391455110e2731633283ff557c310f\ndangling tree b9a2278517ad83335eceaab1f905a30854fc6022\ndangling blob 4e234506dcb180158eeb7e057f7c576c263a2d43\ndangling tree 5023469410fd78df26a1207f86d0fca227658958\ndangling tree 5de313bba21d96b9728912c5c3eaa3544befdab0\ndangling tree 6f63ee8ae1009844167be3e30372e4bb11a390c1\ndangling blob 6f639ade6d45c2527078330949428d2ad0efef2a\ndangling blob 8be3f44b557d07398aa3fc41dd021cee80edfce7\ndangling tree 9ca39cd43ec10ce605596e47db47304f2b8091cf\ndangling tree a22365531f9e6a71a2a690e6f2432e3afafb03ec\ndangling tree b763daca5e3d800d7992d8748b73b36c793fcdbc\ndangling blob b82332d787091b8d5ef17a01e5e352848c5512d3\ndangling tree 34e40d043185834c3adff253cbf5acae6d2ed4fa\ndangling tree 4224cd19865b45bac5531d52baaa60fc8755bd5d\ndangling tree aa24e5cd0d1516aaa511522b277706fe4bb3ee87\ndangling blob afa4f463e3140a3f626c73f7966d689270d89b2c\ndangling blob f8a4ec524b28eb1b380a536c24ea589faa3b7a2e\ndangling blob fa6492c066896f7f7c7fa787e0b6b6394c63e63e\ndangling blob 6d2598bb2e8e63ebf02d1644eb7b668a3c68509f\ndangling tree 8a25c2320a19e55791360110c31be733161b534f\ndangling blob ca2575c753be78cdaa96de56b3ff8770173c324d\ndangling blob f8658244c8862a5b4ad2f9d97ffd1147bbee646e\ndangling tree 5226a5344df49661f67f19068349529bce11a756\ndangling blob 64e66b8abd496d2e450c08110e40607e90b3fe13\ndangling blob 63a6c41246d2851e23e3194ec2bf0769e8e23d5b\ndangling blob 846636e0a7dd27f002f3ed0b486aec55d4ad6d65\ndangling blob a0e6fcdee24e0f9f82792a657c3e768698507d07\ndangling blob b7a6777b4450fb59b61cdc568572148bd9053180\ndangling blob cd26d00a94e31f1ca427eb2581c7fa3c2bcd3495\ndangling tree f466905ec32367ef784e7bd44b84f0191723249c\ndangling blob 07e7ec0b081aedc447fb71dd8dd39d3c814dfc1b\ndangling tree 9be79c6f59917e52fbb3667cd78725af27260fb1\ndangling tree a0273188763c31b354ffb69e7d063c9a8b72e371\ndangling blob f867da5e84e06fe3bbf3409422200e8230538698\ndangling tree f967f43a1413d764f10893654ddeb02cb63230a0\ndangling tree fee701409d003df222629e59a59fa8a7df6f405f\ndangling tree 4ce8524c8f17ad8590c584fa62d9f15ebb3d00ae\ndangling blob 6928a268b7fda8e8a1d8e734090a45143eb0ee85\ndangling tree 6ae868867ee3716d25bdfcbf8a1e2c7d2761de7b\ndangling blob 8f287ed8755ae3bfb6211bdc0a906a43e466d389\ndangling blob a6a82735077c690b49176c990aa912fd0f6a8a32\ndangling tree c5a8998221a86cf2b80c18212fabb4646f1ef9a4\ndangling blob 10e978b661fc291cbeea9ab0c248601cf216f96d\ndangling tree 4b29f3a5983d861a7c92a287fe5d154415d1554b\ndangling tree 6e69d0bb6975ee00c7fdb248d5d998f5acffedda\ndangling tree a0292c5ef910429d5937c77b1e012ebc75d87d0f\ndangling blob ada9788943f28a28f13b21c103c609043855e4ea\ndangling blob b6692baadef353772b38fb4ea93b53735787f105\ndangling tree ce29b98b2670bb498a0f2a673aa5afcfb0e79b09\ndangling blob fde9bd7b332a85bbba4ee9b19d76a646c1ac617e\ndangling tree 2eea5d9b4aaada58466f9df2c45f306cc2f900f1\ndangling blob 85aa4aa5b5d60eff6a8b15af956ac73e6dbf4bc8\ndangling blob e1ea6cd57d9014382123bf607e5cd4900f0d7d70\ndangling blob e32a05e0c3ce9419b48c0ee121daa195070797b4\ndangling tree 04ab2d8e6d5e3b035c9e726e0193a8eea55b39bc\ndangling blob 3f2ba251924196a0066c8f3bb1e3d054fb84be04\ndangling tree 592b88a19c32fb2c4f0d06f6aad17ff52efcd0a8\ndangling blob 82ebaccfc2c3afa59dbafe0e21327c7ed7f2540c\ndangling blob b1abefedc7eb570281c0145a76f2a91e406ee441\ndangling blob b8abdf516d0660c203358868504e9b23f178fda8\ndangling tree bdeb80c4946d453678a77f1e66cffcbefcf16399\ndangling blob 052c5bed07190887d622513923b8484cd6c1b938\ndangling blob 582c2cd4ca3b00ac54135dfa57ebe028833741bc\ndangling blob 602c47087ada8d5a10e90abc864f1225abcb2345\ndangling tree 66ac1552a2567c895ee9f9088dc05c54bc4d4500\ndangling blob 6eac7c499cc03cad2176ba6b87bb2bbe250fe882\ndangling blob d0ec2321df9f1e1b3437ed426804bb3395bb6bbc\ndangling tree 002dff4107c92ae97d3bf547c97c9aa4b8d4393b\ndangling blob 172de6f407b1e21c11ec1c1133916185e1c17ce5\ndangling blob 47ad1fd0460cd1a72becfc31bdcc22be6a5569b4\ndangling tree 5a6dbaa22fffd0a0500570cf16933814577ab774\ndangling tree 61adf7e90730622afb264384683495a37d1fef3d\ndangling blob 79ad9985190bc761554154abf223103eb67ea6bc\ndangling blob 87ad2658fa51cb4c172f82d0fdf33a492a750eca\ndangling blob 89ada90837b2db3f3d453212ae426520acedbbea\ndangling blob d92d22506d12770936fccab10c5f4123c431fc85\ndangling blob d92dae611d442cdfd498b2271a8221f98837be0a\ndangling blob e96d37ca618f5a1e56a2d2c714e679f086558fed\ndangling blob 102e157b0b6392090b2ec3e602ee8fe37fe6c7a3\ndangling blob 652ed416ad2b2d8592536f320a1b448aeccc1bca\ndangling tree 992e3252fb6544e6a6cba6e0d45d26d705f1f73b\ndangling tree b36e61525366e6d4f67e3f0ef1af5dc43ad4cabe\ndangling blob 046fd5946e2528793c1ee1d9554fdc1b5e925043\ndangling blob 07afc58c075c4671fd5b445d010a2a701cedd0f5\ndangling blob 0aaf536bce3e8ea596501c84a24da0dae2571c59\ndangling blob 14ef488865f3ae6150776220ebbcf4788f89066a\ndangling blob 176f0d7b235206cbd7ee56641ad8ddd4f3ad0030\ndangling blob 25afc02ce2735170dbbd818a9782491477d693a5\ndangling blob 2eefd5be216f312bc806b22850a3c7a89923ed89\ndangling blob 47af88177931f63c6eb77dbd071cc90fac8e70b7\ndangling blob 906f08ea63f67d47dbf15a478a7a8cfaeec7d2da\ndangling tree eb6fc957f6111e3adb738f344f9bf522711a8685\ndangling blob f1af17db4e83b1c40152577eca4a575ab63a1ca7\ndangling tree 08f07435dd927eaf842e073e7e9bc9de0b378d6d\ndangling blob 17b07d878cafcbb571617a6513aca74ec0ff0378\ndangling blob 6bb0cb676fe83246c86ab5dc2a39b05ec9fdf03a\ndangling tree 777005bacad8a438304155d9ebd7d9b137422ab6\ndangling blob 80b0f2ff473c4d2482cf1e1aa72200233a48b368\ndangling blob 9db02ea9b4a82169055f924cf523e26ed4093c0e\ndangling tree b070f28fc74ac1625045fe384157b1e29e9d3d90\ndangling tree b7709d66df20b2c2b14badb03c4f93a5924256cd\ndangling tree be709628defcd0dd56c4952f320c15cf53a4fb4e\ndangling tree e2b06cc3cc97082b6cafba19618aff0a600de0bf\ndangling blob fe3043294a292437ece2b94f06073116f04985a8\ndangling blob 2ab1837d7960b2d3a3793442ab6445bdefc2de12\ndangling blob 4631f624a3578bf8563d38c1fc4b370b6af51b5b\ndangling tree 813168a2a3fbf04122f50cd4dc074dd921454dfd\ndangling blob 30721f5480a21eb991e64d5b471873741d642020\ndangling blob 6fb25099f0135ab6e886098e8e92de93e703d967\ndangling blob 95f2292f52966037eeebe059e39153f55138d323\ndangling tree a0f20c30e2537f0871b623be036c20eaca255a70\ndangling blob c572c8f2033387a54e81bebfc2fa1c2caa1cb93f\ndangling tree e5b2db2a7628d15638be875d41a940ed90bb0349\ndangling blob ef725457cf39116672e285d021be69b7ad022574\ndangling blob 00b339242c036bb8c1ad6357ebdadede4c61a634\ndangling blob 25f3a40c35d247252fbad2a852fb69dbeb3d1aa6\ndangling tree 6433c425c6430a6e288e0272ef1f1eff9a2c2d0e\ndangling tree d873558c4a5fafcd44c44847d39c38f639b561b3\ndangling blob f7b31a7266869d6d59aff552391a0e0fbee19887\ndangling blob 0674967d50e1163842f7cccd06164c38939a6ed7\ndangling tree 3e747af1718267ed645937d958b1aa7742772f47\ndangling blob 7c74d37297c090b36a1483d55cb06c697fdc4f9d\ndangling blob d8f4b2003564e24fe1f3fea888881801ded44815\ndangling tree d9749ee57c9d256863cc51ad47e543c9b73d63c1\ndangling tree a7b5bcc74cfbf406901e5c05845282865c993e16\ndangling blob ac35753c5c63f565ed7ec4b89d6c6fd792aa5a8c\ndangling blob c7b5844f0b5b0ecd1a1ae09c9ef59d195796906e\ndangling blob c9b5e0018668ad94f76ffdb22696ef7f01e3358a\ndangling blob d0f5aaa90320afc4b634160f70c84c28627fba8b\ndangling blob fb75fa7e0ee169a74a71a9d78252785aecdcbe6e\ndangling blob 14f6de78aaacb40c755ae544f63b4591708c668e\ndangling blob 8af67720e8d4e45354a8202055bb8425ecda9da1\ndangling blob 94b6c152b42e14fe5b597617a1a31b4ef9fd7c6c\ndangling blob 9df6aa320ccb3712718a02dc6a0ab70b002436d1\ndangling tree cf36360f441030cb4299d9e952ce59054d6c9462\ndangling blob ddf6cfd5c969dff5a149c490dddf818c0bcc3f12\ndangling tree 12770fbe2dec06f43410e60119d2f6a77e38e079\ndangling blob ff37c0e78b0e1f23f6664eda34034fabfb444a8c\ndangling tree 15b8dc79bb8580cad31196dcb80d01cbaf095839\ndangling blob 23b8af1875e4f02d07433a562e1e9d9aa7bd01ab\ndangling tree 35f83a3f1bef4b494c0916e582aa876deeb51877\ndangling tree 3978a96a0b16cced71c1cf67b68cf39ee88bceb0\ndangling blob 4938798813e52daf03ab859f3c2faeece7f3aeea\ndangling blob 6578e4c7821fd1c19fa2d72e742beafe97c54489\ndangling blob 67b8fb201e99d42ac7b7d3a7b7feb55c38579f05\ndangling blob a7f89c076acf8d3c14343db9c3cf237dd8912a23\ndangling blob c278bce3e630e6a421eb2b63de3ce88d3a1e03aa\ndangling blob d878fa63ad37c6e14a754413724b65a0a2316a5a\ndangling blob 5a39a391f614f3024d1bd15f7522ea28a3990d2e\ndangling blob 67b995b10fb881a4780272aee8b12f69ff4e6e1e\ndangling blob a839cafeb3e5e7af2d6ee5c4f0ca71112e004041\ndangling blob 30ba6b0fba0d44c6a1ecccdc5c67e5beaf2d450d\ndangling blob 78fa4b74cb34c8f97f7daa9afe5492eabc34fab7\ndangling tree 983a1d18a63101e663027e0a6c912d1b109f28ad\ndangling blob 1dbb463c878566001448eb1fcaa058980305f2f4\ndangling blob 28bbad1a4dcc6d7d43f1f38b92475458d296afb0\ndangling blob 92fb4833ef177f9c2f353dbba66b35cc01bff578\ndangling blob dd3b3013ba6d2321cb75dbb474a46a2af38f7f49\ndangling tree ea7b6dd4b9028f57a14ca0779d035a95dd51d08f\ndangling tree f2bbb64a42997d6dd717a791288810785c5c9c88\ndangling blob 14fc88b2f9ef6674483a0e41211be1f3adf51c06\ndangling blob 433c70bc81d60cef5a7ded6823859b022bc50d9e\ndangling blob 68bc0886f6ef74e6e1d3fe6da0d6a296858a42d8\ndangling blob 853c341c87feb51e10d757aea28b4185ae4c2731\ndangling blob c43cabe830812ca14a1088eea9a69c00f6e6f7fe\ndangling blob c7fc93da13d4cc8c2ebcc0899bc65a425953bbcb\ndangling tree 26fdf8af223ecbd9e9e10ccaaef779e91195d38f\ndangling tree 26bd93aa58230af573e6e92b7b490f1e87b487ac\ndangling blob 687eea8297caa298581aa06c40ca40ef7b8a58bc\ndangling blob 96fecbae46dbde423a51c4d3d67241d292354efe\ndangling tree a63ea1c60974a604f10b116d460b4a1507a25d45\ndangling blob d0be42e757f3cce533c1c80770239f0097d3de6b\ndangling blob 1dbf05140d07fa014f18a5630acc0613d8058e52\ndangling blob 92ff8231b0568912085c9bb8695fed0cead51073\ndangling tree 9dbf4919d403a057c81732515878b3dc0f029b43\ndangling tree b03f4f8474427ed92d24b39932decb4b2fd660b0\ndangling blob c47f6dc1a7e54d82777224784695cef04402ec27\ndangling blob ed3f9dbc213a035e8842c1e85ead04fccc1371c4\n",
+  "files": [
+    {
+      "name": "002dff4107c92ae97d3bf547c97c9aa4b8d4393b",
+      "size": 41,
+      "preview": "002dff4107c92ae97d3bf547c97c9aa4b8d4393b\n"
+    },
+    {
+      "name": "00b339242c036bb8c1ad6357ebdadede4c61a634",
+      "size": 1070,
+      "preview": "MIT License\n\nCopyright (c) 2024 z-ai platform\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify,"
+    },
+    {
+      "name": "028ee08c439598bd811bdae0d12d4a6dfc797411",
+      "size": 41,
+      "preview": "028ee08c439598bd811bdae0d12d4a6dfc797411\n"
+    },
+    {
+      "name": "046fd5946e2528793c1ee1d9554fdc1b5e925043",
+      "size": 758,
+      "preview": "import ZAI, { ChatMessage } from \"z-ai-web-dev-sdk\";\n\nasync function main(prompt: string) {\n  try {\n    const zai = await ZAI.create();\n\n    const messages: ChatMessage[] = [\n      {\n        role: \"assistant\",\n        content: \"Hi, I'm a helpful assistant.\"\n      },\n      {\n        role: \"user\",\n   "
+    },
+    {
+      "name": "049335c57ccd7e4f45510030c9573a144d806226",
+      "size": 338055,
+      "preview": "import hashlib\nimport hmac\nimport json\nimport logging\nimport math\nimport requests\nimport re\nimport secrets\nfrom datetime import date, datetime, time, timedelta\nfrom pathlib import Path\nfrom typing import Any\n\nfrom google.auth.transport import requests as google_requests\nfrom google.oauth2 import id_"
+    },
+    {
+      "name": "04ab2d8e6d5e3b035c9e726e0193a8eea55b39bc",
+      "size": 41,
+      "preview": "04ab2d8e6d5e3b035c9e726e0193a8eea55b39bc\n"
+    },
+    {
+      "name": "051bd3dc91eaa5d10416762d2406e397f90c59f5",
+      "size": 41,
+      "preview": "051bd3dc91eaa5d10416762d2406e397f90c59f5\n"
+    },
+    {
+      "name": "052c5bed07190887d622513923b8484cd6c1b938",
+      "size": 854,
+      "preview": "# Generated by Django 4.2.8 on 2026-04-24 06:04\n\nfrom django.db import migrations\n\n\nclass Migration(migrations.Migration):\n\n    dependencies = [\n        ('core', '0010_order_default_pending'),\n    ]\n\n    operations = [\n        migrations.RemoveField(\n            model_name='driversparestock',\n      "
+    },
+    {
+      "name": "0674967d50e1163842f7cccd06164c38939a6ed7",
+      "size": 12942,
+      "preview": "'use client'\n\nimport { ArrowLeft, CalendarDays, CheckCircle2, Loader2, MapPin, Phone, ShieldCheck, Truck } from 'lucide-react'\nimport dynamic from 'next/dynamic'\nimport { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button"
+    },
+    {
+      "name": "0681b199c2f0539763eb115596acd82ca9c53bf3",
+      "size": 39892,
+      "preview": "\"\"\"\nBase validator with common validation logic for document files.\n\"\"\"\n\nimport re\nfrom pathlib import Path\n\nimport lxml.etree\n\n\nclass BaseSchemaValidator:\n    \"\"\"Base validator with common validation logic for document files.\"\"\"\n\n    # Elements whose 'id' attributes must be unique within their file"
+    },
+    {
+      "name": "069f26427a49650a4eacb0eb439b5bce7750af53",
+      "size": 8069,
+      "preview": "# Frontend Design Skill\n\nA comprehensive skill for transforming UI style requirements into production-ready frontend code with systematic design tokens, accessibility compliance, and creative execution.\n\n## 📦 Skill Location\n\n```\n{project_path}/skills/frontend-design/\n```\n\n## 📚 What's Included\n\n###"
+    },
+    {
+      "name": "07afc58c075c4671fd5b445d010a2a701cedd0f5",
+      "size": 27377,
+      "preview": "﻿'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport L from 'leaflet'\nimport { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet'\nimport 'leaflet/dist/leaflet.css'\nimport { cn } from '@/lib/utils'\n\nconst MapContainerUnsafe = MapConta"
+    },
+    {
+      "name": "07e7ec0b081aedc447fb71dd8dd39d3c814dfc1b",
+      "size": 21913,
+      "preview": "---\nname: LLM\ndescription: Implement large language model (LLM) chat completions using the z-ai-web-dev-sdk. Use this skill when the user needs to build conversational AI applications, chatbots, AI assistants, or any text generation features. Supports multi-turn conversations, system prompts, and co"
+    },
+    {
+      "name": "08f07435dd927eaf842e073e7e9bc9de0b378d6d",
+      "size": 41,
+      "preview": "08f07435dd927eaf842e073e7e9bc9de0b378d6d\n"
+    },
+    {
+      "name": "0a15c01e300e56547c00bad62374e8d15f1aee9e",
+      "size": 37128,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { motion } from 'framer-motion'\nimport { CalendarDays, CheckCircle2, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/butto"
+    },
+    {
+      "name": "0a185ab6ed0c2dd9b383a403c56c909bbab8b9a1",
+      "size": 14795,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"\n  xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"\n  xmlns:dpct=\"http://schemas.openxmlformats.org/drawingml/2006/pi"
+    },
+    {
+      "name": "0aaf536bce3e8ea596501c84a24da0dae2571c59",
+      "size": 70119,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "0b499290793c25ff09645c59b0489e0a2a6a9b8b",
+      "size": 8932,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog(props: any) {\n  const {\n    selectedOrder,\n    isReceipt"
+    },
+    {
+      "name": "0e176ed4b1dc39743b220ebe2d5b2270737c80da",
+      "size": 41,
+      "preview": "0e176ed4b1dc39743b220ebe2d5b2270737c80da\n"
+    },
+    {
+      "name": "0f13678d80a762375223f060e23b56c7b2eac89e",
+      "size": 4646,
+      "preview": "<?xml version='1.0'?>\n<xs:schema targetNamespace=\"http://www.w3.org/XML/1998/namespace\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xml:lang=\"en\">\n\n <xs:annotation>\n  <xs:documentation>\n   See http://www.w3.org/XML/1998/namespace.html and\n   http://www.w3.org/TR/REC-xml for information about this na"
+    },
+    {
+      "name": "1022b2e30d09f685add562793ba5d7e1147c90b8",
+      "size": 72958,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page'"
+    },
+    {
+      "name": "102e157b0b6392090b2ec3e602ee8fe37fe6c7a3",
+      "size": 6408,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nExcel Formula Recalculation Script\nRecalculates all formulas in an Excel file using LibreOffice\n\"\"\"\n\nimport json\nimport sys\nimport subprocess\nimport os\nimport platform\nfrom pathlib import Path\nfrom openpyxl import load_workbook\n\n\ndef setup_libreoffice_macro():\n    \"\"\"Setup"
+    },
+    {
+      "name": "10e978b661fc291cbeea9ab0c248601cf216f96d",
+      "size": 2515,
+      "preview": "﻿<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xs:schema targetNamespace=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\"\n  xmlns=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\"\n  xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:dc=\"http://purl.org/dc/el"
+    },
+    {
+      "name": "11135f376dd164e14c65a30363f1be9cac354672",
+      "size": 41,
+      "preview": "11135f376dd164e14c65a30363f1be9cac354672\n"
+    },
+    {
+      "name": "11c57d809a7f56623459ad913787fa242bbdb666",
+      "size": 41,
+      "preview": "11c57d809a7f56623459ad913787fa242bbdb666\n"
+    },
+    {
+      "name": "12770fbe2dec06f43410e60119d2f6a77e38e079",
+      "size": 41,
+      "preview": "12770fbe2dec06f43410e60119d2f6a77e38e079\n"
+    },
+    {
+      "name": "14ef488865f3ae6150776220ebbcf4788f89066a",
+      "size": 83612,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/presentationml/2006/main\"\n  xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main"
+    },
+    {
+      "name": "14f6de78aaacb40c755ae544f63b4591708c668e",
+      "size": 656,
+      "preview": "import ZAI from \"z-ai-web-dev-sdk\";\nimport fs from \"fs\";\n\nasync function main(text: string, outFile: string) {\n  try {\n    const zai = await ZAI.create();\n\n    const response = await zai.audio.tts.create({\n      input: text,\n      voice: \"tongtong\",\n      speed: 1.0,\n      response_format: \"wav\",\n  "
+    },
+    {
+      "name": "14fc88b2f9ef6674483a0e41211be1f3adf51c06",
+      "size": 24746,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "15070003998de1905f618b5f498c3972a49b4df9",
+      "size": 8852,
+      "preview": "/**\n * Utility Functions\n * \n * Location: {project_path}/skills/frontend-design/examples/typescript/utils.ts\n */\n\nimport { type ClassValue, clsx } from 'clsx';\nimport { twMerge } from 'tailwind-merge';\n\n/**\n * Merge Tailwind CSS classes with proper precedence\n * Combines clsx and tailwind-merge for "
+    },
+    {
+      "name": "154c4e0c4a9dd7a38b65d78b581d7674aa4f816b",
+      "size": 41,
+      "preview": "154c4e0c4a9dd7a38b65d78b581d7674aa4f816b\n"
+    },
+    {
+      "name": "15b8dc79bb8580cad31196dcb80d01cbaf095839",
+      "size": 41,
+      "preview": "15b8dc79bb8580cad31196dcb80d01cbaf095839\n"
+    },
+    {
+      "name": "170d54f73256f5b55a8b23b11674169098cf89c3",
+      "size": 41,
+      "preview": "170d54f73256f5b55a8b23b11674169098cf89c3\n"
+    },
+    {
+      "name": "172de6f407b1e21c11ec1c1133916185e1c17ce5",
+      "size": 131958,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "176f0d7b235206cbd7ee56641ad8ddd4f3ad0030",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "17b07d878cafcbb571617a6513aca74ec0ff0378",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "17e07b24173a54e62492c42402dbf1f0fa203a38",
+      "size": 4660,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nAdd Z.ai branding metadata to PDF documents.\n\nThis script adds Z.ai metadata (Author, Creator, Producer) to PDF files.\nIt can process single files or batch process multiple PDFs.\n\"\"\"\n\nimport os\nimport sys\nimport argparse\nfrom pypdf import PdfReader, PdfWriter\n\n\ndef add_zai"
+    },
+    {
+      "name": "191d96a9802135ff7f05f4cf137fea0e5ad1d455",
+      "size": 28219,
+      "preview": "﻿'use client'\n\nimport { useEffect, useRef, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport Script from 'next/script'\nimport { setTabAuthToken } from '@/lib/client-auth'\nimport { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } fr"
+    },
+    {
+      "name": "1b132c21483eae2d1665026acf0ebb69aca25096",
+      "size": 46132,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "1b201c1080f1b22874848e030e57b13eead1da8a",
+      "size": 41,
+      "preview": "1b201c1080f1b22874848e030e57b13eead1da8a\n"
+    },
+    {
+      "name": "1b4adae13fdb783bbe412f72530d59877d8a8b27",
+      "size": 17579,
+      "preview": "﻿'use client'\n\nimport { useEffect, useRef, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport Script from 'next/script'\nimport { setTabAuthToken } from '@/lib/client-auth'\nimport { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'\nimport { ForgotPasswordDialo"
+    },
+    {
+      "name": "1bc4843137045c03b107ee474ec5475d8a31c827",
+      "size": 23520,
+      "preview": "# PDF Processing Advanced Reference\n\nThis document contains advanced PDF processing features, detailed examples, and additional libraries not covered in the main skill instructions.\n\n## pypdfium2 Library (Apache/BSD License)\n\n### Overview\npypdfium2 is a Python binding for PDFium (Chromium's PDF libr"
+    },
+    {
+      "name": "1c54149f691760e4aeae6f63a0555a45f4f2bb49",
+      "size": 41,
+      "preview": "1c54149f691760e4aeae6f63a0555a45f4f2bb49\n"
+    },
+    {
+      "name": "1cd423add7a01941431904ef4e9506bc05982b0a",
+      "size": 41,
+      "preview": "1cd423add7a01941431904ef4e9506bc05982b0a\n"
+    },
+    {
+      "name": "1d18e1841aed02f082a07e4086704e1dd250d286",
+      "size": 41,
+      "preview": "1d18e1841aed02f082a07e4086704e1dd250d286\n"
+    },
+    {
+      "name": "1d50ab4ec75a57febee2450583982cae23d1668b",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "1d8ebc1e27a3552d5af920dab14b6145dcb62e45",
+      "size": 359,
+      "preview": "import sys\nfrom pypdf import PdfReader\n\n\n# Script for GLM to run to determine whether a PDF has fillable form fields. See forms.md.\n\n\nreader = PdfReader(sys.argv[1])\nif (reader.get_fields()):\n    print(\"This PDF has fillable form fields\")\nelse:\n    print(\"This PDF does not have fillable form fields;"
+    },
+    {
+      "name": "1dbb463c878566001448eb1fcaa058980305f2f4",
+      "size": 8818,
+      "preview": "import unittest\nimport json\nimport io\nfrom check_bounding_boxes import get_bounding_box_messages\n\n\n# Currently this is not run automatically in CI; it's just for documentation and manual checking.\nclass TestGetBoundingBoxMessages(unittest.TestCase):\n    \n    def create_json_stream(self, data):\n     "
+    },
+    {
+      "name": "1dbf05140d07fa014f18a5630acc0613d8058e52",
+      "size": 1231,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" elementFormDefault=\"qualified\"\n  targetNamespace=\"http://schemas.openxm"
+    },
+    {
+      "name": "1e5453945ededac43297078965ca9f1eecfe42a6",
+      "size": 1080,
+      "preview": "MIT License\n\nCopyright (c) 2025 z-ai-web-dev-sdk Skills\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, cop"
+    },
+    {
+      "name": "1e6185be35b11b989e767e75d830db11b9f1e882",
+      "size": 134838,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "210e01f55fb9e8ea24f4a0cf58ea76701d2b0720",
+      "size": 41,
+      "preview": "210e01f55fb9e8ea24f4a0cf58ea76701d2b0720\n"
+    },
+    {
+      "name": "216294f9faa74a14a38ad128cb6cba8ad2b76155",
+      "size": 146764,
+      "preview": "﻿import json\nfrom datetime import timedelta\nfrom types import SimpleNamespace\nfrom django.core.files.uploadedfile import SimpleUploadedFile\nfrom django.test import Client, TestCase\nfrom django.utils import timezone\n\nfrom .auth import create_token\nfrom .models import (\n    Customer,\n    DropPointType"
+    },
+    {
+      "name": "218a96f31d24566e0ef73f343320e07cebfacf84",
+      "size": 37197,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { motion } from 'framer-motion'\nimport { CalendarDays, CheckCircle2, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/butto"
+    },
+    {
+      "name": "228476e7d6257a248f821bd9abe695733ffc0e0a",
+      "size": 122854,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/"
+    },
+    {
+      "name": "23b8af1875e4f02d07433a562e1e9d9aa7bd01ab",
+      "size": 1166,
+      "preview": "import ZAI from 'z-ai-web-dev-sdk';\n\ninterface SearchFunctionResultItem {\n  url: string;\n  name: string;\n  snippet: string;\n  host_name: string;\n  rank: number;\n  date: string;\n  favicon: string;\n}\n\nasync function main(query: string, num: number = 10) {\n  try {\n    const zai = await ZAI.create();\n\n "
+    },
+    {
+      "name": "24c7a8fd25e5ab7f748398a899c74a8665501740",
+      "size": 28228,
+      "preview": "---\nname: frontend-design\ndescription: Transform UI style requirements into production-ready frontend code with systematic design tokens, accessibility compliance, and creative execution. Use when building websites, web applications, React/Vue components, dashboards, landing pages, or any web UI req"
+    },
+    {
+      "name": "25afc02ce2735170dbbd818a9782491477d693a5",
+      "size": 20400,
+      "preview": "---\nname: docx\ndescription: \"Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When GLM needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing con"
+    },
+    {
+      "name": "25f3a40c35d247252fbad2a852fb69dbeb3d1aa6",
+      "size": 24772,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "26bd93aa58230af573e6e92b7b490f1e87b487ac",
+      "size": 41,
+      "preview": "26bd93aa58230af573e6e92b7b490f1e87b487ac\n"
+    },
+    {
+      "name": "26fdf8af223ecbd9e9e10ccaaef779e91195d38f",
+      "size": 41,
+      "preview": "26fdf8af223ecbd9e9e10ccaaef779e91195d38f\n"
+    },
+    {
+      "name": "278b1620084cfd20fc4023bf8ca9cf7ce5260022",
+      "size": 70134,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "28bbad1a4dcc6d7d43f1f38b92475458d296afb0",
+      "size": 376867,
+      "preview": "import hashlib\nimport hmac\nimport base64\nimport json\nimport logging\nimport math\nimport os\nimport requests\nimport re\nimport secrets\nfrom datetime import date, datetime, time, timedelta\nfrom functools import lru_cache\nfrom pathlib import Path\nfrom typing import Any\n\nfrom google.auth.transport import r"
+    },
+    {
+      "name": "2a0862c9f3c5904ae2529531c726b75336b595b0",
+      "size": 41,
+      "preview": "2a0862c9f3c5904ae2529531c726b75336b595b0\n"
+    },
+    {
+      "name": "2a14480395e7ce934740050d8a92297d6ad2d17f",
+      "size": 11654,
+      "preview": "# Finance API Complete Documentation\n\n## API Overview\n\nFinance API provides comprehensive financial data access interfaces, including real-time market data, historical stock prices, and the latest financial news.\n\n### 🌐 Access via API Gateway\n\n**This API is accessed through the web-dev-ai-gateway u"
+    },
+    {
+      "name": "2a610a90b30234dc39548a201aa3462cfc6b2e43",
+      "size": 33207,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { toast } from 'sonner'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent, CardDescriptio"
+    },
+    {
+      "name": "2ab1837d7960b2d3a3793442ab6445bdefc2de12",
+      "size": 140317,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "2bddce29214882eb9fdf2be8a50ed5bdd0c69dfc",
+      "size": 1248,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/customXml\"\n  xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  targetNamespace=\"http://schemas.openxmlformats.org"
+    },
+    {
+      "name": "2ec7eabcf1c9fdc68edcfc4ed732ac46b2a43c79",
+      "size": 11116,
+      "preview": "\"\"\"\nValidator for tracked changes in Word documents.\n\"\"\"\n\nimport subprocess\nimport tempfile\nimport zipfile\nfrom pathlib import Path\n\n\nclass RedliningValidator:\n    \"\"\"Validator for tracked changes in Word documents.\"\"\"\n\n    def __init__(self, unpacked_dir, original_docx, verbose=False):\n        self"
+    },
+    {
+      "name": "2eea5d9b4aaada58466f9df2c45f306cc2f900f1",
+      "size": 41,
+      "preview": "2eea5d9b4aaada58466f9df2c45f306cc2f900f1\n"
+    },
+    {
+      "name": "2eefd5be216f312bc806b22850a3c7a89923ed89",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "2fdfd0b860d40ed722d32da6b96807083f02beea",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "30721f5480a21eb991e64d5b471873741d642020",
+      "size": 322,
+      "preview": "# Dependencies\nnode_modules/\n.pnp\n.pnp.js\n\n# Testing\ncoverage/\n*.lcov\n.nyc_output\n\n# Production\nbuild/\ndist/\nout/\n\n# Misc\n.DS_Store\n*.pem\n*.log\nnpm-debug.log*\nyarn-debug.log*\nyarn-error.log*\n\n# IDEs\n.idea/\n.vscode/\n*.swp\n*.swo\n*~\n\n# Environment\n.env\n.env.local\n.env.development.local\n.env.test.local\n"
+    },
+    {
+      "name": "3084512c54e0b85e50ae0486516e1b819663ba8c",
+      "size": 41,
+      "preview": "3084512c54e0b85e50ae0486516e1b819663ba8c\n"
+    },
+    {
+      "name": "30ba6b0fba0d44c6a1ecccdc5c67e5beaf2d450d",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "3251f960d61bbd46ef687ea7847974ba9203c4da",
+      "size": 41,
+      "preview": "3251f960d61bbd46ef687ea7847974ba9203c4da\n"
+    },
+    {
+      "name": "3298539f62205893e07bb5f9b337cbee18b602b9",
+      "size": 334202,
+      "preview": "import hashlib\nimport hmac\nimport json\nimport logging\nimport math\nimport requests\nimport re\nimport secrets\nfrom datetime import date, datetime, time, timedelta\nfrom pathlib import Path\nfrom typing import Any\n\nfrom google.auth.transport import requests as google_requests\nfrom google.oauth2 import id_"
+    },
+    {
+      "name": "3353aee2d6c08a0e1a4bb9edef3c48bc2c7ca3e5",
+      "size": 13689,
+      "preview": "import os\nimport argparse\nimport json\nimport html\nimport base64\nimport mimetypes\nimport urllib.request\n\ndef generate_gift_card(product_name, price, evaluation, thank_you_json, return_gift_json, vibe_code, image_url, output_path=\"gift_card_result.html\"):\n    \"\"\"\n    生成现代风格的交互式礼品鉴定卡片。\n    \"\"\"\n    \n   "
+    },
+    {
+      "name": "33cd86c797ee9d1c129fa1e721b3540f9caac364",
+      "size": 12967,
+      "preview": "'use client'\n\nimport { ArrowLeft, CalendarDays, CheckCircle2, Loader2, MapPin, Phone, ShieldCheck, Truck } from 'lucide-react'\nimport dynamic from 'next/dynamic'\nimport { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button"
+    },
+    {
+      "name": "3418421be126755aa58d7e9162c4989836f68084",
+      "size": 64083,
+      "preview": "\"use client\";\n\nimport { Fragment, useEffect, useMemo, useRef, useState } from 'react';\nimport { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';\nimport L from 'leaflet';\nimport 'leaflet/dist/leaflet.css';\n\nconst MapContainerUnsafe = Map"
+    },
+    {
+      "name": "34e40d043185834c3adff253cbf5acae6d2ed4fa",
+      "size": 41,
+      "preview": "34e40d043185834c3adff253cbf5acae6d2ed4fa\n"
+    },
+    {
+      "name": "35d2c98da4180e9b0f8be34a614dea66a93bf9d1",
+      "size": 44326,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useRef, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page'\nimport { clearTabAuthToken } from '@/lib/client-a"
+    },
+    {
+      "name": "35f83a3f1bef4b494c0916e582aa876deeb51877",
+      "size": 41,
+      "preview": "35f83a3f1bef4b494c0916e582aa876deeb51877\n"
+    },
+    {
+      "name": "364c6a9b8df6e252bb5ae39e2ca031fcbfc4e8a5",
+      "size": 1778,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\" xmlns:w16=\"http://schemas.microsoft.com/office/word/2018/wordml\" elementFormDefault=\"qualified\""
+    },
+    {
+      "name": "36a2f4686b05fa707fcedbfb30e73afd7cd663c3",
+      "size": 366868,
+      "preview": "import hashlib\nimport hmac\nimport base64\nimport json\nimport logging\nimport math\nimport os\nimport requests\nimport re\nimport secrets\nfrom datetime import date, datetime, time, timedelta\nfrom pathlib import Path\nfrom typing import Any\n\nfrom google.auth.transport import requests as google_requests\nfrom "
+    },
+    {
+      "name": "384b899f58bd96108238adfb4e79e66c7fd29942",
+      "size": 41,
+      "preview": "384b899f58bd96108238adfb4e79e66c7fd29942\n"
+    },
+    {
+      "name": "3978a96a0b16cced71c1cf67b68cf39ee88bceb0",
+      "size": 41,
+      "preview": "3978a96a0b16cced71c1cf67b68cf39ee88bceb0\n"
+    },
+    {
+      "name": "3dc8e799de2a43b4ec389c2a98cb00dc02e7f41c",
+      "size": 41,
+      "preview": "3dc8e799de2a43b4ec389c2a98cb00dc02e7f41c\n"
+    },
+    {
+      "name": "3dd6cf625a740398c2a4dc8abbe18e25e0ac5e9f",
+      "size": 5712,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"urn:schemas-microsoft-com:office:excel\"\n  xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  targetNamespace=\"urn:schemas-microsoft-com:office:excel\" elementFormDefault"
+    },
+    {
+      "name": "3e02fd6587a0edd84851048f03f1da3d1a3084c0",
+      "size": 18149,
+      "preview": "/**\n * Sample Components — Production-Ready React Components\n * \n * This file demonstrates how to build type-safe, accessible React components\n * using the design token system.\n * \n * Location: {project_path}/skills/frontend-design/examples/typescript/sample-components.tsx\n * \n * All components incl"
+    },
+    {
+      "name": "3e747af1718267ed645937d958b1aa7742772f47",
+      "size": 41,
+      "preview": "3e747af1718267ed645937d958b1aa7742772f47\n"
+    },
+    {
+      "name": "3f2ba251924196a0066c8f3bb1e3d054fb84be04",
+      "size": 142762,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "40078c8726dfc622fed32d8e8a5ac411c810f150",
+      "size": 41,
+      "preview": "40078c8726dfc622fed32d8e8a5ac411c810f150\n"
+    },
+    {
+      "name": "4224cd19865b45bac5531d52baaa60fc8755bd5d",
+      "size": 41,
+      "preview": "4224cd19865b45bac5531d52baaa60fc8755bd5d\n"
+    },
+    {
+      "name": "4248bf7a39c793c9f319bae7d09f92983efe5368",
+      "size": 2856,
+      "preview": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xsd:schema xmlns=\"http://schemas.openxmlformats.org/package/2006/digital-signature\"\n  xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  targetNamespace=\"http://schemas.openxmlformats.org/package/2006/digital-signature\"\n  elementFormDefault=\"qualified\" attributeFo"
+    },
+    {
+      "name": "424b8ba8d1f9ebb22ba72cdd174c8a2ade0ecf89",
+      "size": 6382,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  targetNamespace=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  elementFormDefault=\"qualified\">\n  <xsd:s"
+    },
+    {
+      "name": "433c70bc81d60cef5a7ded6823859b022bc50d9e",
+      "size": 585,
+      "preview": "{\n  \"name\": \"podcast-generate-online\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Generate podcast audio from text using z-ai LLM and TTS\",\n  \"type\": \"module\",\n  \"main\": \"dist/index.js\",\n  \"scripts\": {\n    \"generate\": \"tsx generate.ts\",\n    \"build\": \"tsc\",\n    \"prepublishOnly\": \"npm run build\"\n  },\n  \""
+    },
+    {
+      "name": "438cf145f9d3892f5919be3c8f2347c686b4dac6",
+      "size": 41,
+      "preview": "438cf145f9d3892f5919be3c8f2347c686b4dac6\n"
+    },
+    {
+      "name": "4631f624a3578bf8563d38c1fc4b370b6af51b5b",
+      "size": 16601,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTabAuthTok"
+    },
+    {
+      "name": "471b2a202ec2e2f7bb0bf40b111f4d5be07ea5bd",
+      "size": 56946,
+      "preview": "---\nname: pdf\ndescription: Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When GLM needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.\nlicense: Proprietary. L"
+    },
+    {
+      "name": "47ad1fd0460cd1a72becfc31bdcc22be6a5569b4",
+      "size": 53936,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "47af88177931f63c6eb77dbd071cc90fac8e70b7",
+      "size": 23769,
+      "preview": "# Office Open XML Technical Reference\n\n**Important: Read this entire document before starting.** This document covers:\n- [Technical Guidelines](#technical-guidelines) - Schema compliance rules and validation requirements\n- [Document Content Patterns](#document-content-patterns) - XML patterns for he"
+    },
+    {
+      "name": "492141fa9022cb6dbcd960766392c6153322d203",
+      "size": 12243,
+      "preview": "import { toast } from 'sonner'\nimport type { Order, OrderItem } from '../shared/customer-types'\nimport { createPdfBlob, formatPdfMoney } from '../shared/customer-common'\n\nconst getOrderLineTotal = (item: OrderItem) => {\n  const explicit = Number(item.totalPrice)\n  if (Number.isFinite(explicit) && ex"
+    },
+    {
+      "name": "4938798813e52daf03ab859f3c2faeece7f3aeea",
+      "size": 1037,
+      "preview": "#!/usr/bin/env python3\n\"\"\"Unpack and format XML contents of Office files (.docx, .pptx, .xlsx)\"\"\"\n\nimport random\nimport sys\nimport defusedxml.minidom\nimport zipfile\nfrom pathlib import Path\n\n# Get command line arguments\nassert len(sys.argv) == 3, \"Usage: python unpack.py <office_file> <output_dir>\"\n"
+    },
+    {
+      "name": "4947702414c0c33bd58efd7874c05cf39990af77",
+      "size": 41,
+      "preview": "4947702414c0c33bd58efd7874c05cf39990af77\n"
+    },
+    {
+      "name": "4b29f3a5983d861a7c92a287fe5d154415d1554b",
+      "size": 41,
+      "preview": "4b29f3a5983d861a7c92a287fe5d154415d1554b\n"
+    },
+    {
+      "name": "4c209cb969cd60c995593827983c531c897c9f7e",
+      "size": 41,
+      "preview": "4c209cb969cd60c995593827983c531c897c9f7e\n"
+    },
+    {
+      "name": "4c4cf9a48c30b71608da336f5efeb2576e4c7316",
+      "size": 41,
+      "preview": "4c4cf9a48c30b71608da336f5efeb2576e4c7316\n"
+    },
+    {
+      "name": "4ce8524c8f17ad8590c584fa62d9f15ebb3d00ae",
+      "size": 41,
+      "preview": "4ce8524c8f17ad8590c584fa62d9f15ebb3d00ae\n"
+    },
+    {
+      "name": "4d602de371329dfaaee485bf3a16d19d80f4f0ea",
+      "size": 24843,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "4e234506dcb180158eeb7e057f7c576c263a2d43",
+      "size": 9438,
+      "preview": "**CRITICAL: You MUST complete these steps in order. Do not skip ahead to writing code.**\n\nIf you need to fill out a PDF form, first check to see if the PDF has fillable form fields. Run this script from this file's directory:\n `python scripts/check_fillable_fields <file.pdf>`, and depending on the r"
+    },
+    {
+      "name": "4e946c758ba12407bf33dcad6deb7041dfb6391a",
+      "size": 41,
+      "preview": "4e946c758ba12407bf33dcad6deb7041dfb6391a\n"
+    },
+    {
+      "name": "4e989e18a94df66ea2970b1e57c45f2d205691d4",
+      "size": 70134,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "5023469410fd78df26a1207f86d0fca227658958",
+      "size": 41,
+      "preview": "5023469410fd78df26a1207f86d0fca227658958\n"
+    },
+    {
+      "name": "505482360c5c255899e06afff13dc68fa4e68dff",
+      "size": 41,
+      "preview": "505482360c5c255899e06afff13dc68fa4e68dff\n"
+    },
+    {
+      "name": "508c5891faba622051a8d5566c118de7892d95bf",
+      "size": 1959,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nCommand line tool to validate Office document XML files against XSD schemas and tracked changes.\n\nUsage:\n    python validate.py <dir> --original <original_file>\n\"\"\"\n\nimport argparse\nimport sys\nfrom pathlib import Path\n\nfrom validation import DOCXSchemaValidator, PPTXSchema"
+    },
+    {
+      "name": "515e9d85964cfcbb663f217a35ed02b5ee38d681",
+      "size": 41,
+      "preview": "515e9d85964cfcbb663f217a35ed02b5ee38d681\n"
+    },
+    {
+      "name": "5207730cb03896f97512fb85aabe7adcbe0d1fb3",
+      "size": 41,
+      "preview": "5207730cb03896f97512fb85aabe7adcbe0d1fb3\n"
+    },
+    {
+      "name": "5226a5344df49661f67f19068349529bce11a756",
+      "size": 41,
+      "preview": "5226a5344df49661f67f19068349529bce11a756\n"
+    },
+    {
+      "name": "5289ce13539bf70b922893a676b5d9047e7ec0af",
+      "size": 15134,
+      "preview": "---\nname: image-generation\ndescription: Implement AI image generation capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to create images from text descriptions, generate visual content, create artwork, design assets, or build applications with AI-powered image creation. Sup"
+    },
+    {
+      "name": "5305c2d9d9865d6a59d2fdeb2d089563168cc496",
+      "size": 11581,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft, CalendarDays, ClipboardList, MapPin, Phone, Store, User } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog"
+    },
+    {
+      "name": "530ac334a63eb7d0efa3605d394a8ebdb6e9a786",
+      "size": 33106,
+      "preview": "# DOCX Library Tutorial\n\nGenerate .docx files with JavaScript/TypeScript.\n\n**Important: Read this entire document before starting.** Critical formatting rules and common pitfalls are covered throughout - skipping sections may result in corrupted files or rendering issues.\n\n## Setup\nAssumes docx is a"
+    },
+    {
+      "name": "53dc9350bb49b163167eec9000c8fe65eaf2eb96",
+      "size": 41,
+      "preview": "53dc9350bb49b163167eec9000c8fe65eaf2eb96\n"
+    },
+    {
+      "name": "55160e4b32a6bacbbe6fb04e9a943c926a5d2ab9",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "559d5a94393b336a424fd76605e069dc07c08cb7",
+      "size": 41,
+      "preview": "559d5a94393b336a424fd76605e069dc07c08cb7\n"
+    },
+    {
+      "name": "55cb1990212c5f3e0bfbeafc84636c187d1784f5",
+      "size": 49906,
+      "preview": "'use client'\n\nimport { useMemo, useState, type Dispatch, type SetStateAction } from 'react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'\nimport { Dialog, "
+    },
+    {
+      "name": "56497467120b52b742756379959d4b2536be6df7",
+      "size": 1344,
+      "preview": "﻿<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<xsd:schema xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"\n  xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  targetNamespace=\"http://schemas.openxmlformats.org/package/2006/relationships\"\n  elementFormDefault=\"qualified\" at"
+    },
+    {
+      "name": "5698adc6e965201240508583642f032480d69f10",
+      "size": 41,
+      "preview": "5698adc6e965201240508583642f032480d69f10\n"
+    },
+    {
+      "name": "5760878c367dbf75d093429fec19b4e8c892f8b7",
+      "size": 23042,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "57d42f00a410f839332dc1610f4ededfbac54305",
+      "size": 16597,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTabAuthTok"
+    },
+    {
+      "name": "582c2cd4ca3b00ac54135dfa57ebe028833741bc",
+      "size": 33751,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { toast } from 'sonner'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent, CardDescriptio"
+    },
+    {
+      "name": "58c6d3b91357c18342c29561149381e8007c99f0",
+      "size": 41,
+      "preview": "58c6d3b91357c18342c29561149381e8007c99f0\n"
+    },
+    {
+      "name": "592b88a19c32fb2c4f0d06f6aad17ff52efcd0a8",
+      "size": 41,
+      "preview": "592b88a19c32fb2c4f0d06f6aad17ff52efcd0a8\n"
+    },
+    {
+      "name": "5a39a391f614f3024d1bd15f7522ea28a3990d2e",
+      "size": 650,
+      "preview": "import ZAI from 'z-ai-web-dev-sdk';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function main(inputFile: string) {\n\tif (!fs.existsSync(inputFile)) {\n\t\tconsole.error(`Audio file not found: ${inputFile}`);\n        return;\n\t}\n\n\ttry {\n\t\tconst zai = await ZAI.create();\n\n\t\tconst audioBuffer = fs."
+    },
+    {
+      "name": "5a6dbaa22fffd0a0500570cf16933814577ab774",
+      "size": 41,
+      "preview": "5a6dbaa22fffd0a0500570cf16933814577ab774\n"
+    },
+    {
+      "name": "5a9a88f756274cd81c15919983abbdfad23d1ddc",
+      "size": 1431,
+      "preview": "import ZAI, { VisionMessage } from 'z-ai-web-dev-sdk';\n\nasync function main(imageUrl: string, prompt: string) {\n\ttry {\n\t\tconst zai = await ZAI.create();\n\n\t\tconst messages: VisionMessage[] = [\n            {\n                role: 'assistant',\n                content: [\n                    { type: 'tex"
+    },
+    {
+      "name": "5c42706a0d53c5e8b96818d9c29a292d1504f720",
+      "size": 2608,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/custom-properties\"\n  xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\"\n  xmlns:s=\"http://schemas.openxmlformats"
+    },
+    {
+      "name": "5d84940801681077b31582728381316b3b5a3250",
+      "size": 41,
+      "preview": "5d84940801681077b31582728381316b3b5a3250\n"
+    },
+    {
+      "name": "5dc36132c5bbe5028bffc818751526de25a16434",
+      "size": 3218,
+      "preview": "from django.db import migrations\n\n\ndef retarget_driver_foreign_keys_to_user(apps, schema_editor) -> None:\n    connection = schema_editor.connection\n    if connection.vendor != \"postgresql\":\n        return\n\n    with connection.cursor() as cursor:\n        cursor.execute(\n            \"\"\"\n            se"
+    },
+    {
+      "name": "5de313bba21d96b9728912c5c3eaa3544befdab0",
+      "size": 41,
+      "preview": "5de313bba21d96b9728912c5c3eaa3544befdab0\n"
+    },
+    {
+      "name": "5e5000af82a93ad2f2f8ce87091a38705449c639",
+      "size": 41,
+      "preview": "5e5000af82a93ad2f2f8ce87091a38705449c639\n"
+    },
+    {
+      "name": "5ec8924894b9b247603894123f1b9d610e466a0b",
+      "size": 41,
+      "preview": "5ec8924894b9b247603894123f1b9d610e466a0b\n"
+    },
+    {
+      "name": "5f8d61b74d5aeb388a066bcff9abb087ce112878",
+      "size": 41,
+      "preview": "5f8d61b74d5aeb388a066bcff9abb087ce112878\n"
+    },
+    {
+      "name": "5fe263ade1f30e7e52ca904f08e87cc66e24c557",
+      "size": 41,
+      "preview": "5fe263ade1f30e7e52ca904f08e87cc66e24c557\n"
+    },
+    {
+      "name": "602c47087ada8d5a10e90abc864f1225abcb2345",
+      "size": 9996,
+      "preview": "\"\"\"\nValidator for Word document XML files against XSD schemas.\n\"\"\"\n\nimport re\nimport tempfile\nimport zipfile\n\nimport lxml.etree\n\nfrom .base import BaseSchemaValidator\n\n\nclass DOCXSchemaValidator(BaseSchemaValidator):\n    \"\"\"Validator for Word document XML files against XSD schemas.\"\"\"\n\n    # Word-sp"
+    },
+    {
+      "name": "6183c0ea0a1c4f9e4e5a391a6e9e192c148bcdf5",
+      "size": 41,
+      "preview": "6183c0ea0a1c4f9e4e5a391a6e9e192c148bcdf5\n"
+    },
+    {
+      "name": "61adf7e90730622afb264384683495a37d1fef3d",
+      "size": 41,
+      "preview": "61adf7e90730622afb264384683495a37d1fef3d\n"
+    },
+    {
+      "name": "62139ffde252fe3fe302fe5a1f4c36488c3c9c7b",
+      "size": 87,
+      "preview": "DROP TABLE IF EXISTS \"SpareStockTransaction\";\nDROP TABLE IF EXISTS \"DriverSpareStock\";\n"
+    },
+    {
+      "name": "62c5af836bd8d7a1c24efbde9914f53b587c1d49",
+      "size": 41,
+      "preview": "62c5af836bd8d7a1c24efbde9914f53b587c1d49\n"
+    },
+    {
+      "name": "6315c5c060e95da387502ba4c2bd8268e58a82eb",
+      "size": 44310,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useRef, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page'\nimport { clearTabAuthToken } from '@/lib/client-a"
+    },
+    {
+      "name": "63a6c41246d2851e23e3194ec2bf0769e8e23d5b",
+      "size": 133910,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "6433c425c6430a6e288e0272ef1f1eff9a2c2d0e",
+      "size": 41,
+      "preview": "6433c425c6430a6e288e0272ef1f1eff9a2c2d0e\n"
+    },
+    {
+      "name": "6454ef9a94d52512e4905df61280a3fd1dafc0a4",
+      "size": 74984,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/"
+    },
+    {
+      "name": "64e66b8abd496d2e450c08110e40607e90b3fe13",
+      "size": 51302,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relati"
+    },
+    {
+      "name": "652ed416ad2b2d8592536f320a1b448aeccc1bca",
+      "size": 3567,
+      "preview": "import re\nimport html\nimport sys\nfrom typing import Dict\n\n# ---------- Step 0: restore literal unicode escapes/entities to real chars ----------\n_RE_UNICODE_ESC = re.compile(r\"(\\\\u[0-9a-fA-F]{4})|(\\\\U[0-9a-fA-F]{8})|(\\\\x[0-9a-fA-F]{2})\")\n\ndef _restore_escapes(s: str) -> str:\n    # HTML entities: &#1"
+    },
+    {
+      "name": "6578e4c7821fd1c19fa2d72e742beafe97c54489",
+      "size": 54096,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "658a5cccc138d58fe00bb4aa8c130a07b87c1dcf",
+      "size": 41,
+      "preview": "658a5cccc138d58fe00bb4aa8c130a07b87c1dcf\n"
+    },
+    {
+      "name": "66ac1552a2567c895ee9f9088dc05c54bc4d4500",
+      "size": 41,
+      "preview": "66ac1552a2567c895ee9f9088dc05c54bc4d4500\n"
+    },
+    {
+      "name": "66d5b1e2dba6d1b3dbcb290fa6ef1699980435e6",
+      "size": 12327,
+      "preview": "\"\"\"\nValidator for PowerPoint presentation XML files against XSD schemas.\n\"\"\"\n\nimport re\n\nfrom .base import BaseSchemaValidator\n\n\nclass PPTXSchemaValidator(BaseSchemaValidator):\n    \"\"\"Validator for PowerPoint presentation XML files against XSD schemas.\"\"\"\n\n    # PowerPoint presentation namespace\n   "
+    },
+    {
+      "name": "67531913885d110213b16e4cdf7d1259a34f7df7",
+      "size": 133420,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "67b8fb201e99d42ac7b7d3a7b7feb55c38579f05",
+      "size": 1600,
+      "preview": "import json\nimport sys\n\nfrom PIL import Image, ImageDraw\n\n\n# Creates \"validation\" images with rectangles for the bounding box information that\n# GLM creates when determining where to add text annotations in PDFs. See forms.md.\n\n\ndef create_validation_image(page_number, fields_json_path, input_path, "
+    },
+    {
+      "name": "67b995b10fb881a4780272aee8b12f69ff4e6e1e",
+      "size": 14384,
+      "preview": "---\nname: VLM\ndescription: Implement vision-based AI chat capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to analyze images, describe visual content, or create applications that combine image understanding with conversational AI. Supports image URLs and base64 encoded ima"
+    },
+    {
+      "name": "680cf15400cd57ce2bf17a58ecd29caa0d8a8422",
+      "size": 600,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w12=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" elementFormDefault=\"qualified\" attributeFormDefault=\"qualified\" blockDefault=\"#all\" xmlns=\"http://schemas.microsoft.com/office/word/2020/wordml/sdtdatahash\" targetNamesp"
+    },
+    {
+      "name": "687eea8297caa298581aa06c40ca40ef7b8a58bc",
+      "size": 624,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/r"
+    },
+    {
+      "name": "68bc0886f6ef74e6e1d3fe6da0d6a296858a42d8",
+      "size": 5596,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nTool to pack a directory into a .docx, .pptx, or .xlsx file with XML formatting undone.\n\nExample usage:\n    python pack.py <input_directory> <office_file> [--force]\n\"\"\"\n\nimport argparse\nimport shutil\nimport subprocess\nimport sys\nimport tempfile\nimport defusedxml.minidom\nim"
+    },
+    {
+      "name": "6914184329edcbd6dfbabc9d0340e6de2fba32a7",
+      "size": 41,
+      "preview": "6914184329edcbd6dfbabc9d0340e6de2fba32a7\n"
+    },
+    {
+      "name": "6928a268b7fda8e8a1d8e734090a45143eb0ee85",
+      "size": 16505,
+      "preview": "/**\n * Component Styles — Production-Ready UI Components\n * \n * This file provides complete component implementations using the design token system.\n * All components include full state coverage and accessibility features.\n * \n * Location: {project_path}/skills/frontend-design/examples/css/component"
+    },
+    {
+      "name": "6ac81b06b7a3ef916d677953084ae225504a77bc",
+      "size": 152039,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  xmlns=\"http://schemas.openxmlformats.org/dra"
+    },
+    {
+      "name": "6ae868867ee3716d25bdfcbf8a1e2c7d2761de7b",
+      "size": 41,
+      "preview": "6ae868867ee3716d25bdfcbf8a1e2c7d2761de7b\n"
+    },
+    {
+      "name": "6b00755a9a8733f0fb171a47b25d0d7b4c70dee8",
+      "size": 3745,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w12=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\" elementFormDefault=\"qualified\" attributeFormDefault=\"qualified\" blockDefault=\"#all\" xmlns=\"ht"
+    },
+    {
+      "name": "6b86033d9b5f152f6ce3630460158037753816d9",
+      "size": 41,
+      "preview": "6b86033d9b5f152f6ce3630460158037753816d9\n"
+    },
+    {
+      "name": "6bb0cb676fe83246c86ab5dc2a39b05ec9fdf03a",
+      "size": 8730,
+      "preview": "/**\n * Global Styles\n * \n * This file provides base styles, resets, and CSS custom properties\n * for the design system.\n * \n * Location: {project_path}/skills/frontend-design/templates/globals.css\n * \n * Import this file in your main entry point:\n * - React: import './globals.css' in index.tsx or Ap"
+    },
+    {
+      "name": "6bd4c1cf4f50e44405ea3afe664a748d0a87a701",
+      "size": 23043,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "6d2598bb2e8e63ebf02d1644eb7b668a3c68509f",
+      "size": 13274,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { CircleCheck, Eye, Loader2, X } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/co"
+    },
+    {
+      "name": "6e1f1afed7268a4a07252187831cc78f5ab73522",
+      "size": 26013,
+      "preview": "from django.db import migrations\n\n\ndef _quote(identifier: str) -> str:\n    return '\"' + str(identifier).replace('\"', '\"\"') + '\"'\n\n\ndef _table_exists(cursor, table_name: str) -> bool:\n    cursor.execute(\n        \"\"\"\n        select 1\n        from information_schema.tables\n        where table_schema = "
+    },
+    {
+      "name": "6e507d33cc56aa0644382701eadf10cc0e551355",
+      "size": 8781,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog(props: any) {\n  const {\n    selectedOrder,\n    isReceipt"
+    },
+    {
+      "name": "6e5c6fa0377767f9ca96e2d107628d7bbec09939",
+      "size": 16644,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTabAuthTok"
+    },
+    {
+      "name": "6e69d0bb6975ee00c7fdb248d5d998f5acffedda",
+      "size": 41,
+      "preview": "6e69d0bb6975ee00c7fdb248d5d998f5acffedda\n"
+    },
+    {
+      "name": "6eac7c499cc03cad2176ba6b87bb2bbe250fe882",
+      "size": 70134,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "6f639ade6d45c2527078330949428d2ad0efef2a",
+      "size": 8700,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog(props: any) {\n  const {\n    selectedOrder,\n    isReceipt"
+    },
+    {
+      "name": "6f63ee8ae1009844167be3e30372e4bb11a390c1",
+      "size": 41,
+      "preview": "6f63ee8ae1009844167be3e30372e4bb11a390c1\n"
+    },
+    {
+      "name": "6fb25099f0135ab6e886098e8e92de93e703d967",
+      "size": 8543,
+      "preview": "/**\n * Tailwind CSS Configuration\n * \n * This configuration integrates the design token system with Tailwind CSS.\n * It provides custom colors, spacing, typography, and more.\n * \n * Location: {project_path}/skills/frontend-design/templates/tailwind.config.js\n * \n * Installation:\n * 1. npm install -D"
+    },
+    {
+      "name": "6fc74c0d32369926052cd31c94ccecbfdaf5f014",
+      "size": 15721,
+      "preview": "'use client'\n\nimport { useMemo, useState } from 'react'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/card'\nimport { Input } from '@/components/ui/input'\nimport { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'\nimp"
+    },
+    {
+      "name": "70d8945dc2d1b0fcc3f8b37a0351b88e6adb18d0",
+      "size": 27803,
+      "preview": "﻿'use client'\n\nimport { useEffect, useRef, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport Script from 'next/script'\nimport { setTabAuthToken } from '@/lib/client-auth'\nimport { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } fr"
+    },
+    {
+      "name": "7180b2e81437fba3597d5a166c5a3299930d59e3",
+      "size": 41,
+      "preview": "7180b2e81437fba3597d5a166c5a3299930d59e3\n"
+    },
+    {
+      "name": "7356573026dbb3fd874564498f131128330ea00c",
+      "size": 41,
+      "preview": "7356573026dbb3fd874564498f131128330ea00c\n"
+    },
+    {
+      "name": "7596f320f3c0fa72e6bcfe4e5d703deb88d14eee",
+      "size": 813,
+      "preview": "import ZAI from 'z-ai-web-dev-sdk';\nimport fs from 'fs';\n\nasync function main(prompt: string, size: '1024x1024' | '768x1344' | '864x1152' | '1344x768' | '1152x864' | '1440x720' | '720x1440', outFile: string) {\n\ttry {\n\t\tconst zai = await ZAI.create();\n\n\t\tconst response = await zai.images.generations."
+    },
+    {
+      "name": "7608927b283643319e007ab4fdc0e83a2c627840",
+      "size": 41,
+      "preview": "7608927b283643319e007ab4fdc0e83a2c627840\n"
+    },
+    {
+      "name": "777005bacad8a438304155d9ebd7d9b137422ab6",
+      "size": 41,
+      "preview": "777005bacad8a438304155d9ebd7d9b137422ab6\n"
+    },
+    {
+      "name": "78fa4b74cb34c8f97f7daa9afe5492eabc34fab7",
+      "size": 23110,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "79ad9985190bc761554154abf223103eb67ea6bc",
+      "size": 8750,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog(props: any) {\n  const {\n    selectedOrder,\n    isReceipt"
+    },
+    {
+      "name": "7c74d37297c090b36a1483d55cb06c697fdc4f9d",
+      "size": 9390,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'\nimport { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'\nimport {"
+    },
+    {
+      "name": "7dd43f761de3b49a510aead134a6ac7417252285",
+      "size": 50975,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "7e0789821bb85968889d5511c2b991662aa55348",
+      "size": 41,
+      "preview": "7e0789821bb85968889d5511c2b991662aa55348\n"
+    },
+    {
+      "name": "7ea2f635c262e992cd17f45c2c90b52c46c06c06",
+      "size": 22569,
+      "preview": "---\nname: web-search\ndescription: Implement web search capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to search for real-time information from the web, retrieve up-to-date content beyond the knowledge cutoff, or find the latest news and data. Returns structured search re"
+    },
+    {
+      "name": "80b0f2ff473c4d2482cf1e1aa72200233a48b368",
+      "size": 14146,
+      "preview": "import { toast } from 'sonner'\nimport type { Order, OrderItem } from '../shared/customer-types'\nimport { formatPdfMoney } from '../shared/customer-common'\n\nconst RECEIPT_BUSINESS_NAME = \"Ann Ann's Beverages Trading\"\n\nfunction resolveReceiptSellerPhone(order: Order) {\n  const candidates = [\n    (orde"
+    },
+    {
+      "name": "813168a2a3fbf04122f50cd4dc074dd921454dfd",
+      "size": 41,
+      "preview": "813168a2a3fbf04122f50cd4dc074dd921454dfd\n"
+    },
+    {
+      "name": "82ebaccfc2c3afa59dbafe0e21327c7ed7f2540c",
+      "size": 16610,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTabAuthTok"
+    },
+    {
+      "name": "8360525042eeea22db8f6bae4e8356152b4e155f",
+      "size": 16620,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTabAuthTok"
+    },
+    {
+      "name": "840a1167fb11191d02931976cf13f015e9f75ad9",
+      "size": 41,
+      "preview": "840a1167fb11191d02931976cf13f015e9f75ad9\n"
+    },
+    {
+      "name": "846636e0a7dd27f002f3ed0b486aec55d4ad6d65",
+      "size": 140822,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "853c341c87feb51e10d757aea28b4185ae4c2731",
+      "size": 3507,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\"\n  xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\"\n  targetNamespace=\"http://schemas.open"
+    },
+    {
+      "name": "858b1467653649953ce0d3a8edc4a12a9164cf76",
+      "size": 41,
+      "preview": "858b1467653649953ce0d3a8edc4a12a9164cf76\n"
+    },
+    {
+      "name": "858f61ebc6973becb71dd9cf40eeb90e833f1eff",
+      "size": 1001,
+      "preview": "{\n  \"name\": \"@z-ai/frontend-design-skill\",\n  \"version\": \"2.0.0\",\n  \"description\": \"Comprehensive frontend design skill for systematic and creative web development\",\n  \"keywords\": [\n    \"design-system\",\n    \"design-tokens\",\n    \"frontend\",\n    \"ui-components\",\n    \"react\",\n    \"tailwind\",\n    \"typesc"
+    },
+    {
+      "name": "85aa4aa5b5d60eff6a8b15af956ac73e6dbf4bc8",
+      "size": 60016,
+      "preview": "\"use client\";\n\nimport { Fragment, useEffect, useMemo, useRef, useState } from 'react';\nimport { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';\nimport L from 'leaflet';\nimport 'leaflet/dist/leaflet.css';\n\nconst MapContainerUnsafe = Map"
+    },
+    {
+      "name": "864a02dfbe11d889295ffd50170e6f8117ad250f",
+      "size": 40629,
+      "preview": "'use client'\n\nimport { useMemo, useState } from 'react'\nimport { Boxes, CalendarDays, ClipboardList, Loader2, XCircle } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/card'\nimport { "
+    },
+    {
+      "name": "8788f8753a5df5e40c7b3268a25bd38094f6c6c1",
+      "size": 58512,
+      "preview": "\"use client\";\n\nimport { Fragment, useEffect, useMemo, useRef, useState } from 'react';\nimport { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';\nimport L from 'leaflet';\nimport 'leaflet/dist/leaflet.css';\n\nconst MapContainerUnsafe = Map"
+    },
+    {
+      "name": "87ad2658fa51cb4c172f82d0fdf33a492a750eca",
+      "size": 23313,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/math\"\n  xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\"\n  xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/20"
+    },
+    {
+      "name": "8821dd183caf9c8c3b809e0e2d9e0df56c4e9ed9",
+      "size": 26148,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns=\"urn:schemas-microsoft-com:vml\"\n  xmlns:pvml=\"urn:schemas-microsoft-com:office:powerpoint\"\n  xmlns:o=\"urn:schemas-microsoft-com:office:office\"\n  xmlns:w=\"http://schemas.openxmlformats.org/wordproces"
+    },
+    {
+      "name": "8854a67211bfa1af6d265106ce32fc4a0a436972",
+      "size": 132320,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "89531537792a7e86571597cb422d1b7a735d26c6",
+      "size": 37153,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { motion } from 'framer-motion'\nimport { CalendarDays, CheckCircle2, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/butto"
+    },
+    {
+      "name": "898bf0a9cdf15c1c5e4d3dc9fce0263c05e022e6",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "89ada90837b2db3f3d453212ae426520acedbbea",
+      "size": 745,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w12=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" elementFormDefault=\"qualified\" attributeFormDefault=\"qualified\" blockDefault=\"#all\" xmlns=\"http://schemas.microsoft.com/office/word/2015/wordml/symex\" targetNamespace=\"h"
+    },
+    {
+      "name": "8a25c2320a19e55791360110c31be733161b534f",
+      "size": 41,
+      "preview": "8a25c2320a19e55791360110c31be733161b534f\n"
+    },
+    {
+      "name": "8a8c18ba2d5caa7e60a365e77ae0d1b872141bb0",
+      "size": 880,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/schemaLibrary/2006/main\"\n  targetNamespace=\"http://schemas.openxmlformats.org/schemaLibrary/2006/main\"\n  attributeFormDefault=\"qualified\" elementFormDefault=\"qua"
+    },
+    {
+      "name": "8af67720e8d4e45354a8202055bb8425ecda9da1",
+      "size": 26082,
+      "preview": "'use client'\n\nimport { useEffect, useState, useMemo } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/compone"
+    },
+    {
+      "name": "8be3f44b557d07398aa3fc41dd021cee80edfce7",
+      "size": 5415,
+      "preview": "import ZAI from \"z-ai-web-dev-sdk\";\nimport fs from \"fs\";\n\nasync function create() {\n  try {\n    const zai = await ZAI.create();\n\n    console.log(\"Creating video generation task...\");\n\n    const task = await zai.video.generations.create({\n      prompt: \"A cat is playing with a ball.\",\n      quality: "
+    },
+    {
+      "name": "8ec8e8a509dda4302c9cf7c67a60b81e1cfbc22f",
+      "size": 41,
+      "preview": "8ec8e8a509dda4302c9cf7c67a60b81e1cfbc22f\n"
+    },
+    {
+      "name": "8f21a13d71b872ff004daf30c88e94f012bc1c87",
+      "size": 19953,
+      "preview": "---\nname: xlsx\ndescription: \"Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When GLM needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2"
+    },
+    {
+      "name": "8f287ed8755ae3bfb6211bdc0a906a43e466d389",
+      "size": 1903,
+      "preview": "---\nname: pptx\ndescription: \"PPT/PPTX dedicated skill - **MANDATORY RULE**: For ANY PPT-related tasks (uploaded files, editing/creating presentations, etc.), you **MUST IMMEDIATELY** direct users to use AI PPT mode by clicking the 【AI PPT】 button below the input box. **DO NOT handle it yourself**. T"
+    },
+    {
+      "name": "906f08ea63f67d47dbf15a478a7a8cfaeec7d2da",
+      "size": 3022,
+      "preview": "'use client'\n\nimport { Button } from '@/components/ui/button'\nimport {\n  DropdownMenu,\n  DropdownMenuContent,\n  DropdownMenuItem,\n  DropdownMenuTrigger,\n} from '@/components/ui/dropdown-menu'\nimport { Home, LogOut, Truck, User } from 'lucide-react'\n\ntype DriverPortalHeaderProps = {\n  isTracking: boo"
+    },
+    {
+      "name": "91c648f3b8e485de235e44835527b5b415699beb",
+      "size": 41,
+      "preview": "91c648f3b8e485de235e44835527b5b415699beb\n"
+    },
+    {
+      "name": "92fb4833ef177f9c2f353dbba66b35cc01bff578",
+      "size": 29821,
+      "preview": "---\nname: Video Generation\ndescription: Implement AI-powered video generation capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to generate videos from text prompts or images, create video content programmatically, or build applications that produce video outputs. Supports "
+    },
+    {
+      "name": "92ff8231b0568912085c9bb8695fed0cead51073",
+      "size": 19306,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useRef, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTa"
+    },
+    {
+      "name": "94541f4ff4995d1c6cf9266301ea381cd69f7bd8",
+      "size": 41,
+      "preview": "94541f4ff4995d1c6cf9266301ea381cd69f7bd8\n"
+    },
+    {
+      "name": "94b6c152b42e14fe5b597617a1a31b4ef9fd7c6c",
+      "size": 8008,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { Loader2, Star, CheckCircle2, X } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\nimport { Label } from '@/components/ui/label'\nimport { useMemo, useState }"
+    },
+    {
+      "name": "955065f3de2e04993aca78b55f4a835b5f5b8bf1",
+      "size": 41,
+      "preview": "955065f3de2e04993aca78b55f4a835b5f5b8bf1\n"
+    },
+    {
+      "name": "95f2292f52966037eeebe059e39153f55138d323",
+      "size": 132981,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "96fecbae46dbde423a51c4d3d67241d292354efe",
+      "size": 17674,
+      "preview": "\"use client\";\n\nimport React, { useMemo, useEffect, useRef, useState } from 'react';\nimport Map, { Source, Layer, Marker, Popup, ViewStateChangeEvent } from 'react-map-gl/maplibre';\nimport 'maplibre-gl/dist/maplibre-gl.css';\n\nexport type DriverLocation = {\n  id: string;\n  driverName: string;\n  vehicl"
+    },
+    {
+      "name": "980996fe8565368a8dcc87b112fed59749f8914d",
+      "size": 330788,
+      "preview": "import hashlib\nimport hmac\nimport json\nimport logging\nimport math\nimport requests\nimport re\nimport secrets\nfrom datetime import date, datetime, time, timedelta\nfrom pathlib import Path\nfrom typing import Any\n\nfrom google.auth.transport import requests as google_requests\nfrom google.oauth2 import id_"
+    },
+    {
+      "name": "983a1d18a63101e663027e0a6c912d1b109f28ad",
+      "size": 41,
+      "preview": "983a1d18a63101e663027e0a6c912d1b109f28ad\n"
+    },
+    {
+      "name": "98a02e7ab06c8ffbb58d46219d0b894a51abdd5c",
+      "size": 41,
+      "preview": "98a02e7ab06c8ffbb58d46219d0b894a51abdd5c\n"
+    },
+    {
+      "name": "992e3252fb6544e6a6cba6e0d45d26d705f1f73b",
+      "size": 41,
+      "preview": "992e3252fb6544e6a6cba6e0d45d26d705f1f73b\n"
+    },
+    {
+      "name": "9b1a8a4eb86cf1426f95549718781d5a147f48bb",
+      "size": 50165,
+      "preview": "'use client'\n\nimport { useMemo, useState, type Dispatch, type SetStateAction } from 'react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'\nimport { Dialog, "
+    },
+    {
+      "name": "9be79c6f59917e52fbb3667cd78725af27260fb1",
+      "size": 41,
+      "preview": "9be79c6f59917e52fbb3667cd78725af27260fb1\n"
+    },
+    {
+      "name": "9c5b7a633411c2313ce839f748e4623bb0a70efe",
+      "size": 171367,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  xmlns:sl=\"http://schemas.openxmlformats.org/schemaL"
+    },
+    {
+      "name": "9c9235a10b2187df06e9d5a5648870a7a331499f",
+      "size": 41,
+      "preview": "9c9235a10b2187df06e9d5a5648870a7a331499f\n"
+    },
+    {
+      "name": "9ca39cd43ec10ce605596e47db47304f2b8091cf",
+      "size": 41,
+      "preview": "9ca39cd43ec10ce605596e47db47304f2b8091cf\n"
+    },
+    {
+      "name": "9db02ea9b4a82169055f924cf523e26ed4093c0e",
+      "size": 24746,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "9dbf4919d403a057c81732515878b3dc0f029b43",
+      "size": 41,
+      "preview": "9dbf4919d403a057c81732515878b3dc0f029b43\n"
+    },
+    {
+      "name": "9dd95c09ee9bd66b1d23eae6b9dd5c1e2038f441",
+      "size": 15797,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/card'\nimport { Input } from '@/components/ui/input'\nimport { PortalProductGridSkeleton } from '@/components/portals/shared/loading-ske"
+    },
+    {
+      "name": "9df6aa320ccb3712718a02dc6a0ab70b002436d1",
+      "size": 1047,
+      "preview": "import ZAI, { VisionMessage } from 'z-ai-web-dev-sdk';\n\nasync function main(videoUrl: string, prompt: string) {\n\ttry {\n\t\tconst zai = await ZAI.create();\n\n\t\tconst messages: VisionMessage[] = [\n\t\t\t{\n\t\t\t\trole: 'assistant',\n\t\t\t\tcontent: [\n\t\t\t\t\t{ type: 'text', text: 'Output only text, no markdown.' }\n\t\t\t"
+    },
+    {
+      "name": "9e51ca176f903013b6edd36b7e3a06b0c157cf8a",
+      "size": 6124,
+      "preview": "import json\nimport sys\n\nfrom pypdf import PdfReader\n\n\n# Extracts data for the fillable form fields in a PDF and outputs JSON that\n# GLM uses to fill the fields. See forms.md.\n\n\n# This matches the format used by PdfReader `get_fields` and `update_page_form_field_values` methods.\ndef get_full_annotati"
+    },
+    {
+      "name": "9e86f1b2be0d431cd3c250ddeaf4efabdbcb088b",
+      "size": 1367,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  elementFormDefault=\"qualified\"\n  targetNames"
+    },
+    {
+      "name": "9f1226ae8079eec3d60042e1283e6fe822b2bfaa",
+      "size": 41,
+      "preview": "9f1226ae8079eec3d60042e1283e6fe822b2bfaa\n"
+    },
+    {
+      "name": "a0273188763c31b354ffb69e7d063c9a8b72e371",
+      "size": 41,
+      "preview": "a0273188763c31b354ffb69e7d063c9a8b72e371\n"
+    },
+    {
+      "name": "a0292c5ef910429d5937c77b1e012ebc75d87d0f",
+      "size": 41,
+      "preview": "a0292c5ef910429d5937c77b1e012ebc75d87d0f\n"
+    },
+    {
+      "name": "a04b3214a30a154d3b501713ce3928ae49150777",
+      "size": 41,
+      "preview": "a04b3214a30a154d3b501713ce3928ae49150777\n"
+    },
+    {
+      "name": "a0e6fcdee24e0f9f82792a657c3e768698507d07",
+      "size": 70133,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "a0f20c30e2537f0871b623be036c20eaca255a70",
+      "size": 41,
+      "preview": "a0f20c30e2537f0871b623be036c20eaca255a70\n"
+    },
+    {
+      "name": "a22365531f9e6a71a2a690e6f2432e3afafb03ec",
+      "size": 41,
+      "preview": "a22365531f9e6a71a2a690e6f2432e3afafb03ec\n"
+    },
+    {
+      "name": "a553c45d86adfe1f10b8943f15101dac5fda5c34",
+      "size": 4164,
+      "preview": "# Podcast Generate Skill（TypeScript 线上版本）\n\n将一篇资料自动转化为对谈播客，时长根据内容长度自动调整（3-20 分钟，约240字/分钟）：\n- 自动提炼核心内容\n- 生成可编辑的播客脚本\n- 使用 z-ai TTS 合成音频\n\n这是一个使用 **z-ai-web-dev-sdk** 的 TypeScript 版本，适用于线上环境。\n\n---\n\n## 快速开始\n\n### 一键生成（脚本 + 音频）\n\n```bash\nnpm run generate -- --input=test_data/material.txt --out_dir=out\n```\n\n*"
+    },
+    {
+      "name": "a63ea1c60974a604f10b116d460b4a1507a25d45",
+      "size": 41,
+      "preview": "a63ea1c60974a604f10b116d460b4a1507a25d45\n"
+    },
+    {
+      "name": "a6a82735077c690b49176c990aa912fd0f6a8a32",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "a6de9d2733d3f0eea12ae87b24122495df1f0928",
+      "size": 1963,
+      "preview": "﻿<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<xs:schema xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"\n  xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"\n  targetNamespace=\"http://schemas.openxmlformats.org/package/2006/content-types\"\n  elementFormDefault=\"qualified\" attr"
+    },
+    {
+      "name": "a7b5bcc74cfbf406901e5c05845282865c993e16",
+      "size": 41,
+      "preview": "a7b5bcc74cfbf406901e5c05845282865c993e16\n"
+    },
+    {
+      "name": "a7f89c076acf8d3c14343db9c3cf237dd8912a23",
+      "size": 5527,
+      "preview": "---\nname: Podcast Generate\ndescription: Generate podcast episodes from user-provided content or by searching the web for specified topics. If user uploads a text file/article, creates a dual-host dialogue podcast (or single-host upon request). If no content is provided, searches the web for informat"
+    },
+    {
+      "name": "a839cafeb3e5e7af2d6ee5c4f0ca71112e004041",
+      "size": 147,
+      "preview": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w15:people xmlns:w15=\"http://schemas.microsoft.com/office/word/2012/wordml\">\n</w15:people>"
+    },
+    {
+      "name": "a8808137d59abbd6ab078121ffa1f2781872f742",
+      "size": 48800,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { AlertTriangle, Boxes, CalendarDays, ClipboardList, Loader2, PackageCheck, XCircle } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent"
+    },
+    {
+      "name": "a9c36c225c748a890161cf0317e4f99790870145",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "aa24e5cd0d1516aaa511522b277706fe4bb3ee87",
+      "size": 41,
+      "preview": "aa24e5cd0d1516aaa511522b277706fe4bb3ee87\n"
+    },
+    {
+      "name": "ab06d32d388e19e5be2977bc1e729a3a96d06211",
+      "size": 18218,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'\nimport {\n  AlertTriangle,\n  Boxes,\n  ChevronRight,\n  CircleCheck,\n  Loader2,\n  Package,\n  ShieldCheck,\n  ShoppingCart,\n  Truck,\n  Warehouse,\n} from 'lucide-react'\nim"
+    },
+    {
+      "name": "ac35753c5c63f565ed7ec4b89d6c6fd792aa5a8c",
+      "size": 4863,
+      "preview": "import json\nimport sys\n\nfrom pypdf import PdfReader, PdfWriter\n\nfrom extract_form_field_info import get_field_info\n\n\n# Fills fillable form fields in a PDF. See forms.md.\n\n\ndef fill_pdf_fields(input_pdf_path: str, fields_json_path: str, output_pdf_path: str):\n    with open(fields_json_path) as f:\n   "
+    },
+    {
+      "name": "ac60252262534e7b87523fd04d252f085b38bec0",
+      "size": 7328,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/bibliography\"\n  xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  targetNamespace=\"http://schemas.openxmlformats."
+    },
+    {
+      "name": "ac894fe4317122e31eab573eb3486298168818bf",
+      "size": 41,
+      "preview": "ac894fe4317122e31eab573eb3486298168818bf\n"
+    },
+    {
+      "name": "ad9905368b29ae312a798616b166020b8a2634da",
+      "size": 41,
+      "preview": "ad9905368b29ae312a798616b166020b8a2634da\n"
+    },
+    {
+      "name": "ada9788943f28a28f13b21c103c609043855e4ea",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "afa4f463e3140a3f626c73f7966d689270d89b2c",
+      "size": 6956,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"\n  xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing\"\n  targetNamespace=\"http://schemas.openxmlformats.org/drawingml/200"
+    },
+    {
+      "name": "b0133ccb077c69065b2ad07166ded58a5a4dd442",
+      "size": 16734,
+      "preview": "/**\n * Design Tokens — Complete CSS Custom Properties System\n * \n * This file provides a comprehensive design token system for consistent UI development.\n * It includes semantic color slots, typography scales, spacing, radius, shadows, and motion.\n * \n * Usage:\n * 1. Import this file in your globals"
+    },
+    {
+      "name": "b03f4f8474427ed92d24b39932decb4b2fd660b0",
+      "size": 41,
+      "preview": "b03f4f8474427ed92d24b39932decb4b2fd660b0\n"
+    },
+    {
+      "name": "b070f28fc74ac1625045fe384157b1e29e9d3d90",
+      "size": 41,
+      "preview": "b070f28fc74ac1625045fe384157b1e29e9d3d90\n"
+    },
+    {
+      "name": "b1930678f87a07835d053d55fd1c476d604a5627",
+      "size": 530,
+      "preview": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"lib\": [\"ES2022\"],\n    \"moduleResolution\": \"node\",\n    \"outDir\": \"./dist\",\n    \"rootDir\": \"./\",\n    \"strict\": true,\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"forceConsistentCasingInFileNames\": true,\n    \"r"
+    },
+    {
+      "name": "b1abefedc7eb570281c0145a76f2a91e406ee441",
+      "size": 18298,
+      "preview": "'use client'\n\nimport { useMemo } from 'react'\nimport { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'\nimport {\n  AlertTriangle,\n  Boxes,\n  ChevronRight,\n  CircleCheck,\n  Loader2,\n  Package,\n  ShieldCheck,\n  ShoppingCart,\n  Truck,\n  Warehouse,\n} from 'lucide-react'\nimport { Badge } from '"
+    },
+    {
+      "name": "b25d176dd43702983fab9a26ad96ab19d3af8dfd",
+      "size": 15649,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/card'\nimport { Input } from '@/components/ui/input'\nimport { PortalProductGridSkeleton } from '@/components/portals/shared/loading-ske"
+    },
+    {
+      "name": "b36e61525366e6d4f67e3f0ef1af5dc43ad4cabe",
+      "size": 41,
+      "preview": "b36e61525366e6d4f67e3f0ef1af5dc43ad4cabe\n"
+    },
+    {
+      "name": "b4ca031f8a756551a12fa8e296d3b2764cc8b067",
+      "size": 11540,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft, CalendarDays, ClipboardList, MapPin, Phone, Store, User } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog"
+    },
+    {
+      "name": "b4cf23e356918d30f4bbd3ed3ee7a47c1ab5c13d",
+      "size": 2643,
+      "preview": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w15:commentsEx xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" xmlns:cx1=\"http://schemas.microsoft.com/office/drawing/2015/9/8/chartex\" xmlns:cx"
+    },
+    {
+      "name": "b5dace0ef98998ba6ba55b781ef9c549c11b5f97",
+      "size": 2635,
+      "preview": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:comments xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" xmlns:cx1=\"http://schemas.microsoft.com/office/drawing/2015/9/8/chartex\" xmlns:cx2=\"h"
+    },
+    {
+      "name": "b6692baadef353772b38fb4ea93b53735787f105",
+      "size": 14593,
+      "preview": "/**\n * Design Tokens — Type-Safe Token Definitions\n * \n * This file provides TypeScript interfaces and types for the design token system.\n * Use these to ensure type safety when working with design tokens programmatically.\n * \n * Location: {project_path}/skills/frontend-design/examples/typescript/de"
+    },
+    {
+      "name": "b722f77b08391455110e2731633283ff557c310f",
+      "size": 41,
+      "preview": "b722f77b08391455110e2731633283ff557c310f\n"
+    },
+    {
+      "name": "b763daca5e3d800d7992d8748b73b36c793fcdbc",
+      "size": 41,
+      "preview": "b763daca5e3d800d7992d8748b73b36c793fcdbc\n"
+    },
+    {
+      "name": "b7709d66df20b2c2b14badb03c4f93a5924256cd",
+      "size": 41,
+      "preview": "b7709d66df20b2c2b14badb03c4f93a5924256cd\n"
+    },
+    {
+      "name": "b7a6777b4450fb59b61cdc568572148bd9053180",
+      "size": 54080,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "b82332d787091b8d5ef17a01e5e352848c5512d3",
+      "size": 19306,
+      "preview": "'use client'\n\nimport { type ReactNode, useEffect, useRef, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { ArrowRight, Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'\nimport { clearTabAuthToken, setTa"
+    },
+    {
+      "name": "b8abdf516d0660c203358868504e9b23f178fda8",
+      "size": 3133,
+      "preview": "from dataclasses import dataclass\nimport json\nimport sys\n\n\n# Script to check that the `fields.json` file that GLM creates when analyzing PDFs\n# does not have overlapping bounding boxes. See forms.md.\n\n\n@dataclass\nclass RectAndField:\n    rect: list[float]\n    rect_type: str\n    field: dict\n\n\n# Return"
+    },
+    {
+      "name": "b9a2278517ad83335eceaab1f905a30854fc6022",
+      "size": 41,
+      "preview": "b9a2278517ad83335eceaab1f905a30854fc6022\n"
+    },
+    {
+      "name": "bac280b4cfd8424caa5e76e862ed4f89c930419f",
+      "size": 51738,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nLibrary for working with Word documents: comments, tracked changes, and editing.\n\nUsage:\n    from skills.docx.scripts.document import Document\n\n    # Initialize\n    doc = Document('workspace/unpacked')\n    doc = Document('workspace/unpacked', author=\"John Doe\", initials=\"J"
+    },
+    {
+      "name": "bdeb80c4946d453678a77f1e66cffcbefcf16399",
+      "size": 41,
+      "preview": "bdeb80c4946d453678a77f1e66cffcbefcf16399\n"
+    },
+    {
+      "name": "be709628defcd0dd56c4952f320c15cf53a4fb4e",
+      "size": 41,
+      "preview": "be709628defcd0dd56c4952f320c15cf53a4fb4e\n"
+    },
+    {
+      "name": "bec848214e20a2105ea820e191976ed58039116f",
+      "size": 7779,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nAdd placeholder entries to Table of Contents in a DOCX file.\n\nThis script adds placeholder TOC entries between the 'separate' and 'end'\nfield characters, so users see some content on first open instead of an empty TOC.\nThe original file is replaced with the modified versio"
+    },
+    {
+      "name": "bf9c56272f9c7a372e6581127d292728ccea046d",
+      "size": 65,
+      "preview": "# Make scripts directory a package for relative imports in tests\n"
+    },
+    {
+      "name": "bfcdceb7cb901b946fbe0bc6691f5f64fa862f05",
+      "size": 8406,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { Poppins } from 'next/font/google'\nimport { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'\nimport { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'\nimport {"
+    },
+    {
+      "name": "c00b82e6dc03b2179e45d320113d5962594ec13f",
+      "size": 41,
+      "preview": "c00b82e6dc03b2179e45d320113d5962594ec13f\n"
+    },
+    {
+      "name": "c013c68837fab6b5e28fc6346d8ee8bdf06c4932",
+      "size": 41,
+      "preview": "c013c68837fab6b5e28fc6346d8ee8bdf06c4932\n"
+    },
+    {
+      "name": "c20f3bf14720d34247e8e1302dc3c40f7b832099",
+      "size": 1269,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/characteristics\"\n  targetNamespace=\"http://schemas.openxmlformats.org/officeDocument/2006/characteristics\"\n  elementFormDefault=\"qualified\">\n"
+    },
+    {
+      "name": "c278bce3e630e6a421eb2b63de3ce88d3a1e03aa",
+      "size": 24867,
+      "preview": "---\nname: video-understand\ndescription: Implement specialized video understanding capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to analyze video content, understand motion and temporal sequences, extract information from video frames, describe video scenes, or perform v"
+    },
+    {
+      "name": "c43cabe830812ca14a1088eea9a69c00f6e6f7fe",
+      "size": 59571,
+      "preview": "\"use client\";\n\nimport { Fragment, useEffect, useMemo, useRef, useState } from 'react';\nimport { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';\nimport L from 'leaflet';\nimport 'leaflet/dist/leaflet.css';\n\nconst MapContainerUnsafe = Map"
+    },
+    {
+      "name": "c47f6dc1a7e54d82777224784695cef04402ec27",
+      "size": 144092,
+      "preview": "﻿'use client'\n\nimport { useState, useEffect, useMemo, useCallback, useRef, type PointerEvent as ReactPointerEvent } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { Poppins } from 'next/font/google'\nimport { useAuth } from '@/app/page'\n"
+    },
+    {
+      "name": "c55ab42224874608473643de0a85736b7fec0730",
+      "size": 1467,
+      "preview": "© 2025 Anthropic, PBC. All rights reserved.\n\nLICENSE: Use of these materials (including all code, prompts, assets, files,\nand other components of this Skill) is governed by your agreement with\nAnthropic regarding use of Anthropic's services. If no separate agreement\nexists, use is governed by Anthro"
+    },
+    {
+      "name": "c572c8f2033387a54e81bebfc2fa1c2caa1cb93f",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "c5a8998221a86cf2b80c18212fabb4646f1ef9a4",
+      "size": 41,
+      "preview": "c5a8998221a86cf2b80c18212fabb4646f1ef9a4\n"
+    },
+    {
+      "name": "c7608c204a1ffa44a12431c919043cf26f7bd137",
+      "size": 37263,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport { motion } from 'framer-motion'\nimport { CalendarDays, CheckCircle2, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/butto"
+    },
+    {
+      "name": "c7b5844f0b5b0ecd1a1ae09c9ef59d195796906e",
+      "size": 22174,
+      "preview": "#!/usr/bin/env tsx\n/**\n * generate.ts - 统一入口（纯 SDK 版本）\n * 原资料 -> podcast_script.md + podcast.wav\n *\n * 只使用 z-ai-web-dev-sdk，不依赖 z-ai CLI\n *\n * Usage:\n *   tsx generate.ts --input=material.txt --out_dir=out\n *   tsx generate.ts --input=material.md --out_dir=out --duration=5\n */\n\nimport ZAI from 'z-ai"
+    },
+    {
+      "name": "c7fc93da13d4cc8c2ebcc0899bc65a425953bbcb",
+      "size": 53616,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "c908c6a30e7c6814723e479da99eb969fd324186",
+      "size": 41,
+      "preview": "c908c6a30e7c6814723e479da99eb969fd324186\n"
+    },
+    {
+      "name": "c9b5e0018668ad94f76ffdb22696ef7f01e3358a",
+      "size": 2633,
+      "preview": "# Changelog\n\n## [Added Comment Feature - python-docx Method] - 2026-01-29\n\n### Added\n- **批注功能 (Comment Feature)**: 使用python-docx的简单可靠方案\n  - **推荐方法**: `scripts/add_comment_simple.py` - 使用python-docx直接操作.docx文件\n  - **完整示例**: `scripts/examples/add_comments_pythondocx.py` - 展示各种使用场景\n  - SKILL.md: 更新为推荐p"
+    },
+    {
+      "name": "ca2575c753be78cdaa96de56b3ff8770173c324d",
+      "size": 25279,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"urn:schemas-microsoft-com:office:office\" xmlns:v=\"urn:schemas-microsoft-com:vml\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  xmlns:s=\"http://schemas.openxmlf"
+    },
+    {
+      "name": "cd26d00a94e31f1ca427eb2581c7fa3c2bcd3495",
+      "size": 57386,
+      "preview": "\"use client\";\n\nimport { Fragment, useEffect, useMemo, useRef, useState } from 'react';\nimport { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';\nimport L from 'leaflet';\nimport 'leaflet/dist/leaflet.css';\n\nconst MapContainerUnsafe = Map"
+    },
+    {
+      "name": "cd505176dd1c18c8ed1a445d0e26fef31ec2f8b5",
+      "size": 74538,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page'"
+    },
+    {
+      "name": "ce29b98b2670bb498a0f2a673aa5afcfb0e79b09",
+      "size": 41,
+      "preview": "ce29b98b2670bb498a0f2a673aa5afcfb0e79b09\n"
+    },
+    {
+      "name": "ce4604176905698cea8d85bd6d760d8a05f88fab",
+      "size": 41,
+      "preview": "ce4604176905698cea8d85bd6d760d8a05f88fab\n"
+    },
+    {
+      "name": "cf36360f441030cb4299d9e952ce59054d6c9462",
+      "size": 41,
+      "preview": "cf36360f441030cb4299d9e952ce59054d6c9462\n"
+    },
+    {
+      "name": "d04bc8e06dfd7370d39c29d10c7c968d17860d43",
+      "size": 2651,
+      "preview": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w16cid:commentsIds xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" xmlns:cx1=\"http://schemas.microsoft.com/office/drawing/2015/9/8/chartex\" xmln"
+    },
+    {
+      "name": "d087af230d677701f95f3482a4a09f2a4c21011c",
+      "size": 3048,
+      "preview": "'use client'\n\nimport { Button } from '@/components/ui/button'\nimport { ScrollArea } from '@/components/ui/scroll-area'\nimport { motion } from 'framer-motion'\nimport { LogOut } from 'lucide-react'\n\ntype SidebarNavItem = {\n  id: string\n  label: string\n  icon: React.ComponentType<{ className?: string }"
+    },
+    {
+      "name": "d0be42e757f3cce533c1c80770239f0097d3de6b",
+      "size": 242277,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"\n  xmlns:xdr=\"http://schemas.openxmlformats.org/drawingml"
+    },
+    {
+      "name": "d0ec2321df9f1e1b3437ed426804bb3395bb6bbc",
+      "size": 53591,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "d0f5aaa90320afc4b634160f70c84c28627fba8b",
+      "size": 40025,
+      "preview": "'use client'\n\nimport { useMemo, useState } from 'react'\nimport { Boxes, CalendarDays, ClipboardList, Loader2, XCircle } from 'lucide-react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/card'\nimport { "
+    },
+    {
+      "name": "d103582eb436881cbab30b58903277b11c718451",
+      "size": 41,
+      "preview": "d103582eb436881cbab30b58903277b11c718451\n"
+    },
+    {
+      "name": "d15d5c472ea6df5b630d086ab45f715b930d1288",
+      "size": 41,
+      "preview": "d15d5c472ea6df5b630d086ab45f715b930d1288\n"
+    },
+    {
+      "name": "d486558c52ccb750ee0e17e227d870687f9e5ca3",
+      "size": 41,
+      "preview": "d486558c52ccb750ee0e17e227d870687f9e5ca3\n"
+    },
+    {
+      "name": "d4cad6605c8d3d12a1662e0d2b12fa864e88b409",
+      "size": 12794,
+      "preview": "'use client'\n\nimport { ArrowLeft, CalendarDays, CheckCircle2, Loader2, MapPin, Phone, ShieldCheck, Truck } from 'lucide-react'\nimport dynamic from 'next/dynamic'\nimport { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button"
+    },
+    {
+      "name": "d58ca079a929834cc9a800fcc07ce63626959516",
+      "size": 2440,
+      "preview": "---\nname: finance\ndescription: \"Comprehensive Finance API integration skill for real-time and historical financial data analysis, market research, and investment decision-making. Priority use cases: stock price queries, market data analysis, company financial information, portfolio tracking, market "
+    },
+    {
+      "name": "d873558c4a5fafcd44c44847d39c38f639b561b3",
+      "size": 41,
+      "preview": "d873558c4a5fafcd44c44847d39c38f639b561b3\n"
+    },
+    {
+      "name": "d878fa63ad37c6e14a754413724b65a0a2316a5a",
+      "size": 11674,
+      "preview": "/**\n * Theme Provider — Theme Management System\n * \n * This file provides a complete theme management system with:\n * - Light/dark/system theme support\n * - Theme persistence (localStorage)\n * - System preference detection\n * - Type-safe theme context\n * \n * Location: {project_path}/skills/frontend-"
+    },
+    {
+      "name": "d8f4b2003564e24fe1f3fea888881801ded44815",
+      "size": 57195,
+      "preview": "\"use client\";\n\nimport { Fragment, useEffect, useMemo, useRef, useState } from 'react';\nimport { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';\nimport L from 'leaflet';\nimport 'leaflet/dist/leaflet.css';\n\nconst MapContainerUnsafe = Map"
+    },
+    {
+      "name": "d92d22506d12770936fccab10c5f4123c431fc85",
+      "size": 20054,
+      "preview": "---\nname: TTS\ndescription: Implement text-to-speech (TTS) capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to convert text into natural-sounding speech, create audio content, build voice-enabled applications, or generate spoken audio files. Supports multiple voices, adjust"
+    },
+    {
+      "name": "d92dae611d442cdfd498b2271a8221f98837be0a",
+      "size": 13694,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nUtilities for editing OOXML documents.\n\nThis module provides XMLEditor, a tool for manipulating XML files with support for\nline-number-based node finding and DOM manipulation. Each element is automatically\nannotated with its original line and column position during parsing"
+    },
+    {
+      "name": "d9749ee57c9d256863cc51ad47e543c9b73d63c1",
+      "size": 41,
+      "preview": "d9749ee57c9d256863cc51ad47e543c9b73d63c1\n"
+    },
+    {
+      "name": "da13b92825b0caea42b872368a356f32f7a02484",
+      "size": 31158,
+      "preview": "﻿\n\"use client\";\n\n\nimport React, { useState, useEffect, useMemo } from 'react';\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { toast } from 'sonner';\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { useAuth } from '@/app/page';\nim"
+    },
+    {
+      "name": "da4149248b69ccd3a682f4854965cae11c6b697e",
+      "size": 62704,
+      "preview": "'use client'\n\nimport { useMemo, useState, type Dispatch, type SetStateAction } from 'react'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'\nimport { Dialog, "
+    },
+    {
+      "name": "da835ee82d5cc31be9fa9792512930f7ae3fb5ce",
+      "size": 7507,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\"\n  xmlns:s=\"http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes\"\n  targetNamespace=\"http://schemas.openxmlformat"
+    },
+    {
+      "name": "db092ece7e21de98f87bd81471578259a1bc642f",
+      "size": 336,
+      "preview": "\"\"\"\nValidation modules for Word document processing.\n\"\"\"\n\nfrom .base import BaseSchemaValidator\nfrom .docx import DOCXSchemaValidator\nfrom .pptx import PPTXSchemaValidator\nfrom .redlining import RedliningValidator\n\n__all__ = [\n    \"BaseSchemaValidator\",\n    \"DOCXSchemaValidator\",\n    \"PPTXSchemaVali"
+    },
+    {
+      "name": "dbdc06c3d0f9a6b92c1fa29774b03fd1cac740e6",
+      "size": 41,
+      "preview": "dbdc06c3d0f9a6b92c1fa29774b03fd1cac740e6\n"
+    },
+    {
+      "name": "dd079e603f5770176212776a1d565b108875cf64",
+      "size": 535,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"urn:schemas-microsoft-com:office:powerpoint\"\n  targetNamespace=\"urn:schemas-microsoft-com:office:powerpoint\" elementFormDefault=\"qualified\"\n  attributeFormDefault=\"unqualified\">\n  <xsd:element na"
+    },
+    {
+      "name": "dd3b3013ba6d2321cb75dbb474a46a2af38f7f49",
+      "size": 25332,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "dd56be43e8f23885a21bb88230b88d04d96f6672",
+      "size": 41,
+      "preview": "dd56be43e8f23885a21bb88230b88d04d96f6672\n"
+    },
+    {
+      "name": "ddf6cfd5c969dff5a149c490dddf818c0bcc3f12",
+      "size": 262497,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useRef, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { useAuth } from '@/app/page'\nimport { Button } from '@/components/ui/button'\nimport { Avatar, AvatarFallback, AvatarImage } fr"
+    },
+    {
+      "name": "e00b03bd8c8535b0d26dc15d8cfc6737aa2528db",
+      "size": 41,
+      "preview": "e00b03bd8c8535b0d26dc15d8cfc6737aa2528db\n"
+    },
+    {
+      "name": "e093ef7a9d23ee02ef04257ff2431d586c4dcdf3",
+      "size": 24772,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "e1ea6cd57d9014382123bf607e5cd4900f0d7d70",
+      "size": 53974,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "e2b06cc3cc97082b6cafba19618aff0a600de0bf",
+      "size": 41,
+      "preview": "e2b06cc3cc97082b6cafba19618aff0a600de0bf\n"
+    },
+    {
+      "name": "e32a05e0c3ce9419b48c0ee121daa195070797b4",
+      "size": 2739,
+      "preview": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w16cex:commentsExtensible xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" xmlns:cx1=\"http://schemas.microsoft.com/office/drawing/2015/9/8/charte"
+    },
+    {
+      "name": "e38c5b3e96743ee8431fafd28857a5c92482e870",
+      "size": 41,
+      "preview": "e38c5b3e96743ee8431fafd28857a5c92482e870\n"
+    },
+    {
+      "name": "e3927442236ed3c79531c2b585b9c3c8b0721495",
+      "size": 4862,
+      "preview": "---\nname: gift-evaluator\ndescription: The PRIMARY tool for Spring Festival gift analysis and social interaction generation. Use this skill when users upload photos of gifts (alcohol, tea, supplements, etc.) to inquire about their value, authenticity, or how to respond socially. Integrates visual per"
+    },
+    {
+      "name": "e49af232229a8af726193004907096f848113b36",
+      "size": 8693,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog(props: any) {\n  const {\n    selectedOrder,\n    isReceipt"
+    },
+    {
+      "name": "e5b2db2a7628d15638be875d41a940ed90bb0349",
+      "size": 41,
+      "preview": "e5b2db2a7628d15638be875d41a940ed90bb0349\n"
+    },
+    {
+      "name": "e690597481432dd4196c11ff493ad3720c46ed10",
+      "size": 15229,
+      "preview": "'use client'\n\nimport { useMemo, useState } from 'react'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/card'\nimport { Input } from '@/components/ui/input'\nimport { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'\nimp"
+    },
+    {
+      "name": "e69b436ba799295c5f13cfb086d8913b4bd6341c",
+      "size": 11685,
+      "preview": "'use client'\n\nimport { motion } from 'framer-motion'\nimport { ArrowLeft, CalendarDays, ClipboardList, MapPin, Phone, Store, User } from 'lucide-react'\nimport { Button } from '@/components/ui/button'\nimport { Dialog, DialogContent } from '@/components/ui/dialog'\n\nexport function CustomerReceiptDialog"
+    },
+    {
+      "name": "e90756c563e1c150ffe08c85ad31acf58a38b7a6",
+      "size": 322,
+      "preview": "{\"idx\": 1, \"speaker\": \"host\", \"name\": \"主持人\", \"text\": \"大家好，欢迎来到今天的播客节目。\"}\n{\"idx\": 2, \"speaker\": \"guest\", \"name\": \"嘉宾\", \"text\": \"很高兴能参加这次节目。\"}\n{\"idx\": 3, \"speaker\": \"host\", \"name\": \"主持人\", \"text\": \"今天我们要讨论一个非常有意思的话题。\"}\n"
+    },
+    {
+      "name": "e96d37ca618f5a1e56a2d2c714e679f086558fed",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "ea4bc312e30b2c20d636d0869efb57767a6374c4",
+      "size": 41,
+      "preview": "ea4bc312e30b2c20d636d0869efb57767a6374c4\n"
+    },
+    {
+      "name": "ea7b6dd4b9028f57a14ca0779d035a95dd51d08f",
+      "size": 41,
+      "preview": "ea7b6dd4b9028f57a14ca0779d035a95dd51d08f\n"
+    },
+    {
+      "name": "ea8db6a7be518a029b5ac3ee75fa737329da1ac7",
+      "size": 28733,
+      "preview": "﻿'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport L from 'leaflet'\nimport { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet'\nimport 'leaflet/dist/leaflet.css'\nimport { cn } from '@/lib/utils'\n\nconst MapContainerUnsafe = MapConta"
+    },
+    {
+      "name": "eb457c029941d3d162110298bd34dad00cdea24d",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "eb6fc957f6111e3adb738f344f9bf522711a8685",
+      "size": 41,
+      "preview": "eb6fc957f6111e3adb738f344f9bf522711a8685\n"
+    },
+    {
+      "name": "eb89aef69864d71847111f1fa218fd1f871ad2b1",
+      "size": 41,
+      "preview": "eb89aef69864d71847111f1fa218fd1f871ad2b1\n"
+    },
+    {
+      "name": "ec47b0c9ff1a5cbd92b4921d5846a5dad2c52276",
+      "size": 41,
+      "preview": "ec47b0c9ff1a5cbd92b4921d5846a5dad2c52276\n"
+    },
+    {
+      "name": "ecce3054c99c226e78f60535434215b76af7ee9c",
+      "size": 74330,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "eccfb236a8ff9f3895d6e3e9c8afd0929f5a26b1",
+      "size": 67275,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page'"
+    },
+    {
+      "name": "ed3f9dbc213a035e8842c1e85ead04fccc1371c4",
+      "size": 28366,
+      "preview": "---\nname: web-reader\ndescription: Implement web page content extraction capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to scrape web pages, extract article content, retrieve page metadata, or build applications that process web content. Supports automatic content extract"
+    },
+    {
+      "name": "ed4f94205b430917a17bb39eb854a654c8fad602",
+      "size": 41,
+      "preview": "ed4f94205b430917a17bb39eb854a654c8fad602\n"
+    },
+    {
+      "name": "ee512957b09ab590f84400a766af4f14807a7c49",
+      "size": 24772,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "ef1e60627d417c1dbbc465802e44bae2e5816944",
+      "size": 41,
+      "preview": "ef1e60627d417c1dbbc465802e44bae2e5816944\n"
+    },
+    {
+      "name": "ef725457cf39116672e285d021be69b7ad022574",
+      "size": 3127,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"\n\tattributeFormDefault=\"unqualified\" elementFormDefault=\"qualified\"\n\ttargetNamespace=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"\n\txmlns:xsd=\"http://www.w3.org/20"
+    },
+    {
+      "name": "f01e00951ef664f8d73d5cc98897108cc75c3ef9",
+      "size": 739,
+      "preview": "import ZAI from 'z-ai-web-dev-sdk';\n\ninterface PageReaderFunctionResult {\n  code: number;\n  data: {\n    html: string;\n    publishedTime?: string;\n    title: string;\n    url: string;\n    usage: {\n      tokens: number;\n    };\n  };\n  meta: {\n    usage: {\n      tokens: number;\n    };\n  };\n  status: numb"
+    },
+    {
+      "name": "f1041e34ef365926f5670b896f5bb23e553ac36d",
+      "size": 4010,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns=\"urn:schemas-microsoft-com:office:word\"\n  targetNamespace=\"urn:schemas-microsoft-com:office:word\" elementFormDefault=\"qualified\"\n  attributeFormDefault=\"unqualified\">\n  <xsd:element name=\"borderto"
+    },
+    {
+      "name": "f1094550d4ea4174f1b48b4e8c8dc8be569b4664",
+      "size": 41,
+      "preview": "f1094550d4ea4174f1b48b4e8c8dc8be569b4664\n"
+    },
+    {
+      "name": "f1af17db4e83b1c40152577eca4a575ab63a1ca7",
+      "size": 8862,
+      "preview": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\n  xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"\n  xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing\"\n  xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/"
+    },
+    {
+      "name": "f2bbb64a42997d6dd717a791288810785c5c9c88",
+      "size": 41,
+      "preview": "f2bbb64a42997d6dd717a791288810785c5c9c88\n"
+    },
+    {
+      "name": "f321d333a5e6ef98cbdfeeeaa334923e4cfc8a6c",
+      "size": 901,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w12=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" elementFormDefault=\"qualified\" attributeFormDefault=\"qualified\" blockDefault=\"#all\" xmlns=\"http://schemas.microsoft.com/office/word/2018/wordml\" targetNamespace=\"http://"
+    },
+    {
+      "name": "f44e39dea4bfbcec7d2223a11d0f3680964bae9b",
+      "size": 367094,
+      "preview": "import hashlib\nimport hmac\nimport base64\nimport json\nimport logging\nimport math\nimport os\nimport requests\nimport re\nimport secrets\nfrom datetime import date, datetime, time, timedelta\nfrom pathlib import Path\nfrom typing import Any\n\nfrom google.auth.transport import requests as google_requests\nfrom "
+    },
+    {
+      "name": "f466905ec32367ef784e7bd44b84f0191723249c",
+      "size": 41,
+      "preview": "f466905ec32367ef784e7bd44b84f0191723249c\n"
+    },
+    {
+      "name": "f65f777730d82162f4248f03c703b1b85fda5fe2",
+      "size": 26549,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w12=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" elementFormDefault=\"qualified\" attributeFormDefault=\"qualified\" blockDefault=\"#all\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:w"
+    },
+    {
+      "name": "f69be6471d48710bf1cd80672fbe00f9e7be2a53",
+      "size": 23963,
+      "preview": "﻿'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport L from 'leaflet'\nimport { CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet'\nimport 'leaflet/dist/leaflet.css'\nimport { cn } from '@/lib/utils'\n\nconst MapContainerUnsafe = MapConta"
+    },
+    {
+      "name": "f75cb03e4abf276d4046ec06c50b4575c4f26a37",
+      "size": 41,
+      "preview": "f75cb03e4abf276d4046ec06c50b4575c4f26a37\n"
+    },
+    {
+      "name": "f7b31a7266869d6d59aff552391a0e0fbee19887",
+      "size": 73748,
+      "preview": "'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page'"
+    },
+    {
+      "name": "f8658244c8862a5b4ad2f9d97ffd1147bbee646e",
+      "size": 135739,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "f867da5e84e06fe3bbf3409422200e8230538698",
+      "size": 70224,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "f8896e4a024db8821ea0b1bc51321eaf7e910c99",
+      "size": 11354,
+      "preview": "# Frontend Design Skill - Optimization Summary\n\n## 📊 Comparison: Original vs Optimized Version\n\n### Original Document Focus\n- Heavily prescriptive approach\n- Emphasis on \"no arbitrary values\" (almost too rigid)\n- Style packs as main organizing principle\n- Prompt-template heavy\n- Less guidance on cr"
+    },
+    {
+      "name": "f8a4ec524b28eb1b380a536c24ea589faa3b7a2e",
+      "size": 1123,
+      "preview": "import os\nimport sys\n\nfrom pdf2image import convert_from_path\n\n\n# Converts each page of a PDF to a PNG image.\n\n\ndef convert(pdf_path, output_dir, max_dim=1000):\n    images = convert_from_path(pdf_path, dpi=200)\n\n    for i, image in enumerate(images):\n        # Scale image if needed to keep width/hei"
+    },
+    {
+      "name": "f967f43a1413d764f10893654ddeb02cb63230a0",
+      "size": 41,
+      "preview": "f967f43a1413d764f10893654ddeb02cb63230a0\n"
+    },
+    {
+      "name": "f98053135007739d8a017846a2fc3d299f947411",
+      "size": 3596,
+      "preview": "import json\nimport sys\n\nfrom pypdf import PdfReader, PdfWriter\nfrom pypdf.annotations import FreeText\n\n\n# Fills a PDF by adding text annotations defined in `fields.json`. See forms.md.\n\n\ndef transform_coordinates(bbox, image_width, image_height, pdf_width, pdf_height):\n    \"\"\"Transform bounding box "
+    },
+    {
+      "name": "fa6492c066896f7f7c7fa787e0b6b6394c63e63e",
+      "size": 24746,
+      "preview": "'use client'\n\nimport { useEffect, useState } from 'react'\nimport { toast } from 'sonner'\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Badge } from '@/components/ui/badge'\nimport { Button } from '@/components/ui/button'\nimport { Card, CardContent } from '@/components/ui/ca"
+    },
+    {
+      "name": "fb0bea895f03af466f4c5f6534672f2943b7a9ba",
+      "size": 125327,
+      "preview": "'use client'\n\nimport { useState, useEffect, useRef, useMemo } from 'react'\nimport dynamic from 'next/dynamic'\nimport { AnimatePresence, motion } from 'framer-motion'\nimport { emitDataSync } from '@/lib/data-sync'\nimport { Button } from '@/components/ui/button'\nimport { Input } from '@/components/ui/"
+    },
+    {
+      "name": "fb75fa7e0ee169a74a71a9d78252785aecdcbe6e",
+      "size": 70149,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    },
+    {
+      "name": "fc9e5d6cc4e19f0f8ba0ffec17a753f597833fe5",
+      "size": 48025,
+      "preview": "'use client'\n\nimport { useEffect, useMemo, useState } from 'react'\nimport {\n  Boxes,\n  CalendarDays,\n  ChevronLeft,\n  ChevronRight,\n  CircleAlert,\n  Clock3,\n  FileText,\n  Filter,\n  Hash,\n  Loader2,\n  MapPin,\n  Package2,\n  Search,\n  Star,\n  Truck,\n  X,\n} from 'lucide-react'\nimport { Badge } from '@/c"
+    },
+    {
+      "name": "fde9bd7b332a85bbba4ee9b19d76a646c1ac617e",
+      "size": 15470,
+      "preview": "---\nname: ASR\ndescription: Implement speech-to-text (ASR/automatic speech recognition) capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to transcribe audio files, convert speech to text, build voice input features, or process audio recordings. Supports base64 encoded audio"
+    },
+    {
+      "name": "fe3043294a292437ece2b94f06073116f04985a8",
+      "size": 627,
+      "preview": "# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.\n\n# dependencies\nnode_modules\n/.pnp\n.pnp.*\n.yarn/*\n!.yarn/patches\n!.yarn/plugins\n!.yarn/releases\n!.yarn/versions\n\n# testing\n/coverage\n\n# next.js\n/.next/\n/out/\n\n# production\n/build\n\n# misc\n.DS_Store\n*.pem\n\n# debug\nnp"
+    },
+    {
+      "name": "fed95f8fbceb8427ae16ba73e8183156033e3b16",
+      "size": 2768,
+      "preview": "'use client'\n\nimport { Avatar, AvatarFallback } from '@/components/ui/avatar'\nimport { Button } from '@/components/ui/button'\nimport {\n  DropdownMenu,\n  DropdownMenuContent,\n  DropdownMenuItem,\n  DropdownMenuLabel,\n  DropdownMenuSeparator,\n  DropdownMenuTrigger,\n} from '@/components/ui/dropdown-menu"
+    },
+    {
+      "name": "fed9d15b7f504e14ac82793d79db2d7ad83d56ed",
+      "size": 1002,
+      "preview": " <xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:w12=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" elementFormDefault=\"qualified\" attributeFormDefault=\"qualified\" blockDefault=\"#all\" xmlns=\"http://schemas.microsoft.com/office/word/2016/wordml/cid\" targetNamespace=\"htt"
+    },
+    {
+      "name": "fee701409d003df222629e59a59fa8a7df6f405f",
+      "size": 41,
+      "preview": "fee701409d003df222629e59a59fa8a7df6f405f\n"
+    },
+    {
+      "name": "ff37c0e78b0e1f23f6664eda34034fabfb444a8c",
+      "size": 70151,
+      "preview": "﻿'use client'\n\nimport React, { useEffect, useMemo, useState } from 'react'\nimport dynamic from 'next/dynamic'\nimport { toast } from 'sonner'\nimport { PDFDocument, StandardFonts, rgb } from 'pdf-lib'\nimport { emitDataSync, subscribeDataSync } from '@/lib/data-sync'\nimport { useAuth } from '@/app/page"
+    }
+  ],
+  "lostFoundDir": "C:\\CAPSTONE\\.git\\lost-found\\other"
+}

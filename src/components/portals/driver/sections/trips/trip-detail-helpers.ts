@@ -139,3 +139,51 @@ export const mergeDropPointIntoTrip = (
           : currentTrip.status,
   }
 }
+
+export type NavigationApp = 'google' | 'waze' | 'organic'
+
+export type OpenNavigationOptions = {
+  latitude: number
+  longitude: number
+  label?: string
+  app?: NavigationApp
+}
+
+export const openNavigation = async (options: OpenNavigationOptions): Promise<boolean> => {
+  const { latitude, longitude, label, app = 'google' } = options
+  const labelEncoded = encodeURIComponent(label || 'Destination')
+
+  let url = ''
+  if (app === 'waze') {
+    url = `https://waze.com/ul?ll=${latitude},${longitude}&navigate=yes`
+  } else if (app === 'organic') {
+    url = `geo:${latitude},${longitude}?q=${latitude},${longitude}(${labelEncoded})`
+  } else {
+    url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`
+  }
+
+  if (typeof window !== 'undefined') {
+    if (isNativeCapacitorApp()) {
+      let nativeUrl = ''
+      if (app === 'waze') {
+        nativeUrl = `waze://?ll=${latitude},${longitude}&navigate=yes`
+      } else if (app === 'google') {
+        nativeUrl = `comgooglemaps://?q=${latitude},${longitude}`
+      } else {
+        nativeUrl = `geo:${latitude},${longitude}?q=${latitude},${longitude}(${labelEncoded})`
+      }
+
+      try {
+        window.location.href = nativeUrl
+        return true
+      } catch {
+        window.open(url, '_blank')
+        return true
+      }
+    } else {
+      window.open(url, '_blank')
+      return true
+    }
+  }
+  return false
+}

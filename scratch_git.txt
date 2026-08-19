@@ -1,0 +1,115 @@
+STASH:
+
+
+LOG:
+d8cfe1d feat: Implement pagination for trips and orders in admin and warehouse sections
+6a0e410 feat: enhance camera permission handling and error messaging in TripDetailView
+a5351ea feat: update button styles across various components to use a consistent blue theme
+4c3dbf1 Add replacement evidence image for case 1780078304964
+8ddf294 Add customer login background image
+
+
+STATUS:
+On branch deploy-main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   backend/config/settings.py
+	modified:   backend/core/migrations/0071_remove_order_dispatch_and_exception_fields.py
+	modified:   backend/core/migrations/0073_force_orderitem_product_nullable.py
+	modified:   backend/core/models.py
+	modified:   backend/core/tests.py
+	modified:   backend/core/views_api.py
+	modified:   mobile/customer-app/App.tsx
+	modified:   mobile/customer-app/src/services/auth.ts
+	modified:   mobile/customer-app/src/types/index.ts
+	modified:   mobile/driver-app/App.tsx
+	modified:   mobile/driver-app/app.json
+	modified:   mobile/driver-app/package-lock.json
+	modified:   mobile/driver-app/package.json
+	modified:   mobile/driver-app/src/services/auth.ts
+	modified:   mobile/driver-app/src/types/index.ts
+	modified:   next.config.ts
+	modified:   package-lock.json
+	modified:   package.json
+	modified:   prisma/schema.prisma
+	modified:   src/components/auth/CustomerLoginPage.tsx
+	modified:   src/components/auth/DriverLoginPage.tsx
+	modified:   src/components/auth/ForgotPasswordDialog.tsx
+	modified:   src/components/auth/WarehouseLoginPage.tsx
+	modified:   src/components/portals/admin/AdminPortal.tsx
+	modified:   src/components/portals/admin/sections/customers-view.tsx
+	modified:   src/components/portals/admin/sections/index.ts
+	modified:   src/components/portals/admin/sections/inventory-view.tsx
+	modified:   src/components/portals/admin/sections/orders-view.tsx
+	modified:   src/components/portals/admin/sections/replacements-view.tsx
+	modified:   src/components/portals/admin/sections/settings-view.tsx
+	modified:   src/components/portals/admin/sections/trips-view.tsx
+	modified:   src/components/portals/admin/sections/users-view.tsx
+	modified:   src/components/portals/admin/sections/warehouses-view.tsx
+	modified:   src/components/portals/customer/CustomerPortal.tsx
+	modified:   src/components/portals/customer/sections/home/home-view.tsx
+	modified:   src/components/portals/customer/sections/orders/orders-view.tsx
+	modified:   src/components/portals/customer/sections/orders/rating-dialog.tsx
+	modified:   src/components/portals/customer/sections/orders/receipt-dialog.tsx
+	modified:   src/components/portals/customer/sections/orders/receipt-utils.ts
+	modified:   src/components/portals/customer/sections/profile/profile-view.tsx
+	modified:   src/components/portals/driver/DriverPortal.tsx
+	modified:   src/components/portals/driver/sections/home/home-view.tsx
+	modified:   src/components/portals/driver/sections/layout/portal-header.tsx
+	modified:   src/components/portals/driver/sections/profile/profile-view.tsx
+	modified:   src/components/portals/driver/sections/trips/trip-detail-helpers.ts
+	modified:   src/components/portals/warehouse/WarehousePortal.tsx
+	modified:   src/components/portals/warehouse/sections/inventory/inventory-view.tsx
+	modified:   src/components/portals/warehouse/sections/layout/portal-state.ts
+	modified:   src/components/portals/warehouse/sections/layout/warehouse-header.tsx
+	modified:   src/components/portals/warehouse/sections/layout/warehouse-sidebar.tsx
+	modified:   src/components/portals/warehouse/sections/orders/orders-view.tsx
+	modified:   src/components/portals/warehouse/sections/replacements/replacements-view.tsx
+	modified:   src/components/portals/warehouse/sections/shared/types.ts
+	modified:   src/lib/client-auth.ts
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	backend/core/migrations/0078_reconcile_sqlite_order_legacy_columns.py
+	backend/core/migrations/0079_purchase_request_workflow.py
+	backend/core/migrations/0080_add_user_name_fields.py
+	backend/core/migrations/0081_inventorytransaction_stock_snapshots.py
+	backend/db_backups/
+	backend/media/uploads/customers/customer-1780419444723.jfif
+	backend/media/uploads/customers/customer-1783147621683.png
+	backend/media/uploads/pods/pod-1780423424813.jpg
+	backend/media/uploads/pods/pod-1780424075847.jpg
+	backend/media/uploads/pods/pod-1780426503452.jpg
+	backend/media/uploads/pods/pod-1780429013717.jpg
+	backend/media/uploads/pods/pod-1780431452886.jpg
+	backend/media/uploads/pods/pod-1780431679349.jpg
+	backend/media/uploads/pods/pod-1780432848918.jpg
+	backend/media/uploads/pods/pod-1780432855876.jpg
+	backend/media/uploads/pods/pod-1780432915948.jpg
+	backend/media/uploads/pods/pod-1780469088969.jpg
+	backend/media/uploads/products/product-1780417835710.jfif
+	backend/media/uploads/products/product-1780418574874.jfif
+	backend/media/uploads/products/product-1780422032572.png
+	backend/media/uploads/products/product-1780466519981.jfif
+	backend/media/uploads/products/product-1780467569075.jfif
+	backend/media/uploads/replacement-evidence/replacement-evidence-1780423565443.png
+	backend/media/uploads/replacement-evidence/replacement-evidence-1780424147363.png
+	backend/media/uploads/replacement-evidence/replacement-evidence-1780431703817.jpg
+	mobile/driver-app/.expo-template/
+	mobile/driver-app/android/
+	mobile/driver-app/expo-location-18.1.6.tgz
+	mobile/driver-app/expo-template-bare-minimum-53.0.42.tgz
+	public/icons/aab-van-back.png
+	public/icons/aab-van-iso.png
+	scratch_matches.json
+	skills-lock.json
+	src/components/portals/admin/sections/inventory-transactions-view.tsx
+	src/components/portals/warehouse/sections/purchase-requests/
+	src/components/shared/LandingPage.tsx
+	src/components/shared/NavInstructionsPanel.tsx
+	src/components/shared/otp-verification-modal.tsx
+
+no changes added to commit (use "git add" and/or "git commit -a")

@@ -20,9 +20,11 @@ export function WarehouseReplacementsView({
   selectedReplacement,
   setSelectedReplacement,
   buildReplacementLines,
+  receiveReplacementReturn,
 }: WarehouseReplacementsViewProps) {
   const [replacementDeliveryDate, setReplacementDeliveryDate] = useState('')
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
+  const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({})
   const todayDateInput = useMemo(() => {
     const now = new Date()
     const year = now.getFullYear()
@@ -95,6 +97,23 @@ export function WarehouseReplacementsView({
       (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
       []
     const first = lines[0] || {}
+    const productNameForLine = String(first?.originalProductName || first?.replacementProductName || first?.productName || '').trim()
+    const productNameLookup = productNameForLine.replace(/\s*\([^)]*\)\s*$/, '').trim() || productNameForLine
+    const inferLineModeFromDescription = () => {
+      const rawDescription = String(entry?.description || '')
+      if (!productNameLookup || !rawDescription) return ''
+      const escapedProductName = productNameLookup.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const segmentMatch = rawDescription.match(new RegExp(`\\[${escapedProductName}\\]([\\s\\S]*?)(?=\\s*\\[[^\\]]+\\]|$)`, 'i'))
+      const segmentText = String(segmentMatch?.[1] || '').toLowerCase()
+      if (!segmentText) return ''
+      if (/\bby\s*bottle\b/.test(segmentText)) return 'bottle'
+      if (/\bby\s*pack\b/.test(segmentText)) return 'pack'
+      if (/\bby\s*bundle\b/.test(segmentText)) return 'bundle'
+      if (/\bby\s*case\b/.test(segmentText)) return 'case'
+      if (/\bby\s*unit\b/.test(segmentText)) return 'case'
+      return ''
+    }
+    const lineInputMode = String(first?.lineInputMode || first?.replacementInputMode || inferLineModeFromDescription()).trim().toLowerCase()
     const unitHint = String(
       first?.productUnit ||
       first?.replacementProductUnit ||
@@ -132,6 +151,16 @@ export function WarehouseReplacementsView({
         ? (first?.damagedBottles ?? first?.quantityToReplaceBottles ?? first?.replacementBottles)
         : (first?.replacedBottles ?? first?.quantityReplacedBottles ?? first?.replacementBottles)
     )
+    if (lineInputMode === 'bottle') {
+      if (Number.isFinite(bottleQty) && bottleQty >= 0) return `${bottleQty} bottle(s)`
+      const fallbackQty = Number(
+        mode === 'toReplace'
+          ? (entry?.quantityToReplace ?? meta?.quantityToReplace ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
+          : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? 0)
+      )
+      const fallback = Math.max(0, Number.isFinite(fallbackQty) ? fallbackQty : 0)
+      return `${fallback} bottle(s)`
+    }
     if (Number.isFinite(caseQty) && caseQty > 0) return `${caseQty} ${unitLabel}`
     if (Number.isFinite(bottleQty) && bottleQty > 0) return `${bottleQty} bottle(s)`
 
@@ -145,7 +174,7 @@ export function WarehouseReplacementsView({
     if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) return `${fallback / qtyPerCase} ${unitLabel}`
     if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) return `${fallback / qtyPerPack} ${unitLabel}`
     if (byBundleText && Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 && fallback > 0) return `${fallback / qtyPerBundle} ${unitLabel}`
-    if (byBottleText) return `${fallback} bottle(s)`
+    if (!lineInputMode && byBottleText) return `${fallback} bottle(s)`
     return `${fallback}`
   }
   const getNormalizedQtyLineDisplay = (entry: any, meta: any, mode: 'toReplace' | 'replaced') => {
@@ -205,9 +234,41 @@ export function WarehouseReplacementsView({
     return getReplacementQtyDisplay(entry, meta, mode)
   }
   const getModalQtyDisplay = (entry: any, meta: any, line: any, mode: 'toReplace' | 'replaced') => {
+    const productNameForLine = String(line?.originalProductName || line?.replacementProductName || line?.productName || '').trim()
+    const productNameLookup = productNameForLine.replace(/\s*\([^)]*\)\s*$/, '').trim() || productNameForLine
+    const inferLineModeFromDescription = () => {
+      const rawDescription = String(entry?.description || '')
+      if (!productNameLookup || !rawDescription) return ''
+      const escapedProductName = productNameLookup.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const segmentMatch = rawDescription.match(new RegExp(`\\[${escapedProductName}\\]([\\s\\S]*?)(?=\\s*\\[[^\\]]+\\]|$)`, 'i'))
+      const segmentText = String(segmentMatch?.[1] || '').toLowerCase()
+      if (!segmentText) return ''
+      if (/\bby\s*bottle\b/.test(segmentText)) return 'bottle'
+      if (/\bby\s*pack\b/.test(segmentText)) return 'pack'
+      if (/\bby\s*bundle\b/.test(segmentText)) return 'bundle'
+      if (/\bby\s*case\b/.test(segmentText)) return 'case'
+      if (/\bby\s*unit\b/.test(segmentText)) return 'case'
+      return ''
+    }
+    const lineInputMode = String(line?.lineInputMode || line?.replacementInputMode || inferLineModeFromDescription()).trim().toLowerCase()
+    const unitHint = String(
+      line?.productUnit ||
+      line?.replacementProductUnit ||
+      line?.originalProductUnit ||
+      line?.unit ||
+      ''
+    ).trim().toLowerCase()
     const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
-    const isByBottle = /\bby\s*bottle\b/.test(contextText)
-    if (isByBottle) {
+    const byPackText = /\bby\s*pack\b/.test(contextText)
+    const byBundleText = /\bby\s*bundle\b/.test(contextText)
+    const byCaseText = /\bby\s*case\b/.test(contextText)
+    const byBottleText = /\bby\s*bottle\b/.test(contextText)
+    const unitLabel =
+      unitHint.includes('pack') || lineInputMode === 'pack' || byPackText ? 'pack(s)'
+        : unitHint.includes('bundle') || lineInputMode === 'bundle' || byBundleText ? 'bundle(s)'
+          : unitHint.includes('case') || lineInputMode === 'case' || byCaseText ? 'case(s)'
+            : 'unit(s)'
+    if (lineInputMode === 'bottle' || (!lineInputMode && byBottleText)) {
       const bottleQty = Number(
         mode === 'toReplace'
           ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles ?? line?.quantityToReplace)
@@ -223,7 +284,7 @@ export function WarehouseReplacementsView({
         ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases ?? line?.unitsToReplace ?? line?.quantityToReplaceUnits)
         : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases ?? line?.unitsReplaced ?? line?.quantityReplacedUnits)
     )
-    if (Number.isFinite(directUnitQty)) return `${directUnitQty} unit(s)`
+    if (Number.isFinite(directUnitQty)) return `${directUnitQty} ${unitLabel}`
 
     const qtyPerFromFields = Number(
       line?.qtyPerUnit ??
@@ -247,18 +308,13 @@ export function WarehouseReplacementsView({
     if (Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && Number.isFinite(rawQty)) {
       const units = rawQty / qtyPerUnit
       const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
-      return `${unitsText} unit(s)`
+      return `${unitsText} ${unitLabel}`
     }
-    return Number.isFinite(rawQty) ? `${rawQty} unit(s)` : '0'
+    return Number.isFinite(rawQty) ? `${rawQty} ${unitLabel}` : `0 ${unitLabel}`
   }
   const getReplacementDetailsText = (entry: any, meta: any) => {
-    const lines =
-      (Array.isArray(entry?.replacementLines) && entry.replacementLines.length ? entry.replacementLines : null) ||
-      (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
-      (Array.isArray(entry?.replacementItems) && entry.replacementItems.length ? entry.replacementItems : null) ||
-      (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
-      []
-    const first = lines[0] || {}
+    const lines = buildReplacementLines(entry, meta)
+    const first: any = lines[0] || {}
     const productName = String(
       first?.originalProductName ||
       first?.productName ||
@@ -351,9 +407,14 @@ export function WarehouseReplacementsView({
         }
       }
     }
-    const base = `${productLabel} ${modeLabel}: ${displayQty}`
-    if (qtyPerUnit) return `${base}\nQty/Unit: ${qtyPerUnit}`
-    return `${base}.`
+    const summary = lines.length > 0
+      ? lines.map((line: any) => String(line?.quantityToReplaceDisplay ?? displayQty ?? 'N/A').trim()).filter(Boolean).join(', ')
+      : String(displayQty || 'N/A').trim()
+    if (/\b(?:bottle|unit|case|pack|bundle)s?\b/i.test(summary)) {
+      return `Quantity to replace: ${summary}`
+    }
+    const label = isByBottle ? 'bottle(s)' : 'unit(s)'
+    return `Quantity to replace: ${summary} ${label}`
   }
   const replacementsBySource = useMemo(() => {
     const customerRequests: any[] = []
@@ -584,6 +645,7 @@ export function WarehouseReplacementsView({
         if (!open) {
           setSelectedReplacement(null)
           setReplacementDeliveryDate('')
+          setReturnQuantities({})
         }
       }}>
         <DialogContent className="max-h-[90vh] w-[98vw] max-w-[1400px] overflow-y-auto p-0">
@@ -591,10 +653,17 @@ export function WarehouseReplacementsView({
             const meta = parseIssueMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
+            const normalizedReturnLines = replacementLines.filter((line: any) => String(line?.replacementLineId || line?.id || '').trim())
+            const replacementPod = selectedReplacement?.replacementDeliveryPod || null
+            const showReplacementPod = Boolean(
+              String(replacementPod?.deliveryPhoto || '').trim() ||
+              String(replacementPod?.recipientName || '').trim() ||
+              String(selectedReplacement?.linkedReplacementOrderId || selectedReplacement?.replacementOrderId || '').trim() ||
+              String(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber || '').trim()
+            )
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
-            const rawMode = String(selectedReplacement.replacementMode || meta?.replacementMode || 'N/A')
             const hasOutstandingReplacementQty =
               totalQtyToReplace > 0 && totalQtyReplaced < totalQtyToReplace
             const isClosedStatus = ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || (
@@ -611,10 +680,6 @@ export function WarehouseReplacementsView({
               ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstandingReplacementQty) ||
               (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
             )
-            const baseResolution = getReplacementDetailsText(selectedReplacement, meta).trim()
-            const effectiveResolution = isResolvedCase
-              ? (baseResolution.replace(/;?\s*follow-?up required\.?/i, '').trim() || 'Resolved')
-              : (baseResolution || 'N/A')
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
@@ -622,8 +687,6 @@ export function WarehouseReplacementsView({
               ['Status', statusLabel],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
-              ['Resolution', effectiveResolution],
-              ['Replacement Mode', rawMode.replace(/_/g, ' ')],
             ] as Array<[string, string]>
             return (
               <>
@@ -652,11 +715,12 @@ export function WarehouseReplacementsView({
                           <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
+                          <th className="px-3 py-2 text-left font-medium">Returned to Warehouse</th>
                         </tr>
                       </thead>
                       <tbody>
                         {replacementLines.map((line, index) => (
-                          <tr key={`${line.originalProductName}-${index}`} className="border-t first:border-t-0">
+                          <tr key={`${line.replacementLineId || line.id || line.originalProductName}-${index}`} className="border-t first:border-t-0">
                             <td className="px-3 py-2">
                               <p className="font-semibold text-slate-900">{line.originalProductName}</p>
                               {String((line as any).originalProductCategory || '').trim() ? (
@@ -671,6 +735,7 @@ export function WarehouseReplacementsView({
                             </td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{getModalQtyDisplay(selectedReplacement, meta, line, 'toReplace')}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{getModalQtyDisplay(selectedReplacement, meta, line, 'replaced')}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{Number(line.returnedBaseUnits || 0)} {line.baseUnitLabel || 'unit'}(s)</td>
                           </tr>
                         ))}
                       </tbody>
@@ -692,7 +757,94 @@ export function WarehouseReplacementsView({
                     </div>
                   </div>
                 ) : null}
+                {showReplacementPod ? (
+                  <div className="rounded-md border bg-white px-3 py-2">
+                    <p className="text-xs font-medium text-slate-500">Proof of Delivery (POD)</p>
+                    <div className="mt-2 space-y-2">
+                      {(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber) ? (
+                        <p className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Replacement Order:</span>{' '}
+                          {selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber}
+                        </p>
+                      ) : null}
+                      {String(replacementPod?.recipientName || '').trim() ? (
+                        <p className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Received By:</span>{' '}
+                          {replacementPod.recipientName}
+                        </p>
+                      ) : null}
+                      {String(replacementPod?.submittedAt || '').trim() ? (
+                        <p className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Submitted At:</span>{' '}
+                          {new Date(replacementPod.submittedAt).toLocaleString()}
+                        </p>
+                      ) : null}
+                      {String(replacementPod?.deliveryPhoto || '').trim() ? (
+                        <img
+                          src={String(replacementPod.deliveryPhoto || '')}
+                          alt="Replacement proof of delivery"
+                          className="max-h-[360px] w-full rounded-md border object-contain"
+                        />
+                      ) : (
+                        <p className="text-xs text-slate-500">No POD uploaded yet.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
                 </div>
+                {normalizedReturnLines.some((line: any) => Number(line.quantityToReplace || 0) > Number(line.returnedBaseUnits || 0)) ? (
+                  <div className="mx-6 mb-4 rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
+                    <p className="text-sm font-semibold text-emerald-900">Receive returned damaged items</p>
+                    <p className="mt-1 text-xs text-emerald-800">Quantities are base units and will be restored to their original stock batches as loose inventory.</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {normalizedReturnLines.map((line: any) => {
+                        const lineId = String(line.replacementLineId || line.id)
+                        const remaining = Math.max(0, Number(line.quantityToReplace || 0) - Number(line.returnedBaseUnits || 0))
+                        if (remaining <= 0) return null
+                        return (
+                          <label key={lineId} className="space-y-1 text-xs text-slate-700">
+                            <span>{line.originalProductName} (max {remaining} {line.baseUnitLabel || 'unit'}s)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={remaining}
+                              value={returnQuantities[lineId] || ''}
+                              onChange={(event) => setReturnQuantities((current) => ({ ...current, [lineId]: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3"
+                            />
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <Button
+                      size="sm"
+                      className="mt-3 bg-emerald-600 text-white hover:bg-emerald-500"
+                      disabled={updatingReplacementId === selectedReplacement.id || !Object.values(returnQuantities).some((value) => Number(value) > 0)}
+                      onClick={async () => {
+                        const returnedLines = normalizedReturnLines
+                          .map((line: any) => {
+                            const replacementLineId = String(line.replacementLineId || line.id)
+                            const remaining = Math.max(0, Number(line.quantityToReplace || 0) - Number(line.returnedBaseUnits || 0))
+                            return {
+                              replacementLineId,
+                              quantityBaseUnits: Math.min(remaining, Math.max(0, Math.floor(Number(returnQuantities[replacementLineId] || 0)))),
+                            }
+                          })
+                          .filter((line: any) => line.quantityBaseUnits > 0)
+                        if (returnedLines.length === 0) return
+                        try {
+                          await receiveReplacementReturn(selectedReplacement.id, returnedLines)
+                          setReturnQuantities({})
+                        } catch {
+                          // The parent displays the server error and preserves entered quantities for correction.
+                        }
+                      }}
+                    >
+                      {updatingReplacementId === selectedReplacement.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Receive return
+                    </Button>
+                  </div>
+                ) : null}
                 <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>

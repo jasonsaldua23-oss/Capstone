@@ -3,7 +3,9 @@ import type { Order, OrderItem } from '../shared/customer-types'
 import { formatPdfMoney } from '../shared/customer-common'
 
 declare global {
-  interface Window {}
+  interface Window {
+    html2canvas?: (element: HTMLElement, options?: Record<string, unknown>) => Promise<HTMLCanvasElement>
+  }
 }
 
 const getOrderLineTotal = (item: OrderItem) => {
@@ -12,20 +14,32 @@ const getOrderLineTotal = (item: OrderItem) => {
   return Number(item.unitPrice || 0) * Number(item.quantity || 0)
 }
 
-function inlineComputedStyles(source: Element, clone: Element) {
-  const sourceStyle = window.getComputedStyle(source as HTMLElement)
-  const cloneStyle = (clone as HTMLElement).style
-  for (let i = 0; i < sourceStyle.length; i += 1) {
-    const prop = sourceStyle[i]
-    const value = sourceStyle.getPropertyValue(prop)
-    if (!value) continue
-    cloneStyle.setProperty(prop, value, sourceStyle.getPropertyPriority(prop))
+const getMixedCaseComponentDetail = (component: any, itemCaseCount: number) => {
+  const perCase = Math.max(0, Number(component?.quantityPerCase || 0))
+  const caseCount = Math.max(0, Number(component?.caseCount ?? itemCaseCount))
+  const totalBaseUnits = Math.max(0, Number(component?.totalBaseUnits ?? perCase * caseCount))
+  const unitPrice = Number(component?.unitPrice || 0)
+  const subtotal = Number(component?.componentSubtotal ?? totalBaseUnits * unitPrice)
+  const label = String(component?.baseUnitLabel || 'unit').trim() || 'unit'
+  return `${component?.productName || 'Product'}: ${perCase} ${label}(s)/case x ${caseCount} = ${totalBaseUnits} ${label}(s); ${formatPdfMoney(unitPrice)}/${label}; ${formatPdfMoney(subtotal)}`
+}
+
+const wrapCanvasText = (ctx: CanvasRenderingContext2D, value: string, maxWidth: number) => {
+  const words = String(value || '').trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return []
+  const lines: string[] = []
+  let current = words[0]
+  for (let index = 1; index < words.length; index += 1) {
+    const candidate = `${current} ${words[index]}`
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate
+    } else {
+      lines.push(current)
+      current = words[index]
+    }
   }
-  const sourceChildren = Array.from(source.children)
-  const cloneChildren = Array.from(clone.children)
-  for (let i = 0; i < sourceChildren.length; i += 1) {
-    if (sourceChildren[i] && cloneChildren[i]) inlineComputedStyles(sourceChildren[i], cloneChildren[i])
-  }
+  lines.push(current)
+  return lines
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string> {
@@ -42,7 +56,11 @@ async function inlineImagesAsDataUrls(root: HTMLElement) {
   await Promise.all(
     images.map(async (img) => {
       const rawSrc = String(img.getAttribute('src') || '').trim()
-      if (!rawSrc || rawSrc.startsWith('data:')) return
+      if (!rawSrc) return
+      if (rawSrc.startsWith('data:')) {
+        img.setAttribute('src', rawSrc)
+        return
+      }
       try {
         const absoluteSrc = new URL(rawSrc, window.location.origin).toString()
         const response = await fetch(absoluteSrc, { mode: 'cors', credentials: 'include', cache: 'no-store' })
@@ -50,87 +68,90 @@ async function inlineImagesAsDataUrls(root: HTMLElement) {
         const blob = await response.blob()
         const dataUrl = await blobToDataUrl(blob)
         img.setAttribute('src', dataUrl)
+        img.setAttribute('crossorigin', 'anonymous')
       } catch {
+        // Avoid tainting canvas: keep layout but drop problematic image source.
         img.removeAttribute('src')
       }
     })
   )
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('Failed to load svg image'))
-    img.src = src
+async function ensureHtml2Canvas(): Promise<NonNullable<Window['html2canvas']>> {
+  if (typeof window === 'undefined') throw new Error('Browser only')
+  if (typeof window.html2canvas === 'function') return window.html2canvas
+  await new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector('script[data-html2canvas="1"]') as HTMLScriptElement | null
+    if (existing) {
+      existing.addEventListener('load', () => resolve(), { once: true })
+      existing.addEventListener('error', () => reject(new Error('Failed to load html2canvas')), { once: true })
+      return
+    }
+    const script = document.createElement('script')
+    script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
+    script.async = true
+    script.dataset.html2canvas = '1'
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error('Failed to load html2canvas'))
+    document.head.appendChild(script)
   })
-}
-
-async function renderElementToCanvas(element: HTMLElement): Promise<HTMLCanvasElement> {
-  if (document.fonts?.ready) await document.fonts.ready
-  const rect = element.getBoundingClientRect()
-  const width = Math.max(1, Math.ceil(rect.width))
-  const height = Math.max(1, Math.ceil(element.scrollHeight || rect.height))
-  const clone = element.cloneNode(true) as HTMLElement
-  inlineComputedStyles(element, clone)
-  await inlineImagesAsDataUrls(clone)
-  clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml')
-  clone.style.width = `${width}px`
-  clone.style.height = `${height}px`
-  clone.style.maxHeight = 'none'
-  clone.style.overflow = 'visible'
-  clone.style.margin = '0'
-  const serialized = new XMLSerializer().serializeToString(clone)
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <foreignObject width="100%" height="100%">${serialized}</foreignObject>
-</svg>`
-  const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
-  const image = await loadImage(svgDataUrl)
-  const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 2))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(width * scale)
-  canvas.height = Math.round(height * scale)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas unavailable')
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.setTransform(scale, 0, 0, scale, 0, 0)
-  ctx.drawImage(image, 0, 0, width, height)
-  return canvas
+  if (typeof window.html2canvas !== 'function') throw new Error('html2canvas unavailable')
+  return window.html2canvas
 }
 
 export async function downloadOrderReceipt(order: Order, receiptElement?: HTMLElement | null) {
   try {
     if (receiptElement) {
       try {
-        const canvas = await renderElementToCanvas(receiptElement)
-        const dataUrl = canvas.toDataURL('image/png')
-        const { PDFDocument } = await import('pdf-lib')
-        const pdfDoc = await PDFDocument.create()
-        const pngBytes = await fetch(dataUrl).then((res) => res.arrayBuffer())
-        const pngImage = await pdfDoc.embedPng(pngBytes)
-        const imageWidth = pngImage.width
-        const imageHeight = pngImage.height
-        const page = pdfDoc.addPage([imageWidth, imageHeight])
-        page.drawImage(pngImage, { x: 0, y: 0, width: imageWidth, height: imageHeight })
-        const pdfBytes = await pdfDoc.save()
-        const blob = new Blob([pdfBytes], { type: 'application/pdf' })
-        const pdfUrl = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = pdfUrl
-        link.download = `Receipt-${order.orderNumber || order.id}.pdf`
-        link.rel = 'noopener'
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 15000)
+        const html2canvas = await ensureHtml2Canvas()
+        const clone = receiptElement.cloneNode(true) as HTMLElement
+        clone.style.position = 'fixed'
+        clone.style.left = '-10000px'
+        clone.style.top = '0'
+        clone.style.zIndex = '-1'
+        clone.style.background = '#ffffff'
+        clone.style.margin = '0'
+        clone.style.transform = 'none'
+        clone.style.maxHeight = 'none'
+        clone.style.overflow = 'visible'
+        document.body.appendChild(clone)
+        await inlineImagesAsDataUrls(clone)
+        try {
+          const canvas = await html2canvas(clone, {
+          backgroundColor: '#ffffff',
+          scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
+          useCORS: true,
+          allowTaint: false,
+          imageTimeout: 30000,
+          logging: false,
+          })
+          const dataUrl = canvas.toDataURL('image/png')
+          const { PDFDocument } = await import('pdf-lib')
+          const pdfDoc = await PDFDocument.create()
+          const pngBytes = await fetch(dataUrl).then((res) => res.arrayBuffer())
+          const pngImage = await pdfDoc.embedPng(pngBytes)
+          const imageWidth = pngImage.width
+          const imageHeight = pngImage.height
+          const page = pdfDoc.addPage([imageWidth, imageHeight])
+          page.drawImage(pngImage, { x: 0, y: 0, width: imageWidth, height: imageHeight })
+          const pdfBytes = await pdfDoc.save()
+          const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
+          const pdfUrl = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = pdfUrl
+          link.download = `Receipt-${order.orderNumber || order.id}.pdf`
+          link.rel = 'noopener'
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 15000)
+        } finally {
+          document.body.removeChild(clone)
+        }
         toast.success('Receipt downloaded')
         return
       } catch (captureError) {
-        console.error('Preview capture failed', captureError)
-        toast.error('Failed to export preview. Please try again.')
-        return
+        console.warn('Preview capture failed; using fallback PDF renderer.', captureError)
       }
     }
 
@@ -181,9 +202,27 @@ export async function downloadOrderReceipt(order: Order, receiptElement?: HTMLEl
     ).trim()
 
     const fileName = `Receipt-${order.orderNumber || order.id}.pdf`
+    const receiptItems = order.items || []
+    const measureCanvas = document.createElement('canvas')
+    const measureCtx = measureCanvas.getContext('2d')
+    if (!measureCtx) throw new Error('Canvas unavailable')
+    const receiptRows = receiptItems.map((item: any) => {
+      const itemName = item.itemType === 'MIXED_CASE'
+        ? `Mixed Case - ${Number(item.caseCapacity || 0)} units`
+        : String(item.product?.name || 'Item')
+      measureCtx.font = '30px Arial'
+      const nameLines = wrapCanvasText(measureCtx, itemName, 470)
+      measureCtx.font = '20px Arial'
+      const detailValues = item.itemType === 'MIXED_CASE'
+        ? (item.components || []).map((component: any) => getMixedCaseComponentDetail(component, Number(item.quantity || 0)))
+        : [String((item.product as any)?.categoryName || (item.product as any)?.category || '').trim()].filter(Boolean)
+      const detailLines = detailValues.flatMap((detail: string) => wrapCanvasText(measureCtx, detail, 470))
+      const rowHeight = Math.max(100, 30 + nameLines.length * 34 + (detailLines.length > 0 ? 10 + detailLines.length * 26 : 0))
+      return { item, nameLines, detailLines, rowHeight }
+    })
     const canvas = document.createElement('canvas')
     canvas.width = 1200
-    canvas.height = 1600
+    canvas.height = Math.max(1600, 1500 + receiptRows.reduce((sum, row) => sum + row.rowHeight, 0))
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Canvas unavailable')
 
@@ -263,30 +302,30 @@ export async function downloadOrderReceipt(order: Order, receiptElement?: HTMLEl
     ctx.fillRect(left, y, width, 56)
     ctx.fillStyle = '#fff'
     ctx.font = 'bold 24px Arial'
-    ctx.fillText('Item Description', left + 20, y + 36)
+    ctx.fillText('Product', left + 20, y + 36)
     ctx.fillText('Qty', left + 520, y + 36)
     ctx.fillText('Unit Price', left + 640, y + 36)
     ctx.fillText('Amount', left + 860, y + 36)
     y += 56
     ctx.strokeStyle = lightBorder
-    ctx.strokeRect(left, y, width, 100)
-    const item = (order.items || [])[0]
-    if (item) {
+    receiptRows.forEach(({ item, nameLines, detailLines, rowHeight }) => {
+      ctx.strokeRect(left, y, width, rowHeight)
       ctx.fillStyle = navy
       ctx.font = '30px Arial'
-      ctx.fillText(String(item.product?.name || 'Item'), left + 20, y + 46)
+      nameLines.forEach((line, index) => ctx.fillText(line, left + 20, y + 38 + index * 34))
       ctx.font = '20px Arial'
       ctx.fillStyle = slate
-      const cat = String((item.product as any)?.categoryName || (item.product as any)?.category || '').trim()
-      if (cat) ctx.fillText(cat, left + 20, y + 78)
+      const detailStart = y + 38 + nameLines.length * 34
+      detailLines.forEach((line, index) => ctx.fillText(line, left + 20, detailStart + index * 26))
       ctx.fillStyle = '#102a5c'
       ctx.font = '30px Arial'
       ctx.fillText(String(item.quantity || 0), left + 530, y + 60)
       ctx.fillText(formatPdfMoney(Number(item.unitPrice || 0)), left + 640, y + 60)
       ctx.fillText(formatPdfMoney(getOrderLineTotal(item)), left + 860, y + 60)
-    }
+      y += rowHeight
+    })
 
-    y += 130
+    y += 30
     ctx.strokeStyle = '#b9e6ca'
     ctx.fillStyle = '#fff'
     ctx.fillRect(left, y, width * 0.62, 180)
@@ -332,7 +371,7 @@ export async function downloadOrderReceipt(order: Order, receiptElement?: HTMLEl
     const page = pdfDoc.addPage([imageWidth, imageHeight])
     page.drawImage(pngImage, { x: 0, y: 0, width: imageWidth, height: imageHeight })
     const pdfBytes = await pdfDoc.save()
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
     const pdfUrl = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = pdfUrl

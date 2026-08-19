@@ -1,0 +1,8 @@
+from django.apps import AppConfig
+
+
+class RgbConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "core.rgb"
+    label = "rgb"
+    verbose_name = "RGB (Returnable Glass Bottle) Management"
