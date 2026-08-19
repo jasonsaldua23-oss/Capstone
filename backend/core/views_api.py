@@ -3294,10 +3294,84 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     )
 
 
+_GMAIL_API_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
+
+
+def _get_gmail_api_access_token() -> str:
+    import time
+    now = time.time()
+    if _GMAIL_API_TOKEN_CACHE["token"] and _GMAIL_API_TOKEN_CACHE["expires_at"] > now + 60:
+        return _GMAIL_API_TOKEN_CACHE["token"]
+
+    refresh_token = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
+    client_id = str(getattr(settings, "GMAIL_API_CLIENT_ID", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or "").strip()
+    client_secret = str(getattr(settings, "GMAIL_API_CLIENT_SECRET", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "") or "").strip()
+
+    if not refresh_token or not client_id or not client_secret:
+        return ""
+
+    try:
+        resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        token = data.get("access_token", "")
+        expires_in = int(data.get("expires_in", 3600))
+        if token:
+            _GMAIL_API_TOKEN_CACHE["token"] = token
+            _GMAIL_API_TOKEN_CACHE["expires_at"] = now + expires_in
+            return token
+    except Exception:
+        logger.exception("Failed to refresh Gmail API access token")
+    return ""
+
+
+def _send_via_gmail_api(*, subject: str, message: str, recipient: str) -> bool:
+    from email.mime.text import MIMEText
+    token = _get_gmail_api_access_token()
+    if not token:
+        return False
+
+    from_email = str(getattr(settings, "GMAIL_API_SENDER_EMAIL", "") or getattr(settings, "OTP_FROM_EMAIL", "") or getattr(settings, "OTP_GMAIL_USER", "") or "").strip()
+    from_name = str(getattr(settings, "OTP_FROM_NAME", "Ann Ann's Beverages Trading") or "Ann Ann's Beverages Trading").strip()
+
+    msg = MIMEText(message, "plain", "utf-8")
+    msg["To"] = recipient
+    msg["From"] = f"{from_name} <{from_email}>" if from_email else from_name
+    msg["Subject"] = subject
+
+    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+    resp = requests.post(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"raw": raw_message},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return True
+
+
 def _otp_mail_ready() -> bool:
+    has_gmail_api = bool(
+        getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") and
+        (getattr(settings, "GMAIL_API_CLIENT_ID", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "")) and
+        (getattr(settings, "GMAIL_API_CLIENT_SECRET", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", ""))
+    )
     has_brevo = bool(getattr(settings, "BREVO_API_KEY", "") and getattr(settings, "OTP_FROM_EMAIL", ""))
     has_gmail = bool(getattr(settings, "OTP_GMAIL_USER", "") and getattr(settings, "OTP_GMAIL_APP_PASSWORD", ""))
-    return bool(has_brevo or has_gmail)
+    return bool(has_gmail_api or has_brevo or has_gmail)
 
 
 def _send_via_brevo(*, subject: str, message: str, recipient: str) -> bool:
@@ -3342,6 +3416,13 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
+    if gmail_refresh:
+        try:
+            if _send_via_gmail_api(subject=subject, message=message, recipient=email):
+                return
+        except Exception:
+            logger.exception("Gmail API OTP send failed for password reset; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
@@ -3366,6 +3447,13 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
+    if gmail_refresh:
+        try:
+            if _send_via_gmail_api(subject=subject, message=message, recipient=email):
+                return
+        except Exception:
+            logger.exception("Gmail API OTP send failed for email verification; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
@@ -3390,6 +3478,13 @@ def _send_login_otp_email(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not attempt to login, please reset your password immediately."
     )
+    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
+    if gmail_refresh:
+        try:
+            if _send_via_gmail_api(subject=subject, message=message, recipient=email):
+                return
+        except Exception:
+            logger.exception("Gmail API OTP send failed for login verification; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
@@ -3411,6 +3506,22 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
     if not cleaned:
         return
     try:
+        gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
+        if gmail_refresh:
+            for recipient in cleaned:
+                try:
+                    _send_via_gmail_api(subject=subject, message=message, recipient=recipient)
+                except Exception:
+                    logger.exception("Gmail API transactional send failed for %s; falling back", recipient)
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[recipient],
+                        fail_silently=False,
+                    )
+            return
+
         brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
         if brevo_key:
             for recipient in cleaned:

@@ -84,6 +84,8 @@ def _normalize_runtime_database_url(url: str) -> str:
     raw = str(url or "").strip()
     if not raw:
         return ""
+    if "pooler.supabase.com:6543" in raw:
+        raw = raw.replace("pooler.supabase.com:6543", "pooler.supabase.com:5432")
     return raw
 
 
@@ -205,3 +207,9 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
 # Dev only: disable SSL verification for Google APIs (fix Windows cert issues)
 GOOGLE_OAUTH_SKIP_SSL_VERIFY = _bool("GOOGLE_OAUTH_SKIP_SSL_VERIFY", DEBUG)
+
+# Gmail API (OAuth 2.0 / REST API)
+GMAIL_API_REFRESH_TOKEN = os.getenv("GMAIL_API_REFRESH_TOKEN", "").strip()
+GMAIL_API_CLIENT_ID = os.getenv("GMAIL_API_CLIENT_ID", GOOGLE_OAUTH_CLIENT_ID).strip()
+GMAIL_API_CLIENT_SECRET = os.getenv("GMAIL_API_CLIENT_SECRET", GOOGLE_OAUTH_CLIENT_SECRET).strip()
+GMAIL_API_SENDER_EMAIL = os.getenv("GMAIL_API_SENDER_EMAIL", OTP_FROM_EMAIL or OTP_GMAIL_USER).strip()

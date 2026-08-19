@@ -35,6 +35,10 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
+      - key: GMAIL_API_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_API_SENDER_EMAIL
+        sync: false
 
   - type: web
     name: aabtrading-frontend
