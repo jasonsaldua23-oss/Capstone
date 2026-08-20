@@ -113,7 +113,7 @@ export function CustomerLoginPage() {
       }
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
-      if (data.token) setTabAuthToken(data.token)
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       router.replace('/')
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
@@ -234,7 +234,7 @@ export function CustomerLoginPage() {
       }
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
-      if (data.token) setTabAuthToken(data.token)
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
@@ -301,7 +301,7 @@ export function CustomerLoginPage() {
       }
 
       persistCustomerWelcomeState('new', String(data?.user?.name || fullName || '').trim())
-      if (data.token) setTabAuthToken(data.token)
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       setConfirmPassword('')
       router.replace('/')
     } catch {
