@@ -38,6 +38,7 @@ import { WarehouseWarehousesView } from './sections/warehouses/warehouses-view'
 import { WarehouseEmptyBottlesView } from './sections/inventory/empty-bottles-view'
 import { WarehouseRetailPosView } from './sections/retail-pos/retail-pos-view'
 import { WarehouseInventoryTransactionsView } from './sections/inventory/transactions-view'
+import { WarehousePurchaseRequestsView } from './sections/purchase-requests/purchase-requests-view'
 import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -45,6 +46,8 @@ import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
 import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
+import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
+import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import {
   Boxes,
   Archive,
@@ -79,6 +82,7 @@ import {
   XCircle,
   Recycle,
   Store,
+  ShoppingCart,
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
@@ -213,7 +217,6 @@ interface WarehouseOrderItem {
   warehouseId?: string
   status: string
   paymentStatus?: string | null
-  warehouseStage?: string | null
   isDriverAssigned?: boolean
   assignedDriverName?: string | null
   createdAt: string
@@ -550,6 +553,7 @@ function getStockHealthDotClass(name: string) {
 const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Boxes },
   { id: 'retailPos', label: 'Retail / POS', icon: Store },
+  { id: 'purchaseRequests', label: 'Purchase Requests', icon: ShoppingCart },
   { id: 'orders', label: 'Purchase Orders', icon: PackageCheck },
   { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
   { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
@@ -610,6 +614,7 @@ export function WarehousePortal() {
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [loadingTrips, setLoadingTrips] = useState(true)
   const [loadingReplacements, setLoadingReplacements] = useState(true)
+  const [isInitialPortalLoading, setIsInitialPortalLoading] = useState(true)
   const [loadingRoutePlans, setLoadingRoutePlans] = useState(false)
   const [creatingTripFromRoute, setCreatingTripFromRoute] = useState(false)
   const [editingTripId, setEditingTripId] = useState<string | null>(null)
@@ -640,8 +645,14 @@ export function WarehousePortal() {
     { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
   ])
   const [profileName, setProfileName] = useState('')
+  const [profileFirstName, setProfileFirstName] = useState('')
+  const [profileMiddleName, setProfileMiddleName] = useState('')
+  const [profileLastName, setProfileLastName] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
   const [profilePhone, setProfilePhone] = useState('')
+  const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null)
+  const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const profileAvatarCrop = useAvatarCrop()
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
@@ -685,8 +696,11 @@ export function WarehousePortal() {
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
+  const orderDetailsLoadedRef = useRef(false)
   const savedRoutesGetUnsupportedRef = useRef(false)
   const isRefreshingAllRef = useRef(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const openLogoutConfirm = () => setLogoutConfirmOpen(true)
   const hasAssignedWarehouse = warehouses.length > 0
   const hasWarehouseFetchFailure = !hasAssignedWarehouse && Boolean(warehouseLoadError)
   const assignedWarehouse = warehouses[0] || null
@@ -704,8 +718,13 @@ export function WarehousePortal() {
 
   useEffect(() => {
     setProfileName(String((user as any)?.name || ''))
+    const nameParts = String((user as any)?.name || '').trim().split(/\s+/).filter(Boolean)
+    setProfileFirstName(String((user as any)?.firstName || nameParts[0] || ''))
+    setProfileMiddleName(String((user as any)?.middleName || ''))
+    setProfileLastName(String((user as any)?.lastName || nameParts.slice(1).join(' ') || ''))
     setProfileEmail(String((user as any)?.email || ''))
     setProfilePhone(String((user as any)?.phone || ''))
+    setProfileAvatarFile(null)
     setTwoFactorEnabled(Boolean((user as any)?.twoFactorEnabled ?? (user as any)?.two_factor_enabled))
     setLoginAlertsEnabled((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true)
     setNewPassword('')
@@ -802,13 +821,39 @@ export function WarehousePortal() {
     }
   }
 
+  const saveCroppedAvatar = async (file: File) => {
+    const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
+    if (!userId) throw new Error('Unable to resolve account ID')
+    setIsSavingProfile(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const uploadResponse = await fetch('/api/uploads/customer-avatar', { method: 'POST', body: formData })
+      const uploadPayload = await uploadResponse.json().catch(() => ({}))
+      if (!uploadResponse.ok || !uploadPayload?.imageUrl) throw new Error(uploadPayload?.error || 'Failed to upload avatar')
+      const avatar = String(uploadPayload.imageUrl).trim()
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to save avatar')
+      setUser((previous: any) => ({ ...(previous || {}), avatar }))
+      setProfileAvatarFile(null)
+      toast.success('Profile photo updated')
+    } finally {
+      setIsSavingProfile(false)
+    }
+  }
+
   const saveProfileSettings = async () => {
     const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
     if (!userId) {
       toast.error('Unable to resolve account ID')
       return
     }
-    if (!profileName.trim() || !profileEmail.trim()) {
+    if (!profileFirstName.trim() || !profileLastName.trim() || !profileEmail.trim()) {
       toast.error('Name and email are required')
       return
     }
@@ -819,13 +864,26 @@ export function WarehousePortal() {
 
     setIsSavingProfile(true)
     try {
+      let avatarToSave = String((user as any)?.avatar || '').trim() || null
+      if (profileAvatarFile) {
+        const formData = new FormData()
+        formData.append('file', profileAvatarFile)
+        const uploadResponse = await fetch('/api/uploads/customer-avatar', { method: 'POST', body: formData })
+        const uploadPayload = await uploadResponse.json().catch(() => ({}))
+        if (!uploadResponse.ok || !uploadPayload?.imageUrl) throw new Error(uploadPayload?.error || 'Failed to upload avatar')
+        avatarToSave = String(uploadPayload.imageUrl).trim()
+      }
       const response = await fetch(`/api/users/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: profileName.trim(),
+          name: [profileFirstName, profileMiddleName, profileLastName].filter(Boolean).join(' '),
+          firstName: profileFirstName.trim(),
+          middleName: profileMiddleName.trim(),
+          lastName: profileLastName.trim(),
           email: profileEmail.trim(),
           phone: profilePhone.trim() || null,
+          avatar: avatarToSave,
           emailVerificationToken: isProfileEmailChanged ? profileOtpToken : undefined,
         }),
       })
@@ -838,9 +896,14 @@ export function WarehousePortal() {
       setUser((prev: any) => ({
         ...(prev || {}),
         name: nextUser.name ?? profileName.trim(),
+        firstName: nextUser.firstName ?? profileFirstName.trim(),
+        middleName: nextUser.middleName ?? profileMiddleName.trim(),
+        lastName: nextUser.lastName ?? profileLastName.trim(),
         email: nextUser.email ?? profileEmail.trim(),
         phone: nextUser.phone ?? (profilePhone.trim() || ''),
+        avatar: nextUser.avatar ?? avatarToSave,
       }))
+      setProfileAvatarFile(null)
       if (isProfileEmailChanged) {
         setProfileOtpSent(false)
         setProfileOtpVerified(false)
@@ -2230,13 +2293,25 @@ export function WarehousePortal() {
     })
   }
 
-  const fetchAllWarehouseOrders = async () => {
+  const fetchAllWarehouseOrders = async (options?: { summaryOnly?: boolean; lightweightDetails?: boolean }) => {
     const pageSize = 200
     const maxPages = 100
+    const summaryOnly = options?.summaryOnly ?? false
+    const lightweightDetails = options?.lightweightDetails ?? false
     const fetchPage = (page: number) =>
       safeFetchJson(
-        `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true`,
-        { cache: 'no-store', credentials: 'include' }
+        summaryOnly
+          ? `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none&summaryOnly=true`
+          : lightweightDetails
+            ? `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=full&includeFulfillments=false&includeWarehouseAllocations=false`
+          : `/api/orders?page=${page}&pageSize=${pageSize}&includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true`,
+        { cache: 'no-store', credentials: 'include' },
+        // The initial loader must remain visible until the real warehouse totals arrive.
+        summaryOnly
+          ? { retries: 1, timeoutMs: 90000 }
+          : lightweightDetails
+            ? { retries: 1, timeoutMs: 30000 }
+            : undefined
       )
 
     let first = await fetchPage(1)
@@ -2268,7 +2343,7 @@ export function WarehousePortal() {
     }
   }
 
-  const fetchOrdersData = async (options?: { showLoading?: boolean; onlyIfNew?: boolean; silent?: boolean }) => {
+  const fetchOrdersData = async (options?: { showLoading?: boolean; onlyIfNew?: boolean; silent?: boolean; summaryOnly?: boolean; lightweightDetails?: boolean }) => {
     const showLoading = options?.showLoading ?? true
     const onlyIfNew = options?.onlyIfNew ?? false
     const silent = options?.silent ?? false
@@ -2305,10 +2380,14 @@ export function WarehousePortal() {
         }
       }
 
-      const result = await fetchAllWarehouseOrders()
+      const result = await fetchAllWarehouseOrders({
+        summaryOnly: options?.summaryOnly,
+        lightweightDetails: options?.lightweightDetails,
+      })
 
       const list = getCollection<WarehouseOrderItem>(result.data, ['orders'])
       setOrders(list)
+      if (!options?.summaryOnly) orderDetailsLoadedRef.current = true
       latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(list)
       latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${latestOrderUpdatedAtRef.current || ''}`
     } catch (error: any) {
@@ -2322,7 +2401,7 @@ export function WarehousePortal() {
     const showLoading = options?.showLoading !== false
     if (showLoading) setLoadingTrips(true)
     try {
-      const pageSize = 500
+      const pageSize = 100
       let page = 1
       let totalPages = 1
       const mergedTrips: WarehouseTripItem[] = []
@@ -2940,7 +3019,8 @@ export function WarehousePortal() {
         await fetchStockBatchesData()
         await fetchInventoryTransactionsData()
         await (initial
-          ? fetchOrdersData({ showLoading: true })
+          // Load complete table fields once at startup without expensive allocation maps.
+          ? fetchOrdersData({ showLoading: true, lightweightDetails: true })
           : fetchOrdersData({ showLoading: false, silent: true }))
         await fetchTripsData()
         await fetchReplacementsData()
@@ -2949,6 +3029,8 @@ export function WarehousePortal() {
         await fetchSavedRoutesData()
       } finally {
         isRefreshingAllRef.current = false
+        // Initial portal content is safe to display only after every startup request settles.
+        if (initial) setIsInitialPortalLoading(false)
       }
     }
 
@@ -3002,6 +3084,13 @@ export function WarehousePortal() {
   }, [])
 
   useEffect(() => {
+    if (activeView === 'orders' || activeView === 'purchaseRequests') {
+      // Retry complete table details only if the startup request did not finish.
+      if (!orderDetailsLoadedRef.current) {
+        void fetchOrdersData({ showLoading: true, lightweightDetails: true })
+      }
+      return
+    }
     if (activeView === 'liveTracking') {
       void Promise.all([
         fetchTripsData(),
@@ -3704,9 +3793,8 @@ export function WarehousePortal() {
     return summary.totalLegs > 1 ? `${allocatedQty} / ${totalQty}` : `${allocatedQty}`
   }
 
-  const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, warehouseStage?: string | null, notes?: string | null) => {
+  const formatWarehouseOrderStatus = (status: string, paymentStatus?: string | null, notes?: string | null) => {
     const rawStatus = String(status || '').toUpperCase()
-    const rawStage = String(warehouseStage || '').toUpperCase()
     void notes
 
     if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(rawStatus)) return 'DELIVERED'
@@ -3716,10 +3804,9 @@ export function WarehousePortal() {
       return 'PENDING APPROVAL'
     }
 
-    if (['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(rawStatus) || rawStage === 'DISPATCHED') {
+    if (['DISPATCHED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(rawStatus)) {
       return 'OUT FOR DELIVERY'
     }
-    if (rawStage === 'LOADED') return 'LOADED'
 
     if (['PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(rawStatus)) {
       return 'PREPARING'
@@ -3736,7 +3823,7 @@ export function WarehousePortal() {
       if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
       if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
     }
-    return formatWarehouseOrderStatus(order.status, order.paymentStatus, order.warehouseStage, order.notes)
+    return formatWarehouseOrderStatus(order.status, order.paymentStatus, order.notes)
   }
   const getWarehouseOrderStatusTextClass = (status: string) => {
     const value = String(status || '').trim().toUpperCase()
@@ -3794,11 +3881,6 @@ export function WarehousePortal() {
       return true
     })
   }, [scopedOrders, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter])
-
-  const formatWarehouseStage = (stage: string | null | undefined) => {
-    const value = String(stage || 'READY_TO_LOAD').toUpperCase()
-    return value.replace(/_/g, ' ')
-  }
 
   const formatWarehouseOrderAddress = (order: WarehouseOrderItem | null) => {
     const address = String(order?.shippingAddress || '').trim()
@@ -4267,6 +4349,17 @@ export function WarehousePortal() {
     }
   }
 
+  if (isInitialPortalLoading) {
+    return (
+      <div className={`${portalFont.className} flex min-h-screen items-center justify-center bg-gradient-to-br from-cyan-50 via-sky-50 to-emerald-50`}>
+        <div className="text-center">
+          <Loader2 className="mx-auto mb-4 h-12 w-12 animate-spin text-cyan-600" />
+          <p className="font-medium text-slate-700">Loading warehouse information...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
@@ -4282,7 +4375,7 @@ export function WarehousePortal() {
             setActiveView(viewId as WarehouseView)
             setSidebarOpen(false)
           }}
-          onLogout={handleLogout}
+          onLogout={openLogoutConfirm}
         />
       </aside>
 
@@ -4304,6 +4397,7 @@ export function WarehousePortal() {
         <WarehouseHeader
           userName={String(user?.name || '')}
           userEmail={String(user?.email || '')}
+          userAvatar={String(user?.avatar || '')}
           onOpenSidebar={() => setSidebarOpen(true)}
           onLogout={handleLogout}
         />
@@ -4365,8 +4459,21 @@ export function WarehousePortal() {
             />
           )}
 
-          {activeView === 'retailPos' && assignedWarehouse?.id && (
-            <WarehouseRetailPosView warehouseId={assignedWarehouse.id} />
+          {activeView === 'retailPos' && (
+            <WarehouseRetailPosView warehouseId={assignedWarehouse?.id || warehouses[0]?.id || ''} />
+          )}
+
+          {activeView === 'purchaseRequests' && (
+            <WarehousePurchaseRequestsView
+              loadingOrders={loadingOrders}
+              purchaseRequests={scopedOrders.filter((o) => {
+                const isReplacement = Boolean((o as any)?.isScheduledReplacement) || String((o as any)?.orderNumber || '').toUpperCase().startsWith('RPL-')
+                return !isReplacement
+              })}
+              formatPeso={formatPeso}
+              openOrderDetail={openOrderDetail}
+              updateWarehouseOrderStatus={updateWarehouseOrderStatus as any}
+            />
           )}
 
           {activeView === 'orders' && (
@@ -4538,8 +4645,8 @@ export function WarehousePortal() {
                   <CardContent className="space-y-4">
                     <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
                       <Avatar className="h-16 w-16 border border-slate-200 shadow-sm">
-                        {String((user as any)?.avatar || '').trim() ? (
-                          <AvatarImage src={String((user as any)?.avatar || '').trim()} alt={`${profileName || user?.name || 'User'} avatar`} className="object-cover" />
+                        {(profileAvatarFile || String((user as any)?.avatar || '').trim()) ? (
+                          <AvatarImage src={profileAvatarFile ? URL.createObjectURL(profileAvatarFile) : String((user as any)?.avatar || '').trim()} alt={`${profileName || user?.name || 'User'} avatar`} className="object-cover" />
                         ) : null}
                         <AvatarFallback className="bg-linear-to-br from-cyan-600 to-emerald-600 text-lg font-semibold text-white">
                           {(String(profileName || user?.name || 'U')
@@ -4550,14 +4657,30 @@ export function WarehousePortal() {
                             .join('')) || 'U'}
                         </AvatarFallback>
                       </Avatar>
+                      <input ref={profileAvatarInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { profileAvatarCrop.open(event.target.files?.[0] || null); event.currentTarget.value = '' }} />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900">{profileName || user?.name || 'User'}</p>
                         <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
+                        <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={() => profileAvatarInputRef.current?.click()}>
+                          {profileAvatarFile ? 'Change Selected Avatar' : 'Change Avatar'}
+                        </Button>
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="warehouse-profile-name">Full Name</Label>
-                      <Input id="warehouse-profile-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="warehouse-profile-first-name">First Name</Label>
+                          <Input id="warehouse-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} />
+                        </div>
+                        <div>
+                          <Label htmlFor="warehouse-profile-middle-name">Middle Name</Label>
+                          <Input id="warehouse-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} />
+                        </div>
+                        <div>
+                          <Label htmlFor="warehouse-profile-last-name">Last Name</Label>
+                          <Input id="warehouse-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} />
+                        </div>
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="warehouse-profile-email">Email</Label>
@@ -5225,17 +5348,16 @@ export function WarehousePortal() {
                   </div>
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4.5">
                     <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-medium text-slate-600">Warehouse Stage</p>
+                      <p className="text-sm font-medium text-slate-600">Driver Assignment</p>
                       <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-blue-700 sm:h-11 sm:w-11">
                         <Building2 className="h-5 w-5" />
                       </div>
                     </div>
-                    <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
                     {selectedOrder.isDriverAssigned ? (
-                      <p className="mt-1 text-sm text-slate-700">Driver: {selectedOrder.assignedDriverName || 'Assigned'}</p>
+                      <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">{selectedOrder.assignedDriverName || 'Assigned'}</p>
                     ) : (
-                      <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                        Driver not assigned
+                      <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                        Not Assigned
                       </div>
                     )}
                   </div>
@@ -5373,32 +5495,6 @@ export function WarehousePortal() {
                     </div>
                   )
                 })()}
-                <div className="hidden">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="font-medium">Checklist</p>
-                    <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700">
-                      Pending
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {(selectedOrder.items || []).map((item) => (
-                      <div key={item.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                        <div>
-                          <p>
-                            {item.product?.name || 'Product'}
-                            {getOrderItemSizeLabel(item)
-                              ? ` ${getOrderItemSizeLabel(item)}`
-                              : ''}
-                            {' '}x{item.quantity}
-                          </p>
-                        </div>
-                        <span className="font-medium text-gray-500">
-                          Pending
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
                 {(() => {
                   const hasTrip =
                     String(selectedOrder.status || '').trim().toUpperCase() !== 'RESCHEDULED' &&
@@ -5516,23 +5612,10 @@ export function WarehousePortal() {
                 })()}
                 {(() => {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
-                  const selectedWarehouseStage = String(selectedOrder.warehouseStage || 'READY_TO_LOAD').toUpperCase()
                   const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
                   return (
                     <div className="grid grid-cols-2 gap-2">
-                      {!isPendingApproval && selectedOrderStatus === 'PREPARING' && selectedWarehouseStage === 'READY_TO_LOAD' ? (
-                        <Button variant="outline" disabled>
-                          Waiting for Driver Load
-                        </Button>
-                      ) : selectedWarehouseStage === 'LOADED' ? (
-                        <Button variant="outline" disabled>
-                          Loaded by Driver
-                        </Button>
-                      ) : selectedWarehouseStage === 'DISPATCHED' ? (
-                        <Button variant="outline" disabled>
-                          Dispatched
-                        </Button>
-                      ) : isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
+                      {isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
                         <Button
                           className="bg-emerald-600 text-white hover:bg-emerald-700"
                           onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
@@ -5939,6 +6022,27 @@ export function WarehousePortal() {
             : Promise.resolve(false)
         }
       />
+      <AvatarCropDialog crop={profileAvatarCrop} isSaving={isSavingProfile} onSave={saveCroppedAvatar} />
+
+      <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Logout</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to log out of the Warehouse Staff Portal?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleLogout()}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Logout
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </div>
   )

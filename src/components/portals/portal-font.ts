@@ -1,6 +1,5 @@
-import { Poppins } from 'next/font/google'
+// Global typography is loaded once in src/app/layout.tsx
+export const portalFont = {
+  className: '',
+}
 
-export const portalFont = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})

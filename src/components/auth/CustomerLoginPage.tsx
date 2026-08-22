@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Poppins } from 'next/font/google'
 import Script from 'next/script'
 import { setTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
@@ -17,10 +16,7 @@ import { CheckCircle2, Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-rea
 import { toast } from 'sonner'
 import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
+const poppins = { className: '' }
 
 declare global {
   interface Window {

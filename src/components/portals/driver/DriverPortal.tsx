@@ -15,6 +15,7 @@ import { ProfileView } from './sections/profile/profile-view'
 import { TripDetailView } from './sections/trips/trip-detail-view'
 import { TripsListView } from './sections/trips/trips-list-view'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { PullToRefresh } from '../shared/pull-to-refresh'
 
 // Driver portal shell: delegates business logic to hook and section components.
 export function DriverPortal() {
@@ -33,10 +34,8 @@ export function DriverPortal() {
     isNativeCameraGateOpen,
     nativeCameraGateMessage,
     isCheckingNativeCameraPermission,
-    loadingOrderId,
     fetchTrips,
     applyTripUpdate,
-    markOrderLoaded,
     enforceNativeCameraPermission,
     startLocationTracking,
     openNativeCameraAppSettings,
@@ -124,7 +123,9 @@ export function DriverPortal() {
               onOpenProfile={() => setActiveView('profile')}
             />
           ) : null}
-          <div
+          <PullToRefresh
+            onRefresh={() => window.location.reload()}
+            disabled={activeView === 'trips' && Boolean(selectedTripId)}
             className={`flex min-h-0 flex-1 flex-col overflow-x-hidden ${activeView === 'trips' && selectedTripId ? 'overflow-y-hidden' : 'overflow-y-auto'}`}
           >
           {/* Route-like animated transitions between views */}
@@ -153,7 +154,7 @@ export function DriverPortal() {
                   locationPermission={locationPermission}
                   currentLocation={currentLocation}
                   onOpenTrips={() => {
-                    setActiveView('trips')
+                    setActiveView('home')
                     setSelectedTripId(null)
                   }}
                   onOpenActiveTrip={(trip) => {
@@ -161,8 +162,6 @@ export function DriverPortal() {
                     setSelectedTripId(trip.id)
                   }}
                   onStartTracking={startLocationTracking}
-                  loadingOrderId={loadingOrderId}
-                  onMarkOrderLoaded={markOrderLoaded}
                 />
               )}
 
@@ -217,7 +216,7 @@ export function DriverPortal() {
               )}
             </motion.main>
           </AnimatePresence>
-          </div>
+          </PullToRefresh>
         </div>
 
         {/* Blocking dialog used when native camera permission is required */}

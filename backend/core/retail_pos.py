@@ -14,7 +14,6 @@ from .mixed_case import (
     available_base_units,
     consume_order_reservations,
     inventory_base_units,
-    normalized_capacities,
     release_order_reservations,
     reserve_base_unit_order_item,
     reserve_order_item,
@@ -274,17 +273,14 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
         if product is None:
             raise ValueError(f"Active Mixed Case product not found: {product_id}")
         category = require_category_spec(product.category)
-        profile = product.packaging_profile
         if (
-            category["compatibilityKey"] != "GLASS_BOTTLE"
+            category["category"] != "Carbonated (Glass)"
             or category["depositExempt"]
             or str(product.unit or "").strip().lower() != "case"
-            or profile is None
-            or not profile.is_active
         ):
             raise ValueError(f"{product.name} is not an eligible case-based Glass Bottle product")
-        if case_capacity not in normalized_capacities(profile):
-            raise ValueError(f"Capacity {case_capacity} is not configured for {product.name}")
+        if case_capacity != units_per_case(product):
+            raise ValueError(f"Capacity {case_capacity} does not match {product.name}'s case quantity")
 
         quantity_units = positive_int(raw_component.get("quantityBaseUnits"), f"Mixed Case quantity for {product.name}")
         empties = nonnegative_int(raw_component.get("emptyBottlesProvided"), f"Empty bottles for {product.name}")
@@ -382,7 +378,7 @@ def quote_retail_cart(*, warehouse: Warehouse, payload: dict[str, Any]) -> dict[
     product_ids.discard("")
     products = {
         product.id: product
-        for product in Product.objects.select_related("packaging_profile").filter(id__in=product_ids, is_active=True)
+        for product in Product.objects.filter(id__in=product_ids, is_active=True)
     }
 
     lines: list[dict[str, Any]] = []
@@ -405,7 +401,7 @@ def quote_retail_cart(*, warehouse: Warehouse, payload: dict[str, Any]) -> dict[
 
     inventories = {
         inventory.product_id: inventory
-        for inventory in Inventory.objects.select_related("product", "product__packaging_profile")
+        for inventory in Inventory.objects.select_related("product")
         .filter(warehouse=warehouse, product_id__in=requested_by_product)
     }
     for product_id, requested in requested_by_product.items():
@@ -522,15 +518,12 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
     packaging, unit_deposit, case_deposit, deposit_eligible = _deposit_configuration(product)
     capacity = max(0, int(product.quantity_per_unit or 0))
     available = available_base_units(inventory, product) if inventory else 0
-    profile = product.packaging_profile
     has_unit_price = product.retail_unit_price is not None or capacity > 0
     mixed_eligible = bool(
-        category["compatibilityKey"] == "GLASS_BOTTLE"
+        category["category"] == "Carbonated (Glass)"
         and not category["depositExempt"]
         and str(product.unit or "").strip().lower() == "case"
-        and profile
-        and profile.is_active
-        and normalized_capacities(profile)
+        and capacity > 0
         and has_unit_price
     )
     modes: list[str] = []
@@ -567,7 +560,7 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
         "availableBaseUnits": available,
         "availableCases": available // capacity if capacity else 0,
         "supportedModes": modes,
-        "mixedCaseCapacities": normalized_capacities(profile) if mixed_eligible else [],
+        "mixedCaseCapacities": [capacity] if mixed_eligible else [],
     }
 
 
@@ -770,9 +763,9 @@ def create_retail_sale(
         return existing, False
 
     customer, walk_in = _resolve_retail_customer(payload)
-    fulfillment = str(payload.get("fulfillmentType") or "").strip().upper()
+    fulfillment = str(payload.get("fulfillmentType") or RetailFulfillmentType.IMMEDIATE).strip().upper()
     if fulfillment not in {RetailFulfillmentType.IMMEDIATE, RetailFulfillmentType.CUSTOMER_PICKUP}:
-        raise ValueError("fulfillmentType must be IMMEDIATE or CUSTOMER_PICKUP")
+        fulfillment = RetailFulfillmentType.IMMEDIATE
     quote = quote_retail_cart(warehouse=warehouse, payload=payload)
     if not expected_fingerprint or quote["fingerprint"] != expected_fingerprint:
         raise ValueError("Product, pricing, packaging, deposit, or inventory configuration changed; refresh the quote")

@@ -37,6 +37,10 @@ export function getTabAuthToken(): string | null {
   return localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
+export function hasPersistentTabAuthToken(): boolean {
+  return Boolean(localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY))
+}
+
 export function clearTabAuthToken() {
   sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
   localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)

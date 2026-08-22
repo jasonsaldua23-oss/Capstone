@@ -141,9 +141,17 @@ export function CustomerCheckoutView({
                         </>
                       )
                     })()}
-                    <p className="mt-1 text-xl font-semibold text-emerald-700">{formatPeso(item.unitPrice)}</p>
-                    <p className="text-xs text-gray-500">Qty: {item.quantity} {String(item.unit || 'case')}(s)</p>
-                    {item.packagingType === 'RETURNABLE' && !item.depositExempt && (() => {
+                    {(() => {
+                      const isReturnable = item.packagingType === 'RETURNABLE' && !item.depositExempt
+                      const hasDeposit = Number(item.caseDepositAmount || item.depositAmount || 0) > 0
+                      const isGlass =
+                        item.containerPackagingType === 'Glass Bottle' ||
+                        String(item.category || '').toLowerCase().includes('glass') ||
+                        String(item.containerTypeName || '').toLowerCase().includes('glass') ||
+                        Boolean(item.containerTypeId)
+
+                      if (!isReturnable || !hasDeposit || !isGlass) return null
+
                       const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
                       const containersPerCase = Math.max(1, Number(item.containersPerCase || 1))
                       const grossDeposit = item.quantity * Number(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)
@@ -233,7 +241,8 @@ export function CustomerCheckoutView({
       )}
 
       {selectedCartItems.length > 0 ? (
-        <div className="fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
+        /* Fix: keep the action bar in the checkout flow so the animated page container cannot position it over the product list. */
+        <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 mt-2 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
           <div className="flex items-center gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 md:text-sm">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>

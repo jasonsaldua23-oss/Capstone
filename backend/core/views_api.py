@@ -29,6 +29,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .auth import (
+    REMEMBER_ME_EXP_HOURS,
+    TOKEN_EXP_HOURS,
     TOKEN_NAME,
     STAFF_TOKEN_NAME,
     CUSTOMER_TOKEN_NAME,
@@ -52,7 +54,6 @@ from .models import (
     OrderItem,
     OrderStatus,
     OrderTimeline,
-    WarehouseStage,
     Product,
     ProductPackaging,
     Replacement,
@@ -1598,6 +1599,17 @@ def _user_payload(user: User) -> dict[str, Any]:
 
 
 def _customer_payload(customer: Customer) -> dict[str, Any]:
+    balances = []
+    for b in customer.bottle_balances.select_related("container_type").all():
+        balances.append({
+            "containerTypeId": b.container_type_id,
+            "containerTypeName": b.container_type.name,
+            "bottlesOutstanding": b.bottles_outstanding,
+            "depositAmount": float(b.container_type.deposit_amount),
+            "depositBalance": float(b.deposit_balance),
+            "bottlesReturnedTotal": b.bottles_returned_total,
+            "bottlesSoldTotal": b.bottles_sold_total,
+        })
     return {
         "userId": customer.id,
         "email": customer.email,
@@ -1609,6 +1621,7 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
         "avatar": customer.avatar,
         "role": "CUSTOMER",
         "type": "customer",
+        "bottleBalances": balances,
     }
 
 
@@ -2486,7 +2499,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
                     "warehouseAddress": _strip_default_country_suffix(str(getattr(order_warehouse, "address", "") or "").strip()) or None,
                     "warehouseCity": str(getattr(order_warehouse, "city", "") or "").strip() or None,
                     "warehouseProvince": str(getattr(order_warehouse, "province", "") or "").strip() or None,
-                    "warehouseStage": str(dp.order.warehouse_stage or WarehouseStage.READY_TO_LOAD),
                     "loadedAt": dp.order.loaded_at.isoformat() if dp.order.loaded_at else None,
                     "status": _normalize_order_status(dp.order.status),
                     "isDriverAssigned": bool(trip.driver_id),
@@ -4101,7 +4113,7 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     # Keep auth token lifetime independent from UI inactivity timeout.
     # Inactivity is enforced client-side via session timer; short absolute JWT lifetimes
     # cause active users to get unexpected 401s mid-session.
-    token_exp_hours = 24 * 30 if remember_me else 24
+    token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
     token = create_token(payload, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
@@ -4152,7 +4164,7 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
     # Keep auth token lifetime independent from UI inactivity timeout.
-    token_exp_hours = 24 * 30 if remember_me else 24
+    token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
     token = create_token(payload, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
@@ -4188,7 +4200,7 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
     if not customer.is_active or not verify_password(password, customer.password):
         return _err("Invalid email or password", 401)
     payload = _customer_payload(customer)
-    token = create_token(payload, 24 * 30 if remember_me else 24)
+    token = create_token(payload, REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
     return resp
@@ -4249,7 +4261,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                 customer.save(update_fields=changed_fields)
 
         payload = _customer_payload(customer)
-        token = create_token(payload, 24 * 30 if remember_me else 24)
+        token = create_token(payload, REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS)
         resp = _ok(
             {
                 "success": True,
@@ -4352,10 +4364,16 @@ def auth_me(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
     if not p:
         return _err("Unauthorized", 401)
-    if p.get("type") == "staff" and not User.objects.filter(id=p.get("userId"), is_active=True).exists():
-        return _err("Unauthorized", 401)
-    if p.get("type") == "customer" and not Customer.objects.filter(id=p.get("userId"), is_active=True).exists():
-        return _err("Unauthorized", 401)
+    if p.get("type") == "staff":
+        user = User.objects.filter(id=p.get("userId"), is_active=True).first()
+        if not user:
+            return _err("Unauthorized", 401)
+        return _ok({"success": True, "user": _user_payload(user)})
+    if p.get("type") == "customer":
+        customer = Customer.objects.filter(id=p.get("userId"), is_active=True).first()
+        if not customer:
+            return _err("Unauthorized", 401)
+        return _ok({"success": True, "user": _customer_payload(customer)})
     return _ok({"success": True, "user": p})
 
 
@@ -6022,7 +6040,7 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     in_transit_orders = orders.filter(status=OrderStatus.OUT_FOR_DELIVERY).count()
     delivered_orders = orders.filter(status=OrderStatus.DELIVERED).count()
     cancelled_orders = orders.filter(status__in=[OrderStatus.CANCELLED, OrderStatus.REJECTED]).count()
-    loaded_orders = orders.filter(warehouse_stage=WarehouseStage.LOADED).count()
+    loaded_orders = 0
     total_orders = orders.count()
     total_revenue = float(orders.filter(status=OrderStatus.DELIVERED).aggregate(total=Sum("total_amount")).get("total") or 0)
     active_drivers = drivers.filter(is_active=True).count()
@@ -6685,88 +6703,6 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         _email_order_rejected_to_customer(updated_for_mail, rejection_reason)
 
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
-
-
-@csrf_exempt
-@require_http_methods(["PATCH"])
-def order_warehouse_stage_update(request: HttpRequest, order_id: str) -> JsonResponse:
-    staff, err = _require_staff(request)
-    if err:
-        return err
-    body = _json_body(request)
-
-    stage = str(body.get("warehouseStage") or "").strip().upper()
-    valid_stages = {WarehouseStage.READY_TO_LOAD, WarehouseStage.LOADED, WarehouseStage.DISPATCHED}
-    if stage not in valid_stages:
-        return _err("warehouseStage is required and must be READY_TO_LOAD, LOADED, or DISPATCHED")
-
-    try:
-        order = Order.objects.get(id=order_id)
-    except Order.DoesNotExist:
-        return _err("Order not found", 404)
-
-    assigned_trip_for_loaded_stage = None
-    if staff.get("role") == "DRIVER":
-        assigned_trip_for_loaded_stage = (
-            Trip.objects.select_related("driver")
-            .filter(drop_points__order_id=order.id, driver_id=staff.get("userId"))
-            .order_by("-updated_at")
-            .first()
-        )
-        if stage != WarehouseStage.LOADED:
-            return _err("Drivers can only mark assigned orders as LOADED", 403)
-        if not assigned_trip_for_loaded_stage:
-            return _err("This order is not assigned to you", 403)
-
-    current_stage = str(order.warehouse_stage or WarehouseStage.READY_TO_LOAD)
-    stage_rank = {
-        WarehouseStage.READY_TO_LOAD: 1,
-        WarehouseStage.LOADED: 2,
-        WarehouseStage.DISPATCHED: 3,
-    }
-    if stage_rank.get(stage, 0) < stage_rank.get(current_stage, 0):
-        return _err("Warehouse stage cannot move backward", 400)
-
-    if stage == WarehouseStage.DISPATCHED:
-        return _err("DISPATCHED is set automatically when the trip starts", 400)
-
-    if stage == WarehouseStage.LOADED:
-        if not assigned_trip_for_loaded_stage:
-            assigned_trip_for_loaded_stage = (
-                Trip.objects.select_related("driver")
-                .filter(drop_points__order_id=order.id, driver__isnull=False)
-                .order_by("-updated_at")
-                .first()
-            )
-        if not assigned_trip_for_loaded_stage:
-            return _err("Order must be assigned to a driver before LOADED", 400)
-
-    now = timezone.now()
-    order.warehouse_stage = stage
-    if stage == WarehouseStage.READY_TO_LOAD and not order.ready_to_load_at:
-        order.ready_to_load_at = now
-    if stage == WarehouseStage.LOADED and not order.loaded_at:
-        order.loaded_at = now
-
-    if stage == WarehouseStage.LOADED and _normalize_order_status(order.status) in {OrderStatus.PREPARING, OrderStatus.CONFIRMED}:
-        order.status = OrderStatus.PREPARING
-
-    with transaction.atomic():
-        order.save()
-
-    serialized_order = _serialize_order(
-        Order.objects.select_related("customer", "timeline").get(id=order.id),
-        include_items=False,
-    )
-    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
-    _create_staff_notifications(
-        title="Warehouse stage updated",
-        message=f"{actor_name} moved order {order.order_number} to warehouse stage {stage}.",
-        notification_type="ORDER",
-        reference_type="order",
-        reference_id=order.id,
-    )
-    return _ok({"success": True, "order": serialized_order, "message": f"Warehouse stage moved to {stage}"})
 
 
 @csrf_exempt
@@ -8458,21 +8394,6 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     if p.get("role") == "DRIVER" and p.get("userId") != t.driver_id:
         return _err("Forbidden", 403)
 
-    # Drivers can only start a trip when all assigned delivery orders are loaded.
-    not_loaded_order_numbers: list[str] = []
-    for drop_point in t.drop_points.all():
-        if not drop_point.order_id or not drop_point.order:
-            continue
-        stage = str(drop_point.order.warehouse_stage or "").upper()
-        if stage not in {WarehouseStage.LOADED, WarehouseStage.DISPATCHED}:
-            not_loaded_order_numbers.append(str(drop_point.order.order_number or drop_point.order_id))
-
-    if not_loaded_order_numbers:
-        preview = ", ".join(not_loaded_order_numbers[:5])
-        if len(not_loaded_order_numbers) > 5:
-            preview += f", +{len(not_loaded_order_numbers) - 5} more"
-        return _err(f"Trip cannot be started. Orders not loaded yet: {preview}", 400)
-
     now = timezone.now()
     with transaction.atomic():
         t.status = TripStatus.IN_PROGRESS
@@ -8485,9 +8406,6 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
             order = drop_point.order
             changed_fields: list[str] = []
             previous_status = _normalize_order_status(order.status)
-            if str(order.warehouse_stage or "").upper() != WarehouseStage.DISPATCHED:
-                order.warehouse_stage = WarehouseStage.DISPATCHED
-                changed_fields.append("warehouse_stage")
             if not order.warehouse_dispatched_at:
                 order.warehouse_dispatched_at = now
                 changed_fields.append("warehouse_dispatched_at")
@@ -8611,10 +8529,9 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
             timeline = getattr(order, "timeline", None)
             if next_status == "FAILED" and reschedule_requested:
                 order.status = OrderStatus.RESCHEDULED
-                order.warehouse_stage = WarehouseStage.READY_TO_LOAD
                 order.loaded_at = None
                 order.warehouse_dispatched_at = None
-                update_fields = ["status", "warehouse_stage", "loaded_at", "warehouse_dispatched_at", "updated_at"]
+                update_fields = ["status", "loaded_at", "warehouse_dispatched_at", "updated_at"]
                 if not order.ready_to_load_at:
                     order.ready_to_load_at = now
                     update_fields.append("ready_to_load_at")
@@ -8834,7 +8751,7 @@ def retail_products(request: HttpRequest) -> JsonResponse:
             return _err("No warehouse registered", 404)
     page, size, offset = _pagination(request)
     size = min(size, 100)
-    products = _real_products(Product.objects.filter(is_active=True)).select_related("packaging_profile")
+    products = _real_products(Product.objects.filter(is_active=True))
     search = str(request.GET.get("search") or "").strip()
     if search:
         products = products.filter(Q(name__icontains=search) | Q(sku__icontains=search))
@@ -9061,6 +8978,170 @@ def ensure_demo_accounts() -> None:
         license_expiry=timezone.now() + timedelta(days=1500),
         hired_at=timezone.now(),
     )
+
+
+@require_GET
+def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
+    p = _require_auth(request)
+    if not p or p.get("type") != "customer":
+        return _err("Unauthorized", 401)
+    customer_id = p.get("userId")
+    customer = Customer.objects.filter(id=customer_id, is_active=True).first()
+    if not customer:
+        return _err("Customer not found", 404)
+
+    # Find all returnable products purchased by this customer across non-cancelled orders
+    order_items = (
+        OrderItem.objects.filter(order__customer=customer)
+        .exclude(order__status="CANCELLED")
+        .select_related("product")
+    )
+
+    # Group purchased quantities by product
+    purchased_cases_by_product: dict[str, int] = {}
+    for item in order_items:
+        prod = item.product
+        if not prod or not prod.is_active:
+            continue
+        is_case = str(item.unit or prod.unit or "").strip().lower() == "case"
+        qty_cases = item.quantity if is_case else max(1, item.quantity // (prod.quantity_per_unit or 24))
+        purchased_cases_by_product[prod.id] = purchased_cases_by_product.get(prod.id, 0) + qty_cases
+
+    eligible_items = []
+    for prod_id, total_cases_ordered in purchased_cases_by_product.items():
+        product = Product.objects.filter(id=prod_id).first()
+        if not product or product.packaging_type != "RETURNABLE":
+            continue
+
+        pkg = ProductPackaging.objects.filter(product=product, is_active=True).select_related("container_type").first()
+        if not pkg or not pkg.is_returnable or not pkg.container_type or not pkg.container_type.is_returnable:
+            continue
+
+        containers_per_case = pkg.containers_per_case or (product.quantity_per_unit or 24)
+        case_deposit = float(pkg.case_deposit_amount or 42.0)
+        unit_deposit = float(pkg.deposit_amount or 2.0)
+
+        balance = CustomerBottleBalance.objects.filter(customer=customer, container_type=pkg.container_type).first()
+        currently_held_bottles = balance.bottles_outstanding if balance else 0
+        currently_held_cases = currently_held_bottles // max(1, containers_per_case)
+
+        available_cases = max(0, total_cases_ordered - currently_held_cases)
+        if available_cases > 0:
+            eligible_items.append({
+                "productId": product.id,
+                "productName": product.name,
+                "imageUrl": product.image_url,
+                "category": product.category,
+                "containerTypeId": pkg.container_type.id,
+                "containerTypeName": pkg.container_type.name,
+                "containersPerCase": containers_per_case,
+                "unitDeposit": unit_deposit,
+                "caseDeposit": case_deposit,
+                "totalCasesOrdered": total_cases_ordered,
+                "currentlyHeldCases": currently_held_cases,
+                "availableCasesToReturn": available_cases,
+            })
+
+    return _ok({"success": True, "eligibleItems": eligible_items})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
+    from decimal import Decimal
+    from .models import DepositTransaction
+
+    p = _require_auth(request)
+    if not p or p.get("type") != "customer":
+        return _err("Unauthorized", 401)
+    customer_id = p.get("userId")
+    customer = Customer.objects.filter(id=customer_id, is_active=True).first()
+    if not customer:
+        return _err("Customer not found", 404)
+
+    body = _json_body(request)
+    product_id = str(body.get("productId") or "").strip()
+    cases = _int(body.get("cases"), 0)
+    if not product_id:
+        return _err("Product is required", 400)
+    if cases <= 0:
+        return _err("Number of cases must be at least 1", 400)
+
+    product = Product.objects.filter(id=product_id, is_active=True).first()
+    if not product or product.packaging_type != "RETURNABLE":
+        return _err("Product is not a returnable glass item", 400)
+
+    pkg = ProductPackaging.objects.filter(product=product, is_active=True).select_related("container_type").first()
+    if not pkg or not pkg.is_returnable or not pkg.container_type or not pkg.container_type.is_returnable:
+        return _err("Returnable container packaging not configured for this product", 400)
+
+    containers_per_case = pkg.containers_per_case or (product.quantity_per_unit or 24)
+    case_deposit = Decimal(str(pkg.case_deposit_amount or "42.00"))
+
+    order_items = (
+        OrderItem.objects.filter(order__customer=customer, product=product)
+        .exclude(order__status="CANCELLED")
+    )
+    total_cases_ordered = sum(
+        item.quantity if str(item.unit or "").strip().lower() == "case" else max(1, item.quantity // containers_per_case)
+        for item in order_items
+    )
+    if total_cases_ordered <= 0:
+        return _err(f"You have no purchase history for {product.name}. Empty bottles can only be recorded for products you purchased.", 400)
+
+    with transaction.atomic():
+        balance, _ = CustomerBottleBalance.objects.select_for_update().get_or_create(
+            customer=customer,
+            container_type=pkg.container_type,
+            defaults={
+                "bottles_outstanding": 0,
+                "deposit_balance": Decimal("0.00"),
+                "bottles_returned_total": 0,
+                "bottles_sold_total": total_cases_ordered * containers_per_case,
+            }
+        )
+
+        currently_held_cases = balance.bottles_outstanding // max(1, containers_per_case)
+        available_cases = max(0, total_cases_ordered - currently_held_cases)
+        if cases > available_cases:
+            return _err(
+                f"You can only record up to {available_cases} case(s) based on your purchase history of {product.name}.",
+                400
+            )
+
+        added_bottles = cases * containers_per_case
+        added_deposit = case_deposit * Decimal(str(cases))
+
+        balance_before = balance.deposit_balance
+        balance.bottles_outstanding += added_bottles
+        balance.deposit_balance += added_deposit
+        balance.last_return_at = timezone.now()
+        balance.save()
+
+        DepositTransaction.objects.create(
+            customer=customer,
+            type=DepositTransaction.TransactionType.ADJUSTMENT,
+            amount=added_deposit,
+            balance_before=balance_before,
+            balance_after=balance.deposit_balance,
+            container_type=pkg.container_type,
+            container_count=added_bottles,
+            reason=f"Customer declared {cases} empty case(s) ({added_bottles} bottles) of {product.name}",
+            performed_by=customer.name or "Customer",
+        )
+
+    updated_customer = Customer.objects.get(id=customer.id)
+    return _ok({
+        "success": True,
+        "message": f"Successfully recorded {cases} case(s) ({added_bottles} bottles) of {product.name}.",
+        "user": _customer_payload(updated_customer),
+    })
+
+
+@require_GET
+def bottle_returns_collection(_request: HttpRequest) -> JsonResponse:
+    return _ok({"success": True, "returns": []})
+
 
 
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
-import { clearTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
+import { clearTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
@@ -227,6 +227,16 @@ export default function Home() {
 
   useEffect(() => {
     if (!isMounted || !user) {
+      if (sessionTimerRef.current) {
+        window.clearTimeout(sessionTimerRef.current)
+        sessionTimerRef.current = null
+      }
+      return
+    }
+
+    // Keep-me-logged-in sessions are governed by the JWT's exact 30-day expiry.
+    // Do not shorten them with the normal staff inactivity timeout.
+    if (hasPersistentTabAuthToken()) {
       if (sessionTimerRef.current) {
         window.clearTimeout(sessionTimerRef.current)
         sessionTimerRef.current = null

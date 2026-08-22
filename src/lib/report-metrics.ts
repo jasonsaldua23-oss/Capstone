@@ -67,7 +67,6 @@ export type OrderReportRow = {
   totalQuantity: number
   status: string
   normalizedReportStatus: OrderReportStatus
-  warehouseStage: string
   amount: number
   createdAt: unknown
   deliveredAt: unknown
@@ -179,9 +178,7 @@ export function getInventoryUnitsPerCase(item: any) {
     item?.product?.quantityPerCase ??
     item?.product?.quantity_per_case ??
     item?.product?.quantityPerUnit ??
-    item?.product?.quantity_per_unit ??
-    item?.product?.packagingProfile?.standardUnitsPerCase ??
-    item?.product?.packaging_profile?.standard_units_per_case
+    item?.product?.quantity_per_unit
   ))
 }
 
@@ -397,7 +394,10 @@ export function summarizeWarehouseDashboardOrders(orders: any[]): WarehouseOrder
   const scopedOrders = orders.filter(isWarehouseDashboardOrder)
   return {
     totalOrders: scopedOrders.length,
-    outForDelivery: scopedOrders.filter((order) => String(order?.status || '').toUpperCase() === 'IN_TRANSIT').length,
+    outForDelivery: scopedOrders.filter((order) => {
+      const status = String(order?.status || '').toUpperCase()
+      return status === 'OUT_FOR_DELIVERY' || status === 'IN_TRANSIT'
+    }).length,
     delivered: scopedOrders.filter((order) => String(order?.status || '').toUpperCase() === 'DELIVERED').length,
   }
 }
@@ -553,7 +553,6 @@ export function buildOrderReportRows(
         totalQuantity,
         status: String(order?.status || ''),
         normalizedReportStatus,
-        warehouseStage: String(order?.warehouseStage || 'READY_TO_LOAD'),
         amount: Math.max(0, asNumber(order?.totalAmount)),
         createdAt,
         deliveredAt: order?.timeline?.deliveredAt || order?.deliveredAt,

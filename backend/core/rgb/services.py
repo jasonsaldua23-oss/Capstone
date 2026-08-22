@@ -576,7 +576,7 @@ def get_product_packaging_serialized(product_id: str) -> list[dict[str, Any]]:
     options = ProductPackaging.objects.filter(
         product_id=product_id,
         is_active=True,
-    ).select_related("container_type", "packaging_profile")
+    ).select_related("container_type")
 
     return [
         {
@@ -590,11 +590,6 @@ def get_product_packaging_serialized(product_id: str) -> list[dict[str, Any]]:
             "isPrimary": o.is_primary,
             "unitsPerContainer": o.units_per_container,
             "containersPerCase": o.containers_per_case,
-            "packagingProfile": {
-                "id": o.packaging_profile_id,
-                "name": o.packaging_profile.name if o.packaging_profile else None,
-                "standardUnitsPerCase": o.packaging_profile.standard_units_per_case if o.packaging_profile else None,
-            } if o.packaging_profile else None,
         }
         for o in options
     ]

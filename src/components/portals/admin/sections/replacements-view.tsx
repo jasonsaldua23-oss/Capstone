@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -834,8 +834,9 @@ export function ReplacementsView() {
     return rawStatus === 'REJECTED'
   }).length
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    // Fix: keep the wide request table from expanding the entire admin page.
+    <div className="w-full min-w-0 max-w-full space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-[260px]">
           <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
           <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
@@ -860,7 +861,7 @@ export function ReplacementsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -918,12 +919,13 @@ export function ReplacementsView() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Customer Replacement Requests</CardTitle>
-          <CardDescription>Requests submitted directly by customers after delivery</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
+      <Card className="min-w-0 max-w-full overflow-hidden">
+        {/* Match the Warehouse Portal's compact replacement-table heading size. */}
+        <CardContent className="border-b px-6 py-4">
+          <h3 className="text-base font-semibold text-slate-900">Customer Replacement Requests</h3>
+          <p className="text-sm text-slate-500">Requests submitted directly by customers after delivery</p>
+        </CardContent>
+        <CardContent className="w-full min-w-0 p-0">
           {isLoading ? (
             <PortalTableSkeleton rows={5} columns={6} className="border-0 shadow-none" />
           ) : replacementsBySource.customerRequests.length === 0 ? (
@@ -931,7 +933,7 @@ export function ReplacementsView() {
               <p className="text-gray-500">No customer replacement requests found</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="w-full max-w-full overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>

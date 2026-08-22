@@ -10,7 +10,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { useAuth } from '@/app/page';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -437,6 +437,7 @@ export function AdminPortal() {
   const [isLoading, setIsLoading] = useState(true)
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [initialNotificationsLoaded, setInitialNotificationsLoaded] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [warehouseReady, setWarehouseReady] = useState<boolean | null>(null)
 
@@ -465,13 +466,13 @@ export function AdminPortal() {
     let cancelled = false
     const checkWarehouseSetup = async () => {
       try {
-        const response = await fetch('/api/warehouses?page=1&pageSize=2', {
-          cache: 'no-store',
-          credentials: 'include',
-        })
-        const payload = await response.json().catch(() => ({}))
+        const result = await safeFetchJson(
+          '/api/warehouses?page=1&pageSize=2',
+          { cache: 'no-store', credentials: 'include' },
+          { retries: 3, timeoutMs: 15000 }
+        )
         if (!cancelled) {
-          const ready = response.ok && getCollection<any>(payload, ['warehouses']).length === 1
+          const ready = result.ok && getCollection<any>(result.data, ['warehouses']).length === 1
           setWarehouseReady(ready)
           if (!ready) setActiveView('warehouses')
         }
@@ -707,9 +708,9 @@ export function AdminPortal() {
   useEffect(() => {
     async function fetchDashboardStats() {
       try {
-        const response = await fetch('/api/dashboard/stats')
-        if (response.ok) {
-          const data = await response.json()
+        const result = await safeFetchJson('/api/dashboard/stats', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
+        if (result.ok) {
+          const data = result.data
           setStats((data?.stats ?? null) as DashboardStats | null)
         }
       } catch (error) {
@@ -727,10 +728,10 @@ export function AdminPortal() {
       setNotificationsLoading(true)
     }
     try {
-      const response = await fetch('/api/notifications', { cache: 'no-store' })
-      if (!response.ok) return
+      const result = await safeFetchJson('/api/notifications', { cache: 'no-store' })
+      if (!result.ok) return
 
-      const payload = await response.json()
+      const payload = result.data as any
       const list = Array.isArray(payload?.notifications) ? payload.notifications : []
       setNotifications(list)
       setUnreadNotifications(Number(payload?.unreadCount || 0))
@@ -752,12 +753,12 @@ export function AdminPortal() {
 
   const markAllNotificationsAsRead = async () => {
     try {
-      const response = await fetch('/api/notifications', {
+      const result = await safeFetchJson('/api/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markAll: true }),
       })
-      if (!response.ok) return
+      if (!result.ok) return
       setUnreadNotifications(0)
       setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })))
     } catch (error) {
@@ -767,10 +768,10 @@ export function AdminPortal() {
 
   const clearAllNotifications = async () => {
     try {
-      const response = await fetch('/api/notifications', {
+      const result = await safeFetchJson('/api/notifications', {
         method: 'DELETE',
       })
-      if (!response.ok) return
+      if (!result.ok) return
       setUnreadNotifications(0)
       setNotifications([])
     } catch (error) {
@@ -787,7 +788,8 @@ export function AdminPortal() {
   }
 
   useEffect(() => {
-    void fetchNotifications({ silent: true })
+    // Keep the portal initialization screen active until notification data settles.
+    void fetchNotifications({ silent: true }).finally(() => setInitialNotificationsLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -807,6 +809,9 @@ export function AdminPortal() {
     await logout()
     toast.success('Logged out successfully')
   }
+
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const openLogoutConfirm = () => setLogoutConfirmOpen(true)
 
   const SidebarContent = () => {
     const navItems = [
@@ -1033,7 +1038,7 @@ export function AdminPortal() {
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-slate-700 hover:bg-white/45 hover:text-red-600"
-            onClick={handleLogout}
+            onClick={openLogoutConfirm}
           >
             <LogOut className="h-4 w-4" />
             Logout
@@ -1134,6 +1139,19 @@ export function AdminPortal() {
     }
   }
 
+  // Do not reveal partially initialized admin content after authentication completes.
+  const isPortalInitializing = isLoading || warehouseReady === null || !initialNotificationsLoaded
+  if (isPortalInitializing) {
+    return (
+      <div className={`${portalFont.className} flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-cyan-50 to-emerald-50`}>
+        <div className="text-center">
+          <Loader2 className="mx-auto mb-4 h-12 w-12 animate-spin text-blue-600" />
+          <p className="font-medium text-slate-700">Loading admin information...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
@@ -1154,7 +1172,8 @@ export function AdminPortal() {
       </Sheet>
 
       {/* Main Content */}
-      <div className="relative z-[1] flex min-h-screen flex-1 flex-col lg:pl-64">
+      {/* Fix: match the Warehouse Portal's display scale while containing wide admin tables. */}
+      <div className="relative z-[1] flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
         {/* Top Header */}
         <header className="sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
           <div className="flex items-center justify-between px-4 py-3">
@@ -1228,6 +1247,7 @@ export function AdminPortal() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="gap-2 text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Avatar className="h-8 w-8">
+                      {user?.avatar ? <AvatarImage src={String(user.avatar)} alt={`${user?.name || 'User'} avatar`} className="object-cover" /> : null}
                       <AvatarFallback className="bg-linear-to-br from-sky-600 to-blue-700 text-white text-sm shadow-[0_8px_18px_rgba(37,99,235,0.3)]">
                         {user?.name?.charAt(0)?.toUpperCase() ?? 'U'}
                       </AvatarFallback>
@@ -1249,7 +1269,7 @@ export function AdminPortal() {
                     Settings
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                  <DropdownMenuItem onClick={openLogoutConfirm} className="text-red-600">
                     <LogOut className="mr-2 h-4 w-4" />
                     Logout
                   </DropdownMenuItem>
@@ -1310,6 +1330,25 @@ export function AdminPortal() {
           )}
         </DialogContent>
       </Dialog>
+      <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Logout</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to log out of the Admin Portal?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleLogout()}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Logout
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

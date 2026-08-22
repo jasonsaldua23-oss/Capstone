@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { getTabAuthToken } from '@/lib/client-auth'
 
@@ -357,6 +357,11 @@ export async function safeFetchJson(
       await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
       continue
     } catch (error) {
+      // AbortError means the request was intentionally cancelled (timeout, unmount, navigation).
+      // Return immediately without retrying or triggering console.error overlays.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return { ok: false, status: 0, data: { error: 'Request aborted' } }
+      }
       if (attempt === retries) {
         const message = error instanceof Error ? error.message : 'Request failed'
         return { ok: false, status: 0, data: { error: message } }

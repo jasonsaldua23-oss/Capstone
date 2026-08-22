@@ -429,6 +429,8 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
           latitude: latitudeValue,
           longitude: longitudeValue,
           capacity: capacityValue,
+          // Fix: persist the staff selected while creating or editing a warehouse.
+          managerId: form.managerId || null,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -1042,6 +1044,22 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
             </div>
             <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Assigned Warehouse Staff</label>
+              <select
+                aria-label="Assigned warehouse staff"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={form.managerId}
+                onChange={(e) => setForm((f) => ({ ...f, managerId: e.target.value }))}
+              >
+                <option value="">Unassigned</option>
+                {warehouseStaffUsers.map((staff) => (
+                  <option key={staff.id} value={staff.id}>
+                    {staff.name || staff.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Latitude</label>
               <Input value={form.latitude} readOnly placeholder="Auto-filled from map pin" />
             </div>
@@ -1113,6 +1131,23 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Capacity (Unit)</label>
               <Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Assigned Warehouse Staff</label>
+              <select
+                aria-label="Assigned warehouse staff"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={form.managerId}
+                onChange={(e) => setForm((f) => ({ ...f, managerId: e.target.value }))}
+              >
+                <option value="">Unassigned</option>
+                {warehouseStaffUsers.map((staff) => (
+                  <option key={staff.id} value={staff.id}>
+                    {staff.name || staff.email}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">Selecting another staff member replaces the current assignment.</p>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Latitude</label>

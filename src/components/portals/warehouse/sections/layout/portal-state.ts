@@ -43,7 +43,7 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
       const response = await fetch('/api/notifications', { cache: 'no-store' })
       if (!response.ok) return
 
-      const payload = await response.json()
+      const payload = await response.json().catch(() => ({}))
       const list = Array.isArray(payload?.notifications) ? payload.notifications : []
       setNotifications(list)
       setUnreadNotifications(Number(payload?.unreadCount || 0))

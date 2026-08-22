@@ -27,7 +27,6 @@ import {
   getInventoryReservedBaseUnits,
   getInventoryUnitsPerCase,
 } from '@/lib/report-metrics'
-import { PackagingProfileDialog, type PackagingProfileRow } from './packaging-profile-dialog'
 import { BEVERAGE_CATEGORIES, formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 
 const PRODUCT_UNIT_OPTIONS = [
@@ -124,8 +123,6 @@ export function InventoryView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [products, setProducts] = useState<any[]>([])
-  const [packagingProfiles, setPackagingProfiles] = useState<PackagingProfileRow[]>([])
-  const [packagingProfilesOpen, setPackagingProfilesOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [editName, setEditName] = useState('')
@@ -133,10 +130,7 @@ export function InventoryView() {
   const [editCategory, setEditCategory] = useState('')
   const [editUnit, setEditUnit] = useState('case')
   const [editQuantityPerUnit, setEditQuantityPerUnit] = useState('')
-  const [editPackagingProfileId, setEditPackagingProfileId] = useState('')
   const [editPrice, setEditPrice] = useState('')
-  const [editRetailUnitPrice, setEditRetailUnitPrice] = useState('')
-  const [editCasePrice, setEditCasePrice] = useState('')
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeletingEdit, setIsDeletingEdit] = useState(false)
@@ -148,14 +142,11 @@ export function InventoryView() {
   const [productUnit, setProductUnit] = useState('case')
   const [productQuantityPerUnit, setProductQuantityPerUnit] = useState('')
   const [productPrice, setProductPrice] = useState('')
-  const [productRetailUnitPrice, setProductRetailUnitPrice] = useState('')
-  const [productCasePrice, setProductCasePrice] = useState('')
   const [productCategory, setProductCategory] = useState('')
   const [productSizes, setProductSizes] = useState<string[]>([])
   const [productImageFile, setProductImageFile] = useState<File | null>(null)
   const [productSkuSeed, setProductSkuSeed] = useState('')
   const [productWarehouseId, setProductWarehouseId] = useState('')
-  const [productPackagingProfileId, setProductPackagingProfileId] = useState('')
   const createSkuSeed = () => Math.random().toString(36).slice(2, 7).toUpperCase()
 
   const selectedProductSize = productSizes[0] ?? ''
@@ -244,20 +235,9 @@ export function InventoryView() {
     }
   }
 
-  const fetchPackagingProfiles = async () => {
-    try {
-      const result = await safeFetchJson('/api/packaging-profiles', { cache: 'no-store' })
-      if (result.ok) {
-        setPackagingProfiles(getCollection<PackagingProfileRow>(result.data, ['packagingProfiles']))
-      }
-    } catch (error) {
-      console.error(error)
-    }
-  }
-
   useEffect(() => {
     const refreshSharedData = () => {
-      void Promise.all([fetchInventory(), fetchWarehouses(), fetchProducts(), fetchPackagingProfiles()])
+      void Promise.all([fetchInventory(), fetchWarehouses(), fetchProducts()])
     }
 
     refreshSharedData()
@@ -294,8 +274,6 @@ export function InventoryView() {
   const getBaseUnitLabel = (item: any) => String(
     item?.product?.looseUnit ||
     getBeverageCategorySpec(item?.product?.category)?.looseUnit ||
-    item?.product?.packagingProfile?.baseUnitLabel ||
-    item?.product?.packaging_profile?.base_unit_label ||
     'unit'
   ).trim() || 'unit'
   const getThreshold = (item: any) => Number(item.threshold ?? item.minStock ?? item.min_stock ?? 0)
@@ -391,10 +369,7 @@ export function InventoryView() {
     setEditCategory(getBeverageCategorySpec(item.product?.category)?.category || '')
     setEditUnit(item.product?.unit || 'case')
     setEditQuantityPerUnit(String(item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? ''))
-    setEditPackagingProfileId(String(item.product?.packagingProfile?.id || ''))
     setEditPrice(String(item.product?.price ?? 0))
-    setEditRetailUnitPrice(String(item.product?.retailUnitPrice ?? ''))
-    setEditCasePrice(String(item.product?.casePrice ?? item.product?.price ?? 0))
     setEditImageFile(null)
   }
 
@@ -404,12 +379,8 @@ export function InventoryView() {
       return
     }
     const nextPrice = Number(editPrice)
-    const nextRetailUnitPrice = Number(editRetailUnitPrice)
-    const nextCasePrice = Number(editCasePrice)
     const nextQuantityPerUnit = Number(editQuantityPerUnit)
     if (!Number.isFinite(nextPrice) || nextPrice < 0) return toast.error('Invalid price')
-    if (!Number.isFinite(nextRetailUnitPrice) || nextRetailUnitPrice < 0) return toast.error('Invalid retail unit price')
-    if (!Number.isFinite(nextCasePrice) || nextCasePrice < 0) return toast.error('Invalid retail case/pack price')
     if (!Number.isFinite(nextQuantityPerUnit) || nextQuantityPerUnit <= 0) return toast.error('Quantity per unit is required')
     if (!editName.trim() || !editSku.trim() || !editUnit.trim() || !editCategory) return toast.error('Name, SKU, category, and order format are required')
 
@@ -426,11 +397,10 @@ export function InventoryView() {
           unit: editUnit.trim(),
           quantityPerUnit: Math.floor(nextQuantityPerUnit),
           quantityPerCase: Math.floor(nextQuantityPerUnit),
-          packagingProfileId: editPackagingProfileId || null,
           imageUrl: uploadedImageUrl,
           price: nextPrice,
-          retailUnitPrice: nextRetailUnitPrice,
-          casePrice: nextCasePrice,
+          retailUnitPrice: nextQuantityPerUnit > 0 ? Number((nextPrice / nextQuantityPerUnit).toFixed(2)) : nextPrice,
+          casePrice: nextPrice,
         }),
       })
       const productPayload = await productResponse.json().catch(() => ({}))
@@ -477,8 +447,6 @@ export function InventoryView() {
 
   const registerProduct = async () => {
     const nextPrice = Number(productPrice)
-    const nextRetailUnitPrice = Number(productRetailUnitPrice)
-    const nextCasePrice = Number(productCasePrice)
     const nextQuantityPerUnit = Number(productQuantityPerUnit)
     const nextSku = (autoGeneratedSku || productSku || '').trim()
 
@@ -487,12 +455,6 @@ export function InventoryView() {
     }
     if (!Number.isFinite(nextPrice) || nextPrice < 0) {
       return toast.error('Invalid price')
-    }
-    if (!Number.isFinite(nextRetailUnitPrice) || nextRetailUnitPrice < 0) {
-      return toast.error('Invalid retail unit price')
-    }
-    if (!Number.isFinite(nextCasePrice) || nextCasePrice < 0) {
-      return toast.error('Invalid retail case/pack price')
     }
     if (!Number.isFinite(nextQuantityPerUnit) || nextQuantityPerUnit <= 0) {
       return toast.error('Quantity per unit is required')
@@ -518,15 +480,14 @@ export function InventoryView() {
           unit: productUnit.trim(),
           quantityPerUnit: Math.floor(nextQuantityPerUnit),
           quantityPerCase: Math.floor(nextQuantityPerUnit),
-          packagingProfileId: productPackagingProfileId || null,
           weight:
             selectedProductBaseWeight !== null
               ? Number((selectedProductBaseWeight * Math.floor(nextQuantityPerUnit)).toFixed(2))
               : null,
           category: productCategory,
           price: nextPrice,
-          retailUnitPrice: nextRetailUnitPrice,
-          casePrice: nextCasePrice,
+          retailUnitPrice: nextQuantityPerUnit > 0 ? Number((nextPrice / nextQuantityPerUnit).toFixed(2)) : nextPrice,
+          casePrice: nextPrice,
           warehouseId: productWarehouseId || warehouses[0]?.id,
           sizes: productSizes,
           imageUrl: uploadedImageUrl,
@@ -545,13 +506,10 @@ export function InventoryView() {
       setProductUnit('case')
       setProductQuantityPerUnit('')
       setProductPrice('')
-      setProductRetailUnitPrice('')
-      setProductCasePrice('')
       setProductCategory('')
       setProductSizes([])
       setProductImageFile(null)
       setProductWarehouseId('')
-      setProductPackagingProfileId('')
       await Promise.all([fetchInventory(), fetchProducts()])
       emitDataSync(['inventory', 'products'])
     } catch (error: any) {
@@ -692,116 +650,85 @@ export function InventoryView() {
       </Card>
 
       <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
-        <DialogContent className="max-w-4xl w-full">
+        <DialogContent className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
           {editingItem && (
             <>
               <DialogHeader>
                 <DialogTitle>Edit Inventory Item</DialogTitle>
                 <DialogDescription>Update product details and stock threshold.</DialogDescription>
               </DialogHeader>
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Product Name</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">SKU</label>
-                  <Input value={editSku} onChange={(e) => setEditSku(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Category</label>
-                  <select
-                    aria-label="Product category"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={editCategory}
-                    onChange={(event) => setEditCategory(event.target.value)}
-                  >
-                    <option value="">Select a category</option>
-                    {BEVERAGE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Photo</label>
-                  <Input type="file" accept="image/*" onChange={(e) => setEditImageFile(e.target.files?.[0] || null)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Order Format</label>
-                  <select
-                    aria-label="Product unit"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={editUnit}
-                    onChange={(e) => {
-                      setEditUnit(e.target.value)
-                      if (e.target.value === 'bottle') setEditQuantityPerUnit('1')
-                    }}
-                  >
-                    {PRODUCT_UNIT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div>
-                    <p className="text-xs text-slate-500">Packaging Type</p>
-                    <p className="text-sm font-semibold text-slate-800">{editingCategorySpec?.packagingType || 'Select a category'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Unit</p>
-                    <p className="text-sm font-semibold text-slate-800">{editingCategorySpec?.looseUnit || 'Select a category'}</p>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Price</label>
-                  <Input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
-                </div>
-                <div className="grid grid-cols-2 gap-3 rounded-lg border border-sky-100 bg-sky-50/60 p-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+                <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-sky-950">Retail Loose Unit Price (PHP)</label>
-                    <Input type="number" min="0" step="0.01" value={editRetailUnitPrice} onChange={(e) => setEditRetailUnitPrice(e.target.value)} />
+                    <label className="text-sm font-medium text-gray-700">Product Name</label>
+                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-sky-950">Retail Case/Pack Price (PHP)</label>
-                    <Input type="number" min="0" step="0.01" value={editCasePrice} onChange={(e) => setEditCasePrice(e.target.value)} />
+                    <label className="text-sm font-medium text-gray-700">SKU</label>
+                    <Input value={editSku} onChange={(e) => setEditSku(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Category</label>
+                    <select
+                      aria-label="Product category"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={editCategory}
+                      onChange={(event) => setEditCategory(event.target.value)}
+                    >
+                      <option value="">Select a category</option>
+                      {BEVERAGE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Order Format</label>
+                    <select
+                      aria-label="Product unit"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={editUnit}
+                      onChange={(e) => {
+                        setEditUnit(e.target.value)
+                        if (e.target.value === 'bottle') setEditQuantityPerUnit('1')
+                      }}
+                    >
+                      {PRODUCT_UNIT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Photo</label>
+                    <Input type="file" accept="image/*" onChange={(e) => setEditImageFile(e.target.files?.[0] || null)} />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
-                  <Input type="number" step="1" min="1" value={editQuantityPerUnit} onChange={(e) => setEditQuantityPerUnit(e.target.value)} placeholder="Required" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700">Packaging Profile</label>
-                  <select
-                    aria-label="Packaging profile"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={editPackagingProfileId}
-                    onChange={(event) => {
-                      const id = event.target.value
-                      setEditPackagingProfileId(id)
-                      const profile = packagingProfiles.find((row) => row.id === id)
-                      if (profile) setEditQuantityPerUnit(String(profile.standardUnitsPerCase))
-                    }}
-                  >
-                    <option value="">Standard cases only</option>
-                    {packagingProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                  </select>
-                </div>
-                {editingGlassDeposit ? (
-                  <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                    <div className="space-y-1">
-                      <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
-                      <Input value={editingGlassDeposit.bottle.toFixed(2)} readOnly />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
-                      <Input value={editingGlassDeposit.case.toFixed(2)} readOnly />
-                    </div>
+
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Price (PHP)</label>
+                    <Input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
                   </div>
-                ) : editingCategorySpec?.depositExempt ? (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
-                ) : null}
-                <div className="flex gap-2 pt-1">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
+                    <Input type="number" step="1" min="1" value={editQuantityPerUnit} onChange={(e) => setEditQuantityPerUnit(e.target.value)} placeholder="Required" />
+                  </div>
+                  {editingGlassDeposit ? (
+                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
+                        <Input value={editingGlassDeposit.bottle.toFixed(2)} readOnly />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
+                        <Input value={editingGlassDeposit.case.toFixed(2)} readOnly />
+                      </div>
+                    </div>
+                  ) : editingCategorySpec?.depositExempt ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
+                  ) : null}
+                </div>
+
+                <div className="md:col-span-2 flex gap-3 pt-3 border-t">
                   <Button
                     variant="destructive"
                     className="flex-1 bg-red-600 hover:bg-red-700 text-white"
@@ -855,192 +782,149 @@ export function InventoryView() {
           }
         }}
       >
-        <DialogContent className="max-w-5xl w-full">
+        <DialogContent className="max-w-5xl w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Register New Product</DialogTitle>
             <DialogDescription>Add a new product to your inventory system.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="md:col-span-2 space-y-1">
-              <label className="text-sm font-medium text-gray-700">Warehouse</label>
-              <div className="rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {warehouses[0]?.name || warehouses[0]?.code || 'Warehouse setup required'}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Product Name</label>
-              <Input
-                value={productName}
-                onChange={(e) => setProductName(e.target.value)}
-                placeholder=""
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Category</label>
-              <select
-                aria-label="Product category"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={productCategory}
-                onChange={(e) => setProductCategory(e.target.value)}
-              >
-                <option value="">Select a category</option>
-                {BEVERAGE_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">SKU</label>
-              <Input
-                value={productSku}
-                readOnly
-                placeholder=""
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Order Format</label>
-              <select
-                aria-label="Product unit"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={productUnit}
-                onChange={(e) => {
-                  setProductUnit(e.target.value)
-                  setProductSizes([])
-                  if (e.target.value === 'bottle') setProductQuantityPerUnit('1')
-                }}
-              >
-                {PRODUCT_UNIT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div>
-                <p className="text-xs text-slate-500">Packaging Type</p>
-                <p className="text-sm font-semibold text-slate-800">{selectedCategorySpec?.packagingType || 'Select a category'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Unit</p>
-                <p className="text-sm font-semibold text-slate-800">{selectedCategorySpec?.looseUnit || 'Select a category'}</p>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Price (PHP)</label>
-              <Input
-                type="number"
-                step="0.01"
-                value={productPrice}
-                onChange={(e) => setProductPrice(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-sky-100 bg-sky-50/60 p-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+            {/* Left Column: Product Info & Identity */}
+            <div className="space-y-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-sky-950">Retail Loose Unit Price (PHP)</label>
+                <label className="text-sm font-medium text-gray-700">Warehouse</label>
+                <div className="rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  {warehouses[0]?.name || warehouses[0]?.code || 'Warehouse setup required'}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Product Name</label>
+                <Input
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  placeholder="e.g. Coca-Cola Original 330ml"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Category</label>
+                <select
+                  aria-label="Product category"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={productCategory}
+                  onChange={(e) => setProductCategory(e.target.value)}
+                >
+                  <option value="">Select a category</option>
+                  {BEVERAGE_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">SKU</label>
+                <Input
+                  value={productSku}
+                  readOnly
+                  placeholder="Auto-generated on category & name"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Order Format</label>
+                <select
+                  aria-label="Product unit"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={productUnit}
+                  onChange={(e) => {
+                    setProductUnit(e.target.value)
+                    setProductSizes([])
+                    if (e.target.value === 'bottle') setProductQuantityPerUnit('1')
+                  }}
+                >
+                  {PRODUCT_UNIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Product Photo</label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setProductImageFile(e.target.files?.[0] || null)}
+                />
+              </div>
+            </div>
+
+            {/* Right Column: Pricing & Packaging Specs */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Price (PHP)</label>
                 <Input
                   type="number"
-                  min="0"
                   step="0.01"
-                  value={productRetailUnitPrice}
-                  onChange={(e) => setProductRetailUnitPrice(e.target.value)}
+                  value={productPrice}
+                  onChange={(e) => setProductPrice(e.target.value)}
                   placeholder="0.00"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium text-sky-950">Retail Case/Pack Price (PHP)</label>
+                <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
                 <Input
                   type="number"
-                  min="0"
-                  step="0.01"
-                  value={productCasePrice}
-                  onChange={(e) => setProductCasePrice(e.target.value)}
-                  placeholder="0.00"
+                  step="1"
+                  min="1"
+                  value={productQuantityPerUnit}
+                  onChange={(e) => setProductQuantityPerUnit(e.target.value)}
+                  placeholder="e.g. 24"
                 />
               </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Quantity Per Case</label>
-              <Input
-                type="number"
-                step="1"
-                min="1"
-                value={productQuantityPerUnit}
-                onChange={(e) => setProductQuantityPerUnit(e.target.value)}
-                placeholder="Required"
-              />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-sm font-medium text-gray-700">Packaging Profile</label>
-                <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setPackagingProfilesOpen(true)}>Manage</button>
-              </div>
-              <select
-                aria-label="Packaging profile"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={productPackagingProfileId}
-                onChange={(event) => {
-                  const id = event.target.value
-                  setProductPackagingProfileId(id)
-                  const profile = packagingProfiles.find((row) => row.id === id)
-                  if (profile) setProductQuantityPerUnit(String(profile.standardUnitsPerCase))
-                }}
-              >
-                <option value="">Standard cases only</option>
-                {packagingProfiles.filter((profile) => profile.isActive).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Available Sizes</label>
-              <select
-                aria-label="Available size"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={selectedProductSize}
-                onChange={(e) => setProductSizes(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Select a size</option>
-                {SIZE_OPTIONS[productUnit as keyof typeof SIZE_OPTIONS]?.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Total Weight per Unit (kg)</label>
-              <Input
-                value={selectedProductWeight !== null ? selectedProductWeight.toFixed(2) : ''}
-                readOnly
-                placeholder=""
-              />
-            </div>
-            {selectedGlassDeposit ? (
-              <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
-                  <Input value={selectedGlassDeposit.bottle.toFixed(2)} readOnly />
+                  <label className="text-sm font-medium text-gray-700">Available Size</label>
+                  <select
+                    aria-label="Available size"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={selectedProductSize}
+                    onChange={(e) => setProductSizes(e.target.value ? [e.target.value] : [])}
+                  >
+                    <option value="">Select size</option>
+                    {SIZE_OPTIONS[productUnit as keyof typeof SIZE_OPTIONS]?.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
-                  <Input value={selectedGlassDeposit.case.toFixed(2)} readOnly />
+                  <label className="text-sm font-medium text-gray-700">Weight (kg)</label>
+                  <Input
+                    value={selectedProductWeight !== null ? selectedProductWeight.toFixed(2) : ''}
+                    readOnly
+                    placeholder="Auto"
+                  />
                 </div>
-                <p className="col-span-2 text-xs text-emerald-800">Automatically configured for this supported glass-bottle size.</p>
               </div>
-            ) : selectedCategorySpec?.depositExempt ? (
-              <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
-            ) : null}
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Photo</label>
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setProductImageFile(e.target.files?.[0] || null)}
-              />
+              {selectedGlassDeposit ? (
+                <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-emerald-900">Deposit / Bottle</label>
+                    <Input value={`PHP ${selectedGlassDeposit.bottle.toFixed(2)}`} readOnly />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-emerald-900">Deposit / Case</label>
+                    <Input value={`PHP ${selectedGlassDeposit.case.toFixed(2)}`} readOnly />
+                  </div>
+                  <p className="col-span-2 text-xs text-emerald-800">Auto-configured for this supported glass-bottle size.</p>
+                </div>
+              ) : selectedCategorySpec?.depositExempt ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
+              ) : null}
             </div>
-            <div className="md:col-span-2 flex gap-2 pt-4 border-t">
+
+            {/* Bottom Actions spanning full width */}
+            <div className="md:col-span-2 flex gap-3 pt-3 border-t">
               <Button
                 variant="outline"
                 className="flex-1"
@@ -1056,7 +940,6 @@ export function InventoryView() {
                   setProductSizes([])
                   setProductImageFile(null)
                   setProductWarehouseId('')
-                  setProductPackagingProfileId('')
                 }}
                 disabled={isSubmittingProduct}
               >
@@ -1074,12 +957,6 @@ export function InventoryView() {
           </div>
         </DialogContent>
       </Dialog>
-      <PackagingProfileDialog
-        open={packagingProfilesOpen}
-        onOpenChange={setPackagingProfilesOpen}
-        profiles={packagingProfiles}
-        onSaved={fetchPackagingProfiles}
-      />
     </div>
   )
 }

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Poppins } from 'next/font/google'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
@@ -14,10 +13,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
+const poppins = { className: '' }
 
 export function AdminLoginPage() {
   const router = useRouter()

@@ -22,11 +22,11 @@ type MixedCaseBuilderDialogProps = {
 const makeCartKey = () =>
   `mixed:${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`}`
 
-const getAllowedCapacities = (product: Product) => Array.from(new Set(
-  (product.packagingProfile?.allowedMixedCaseCapacities || [])
-    .map((value) => Math.floor(Number(value)))
-    .filter((value) => Number.isInteger(value) && value > 0)
-))
+// Mixed cases use the real case quantity; a separate packaging profile is unnecessary.
+const getAllowedCapacities = (product: Product) => {
+  const capacity = Math.floor(Number(product.quantityPerCase ?? product.quantityPerUnit ?? 0))
+  return Number.isInteger(capacity) && capacity > 0 ? [capacity] : []
+}
 
 const getSupportedCapacities = (products: Product[]) => {
   const supportByCapacity = new Map<number, number>()
@@ -52,9 +52,10 @@ export function MixedCaseBuilderDialog({
   const groups = useMemo(() => {
     const map = new Map<string, Product[]>()
     products.forEach((product) => {
-      const profile = product.packagingProfile
       const categorySpec = getBeverageCategorySpec(product.category)
-      if ((product as any)?.isActive === false || !profile?.isActive || !categorySpec || Number(product.availableBaseUnits || 0) <= 0) return
+      const orderFormat = String((product as any)?.unit || '').trim().toLowerCase()
+      // Mixed Case is only available for full cases of carbonated glass bottles.
+      if ((product as any)?.isActive === false || categorySpec?.category !== 'Carbonated (Glass)' || orderFormat !== 'case' || Number(product.availableBaseUnits || 0) <= 0) return
       const rows = map.get(categorySpec.compatibilityKey) || []
       rows.push(product)
       map.set(categorySpec.compatibilityKey, rows)

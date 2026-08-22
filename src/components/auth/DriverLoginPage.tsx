@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Poppins } from 'next/font/google'
 import { Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
@@ -10,10 +9,7 @@ import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
+const poppins = { className: '' }
 
 const DRIVER_CARD_FALLBACK_WIDTH = 420
 const DRIVER_CARD_FALLBACK_HEIGHT = 740

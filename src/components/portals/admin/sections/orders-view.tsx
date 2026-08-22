@@ -69,8 +69,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
-  const [loadChecklistOpen, setLoadChecklistOpen] = useState(false)
-  const [loadChecklist, setLoadChecklist] = useState<Record<string, boolean>>({})
   const [warehouseFilterId, setWarehouseFilterId] = useState('all')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderDatePreset, setOrderDatePreset] = useState('all')
@@ -370,11 +368,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
     return raw.replace(/_/g, ' ')
   }
 
-  const formatWarehouseStage = (stage: string | null | undefined) => {
-    const value = String(stage || 'READY_TO_LOAD').toUpperCase()
-    return value.replace(/_/g, ' ')
-  }
-
   const getDisplayOrderStatus = (order: any) => {
     const summary = deriveOrderFulfillmentSummary(order)
     if (summary.totalLegs > 1) {
@@ -660,9 +653,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
     }
   }, [warehouseFilterId, warehouseFilterOptions])
 
-  const isWarehouseChecklistComplete = (order: any) =>
-    ['LOADED', 'DISPATCHED'].includes(String(order?.warehouseStage || '').toUpperCase())
-
   const mergeOrderState = (orderId: string, updatedOrder: any, fallbackStatus?: string) => {
     setOrders((prev) =>
       prev.map((order) =>
@@ -757,37 +747,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
       return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
-      return false
-    } finally {
-      setUpdatingOrderId(null)
-    }
-  }
-
-  const updateWarehouseStage = async (
-    orderId: string,
-    stage: 'READY_TO_LOAD' | 'LOADED' | 'DISPATCHED'
-  ) => {
-    setUpdatingOrderId(orderId)
-    try {
-      const response = await fetch(`/api/orders/${orderId}/warehouse-stage`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          warehouseStage: stage,
-        }),
-      })
-
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok || result?.success === false) {
-        throw new Error(result?.error || 'Failed to update warehouse stage')
-      }
-
-      mergeOrderState(orderId, result?.order)
-      emitDataSync(['orders', 'trips'])
-      toast.success(result?.message || `Warehouse stage moved to ${stage.replace(/_/g, ' ')}`)
-      return true
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to update warehouse stage')
       return false
     } finally {
       setUpdatingOrderId(null)
@@ -1061,19 +1020,18 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                   </div>
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4">
                     <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-medium text-slate-600">Warehouse Stage</p>
+                      <p className="text-sm font-medium text-slate-600">Driver Assignment</p>
                       <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-blue-700 sm:h-11 sm:w-11">
                         <Building2 className="h-5 w-5" />
                       </div>
                     </div>
-                    <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">{formatWarehouseStage(selectedOrder.warehouseStage)}</p>
                     {selectedOrder.isDriverAssigned ? (
-                      <p className="mt-1 text-sm text-slate-700">
+                      <p className="text-[0.8rem] font-bold leading-tight text-blue-700 sm:text-[0.98rem]">
                         Driver: {selectedOrder.assignedDriverName || 'Assigned'}
                       </p>
                     ) : (
-                      <div className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                        Driver not assigned
+                      <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                        Not Assigned
                       </div>
                     )}
                   </div>
@@ -1293,68 +1251,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
               </div>
             </>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={loadChecklistOpen} onOpenChange={setLoadChecklistOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Checklist</DialogTitle>
-            <DialogDescription>Complete every product before marking this order as loaded.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-                  <div className="space-y-2 text-sm">
-                    {(selectedOrder?.items || []).map((item: any) => (
-                      <label key={item.id} className="flex items-center gap-3 rounded border p-3">
-                        <input
-                          type="checkbox"
-                    checked={Boolean(loadChecklist[String(item.id)])}
-                    onChange={(event) =>
-                      setLoadChecklist((prev) => ({
-                        ...prev,
-                        [String(item.id)]: event.target.checked,
-                            }))
-                          }
-                        />
-                        <div>
-                          <p>
-                            {item.product?.name || 'Product'}
-                            {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
-                            {' '}x{item.quantity}
-                          </p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setLoadChecklistOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 bg-amber-600 hover:bg-amber-700"
-                onClick={async () => {
-                  if (!selectedOrder?.id) return
-                  if (!selectedOrder.isDriverAssigned) {
-                    toast.error('Assign this order to a driver first.')
-                    return
-                  }
-                  const checklistEntries = Object.values(loadChecklist)
-                  if (checklistEntries.length === 0 || checklistEntries.some((value) => !value)) {
-                    toast.error('Complete the checklist first.')
-                    return
-                  }
-                  const done = await updateWarehouseStage(selectedOrder.id, 'LOADED')
-                  if (done) {
-                    setLoadChecklistOpen(false)
-                  }
-                }}
-                disabled={updatingOrderId === selectedOrder?.id}
-              >
-                Confirm Loaded
-              </Button>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
 

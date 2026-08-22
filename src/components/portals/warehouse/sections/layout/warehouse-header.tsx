@@ -1,6 +1,6 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ import { ChevronDown, LogOut, Menu, Search } from 'lucide-react'
 type WarehouseHeaderProps = {
   userName: string
   userEmail: string
+  userAvatar?: string
   onOpenSidebar: () => void
   onLogout: () => void
 }
@@ -23,6 +24,7 @@ type WarehouseHeaderProps = {
 export function WarehouseHeader({
   userName,
   userEmail,
+  userAvatar,
   onOpenSidebar,
   onLogout,
 }: WarehouseHeaderProps) {
@@ -44,6 +46,7 @@ export function WarehouseHeader({
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 text-slate-700 hover:bg-white/45 hover:text-slate-950">
                 <Avatar className="h-8 w-8">
+                  {userAvatar ? <AvatarImage src={userAvatar} alt={`${userName || 'User'} avatar`} className="object-cover" /> : null}
                   <AvatarFallback className="bg-linear-to-br from-cyan-600 to-emerald-600 text-sm text-white shadow-[0_8px_18px_rgba(8,145,178,0.28)]">
                     {userName?.charAt(0).toUpperCase()}
                   </AvatarFallback>

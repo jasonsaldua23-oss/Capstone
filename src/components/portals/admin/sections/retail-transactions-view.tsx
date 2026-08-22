@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { safeFetchJson, getCollection } from './shared'
 
 type RetailSaleItem = {
   id: string
@@ -91,7 +92,6 @@ export function RetailTransactionsView() {
   const [searchQuery, setSearchQuery] = useState('')
   const [warehouseFilter, setWarehouseFilter] = useState('ALL')
   const [paymentFilter, setPaymentFilter] = useState('ALL')
-  const [fulfillmentFilter, setFulfillmentFilter] = useState('ALL')
   const [selectedReceipt, setSelectedReceipt] = useState<RetailSale | null>(null)
 
   const fetchSales = useCallback(async () => {
@@ -100,12 +100,11 @@ export function RetailTransactionsView() {
       const url = warehouseFilter && warehouseFilter !== 'ALL'
         ? `/api/retail/sales?warehouseId=${encodeURIComponent(warehouseFilter)}&pageSize=500`
         : '/api/retail/sales?pageSize=500'
-      const response = await fetch(url, { cache: 'no-store', credentials: 'include' })
-      const payload = await response.json().catch(() => ({}))
-      if (response.ok && payload?.success !== false) {
-        setSales(Array.isArray(payload?.sales) ? payload.sales : [])
+      const result = await safeFetchJson(url, { cache: 'no-store' })
+      if (result.ok) {
+        setSales(getCollection<RetailSale>(result.data, ['sales']))
       } else {
-        toast.error(payload?.error || 'Failed to load retail sales')
+        toast.error(result.data?.error || 'Failed to load retail sales')
       }
     } catch {
       toast.error('Network error loading retail sales')
@@ -116,10 +115,9 @@ export function RetailTransactionsView() {
 
   const fetchWarehouses = useCallback(async () => {
     try {
-      const res = await fetch('/api/warehouses?page=1&pageSize=100', { cache: 'no-store', credentials: 'include' })
-      const payload = await res.json().catch(() => ({}))
-      if (res.ok) {
-        setWarehouses(Array.isArray(payload?.warehouses) ? payload.warehouses : payload?.data || [])
+      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=100', { cache: 'no-store' })
+      if (result.ok) {
+        setWarehouses(getCollection<any>(result.data, ['warehouses']))
       }
     } catch {
       // ignore
@@ -149,14 +147,9 @@ export function RetailTransactionsView() {
         paymentFilter === 'ALL' ||
         String(sale.paymentStatus).toUpperCase() === paymentFilter
 
-      const matchesFulfillment =
-        fulfillmentFilter === 'ALL' ||
-        String(sale.fulfillmentType).toUpperCase() === fulfillmentFilter ||
-        String(sale.pickupStatus).toUpperCase() === fulfillmentFilter
-
-      return matchesSearch && matchesPayment && matchesFulfillment
+      return matchesSearch && matchesPayment
     })
-  }, [sales, searchQuery, paymentFilter, fulfillmentFilter])
+  }, [sales, searchQuery, paymentFilter])
 
   // Summary Metrics
   const totalRevenue = useMemo(() => {
@@ -167,12 +160,8 @@ export function RetailTransactionsView() {
     return sales.reduce((sum, s) => sum + Number(s.amountPaid || 0), 0)
   }, [sales])
 
-  const pendingPickups = useMemo(() => {
-    return sales.filter(
-      (s) =>
-        s.fulfillmentType === 'CUSTOMER_PICKUP' &&
-        ['PENDING', 'PENDING_PICKUP', 'READY_FOR_PICKUP'].includes(String(s.pickupStatus).toUpperCase())
-    ).length
+  const fullyPaidCount = useMemo(() => {
+    return sales.filter((s) => String(s.paymentStatus).toUpperCase() === 'PAID').length
   }, [sales])
 
   const pendingPayments = useMemo(() => {
@@ -188,13 +177,6 @@ export function RetailTransactionsView() {
     return 'bg-rose-100 text-rose-800 border-rose-200'
   }
 
-  const getFulfillmentBadgeClass = (type: string, pickupStatus: string) => {
-    if (type === 'IMMEDIATE') return 'bg-blue-100 text-blue-800 border-blue-200'
-    const ps = String(pickupStatus || '').toUpperCase()
-    if (ps === 'PICKED_UP' || ps === 'COMPLETED') return 'bg-emerald-100 text-emerald-800 border-emerald-200'
-    return 'bg-purple-100 text-purple-800 border-purple-200'
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -205,7 +187,7 @@ export function RetailTransactionsView() {
             Retail / Counter Transactions
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Track walk-in POS counter sales, payment settlements, and customer pickup orders across warehouses.
+            Track walk-in POS counter sales and payment settlements across warehouses.
           </p>
         </div>
         <Button
@@ -252,16 +234,16 @@ export function RetailTransactionsView() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-purple-50/50 to-white">
+        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-indigo-50/50 to-white">
           <CardContent className="pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Pending Pickups</p>
-                <p className="text-2xl font-bold text-purple-700 mt-1">{pendingPickups}</p>
-                <p className="text-xs text-slate-500 mt-0.5">Awaiting customer collection</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Fully Settled Sales</p>
+                <p className="text-2xl font-bold text-indigo-700 mt-1">{fullyPaidCount}</p>
+                <p className="text-xs text-slate-500 mt-0.5">Paid in full at release</p>
               </div>
-              <div className="rounded-xl p-2.5 bg-purple-100 text-purple-600">
-                <Package className="h-5 w-5" />
+              <div className="rounded-xl p-2.5 bg-indigo-100 text-indigo-600">
+                <CheckCircle2 className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
@@ -331,18 +313,6 @@ export function RetailTransactionsView() {
                 <option value="PARTIALLY_PAID">Partially Paid</option>
                 <option value="PENDING">Pending</option>
               </select>
-
-              {/* Fulfillment filter */}
-              <select
-                value={fulfillmentFilter}
-                onChange={(e) => setFulfillmentFilter(e.target.value)}
-                className="h-9 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
-              >
-                <option value="ALL">All Fulfillments</option>
-                <option value="IMMEDIATE">Immediate Handout</option>
-                <option value="CUSTOMER_PICKUP">Customer Pickup</option>
-                <option value="PICKED_UP">Picked Up</option>
-              </select>
             </div>
           </div>
         </CardHeader>
@@ -374,8 +344,7 @@ export function RetailTransactionsView() {
                     <th className="px-4 py-3 text-center">Items</th>
                     <th className="px-4 py-3 text-right">Total Amount</th>
                     <th className="px-4 py-3 text-right">Amount Paid</th>
-                    <th className="px-4 py-3 text-center">Payment</th>
-                    <th className="px-4 py-3 text-center">Fulfillment</th>
+                    <th className="px-4 py-3 text-center">Payment Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -435,15 +404,6 @@ export function RetailTransactionsView() {
                         <td className="px-4 py-3 text-center">
                           <Badge variant="outline" className={getPaymentBadgeClass(sale.paymentStatus)}>
                             {sale.paymentStatus || 'UNPAID'}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Badge variant="outline" className={getFulfillmentBadgeClass(sale.fulfillmentType, sale.pickupStatus)}>
-                            {sale.fulfillmentType === 'IMMEDIATE'
-                              ? 'Immediate'
-                              : sale.pickupStatus === 'PICKED_UP'
-                              ? 'Picked Up'
-                              : 'Pickup Pending'}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -508,9 +468,7 @@ export function RetailTransactionsView() {
                 </div>
                 <div>
                   <span className="text-slate-400 uppercase tracking-wider block">Fulfillment</span>
-                  <span className="font-medium text-slate-800">
-                    {selectedReceipt.fulfillmentType === 'IMMEDIATE' ? 'Immediate Handout' : 'Customer Pickup'}
-                  </span>
+                  <span className="font-medium text-slate-800">Immediate Release</span>
                   {selectedReceipt.walkInNotes ? (
                     <span className="text-slate-500 block italic">"{selectedReceipt.walkInNotes}"</span>
                   ) : null}

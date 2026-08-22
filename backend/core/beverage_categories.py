@@ -59,30 +59,74 @@ CATEGORY_SPECS: dict[str, dict[str, Any]] = {
         "depositAllowed": False,
         "depositExempt": True,
     },
+    "Water": {
+        "packagingType": "PET/Plastic Bottle",
+        "looseUnit": "PET/Plastic Bottle",
+        "compatibilityKey": "PET_PLASTIC_BOTTLE",
+        "depositAllowed": False,
+        "depositExempt": True,
+    },
 }
 
-# Accept legacy values already stored without a space before the material suffix.
+# Accept legacy and alternative beverage category values stored in database
 _CATEGORY_ALIASES = {
     "carbonated(glass)": "Carbonated (Glass)",
     "carbonated(pet/plastic)": "Carbonated (PET/PLASTIC)",
     "carbonated(cans)": "Carbonated (Cans)",
     "energy drinks(glass)": "Energy Drinks (Glass)",
+    "beer & liquor": "Alcohol",
+    "beer and liquor": "Alcohol",
+    "beer": "Alcohol",
+    "beers": "Alcohol",
+    "liquor": "Alcohol",
+    "wine": "Alcohol",
+    "spirits": "Alcohol",
+    "juices": "Water",
+    "juice": "Water",
+    "fruit juice": "Water",
+    "soft drinks": "Carbonated (PET/PLASTIC)",
+    "soft drink": "Carbonated (PET/PLASTIC)",
+    "soda": "Carbonated (PET/PLASTIC)",
+    "carbonated": "Carbonated (PET/PLASTIC)",
+    "energy drink": "Energy Drinks",
+    "sport drink": "Sport Drinks",
+    "sports drink": "Sport Drinks",
+    "sports drinks": "Sport Drinks",
+    "water": "Water",
+    "mineral water": "Water",
+    "purified water": "Water",
 }
 
 
 def canonical_category(value: Any) -> str | None:
     raw = str(value or "").strip()
     if not raw:
-        return None
+        return "Carbonated (PET/PLASTIC)"
     if raw in CATEGORY_SPECS:
         return raw
-    alias = _CATEGORY_ALIASES.get(raw.casefold())
+    low = raw.casefold()
+    alias = _CATEGORY_ALIASES.get(low)
     if alias:
         return alias
     for category in CATEGORY_SPECS:
-        if category.casefold() == raw.casefold():
+        if category.casefold() == low:
             return category
-    return None
+    # Keyword-based fuzzy fallback for non-standard categories
+    if "glass" in low:
+        return "Energy Drinks (Glass)" if "energy" in low else "Carbonated (Glass)"
+    if "can" in low:
+        return "Carbonated (Cans)"
+    if any(term in low for term in ("beer", "alcohol", "liquor", "wine", "spirit")):
+        return "Alcohol"
+    if "energy" in low:
+        return "Energy Drinks"
+    if "sport" in low:
+        return "Sport Drinks"
+    if any(term in low for term in ("water", "juice")):
+        return "Water"
+    if any(term in low for term in ("soft", "soda", "carbonat", "pet", "plastic")):
+        return "Carbonated (PET/PLASTIC)"
+    return "Carbonated (PET/PLASTIC)"
 
 
 def category_spec(value: Any) -> dict[str, Any] | None:

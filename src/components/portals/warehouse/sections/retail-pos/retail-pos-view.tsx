@@ -8,8 +8,33 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Minus, Plus, ReceiptText, Search, ShoppingCart, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowRight,
+  Boxes,
+  CheckCircle2,
+  Clock,
+  Layers,
+  Loader2,
+  Minus,
+  Package,
+  Plus,
+  Printer,
+  Receipt,
+  ReceiptText,
+  Recycle,
+  RefreshCw,
+  Search,
+  ShoppingCart,
+  Store,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
+import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
+import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { getTabAuthToken } from '@/lib/client-auth'
 
 type RetailProduct = {
   id: string
@@ -46,12 +71,38 @@ type RetailCartLine = {
 type RetailCustomer = { id: string; name: string; email?: string; phone?: string }
 type RetailSale = Record<string, any>
 
-const peso = (value: unknown) => `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const getProductSizeLabel = (p?: RetailProduct | null) => (Array.isArray(p?.sizes) && p.sizes.length > 0 ? ` (${p.sizes.join(', ')})` : '')
+const peso = (value: unknown) =>
+  `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-async function readJson(response: Response) {
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Request failed')
+const getProductSizeLabel = (p?: RetailProduct | null) =>
+  Array.isArray(p?.sizes) && p.sizes.length > 0 ? ` (${p.sizes.join(', ')})` : ''
+
+const getProductPrimarySize = (p?: RetailProduct | null) => {
+  if (!p || !Array.isArray(p.sizes) || p.sizes.length === 0) return ''
+  return p.sizes[0]
+}
+
+async function authFetch(url: string, init?: RequestInit) {
+  const token = getTabAuthToken()
+  const headers = new Headers(init?.headers || {})
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  const response = await fetch(url, {
+    ...init,
+    headers,
+    credentials: 'include',
+  })
+  const text = await response.text()
+  let payload: any = {}
+  try {
+    payload = text ? JSON.parse(text) : {}
+  } catch {
+    payload = { error: response.status === 401 ? 'Unauthorized. Please refresh or log in again.' : `Server returned status ${response.status}` }
+  }
+  if (!response.ok || payload?.success === false) {
+    throw new Error(payload?.error || payload?.message || `Request failed (${response.status})`)
+  }
   return payload
 }
 
@@ -61,6 +112,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [sales, setSales] = useState<RetailSale[]>([])
   const [cart, setCart] = useState<RetailCartLine[]>([])
   const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('ALL')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [quoteResult, setQuoteResult] = useState<any>(null)
@@ -74,7 +126,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [walkInMiddleName, setWalkInMiddleName] = useState('')
   const [walkInContact, setWalkInContact] = useState('')
   const [walkInNotes, setWalkInNotes] = useState('')
-  const [fulfillmentType, setFulfillmentType] = useState<'IMMEDIATE' | 'CUSTOMER_PICKUP'>('IMMEDIATE')
+  const fulfillmentType = 'IMMEDIATE'
   const [amountPaid, setAmountPaid] = useState('0.00')
   const [mixedCapacity, setMixedCapacity] = useState(12)
   const [mixedProductA, setMixedProductA] = useState('')
@@ -89,16 +141,29 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [productPayload, customerPayload, salesPayload] = await Promise.all([
-        fetch(`/api/retail/products?warehouseId=${encodeURIComponent(warehouseId)}&pageSize=100`, { cache: 'no-store', credentials: 'include' }).then(readJson),
-        fetch('/api/customers?pageSize=100', { cache: 'no-store', credentials: 'include' }).then(readJson),
-        fetch(`/api/retail/sales?warehouseId=${encodeURIComponent(warehouseId)}&pageSize=25`, { cache: 'no-store', credentials: 'include' }).then(readJson),
+      const warehouseParam = warehouseId ? `warehouseId=${encodeURIComponent(warehouseId)}&` : ''
+      const [productRes, customerRes, salesRes] = await Promise.allSettled([
+        authFetch(`/api/retail/products?${warehouseParam}pageSize=100`),
+        authFetch('/api/customers?pageSize=200'),
+        authFetch(`/api/retail/sales?${warehouseParam}pageSize=20`),
       ])
-      setProducts(Array.isArray(productPayload?.products) ? productPayload.products : [])
-      setCustomers(Array.isArray(customerPayload?.customers) ? customerPayload.customers : [])
-      setSales(Array.isArray(salesPayload?.sales) ? salesPayload.sales : [])
+
+      if (productRes.status === 'fulfilled') {
+        setProducts(productRes.value.products || [])
+      } else {
+        console.error('Failed to load retail products:', productRes.reason)
+        toast.error('Could not load products for this warehouse')
+      }
+
+      if (customerRes.status === 'fulfilled') {
+        setCustomers(customerRes.value.customers || [])
+      }
+
+      if (salesRes.status === 'fulfilled') {
+        setSales(salesRes.value.sales || [])
+      }
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to load Retail / POS')
+      toast.error(error?.message || 'Unable to load retail portal data')
     } finally {
       setLoading(false)
     }
@@ -112,11 +177,28 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     if (receipt) setReceiptPaymentAmount(String(receipt.amountPaid || '0.00'))
   }, [receipt])
 
+  // Extract unique categories for filter tabs
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    products.forEach((p) => {
+      if (p.category) set.add(p.category.trim())
+    })
+    return ['ALL', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
+  }, [products])
+
   const visibleProducts = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    if (!needle) return products
-    return products.filter((product) => `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(needle))
-  }, [products, search])
+    return products.filter((product) => {
+      const sizesText = Array.isArray(product.sizes) ? product.sizes.join(' ') : ''
+      const matchesSearch =
+        !needle ||
+        `${product.name} ${sizesText} ${product.sku} ${product.category} ${product.packagingType}`.toLowerCase().includes(needle)
+      const matchesCategory =
+        selectedCategory === 'ALL' ||
+        product.category?.trim().toLowerCase() === selectedCategory.toLowerCase()
+      return matchesSearch && matchesCategory
+    })
+  }, [products, search, selectedCategory])
 
   const availableCapacities = useMemo(() => {
     const caps = new Set<number>()
@@ -134,69 +216,136 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   }, [availableCapacities, mixedCapacity])
 
   const mixedProducts = useMemo(
-    () => products.filter((product) => product.supportedModes.includes('MIXED_CASE') && product.mixedCaseCapacities.includes(mixedCapacity)),
-    [mixedCapacity, products],
+    () =>
+      products.filter(
+        (product) =>
+          product.supportedModes.includes('MIXED_CASE') && product.mixedCaseCapacities.includes(mixedCapacity)
+      ),
+    [mixedCapacity, products]
   )
 
   const addProduct = (product: RetailProduct, mode: 'LOOSE' | 'CASE') => {
     setCart((current) => {
       const existing = current.find((line) => line.mode === mode && line.productId === product.id)
-      if (existing) return current.map((line) => line.key === existing.key ? { ...line, quantity: line.quantity + 1 } : line)
-      return [...current, { key: crypto.randomUUID(), mode, productId: product.id, quantity: 1, emptyBottlesProvided: 0 }]
+      if (existing) {
+        return current.map((line) =>
+          line.key === existing.key ? { ...line, quantity: line.quantity + 1 } : line
+        )
+      }
+      return [
+        ...current,
+        { key: crypto.randomUUID(), mode, productId: product.id, quantity: 1, emptyBottlesProvided: 0 },
+      ]
     })
     invalidateQuote()
+    toast.success(`Added ${product.name} (${mode === 'CASE' ? 'Case' : 'Loose'}) to sale`)
   }
 
   const updateLine = (key: string, changes: Partial<RetailCartLine>) => {
-    setCart((current) => current.map((line) => line.key === key ? { ...line, ...changes } : line))
+    setCart((current) => current.map((line) => (line.key === key ? { ...line, ...changes } : line)))
     invalidateQuote()
+  }
+
+  const removeLine = (key: string) => {
+    setCart((current) => current.filter((line) => line.key !== key))
+    invalidateQuote()
+  }
+
+  const clearCart = () => {
+    if (!cart.length) return
+    setCart([])
+    invalidateQuote()
+    toast.info('Sale cart cleared')
   }
 
   const addMixedCase = () => {
     const quantityB = mixedCapacity - mixedQuantityA
-    if (!mixedProductA || !mixedProductB || mixedProductA === mixedProductB || mixedQuantityA <= 0 || quantityB <= 0) {
-      toast.error('Choose two different products and split the full case between them')
+    if (
+      !mixedProductA ||
+      !mixedProductB ||
+      mixedProductA === mixedProductB ||
+      mixedQuantityA <= 0 ||
+      quantityB <= 0
+    ) {
+      toast.error('Please choose two different products and split the full case capacity between them')
       return
     }
-    setCart((current) => [...current, {
-      key: crypto.randomUUID(),
-      mode: 'MIXED_CASE',
-      quantity: 1,
-      caseCapacity: mixedCapacity,
-      components: [
-        { productId: mixedProductA, quantityBaseUnits: mixedQuantityA, emptyBottlesProvided: 0 },
-        { productId: mixedProductB, quantityBaseUnits: quantityB, emptyBottlesProvided: 0 },
-      ],
-    }])
+    setCart((current) => [
+      ...current,
+      {
+        key: crypto.randomUUID(),
+        mode: 'MIXED_CASE',
+        quantity: 1,
+        caseCapacity: mixedCapacity,
+        components: [
+          { productId: mixedProductA, quantityBaseUnits: mixedQuantityA, emptyBottlesProvided: 0 },
+          { productId: mixedProductB, quantityBaseUnits: quantityB, emptyBottlesProvided: 0 },
+        ],
+      },
+    ])
     invalidateQuote()
+    toast.success(`Added Mixed Case (${mixedCapacity} bottles) to sale`)
   }
 
-  const requestBody = () => ({
-    warehouseId,
-    customerType,
-    customerId: customerType === 'EXISTING' ? customerId : undefined,
-    // Keep the existing API contract while collecting each part of the walk-in customer's name separately.
-    walkIn: customerType === 'WALK_IN' ? {
-      name: [walkInFirstName, walkInLastName, walkInMiddleName].map((part) => part.trim()).filter(Boolean).join(' '),
-      contactNumber: walkInContact,
-      notes: walkInNotes,
-    } : undefined,
-    fulfillmentType,
-    amountPaid,
-    items: cart.map(({ key: _key, ...line }) => line),
-  })
+  const validateCustomerInfo = () => {
+    if (customerType === 'EXISTING') {
+      if (!customerId) {
+        toast.error('Please select an existing customer')
+        return false
+      }
+    } else {
+      if (!walkInFirstName.trim()) {
+        toast.error('First name is required for walk-in customer')
+        return false
+      }
+      if (!walkInLastName.trim()) {
+        toast.error('Last name is required for walk-in customer')
+        return false
+      }
+      if (!walkInContact.trim()) {
+        toast.error('Contact number is required for walk-in customer')
+        return false
+      }
+    }
+    return true
+  }
+
+  const requestBody = () => {
+    const walkInFullName = [walkInFirstName.trim(), walkInMiddleName.trim(), walkInLastName.trim()]
+      .filter(Boolean)
+      .join(' ')
+
+    return {
+      warehouseId,
+      customerType,
+      customerId: customerType === 'EXISTING' ? customerId : undefined,
+      walkIn:
+        customerType === 'WALK_IN'
+          ? {
+              name: walkInFullName,
+              contactNumber: walkInContact.trim(),
+              notes: walkInNotes.trim(),
+            }
+          : undefined,
+      fulfillmentType,
+      amountPaid: amountPaid.trim() || '0.00',
+      items: cart.map(({ key: _key, ...line }) => line),
+    }
+  }
 
   const reviewSale = async () => {
-    if (!cart.length) return toast.error('Add at least one product')
-    if (customerType === 'EXISTING' && !customerId) return toast.error('Select an existing customer')
+    if (!cart.length) return toast.error('Add at least one product to the sale')
+    if (!validateCustomerInfo()) return
     setSubmitting(true)
     try {
-      const payload = await fetch('/api/retail/quote', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody()),
-      }).then(readJson)
+      const payload = await authFetch('/api/retail/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody()),
+      })
       setQuoteResult(payload.quote)
       setQuoteToken(payload.quoteToken)
-      toast.success('Totals refreshed from current stock and deposit settings')
+      toast.success('Sale totals verified and ready for checkout')
     } catch (error: any) {
       toast.error(error?.message || 'Unable to quote this sale')
     } finally {
@@ -205,24 +354,30 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   }
 
   const completeSale = async () => {
-    if (!quoteToken) return toast.error('Review the current totals before checkout')
+    if (!cart.length) return toast.error('Add at least one product to the sale')
+    if (!validateCustomerInfo()) return
+    if (!quoteToken) return toast.error('Please review the current totals before completing checkout')
     setSubmitting(true)
     try {
-      const payload = await fetch('/api/retail/sales', {
+      const payload = await authFetch('/api/retail/sales', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...requestBody(), quoteToken, idempotencyKey: crypto.randomUUID() }),
-      }).then(readJson)
+      })
       setReceipt(payload.sale)
       setCart([])
       invalidateQuote()
       setAmountPaid('0.00')
-      toast.success(fulfillmentType === 'IMMEDIATE' ? 'Retail sale completed' : 'Pickup sale reserved')
+      setWalkInFirstName('')
+      setWalkInLastName('')
+      setWalkInMiddleName('')
+      setWalkInContact('')
+      setWalkInNotes('')
+      toast.success('Retail sale completed successfully')
       await loadData()
     } catch (error: any) {
       invalidateQuote()
-      toast.error(error?.message || 'Unable to complete this sale')
+      toast.error(error?.message || 'Unable to complete this retail sale')
     } finally {
       setSubmitting(false)
     }
@@ -232,12 +387,11 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     if (!receipt) return
     setSubmitting(true)
     try {
-      const payload = await fetch(`/api/retail/sales/${receipt.id}/${path}`, {
+      const payload = await authFetch(`/api/retail/sales/${receipt.id}/${path}`, {
         method,
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ warehouseId, ...body }),
-      }).then(readJson)
+      })
       setReceipt(payload.sale)
       toast.success('Retail transaction updated')
       await loadData()
@@ -248,144 +402,827 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     }
   }
 
+  const selectedProductAData = useMemo(
+    () => products.find((p) => p.id === mixedProductA),
+    [products, mixedProductA]
+  )
+  const selectedProductBData = useMemo(
+    () => products.find((p) => p.id === mixedProductB),
+    [products, mixedProductB]
+  )
+
+  const cartTotalItemsCount = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart]
+  )
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-950">Retail / POS</h1>
-        <p className="text-sm text-slate-600">Process counter sales, bottle deposits, and offline customer pickups.</p>
+      {/* View Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Retail / POS</h1>
+            <Badge variant="outline" className="border-sky-200 bg-sky-50 font-semibold text-sky-700">
+              Counter Sales
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            Process on-the-spot counter sales and manage bottle deposit refunds.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadData()}
+            disabled={loading}
+            className="gap-2 rounded-xl border-slate-200 bg-white/80 shadow-xs hover:bg-slate-50"
+          >
+            <RefreshCw className={`h-4 w-4 text-slate-600 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.8fr)]">
-        <div className="space-y-6">
-          <Card className="border-white/50 bg-white/75 shadow-sm backdrop-blur-xl">
-            <CardHeader>
-              <CardTitle>Products</CardTitle>
-              <CardDescription>Availability reflects your assigned warehouse.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input aria-label="Search retail products" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, SKU, or category" className="pl-9" />
+      {/* Main Grid: Catalog/Tools vs Checkout Drawer */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.95fr)]">
+        {/* Left Column: Products Catalog, Mixed Case Builder, and Recent Transactions */}
+        <div className="space-y-6 min-w-0">
+          {/* Catalog Card */}
+          <Card className="rounded-3xl border border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-xl">
+            <CardHeader className="border-b border-slate-100 pb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-lg font-bold text-slate-900">Product Catalog</CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Live inventory availability for this warehouse
+                  </CardDescription>
+                </div>
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <Input
+                    aria-label="Search retail products"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search name, size, or type..."
+                    className="h-9 rounded-xl pl-9 text-xs border-slate-200 bg-white"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
-              {loading ? <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin" /></div> : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {visibleProducts.map((product) => (
-                    <div key={product.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <div className="flex gap-3">
-                        <div className="h-16 w-16 overflow-hidden rounded-xl bg-slate-100">
-                          {product.imageUrl ? <img src={product.imageUrl} alt="" className="h-full w-full object-cover" /> : null}
+
+              {/* Category Filter Chips */}
+              {categories.length > 2 && (
+                <div className="mt-3 flex flex-wrap gap-1.5 pt-1">
+                  {categories.map((cat) => {
+                    const isActive = selectedCategory === cat
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                          isActive
+                            ? 'bg-slate-900 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {cat === 'ALL' ? 'All Categories' : cat}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </CardHeader>
+
+            <CardContent className="p-4 sm:p-6">
+              {loading ? (
+                <PortalTableSkeleton rows={4} columns={4} className="border-0 shadow-none" />
+              ) : visibleProducts.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 py-12 text-center">
+                  <Package className="mx-auto h-8 w-8 text-slate-400" />
+                  <p className="mt-2 text-sm font-semibold text-slate-700">No products found</p>
+                  <p className="text-xs text-slate-500">
+                    {search || selectedCategory !== 'ALL'
+                      ? 'Try adjusting your search query or category filter.'
+                      : 'No retail products currently match your active filters.'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 text-xs"
+                    onClick={() => {
+                      setSearch('')
+                      setSelectedCategory('ALL')
+                      void loadData()
+                    }}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    Reload Catalog
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid gap-3.5 sm:grid-cols-2">
+                  {visibleProducts.map((product) => {
+                    const hasCase = product.supportedModes.includes('CASE')
+                    const isOutOfStock = product.availableCases < 1
+                    const primarySize = getProductPrimarySize(product)
+
+                    return (
+                      <div
+                        key={product.id}
+                        className={`group relative flex flex-col justify-between rounded-2xl border bg-white p-4 transition-all duration-200 hover:shadow-md ${
+                          isOutOfStock
+                            ? 'border-slate-200 opacity-60'
+                            : 'border-slate-200/90 hover:border-sky-300'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-start gap-3">
+                            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                              <img
+                                src={product.imageUrl || '/ann-anns-logo.png'}
+                                alt={product.name}
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = '/ann-anns-logo.png'
+                                }}
+                              />
+                              {product.depositEligible && (
+                                <span
+                                  className="absolute bottom-0.5 right-0.5 rounded-full bg-emerald-600 p-0.5 text-white shadow-xs"
+                                  title="Bottle Deposit Eligible"
+                                >
+                                  <Recycle className="h-3 w-3" />
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-slate-900 leading-tight line-clamp-1">
+                                  {product.name}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-xs text-slate-500 line-clamp-1">
+                                {primarySize ? `${primarySize} · ` : ''}{product.packagingType}
+                              </p>
+
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                {product.availableCases > 0 ? (
+                                  <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                                    {product.availableCases} case{product.availableCases === 1 ? '' : 's'} left
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700">
+                                    0 cases left
+                                  </span>
+                                )}
+
+                                {product.caseQuantity > 0 ? (
+                                  <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                    {product.caseQuantity} {product.looseUnit}s / case
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-semibold text-slate-950">{product.name}</p>
-                          <p className="text-xs text-slate-500">{product.sku} · {product.packagingType}{getProductSizeLabel(product)}</p>
-                          <p className="mt-1 text-xs font-medium text-emerald-700">{product.availableBaseUnits} {product.looseUnit}{product.availableBaseUnits === 1 ? '' : 's'} available</p>
+
+                        {/* Action Button: Sold by Case Only */}
+                        <div className="mt-3.5 pt-2 border-t border-slate-100">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={!hasCase || product.availableCases < 1}
+                            onClick={() => addProduct(product, 'CASE')}
+                            className="w-full h-9 text-xs font-semibold rounded-xl border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 disabled:opacity-40"
+                          >
+                            <Plus className="mr-1.5 h-3.5 w-3.5" />
+                            {product.availableCases < 1 ? 'Out of Stock' : `+ ${peso(product.casePrice)} / case`}
+                          </Button>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <Button variant="outline" disabled={!product.supportedModes.includes('LOOSE') || product.availableBaseUnits < 1} onClick={() => addProduct(product, 'LOOSE')}>
-                          <Plus className="mr-1 h-4 w-4" /> {product.retailUnitPrice ? `${peso(product.retailUnitPrice)} / ${product.looseUnit}` : 'Loose unavailable'}
-                        </Button>
-                        <Button variant="outline" disabled={!product.supportedModes.includes('CASE') || product.availableCases < 1} onClick={() => addProduct(product, 'CASE')}>
-                          <Plus className="mr-1 h-4 w-4" /> {peso(product.casePrice)} / case
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          <Card className="border-white/50 bg-white/75 shadow-sm backdrop-blur-xl">
-            <CardHeader><CardTitle>Mixed Case Builder</CardTitle><CardDescription>Combine two compatible Glass Bottle products into one full case.</CardDescription></CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-4">
-              <div>
-                <Label htmlFor="mixed-capacity">Case capacity</Label>
-                {availableCapacities.length > 0 ? (
+          {/* Mixed Case Builder Card */}
+          <Card className="rounded-3xl border border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-xl">
+            <CardHeader className="border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-indigo-50 p-1.5 text-indigo-600">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-900">Mixed Case Builder</CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Combine two compatible glass bottle products into one full case for a counter sale
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-4 sm:p-6 space-y-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                <div>
+                  <Label htmlFor="mixed-capacity" className="text-xs font-semibold text-slate-700">
+                    Case Capacity
+                  </Label>
+                  {availableCapacities.length > 0 ? (
+                    <select
+                      id="mixed-capacity"
+                      value={mixedCapacity}
+                      onChange={(e) => {
+                        const cap = Number(e.target.value) || 12
+                        setMixedCapacity(cap)
+                        setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
+                      }}
+                      className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    >
+                      {availableCapacities.map((c) => (
+                        <option key={c} value={c}>
+                          {c} bottles / case
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id="mixed-capacity"
+                      type="number"
+                      min={2}
+                      value={mixedCapacity}
+                      onChange={(e) => {
+                        const cap = Math.max(2, Number(e.target.value) || 2)
+                        setMixedCapacity(cap)
+                        if (mixedQuantityA >= cap) setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
+                      }}
+                      className="mt-1 h-9.5 rounded-xl text-xs"
+                    />
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="mixed-a" className="text-xs font-semibold text-slate-700">
+                    Product A
+                  </Label>
                   <select
-                    id="mixed-capacity"
-                    value={mixedCapacity}
-                    onChange={(e) => {
-                      const cap = Number(e.target.value) || 12
-                      setMixedCapacity(cap)
-                      setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
-                    }}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    id="mixed-a"
+                    value={mixedProductA}
+                    onChange={(e) => setMixedProductA(e.target.value)}
+                    className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
-                    {availableCapacities.map((c) => (
-                      <option key={c} value={c}>{c} bottles</option>
+                    <option value="">Select product A...</option>
+                    {mixedProducts.map((p) => (
+                      <option key={p.id} value={p.id} disabled={p.id === mixedProductB}>
+                        {p.name}
+                        {getProductSizeLabel(p)} ({p.availableBaseUnits} available)
+                      </option>
                     ))}
                   </select>
-                ) : (
-                  <Input
-                    id="mixed-capacity"
-                    type="number"
-                    min={2}
-                    value={mixedCapacity}
-                    onChange={(e) => {
-                      const cap = Math.max(2, Number(e.target.value) || 2)
-                      setMixedCapacity(cap)
-                      if (mixedQuantityA >= cap) setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
-                    }}
-                  />
-                )}
+                </div>
+
+                <div>
+                  <Label htmlFor="mixed-b" className="text-xs font-semibold text-slate-700">
+                    Product B
+                  </Label>
+                  <select
+                    id="mixed-b"
+                    value={mixedProductB}
+                    onChange={(e) => setMixedProductB(e.target.value)}
+                    className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  >
+                    <option value="">Select product B...</option>
+                    {mixedProducts.map((p) => (
+                      <option key={p.id} value={p.id} disabled={p.id === mixedProductA}>
+                        {p.name}
+                        {getProductSizeLabel(p)} ({p.availableBaseUnits} available)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label htmlFor="mixed-qty-a" className="text-xs font-semibold text-slate-700">
+                    Product A Quantity ({mixedQuantityA} pcs)
+                  </Label>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9.5 w-9.5 rounded-xl shrink-0"
+                      onClick={() => setMixedQuantityA((q) => Math.max(1, q - 1))}
+                      disabled={mixedQuantityA <= 1}
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </Button>
+                    <Input
+                      id="mixed-qty-a"
+                      type="number"
+                      min={1}
+                      max={mixedCapacity - 1}
+                      value={mixedQuantityA}
+                      onChange={(e) => {
+                        const val = Math.min(mixedCapacity - 1, Math.max(1, Number(e.target.value) || 1))
+                        setMixedQuantityA(val)
+                      }}
+                      className="h-9.5 rounded-xl text-center text-xs font-bold"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9.5 w-9.5 rounded-xl shrink-0"
+                      onClick={() => setMixedQuantityA((q) => Math.min(mixedCapacity - 1, q + 1))}
+                      disabled={mixedQuantityA >= mixedCapacity - 1}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <div><Label htmlFor="mixed-a">Product A</Label><select id="mixed-a" value={mixedProductA} onChange={(e) => setMixedProductA(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select</option>{mixedProducts.map((p) => <option key={p.id} value={p.id}>{p.name}{getProductSizeLabel(p)}</option>)}</select></div>
-              <div><Label htmlFor="mixed-b">Product B</Label><select id="mixed-b" value={mixedProductB} onChange={(e) => setMixedProductB(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select</option>{mixedProducts.map((p) => <option key={p.id} value={p.id}>{p.name}{getProductSizeLabel(p)}</option>)}</select></div>
-              <div><Label htmlFor="mixed-qty-a">Product A quantity</Label><Input id="mixed-qty-a" type="number" min={1} max={mixedCapacity - 1} value={mixedQuantityA} onChange={(e) => setMixedQuantityA(Number(e.target.value) || 1)} /></div>
-              <div className="md:col-span-4 flex items-center justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>Product B automatically fills <strong>{Math.max(0, mixedCapacity - mixedQuantityA)}</strong> bottles.</span><Button onClick={addMixedCase}>Add Mixed Case</Button></div>
+
+              {/* Proportional Split Bar Visualizer */}
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3.5">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2">
+                  <span>
+                    Product A: <strong className="text-indigo-600">{selectedProductAData?.name || 'Selected'} ({mixedQuantityA} pcs)</strong>
+                  </span>
+                  <span>
+                    Product B: <strong className="text-emerald-600">{selectedProductBData?.name || 'Selected'} ({Math.max(0, mixedCapacity - mixedQuantityA)} pcs)</strong>
+                  </span>
+                </div>
+
+                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 flex">
+                  <div
+                    className="h-full bg-indigo-500 transition-all duration-300"
+                    style={{ width: `${(mixedQuantityA / mixedCapacity) * 100}%` }}
+                  />
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${((mixedCapacity - mixedQuantityA) / mixedCapacity) * 100}%` }}
+                  />
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-xs text-slate-500">
+                    Total: <strong>{mixedCapacity}</strong> glass bottles
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={addMixedCase}
+                    className="h-8.5 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700"
+                  >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    Add Mixed Case to Cart
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
-          <Card className="border-white/50 bg-white/75 shadow-sm backdrop-blur-xl">
-            <CardHeader><CardTitle>Recent Retail Transactions</CardTitle><CardDescription>Retail sales remain separate from delivery purchase orders.</CardDescription></CardHeader>
-            <CardContent className="space-y-2">
-              {sales.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">No retail transactions yet.</p> : sales.map((sale) => (
-                <button key={sale.id} onClick={() => setReceipt(sale)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50">
-                  <div><p className="font-semibold text-slate-900">{sale.transactionNumber}</p><p className="text-xs text-slate-500">{sale.customer?.name} · {new Date(sale.date).toLocaleString()}</p></div>
-                  <div className="text-right"><p className="font-semibold">{peso(sale.grandTotal)}</p><Badge variant="outline">{sale.pickupStatus === 'NOT_APPLICABLE' ? sale.paymentStatus : sale.pickupStatus.replaceAll('_', ' ')}</Badge></div>
-                </button>
-              ))}
+          {/* Recent Retail Transactions Card */}
+          <Card className="rounded-3xl border border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-xl">
+            <CardHeader className="border-b border-slate-100 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-900">Recent Retail Transactions</CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Counter receipts processed at this warehouse
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="font-semibold text-slate-600">
+                  {sales.length} transactions
+                </Badge>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-0">
+              {sales.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500">
+                  No retail sales recorded for this warehouse yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-100 bg-slate-50/75 text-slate-600 font-semibold">
+                      <tr>
+                        <th className="px-4 py-3">Receipt #</th>
+                        <th className="px-4 py-3">Customer</th>
+                        <th className="px-4 py-3">Date & Time</th>
+                        <th className="px-4 py-3">Total Amount</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {sales.map((sale) => (
+                        <tr key={sale.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {sale.transactionNumber}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-medium text-slate-800">
+                              {sale.customer?.name || 'Walk-in Customer'}
+                            </span>
+                            {sale.customer?.phone && (
+                              <p className="text-[11px] text-slate-500">{sale.customer.phone}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {new Date(sale.date).toLocaleDateString()} · {new Date(sale.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-slate-900">
+                            {peso(sale.grandTotal)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge
+                              className={`text-[10px] font-semibold ${
+                                sale.paymentStatus === 'PAID'
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                                  : sale.paymentStatus === 'PARTIALLY_PAID'
+                                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+                                  : 'bg-rose-100 text-rose-800 hover:bg-rose-100'
+                              }`}
+                            >
+                              {String(sale.paymentStatus || 'PAID').replace(/_/g, ' ')}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setReceipt(sale)}
+                              className="h-7 text-[11px] rounded-lg border-slate-200 text-sky-700 hover:bg-sky-50"
+                            >
+                              <Receipt className="mr-1 h-3 w-3" />
+                              Receipt
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
+        {/* Right Column: Active Sale & Checkout Drawer (Sticky) */}
         <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <Card className="border-white/50 bg-white/85 shadow-lg backdrop-blur-xl">
-            <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5" /> Current Sale</CardTitle><CardDescription>{cart.length} cart line{cart.length === 1 ? '' : 's'}</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant={customerType === 'WALK_IN' ? 'default' : 'outline'} onClick={() => { setCustomerType('WALK_IN'); invalidateQuote() }}>Walk-in</Button>
-                <Button variant={customerType === 'EXISTING' ? 'default' : 'outline'} onClick={() => { setCustomerType('EXISTING'); invalidateQuote() }}>Existing Customer</Button>
+          <Card className="rounded-3xl border border-slate-200/90 bg-white/90 shadow-md backdrop-blur-xl">
+            <CardHeader className="border-b border-slate-100 pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-xl bg-sky-50 p-2 text-sky-600">
+                    <ShoppingCart className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-bold text-slate-900">Current Sale</CardTitle>
+                    <CardDescription className="text-xs text-slate-500">
+                      {cart.length} item line{cart.length === 1 ? '' : 's'} ({cartTotalItemsCount} unit{cartTotalItemsCount === 1 ? '' : 's'})
+                    </CardDescription>
+                  </div>
+                </div>
+
+                {cart.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearCart}
+                    className="h-7 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  >
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    Clear
+                  </Button>
+                )}
               </div>
+            </CardHeader>
+
+            <CardContent className="p-4 sm:p-5 space-y-4">
+              {/* Customer Type Segmented Switch */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-700">Customer Classification</Label>
+                <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100/80 p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerType('WALK_IN')
+                      invalidateQuote()
+                    }}
+                    className={`rounded-lg py-1.5 text-xs font-semibold transition-all ${
+                      customerType === 'WALK_IN'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Walk-in Customer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerType('EXISTING')
+                      invalidateQuote()
+                    }}
+                    className={`rounded-lg py-1.5 text-xs font-semibold transition-all ${
+                      customerType === 'EXISTING'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Existing / Registered
+                  </button>
+                </div>
+              </div>
+
+              {/* Customer Information Form */}
               {customerType === 'EXISTING' ? (
-                <div><Label htmlFor="retail-customer">Customer</Label><select id="retail-customer" value={customerId} onChange={(e) => { setCustomerId(e.target.value); invalidateQuote() }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` · ${customer.phone}` : ''}</option>)}</select></div>
+                <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+                  <Label htmlFor="retail-customer" className="text-xs font-semibold text-slate-700">
+                    Select Customer <span className="text-rose-500">*</span>
+                  </Label>
+                  <select
+                    id="retail-customer"
+                    value={customerId}
+                    onChange={(e) => {
+                      setCustomerId(e.target.value)
+                      invalidateQuote()
+                    }}
+                    className="h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  >
+                    <option value="">Choose an existing registered customer...</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.phone ? `(${c.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               ) : (
-                <div className="grid gap-3"><div><Label htmlFor="walk-in-first-name">First name (optional)</Label><Input id="walk-in-first-name" value={walkInFirstName} onChange={(e) => setWalkInFirstName(e.target.value)} /></div><div><Label htmlFor="walk-in-last-name">Last name (optional)</Label><Input id="walk-in-last-name" value={walkInLastName} onChange={(e) => setWalkInLastName(e.target.value)} /></div><div><Label htmlFor="walk-in-middle-name">Middle name (optional)</Label><Input id="walk-in-middle-name" value={walkInMiddleName} onChange={(e) => setWalkInMiddleName(e.target.value)} /></div><div><Label htmlFor="walk-in-contact">Contact number (optional)</Label><Input id="walk-in-contact" value={walkInContact} onChange={(e) => setWalkInContact(e.target.value)} /></div><div><Label htmlFor="walk-in-notes">Notes (optional)</Label><Textarea id="walk-in-notes" value={walkInNotes} onChange={(e) => setWalkInNotes(e.target.value)} /></div></div>
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5">
+                  <p className="text-xs font-bold text-slate-800">Walk-in Customer Details</p>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <Label htmlFor="walk-in-first-name" className="text-xs font-semibold text-slate-700">
+                        First Name <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        id="walk-in-first-name"
+                        value={walkInFirstName}
+                        onChange={(e) => {
+                          setWalkInFirstName(e.target.value)
+                          invalidateQuote()
+                        }}
+                        placeholder="e.g. Juan"
+                        className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="walk-in-last-name" className="text-xs font-semibold text-slate-700">
+                        Last Name <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        id="walk-in-last-name"
+                        value={walkInLastName}
+                        onChange={(e) => {
+                          setWalkInLastName(e.target.value)
+                          invalidateQuote()
+                        }}
+                        placeholder="e.g. Dela Cruz"
+                        className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <Label htmlFor="walk-in-middle-name" className="text-xs font-semibold text-slate-500">
+                        Middle Name (optional)
+                      </Label>
+                      <Input
+                        id="walk-in-middle-name"
+                        value={walkInMiddleName}
+                        onChange={(e) => {
+                          setWalkInMiddleName(e.target.value)
+                          invalidateQuote()
+                        }}
+                        placeholder="e.g. Santos"
+                        className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="walk-in-contact" className="text-xs font-semibold text-slate-700">
+                        Contact Number <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        id="walk-in-contact"
+                        value={walkInContact}
+                        inputMode="numeric"
+                        onChange={(e) => {
+                          setWalkInContact(formatPhilippinePhoneInput(e.target.value))
+                          invalidateQuote()
+                        }}
+                        placeholder="0912 345 6789"
+                        className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="walk-in-notes" className="text-xs font-semibold text-slate-500">
+                      Notes (optional)
+                    </Label>
+                    <Textarea
+                      id="walk-in-notes"
+                      value={walkInNotes}
+                      onChange={(e) => {
+                        setWalkInNotes(e.target.value)
+                        invalidateQuote()
+                      }}
+                      placeholder="e.g. Customer brought empty bottles, special packaging instructions..."
+                      className="mt-1 min-h-[60px] rounded-xl text-xs border-slate-200 bg-white"
+                    />
+                  </div>
+                </div>
               )}
 
-              <div className="max-h-[340px] space-y-3 overflow-y-auto" aria-live="polite">
-                {cart.map((line) => {
-                  const product = products.find((item) => item.id === line.productId)
-                  return <div key={line.key} className="rounded-xl border border-slate-200 p-3">
-                    <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{line.mode === 'MIXED_CASE' ? `Mixed Case · ${line.caseCapacity}` : `${product?.name || ''}${getProductSizeLabel(product)}`}</p><p className="text-xs text-slate-500">{line.mode.replaceAll('_', ' ')}</p></div><Button size="icon" variant="ghost" aria-label="Remove cart line" onClick={() => { setCart((current) => current.filter((item) => item.key !== line.key)); invalidateQuote() }}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>
-                    <div className="mt-3 flex items-center gap-2"><Button size="icon" variant="outline" aria-label="Decrease quantity" onClick={() => updateLine(line.key, { quantity: Math.max(1, line.quantity - 1) })}><Minus className="h-4 w-4" /></Button><Input aria-label="Quantity" type="number" min={1} value={line.quantity} onChange={(e) => updateLine(line.key, { quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-20 text-center" /><Button size="icon" variant="outline" aria-label="Increase quantity" onClick={() => updateLine(line.key, { quantity: line.quantity + 1 })}><Plus className="h-4 w-4" /></Button></div>
-                    {line.mode !== 'MIXED_CASE' && product?.depositEligible ? <div className="mt-3"><Label htmlFor={`empties-${line.key}`}>Empty {product.looseUnit}s provided</Label><Input id={`empties-${line.key}`} type="number" min={0} max={line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity} value={line.emptyBottlesProvided || 0} onChange={(e) => updateLine(line.key, { emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0) })} /></div> : null}
-                    {line.mode === 'MIXED_CASE' ? <div className="mt-2 space-y-2 text-xs text-slate-600">{line.components?.map((component, componentIndex) => {
-                      const componentProduct = products.find((p) => p.id === component.productId)
-                      return <div key={component.productId} className="grid grid-cols-[1fr_110px] items-end gap-2"><p>{componentProduct?.name}{getProductSizeLabel(componentProduct)}: {component.quantityBaseUnits} Glass Bottles</p>{componentProduct?.depositEligible ? <div><Label htmlFor={`mixed-empties-${line.key}-${component.productId}`} className="text-xs">Empties</Label><Input id={`mixed-empties-${line.key}-${component.productId}`} type="number" min={0} max={component.quantityBaseUnits} value={component.emptyBottlesProvided} onChange={(event) => {
-                        const components = [...(line.components || [])]
-                        components[componentIndex] = { ...component, emptyBottlesProvided: Math.max(0, Number(event.target.value) || 0) }
-                        updateLine(line.key, { components })
-                      }} /></div> : null}</div>
-                    })}</div> : null}
-                  </div>
-                })}
-                {!cart.length ? <p className="py-8 text-center text-sm text-slate-500">Select products to begin a sale.</p> : null}
+              {/* Cart Items List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-700">Sale Cart Items</Label>
+                  <span className="text-[11px] text-slate-500">{cart.length} item{cart.length === 1 ? '' : 's'}</span>
+                </div>
+
+                <div className="max-h-[300px] space-y-2.5 overflow-y-auto pr-1">
+                  {cart.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center">
+                      <ShoppingCart className="mx-auto h-6 w-6 text-slate-400" />
+                      <p className="mt-1.5 text-xs font-medium text-slate-600">Sale cart is empty</p>
+                      <p className="text-[11px] text-slate-400">Add loose bottles or full cases from the catalog.</p>
+                    </div>
+                  ) : (
+                    cart.map((line) => {
+                      const product = products.find((item) => item.id === line.productId)
+
+                      return (
+                        <div
+                          key={line.key}
+                          className="rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs space-y-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 leading-tight">
+                                {line.mode === 'MIXED_CASE'
+                                  ? `Mixed Case (${line.caseCapacity} bottles)`
+                                  : `${product?.name || 'Product'}${getProductSizeLabel(product)}`}
+                              </p>
+                              <Badge
+                                variant="outline"
+                                className="mt-1 text-[10px] font-semibold text-slate-600"
+                              >
+                                {line.mode.replace(/_/g, ' ')}
+                              </Badge>
+                            </div>
+
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => removeLine(line.key)}
+                              className="h-7 w-7 rounded-lg text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+                              aria-label="Remove item"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+
+                          {/* Quantity Stepper */}
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                            <span className="text-[11px] font-medium text-slate-500">Order Quantity:</span>
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7 rounded-lg"
+                                onClick={() => updateLine(line.key, { quantity: Math.max(1, line.quantity - 1) })}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </Button>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={line.quantity}
+                                onChange={(e) =>
+                                  updateLine(line.key, { quantity: Math.max(1, Number(e.target.value) || 1) })
+                                }
+                                className="h-7 w-14 rounded-lg text-center text-xs font-bold"
+                              />
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7 rounded-lg"
+                                onClick={() => updateLine(line.key, { quantity: line.quantity + 1 })}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Deposit / Empty Bottles Return Counter */}
+                          {line.mode !== 'MIXED_CASE' && product?.depositEligible ? (
+                            <div className="rounded-xl bg-emerald-50/70 p-2.5 text-xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label htmlFor={`empties-${line.key}`} className="text-[11px] font-semibold text-emerald-900 flex items-center gap-1">
+                                  <Recycle className="h-3.5 w-3.5 text-emerald-600" />
+                                  Empty {product.looseUnit}s returned:
+                                </Label>
+                                <Input
+                                  id={`empties-${line.key}`}
+                                  type="number"
+                                  min={0}
+                                  max={line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity}
+                                  value={line.emptyBottlesProvided || 0}
+                                  onChange={(e) =>
+                                    updateLine(line.key, {
+                                      emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                  className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Mixed Case Components Deposit Inputs */}
+                          {line.mode === 'MIXED_CASE' && line.components ? (
+                            <div className="rounded-xl bg-slate-50 p-2.5 space-y-2 text-xs">
+                              <p className="text-[11px] font-semibold text-slate-700">Empty Bottles Returned per Product:</p>
+                              {line.components.map((component, componentIndex) => {
+                                const componentProduct = products.find((p) => p.id === component.productId)
+                                return (
+                                  <div
+                                    key={component.productId}
+                                    className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60"
+                                  >
+                                    <span className="text-[11px] text-slate-600 truncate">
+                                      {componentProduct?.name}: {component.quantityBaseUnits} bottles
+                                    </span>
+                                    {componentProduct?.depositEligible ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={component.quantityBaseUnits}
+                                        value={component.emptyBottlesProvided || 0}
+                                        onChange={(e) => {
+                                          const components = [...(line.components || [])]
+                                          components[componentIndex] = {
+                                            ...component,
+                                            emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0),
+                                          }
+                                          updateLine(line.key, { components })
+                                        }}
+                                        className="h-6.5 w-14 rounded-lg text-center text-xs font-bold bg-white"
+                                      />
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
               </div>
 
-              <div>
-                <Label htmlFor="amount-paid">Amount paid</Label>
+              {/* Amount Paid Input */}
+              <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+                <Label htmlFor="amount-paid" className="text-xs font-semibold text-slate-700">
+                  Amount Received / Tendered (₱)
+                </Label>
                 <Input
                   id="amount-paid"
                   type="number"
@@ -396,24 +1233,274 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     setAmountPaid(e.target.value)
                     invalidateQuote()
                   }}
+                  className="h-9 rounded-xl text-xs font-bold border-slate-200 bg-white"
                 />
+
+                {/* Fast Cash Shortcut Buttons */}
+                {quoteResult?.grandTotal && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmountPaid(String(quoteResult.grandTotal))
+                        invalidateQuote()
+                      }}
+                      className="rounded-lg bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    >
+                      Exact ({peso(quoteResult.grandTotal)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmountPaid('500.00')
+                        invalidateQuote()
+                      }}
+                      className="rounded-lg bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    >
+                      ₱500
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmountPaid('1000.00')
+                        invalidateQuote()
+                      }}
+                      className="rounded-lg bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    >
+                      ₱1,000
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {quoteResult ? <div className="space-y-2 rounded-2xl bg-slate-950 p-4 text-sm text-white" aria-live="polite"><div className="flex justify-between"><span>Product total</span><span>{peso(quoteResult.productTotal)}</span></div><div className="flex justify-between"><span>Empty bottles provided</span><span>{quoteResult.emptyBottlesProvided}</span></div><div className="flex justify-between"><span>Deposit</span><span>{peso(quoteResult.deposit)}</span></div><div className="flex justify-between border-t border-white/20 pt-2 text-base font-bold"><span>Grand total</span><span>{peso(quoteResult.grandTotal)}</span></div><div className="flex justify-between"><span>{quoteResult.paymentStatus.replaceAll('_', ' ')}</span><span>Balance {peso(quoteResult.remainingBalance)}</span></div></div> : null}
-              <div className="grid grid-cols-2 gap-2"><Button variant="outline" disabled={submitting || !cart.length} onClick={reviewSale}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Review totals'}</Button><Button disabled={submitting || !quoteToken} onClick={completeSale}>Complete sale</Button></div>
+              {/* Verified Quote Breakdown Card */}
+              {quoteResult ? (
+                <div className="space-y-2 rounded-2xl bg-slate-900 p-4 text-xs text-white shadow-md">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Products Subtotal</span>
+                    <span className="font-semibold text-white">{peso(quoteResult.productTotal)}</span>
+                  </div>
+
+                  {Number(quoteResult.emptyBottlesProvided || 0) > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>Empties Credit ({quoteResult.emptyBottlesProvided} returned)</span>
+                      <span className="font-semibold">-{peso(quoteResult.depositCredit || 0)}</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between text-slate-300">
+                    <span>Bottle Deposit</span>
+                    <span className="font-semibold text-white">{peso(quoteResult.deposit)}</span>
+                  </div>
+
+                  <div className="flex justify-between border-t border-slate-700 pt-2 text-sm font-bold text-white">
+                    <span>Grand Total</span>
+                    <span className="text-base text-sky-400">{peso(quoteResult.grandTotal)}</span>
+                  </div>
+
+                  <div className="flex justify-between border-t border-slate-800 pt-1.5 text-[11px] text-slate-300">
+                    <span className="capitalize">{String(quoteResult.paymentStatus || 'UNPAID').replace(/_/g, ' ')}</span>
+                    <span className="font-semibold">
+                      {Number(quoteResult.remainingBalance || 0) <= 0
+                        ? `Change: ${peso(Math.abs(Number(quoteResult.remainingBalance || 0)))}`
+                        : `Balance: ${peso(quoteResult.remainingBalance)}`}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Checkout Action Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={submitting || !cart.length}
+                  onClick={reviewSale}
+                  className="h-10 rounded-xl text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50"
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                  Review Totals
+                </Button>
+
+                <Button
+                  type="button"
+                  disabled={submitting || !quoteToken}
+                  onClick={completeSale}
+                  className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                  Complete Sale
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
       </div>
 
+      {/* Official Receipt & Transaction Detail Dialog */}
       <Dialog open={Boolean(receipt)} onOpenChange={(open) => !open && setReceipt(null)}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><ReceiptText className="h-5 w-5" /> Retail Receipt</DialogTitle><DialogDescription>Ann Ann&apos;s Beverages Trading · {receipt?.transactionNumber}</DialogDescription></DialogHeader>
-          {receipt ? <div className="space-y-4 text-sm"><div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4"><div><span className="text-slate-500">Customer</span><p className="font-semibold">{receipt.customer?.name}</p></div><div><span className="text-slate-500">Staff</span><p className="font-semibold">{receipt.staff?.name}</p></div><div><span className="text-slate-500">Date</span><p>{new Date(receipt.date).toLocaleString()}</p></div><div><span className="text-slate-500">Pickup</span><p>{String(receipt.pickupStatus).replaceAll('_', ' ')}</p></div></div><div className="space-y-2">{receipt.items?.map((item: any) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between"><div><p className="font-semibold">{item.productName}</p><p className="text-xs text-slate-500">{item.packagingType} · {item.mode.replaceAll('_', ' ')}</p></div><p className="font-semibold">{peso(item.productSubtotal)}</p></div>{item.components?.map((component: any) => <p key={component.id} className="mt-1 text-xs text-slate-600">{component.productName}: {component.quantityBaseUnits} {component.looseUnit}s</p>)}</div>)}</div><div className="space-y-2 border-t pt-4"><div className="flex justify-between"><span>Product total</span><span>{peso(receipt.productTotal)}</span></div><div className="flex justify-between"><span>Empties</span><span>{receipt.emptyBottlesProvided}</span></div><div className="flex justify-between"><span>Deposit</span><span>{peso(receipt.deposit)}</span></div><div className="flex justify-between text-lg font-bold"><span>Grand total</span><span>{peso(receipt.grandTotal)}</span></div><div className="flex justify-between"><span>{receipt.paymentStatus.replaceAll('_', ' ')}</span><span>Balance {peso(receipt.remainingBalance)}</span></div></div>{receipt.transactionStatus !== 'CANCELLED' ? <div className="space-y-3 rounded-xl border p-3"><div><Label htmlFor="receipt-payment">Recorded amount paid</Label><div className="flex gap-2"><Input id="receipt-payment" type="number" min="0" max={receipt.grandTotal} step="0.01" value={receiptPaymentAmount} onChange={(event) => setReceiptPaymentAmount(event.target.value)} /><Button variant="outline" disabled={submitting} onClick={() => mutateReceipt('payment', 'PATCH', { amountPaid: receiptPaymentAmount })}>Update</Button></div></div>{receipt.pickupStatus === 'PENDING_PICKUP' ? <Button className="w-full" disabled={submitting} onClick={() => mutateReceipt('pickup-status', 'PATCH', { pickupStatus: 'READY_FOR_PICKUP' })}>Mark ready for pickup</Button> : null}{receipt.pickupStatus === 'READY_FOR_PICKUP' ? <Button className="w-full" disabled={submitting} onClick={() => mutateReceipt('pickup-status', 'PATCH', { pickupStatus: 'PICKED_UP_COMPLETED' })}>Complete pickup</Button> : null}<Button variant="destructive" className="w-full" disabled={submitting} onClick={() => {
-            const hasEmpties = Number(receipt.emptyBottlesProvided || 0) > 0
-            const prompt = hasEmpties ? 'Confirm the accepted empties were physically returned to the customer or corrected, then cancel this transaction?' : 'Cancel this retail transaction and reverse its inventory effects?'
-            if (window.confirm(prompt)) void mutateReceipt('cancel', 'POST', { reason: 'Cancelled by warehouse staff', emptiesRestoredToCustomer: hasEmpties })
-          }}>Cancel transaction</Button></div> : null}<Button className="w-full" onClick={() => window.print()}>Print receipt</Button></div> : null}
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-3xl p-6">
+          <DialogHeader className="border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                <ReceiptText className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold text-slate-900">
+                  Retail Sales Receipt
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500">
+                  Ann Ann&apos;s Beverages Trading · {receipt?.transactionNumber}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {receipt ? (
+            <div className="space-y-4 text-xs">
+              {/* Receipt Metadata Box */}
+              <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50/80 p-4 border border-slate-100">
+                <div>
+                  <span className="text-slate-500 font-medium">Customer</span>
+                  <p className="font-bold text-slate-900 mt-0.5">{receipt.customer?.name || 'Walk-in Customer'}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500 font-medium">Cashier / Staff</span>
+                  <p className="font-bold text-slate-900 mt-0.5">{receipt.staff?.name || 'Warehouse Staff'}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500 font-medium">Date & Time</span>
+                  <p className="font-semibold text-slate-800 mt-0.5">{new Date(receipt.date).toLocaleString()}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500 font-medium">Fulfillment</span>
+                  <p className="font-semibold text-slate-800 mt-0.5">Immediate Release</p>
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-2">
+                <p className="font-bold text-slate-800 text-xs">Purchased Items</p>
+                <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 overflow-hidden">
+                  {receipt.items?.map((item: any) => (
+                    <div key={item.id} className="p-3 bg-white">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-bold text-slate-900">{item.productName}</p>
+                          <p className="text-[11px] text-slate-500">
+                            {item.packagingType} · {item.mode.replace(/_/g, ' ')} · Qty: {item.quantity}
+                          </p>
+                        </div>
+                        <p className="font-bold text-slate-900">{peso(item.productSubtotal)}</p>
+                      </div>
+
+                      {item.components?.map((component: any) => (
+                        <p key={component.id} className="mt-1 text-[11px] text-slate-600 pl-2 border-l-2 border-slate-200">
+                          {component.productName}: {component.quantityBaseUnits} {component.looseUnit}s
+                        </p>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Financial Totals */}
+              <div className="rounded-2xl bg-slate-900 p-4 text-white space-y-2">
+                <div className="flex justify-between text-slate-300">
+                  <span>Product Subtotal</span>
+                  <span className="font-semibold text-white">{peso(receipt.productTotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Empty Bottles Returned</span>
+                  <span className="font-semibold text-white">{receipt.emptyBottlesProvided || 0} pcs</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Bottle Deposit</span>
+                  <span className="font-semibold text-white">{peso(receipt.deposit)}</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-700 pt-2 text-sm font-bold">
+                  <span>Grand Total</span>
+                  <span className="text-base text-sky-400">{peso(receipt.grandTotal)}</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-800 pt-1.5 text-[11px] text-slate-300">
+                  <span className="capitalize">{String(receipt.paymentStatus || 'PAID').replace(/_/g, ' ')}</span>
+                  <span className="font-semibold">
+                    Remaining Balance: {peso(receipt.remainingBalance)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Management Controls for Open Transaction */}
+              {receipt.transactionStatus !== 'CANCELLED' ? (
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="font-bold text-slate-800">Manage Transaction</p>
+
+                  <div>
+                    <Label htmlFor="receipt-payment" className="text-xs font-semibold text-slate-700">
+                      Update Amount Paid (₱)
+                    </Label>
+                    <div className="mt-1 flex gap-2">
+                      <Input
+                        id="receipt-payment"
+                        type="number"
+                        min="0"
+                        max={receipt.grandTotal}
+                        step="0.01"
+                        value={receiptPaymentAmount}
+                        onChange={(e) => setReceiptPaymentAmount(e.target.value)}
+                        className="h-9 rounded-xl text-xs font-bold border-slate-200 bg-white"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={submitting}
+                        onClick={() =>
+                          mutateReceipt('payment', 'PATCH', { amountPaid: receiptPaymentAmount })
+                        }
+                        className="h-9 rounded-xl text-xs font-semibold"
+                      >
+                        Update Payment
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="w-full h-9 rounded-xl text-xs font-semibold"
+                    disabled={submitting}
+                    onClick={() => {
+                      const hasEmpties = Number(receipt.emptyBottlesProvided || 0) > 0
+                      const prompt = hasEmpties
+                        ? 'Confirm the accepted empties were physically returned to the customer or corrected, then cancel this transaction?'
+                        : 'Cancel this retail transaction and reverse its inventory effects?'
+                      if (window.confirm(prompt)) {
+                        void mutateReceipt('cancel', 'POST', {
+                          reason: 'Cancelled by warehouse staff',
+                          emptiesRestoredToCustomer: hasEmpties,
+                        })
+                      }
+                    }}
+                  >
+                    Cancel Transaction
+                  </Button>
+                </div>
+              ) : null}
+
+              {/* Print Receipt Button */}
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-10 rounded-xl border-slate-200 text-slate-800 hover:bg-slate-100 font-semibold"
+                  onClick={() => window.print()}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print Official Receipt
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

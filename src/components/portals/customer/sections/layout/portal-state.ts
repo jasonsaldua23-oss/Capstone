@@ -76,6 +76,9 @@ export function useCustomerPortalState(user: any) {
   const [isSubmittingRating, setIsSubmittingRating] = useState(false)
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false)
   const [profileName, setProfileName] = useState('')
+  const [profileFirstName, setProfileFirstName] = useState('')
+  const [profileMiddleName, setProfileMiddleName] = useState('')
+  const [profileLastName, setProfileLastName] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
   const [profilePhone, setProfilePhone] = useState('')
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
@@ -229,6 +232,12 @@ export function useCustomerPortalState(user: any) {
     setIsProfileDialogOpen,
     profileName,
     setProfileName,
+    profileFirstName,
+    setProfileFirstName,
+    profileMiddleName,
+    setProfileMiddleName,
+    profileLastName,
+    setProfileLastName,
     profileEmail,
     setProfileEmail,
     profilePhone,

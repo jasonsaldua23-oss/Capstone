@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -9,9 +9,11 @@ import { Label } from '@/components/ui/label'
 import { PortalProfileSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePasswordPolicy } from '@/lib/password-policy'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck, Camera, Lock, HelpCircle, MessageSquare, Info, ArrowLeft, KeyRound } from 'lucide-react'
 import { toast } from 'sonner'
+import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
+import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -67,6 +69,14 @@ function timeAgo(dateString: string) {
     return past.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   } catch {
     return ''
+  }
+}
+
+function splitProfileName(value: unknown) {
+  const parts = String(value || '').trim().split(/\s+/).filter(Boolean)
+  return {
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' '),
   }
 }
 
@@ -168,6 +178,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   })
   const [form, setForm] = useState({
     name: '',
+    avatar: '',
+    firstName: '',
+    middleName: '',
+    lastName: '',
     email: '',
     phone: '',
     licenseNumber: '',
@@ -176,11 +190,17 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   })
   const [draft, setDraft] = useState({
     name: '',
+    firstName: '',
+    middleName: '',
+    lastName: '',
     phone: '',
     licenseNumber: '',
     licenseType: '',
     licenseExpiry: '',
   })
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const avatarCrop = useAvatarCrop()
 
   const formatDateInputValue = (value: unknown) => {
     if (!value) return ''
@@ -234,8 +254,13 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             nestedUser?.license_type ??
             ''
         )
+        const nameParts = splitProfileName(profile?.user?.name || profile?.name || user?.name)
         setForm({
           name: profile?.user?.name || user?.name || '',
+          avatar: profile?.user?.avatar || profile?.avatar || user?.avatar || '',
+          firstName: profile?.user?.firstName || profile?.firstName || user?.firstName || nameParts.firstName,
+          middleName: profile?.user?.middleName || profile?.middleName || user?.middleName || '',
+          lastName: profile?.user?.lastName || profile?.lastName || user?.lastName || nameParts.lastName,
           email: profile?.user?.email || user?.email || '',
           phone: profile?.phone || profile?.user?.phone || '',
           licenseNumber: resolvedLicenseNumber,
@@ -281,6 +306,9 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const openEdit = () => {
     setDraft({
       name: form.name,
+      firstName: form.firstName,
+      middleName: form.middleName,
+      lastName: form.lastName,
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
@@ -292,6 +320,9 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const openLicense = () => {
     setDraft({
       name: form.name,
+      firstName: form.firstName,
+      middleName: form.middleName,
+      lastName: form.lastName,
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
@@ -300,8 +331,33 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     setSubView('license')
   }
 
+  const saveCroppedAvatar = async (file: File) => {
+    setIsSaving(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const uploadResponse = await fetch('/api/uploads/customer-avatar', { method: 'POST', body: formData })
+      const uploadPayload = await uploadResponse.json().catch(() => ({}))
+      if (!uploadResponse.ok || !uploadPayload?.imageUrl) throw new Error(uploadPayload?.error || 'Failed to upload avatar')
+      const avatar = String(uploadPayload.imageUrl).trim()
+      const response = await fetch('/api/driver/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ avatar }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to save avatar')
+      setForm((previous) => ({ ...previous, avatar }))
+      setAvatarFile(null)
+      toast.success('Profile photo updated')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const onSave = async (mode: 'profile' | 'license' = 'profile') => {
-    if (mode === 'profile' && !draft.name.trim()) {
+    if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim())) {
       toast.error('Name is required')
       return
     }
@@ -313,11 +369,21 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     setIsSaving(true)
     try {
       const payloadBody: Record<string, string> = {
-        name: draft.name,
+        firstName: draft.firstName,
+        middleName: draft.middleName,
+        lastName: draft.lastName,
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
         licenseExpiry: draft.licenseExpiry ? `${draft.licenseExpiry}T00:00:00Z` : '',
+      }
+      if (avatarFile) {
+        const formData = new FormData()
+        formData.append('file', avatarFile)
+        const uploadResponse = await fetch('/api/uploads/customer-avatar', { method: 'POST', body: formData })
+        const uploadPayload = await uploadResponse.json().catch(() => ({}))
+        if (!uploadResponse.ok || !uploadPayload?.imageUrl) throw new Error(uploadPayload?.error || 'Failed to upload avatar')
+        payloadBody.avatar = String(uploadPayload.imageUrl).trim()
       }
 
       const response = await fetch('/api/driver/profile', {
@@ -333,7 +399,11 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
 
       setForm((prev) => ({
         ...prev,
-        name: draft.name,
+        avatar: payloadBody.avatar || prev.avatar,
+        name: [draft.firstName, draft.middleName, draft.lastName].filter(Boolean).join(' '),
+        firstName: draft.firstName,
+        middleName: draft.middleName,
+        lastName: draft.lastName,
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
@@ -341,6 +411,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       }))
 
       setSubView('menu')
+      setAvatarFile(null)
       toast.success(mode === 'profile' ? 'Profile updated' : 'License details updated')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update profile')
@@ -674,15 +745,19 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         </div>
 
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="driver-name" className="text-sm font-semibold text-slate-700">Full Name</Label>
-            <Input
-              id="driver-name"
-              value={draft.name}
-              onChange={(e) => onChange('name', e.target.value)}
-              placeholder="Enter your full name"
-              className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="driver-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
+              <Input id="driver-first-name" value={draft.firstName} onChange={(e) => onChange('firstName', e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+              <Input id="driver-middle-name" value={draft.middleName} onChange={(e) => onChange('middleName', e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="driver-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
+              <Input id="driver-last-name" value={draft.lastName} onChange={(e) => onChange('lastName', e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -723,7 +798,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           <Button
             type="button"
             onClick={() => void onSave('profile')}
-            disabled={isSaving || !draft.name.trim()}
+            disabled={isSaving || !draft.firstName.trim() || !draft.lastName.trim()}
             className="w-full h-12 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c] transition-colors shadow-[0_4px_12px_rgba(13,97,173,0.12)]"
           >
             {isSaving ? (
@@ -1237,14 +1312,21 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           <div className="flex items-center gap-4 px-4 py-3">
             <div className="relative">
               <Avatar className="h-20 w-20 border-2 border-white shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+                {form.avatar ? <AvatarImage src={form.avatar} alt={`${form.name} avatar`} className="object-cover" /> : null}
                 <AvatarFallback className="bg-[#0d61ad] text-2xl font-bold text-white">
                   {initials || 'D'}
                 </AvatarFallback>
               </Avatar>
+              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { avatarCrop.open(event.target.files?.[0] || null); event.currentTarget.value = '' }} />
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-xl font-bold text-[#17365d] truncate">{form.name}</h3>
+              <p className="text-sm text-[#5f7390] truncate">{[form.firstName, form.lastName].filter(Boolean).join(' ') || 'Name details not set'}</p>
               <p className="text-sm text-[#5f7390] truncate mt-0.5">{form.email}</p>
+              <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={() => avatarInputRef.current?.click()}>
+                <Camera className="mr-2 h-3.5 w-3.5" />
+                {avatarFile ? 'Change Selected Avatar' : 'Change Avatar'}
+              </Button>
               <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-xs font-semibold text-[#0369a1]">
                 Driver
               </span>
@@ -1296,6 +1378,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AvatarCropDialog crop={avatarCrop} isSaving={isSaving} onSave={saveCroppedAvatar} />
     </div>
   )
 }

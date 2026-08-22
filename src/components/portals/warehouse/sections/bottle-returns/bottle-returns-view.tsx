@@ -44,12 +44,14 @@ export function WarehouseBottleReturnsView() {
     setIsLoading(true)
     try {
       const res = await fetch('/api/bottle-returns')
-      if (!res.ok) throw new Error('Failed to fetch returns')
-      const data = await res.json()
-      setReturns(data.returns || [])
+      if (!res.ok) {
+        setReturns([])
+        return
+      }
+      const data = await res.json().catch(() => ({}))
+      setReturns(Array.isArray(data.returns) ? data.returns : [])
     } catch (err) {
       console.error(err)
-      toast.error('Could not load bottle returns')
     } finally {
       setIsLoading(false)
     }
@@ -82,8 +84,8 @@ export function WarehouseBottleReturnsView() {
         body: JSON.stringify({ returnLines })
       })
       
+      const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const payload = await res.json()
         throw new Error(payload.error || 'Failed to grade return')
       }
       

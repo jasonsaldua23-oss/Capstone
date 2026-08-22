@@ -191,7 +191,7 @@ export function TripsView() {
     async function fetchTripsAndMeta() {
       try {
         const [tripsResult, warehousesResult, driversResult, vehiclesResult, savedRoutesResult] = await Promise.all([
-          safeFetchJson('/api/trips?limit=1000', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/drivers', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/vehicles?status=AVAILABLE', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),

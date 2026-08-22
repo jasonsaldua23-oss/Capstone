@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 import { validatePasswordPolicy } from '@/lib/password-policy'
+import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
+import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import {
   CheckCircle2,
   Circle,
@@ -27,6 +29,9 @@ import {
 export function SettingsView() {
   const { user, setUser } = useAuth()
   const [name, setName] = useState(user?.name || '')
+  const [firstName, setFirstName] = useState(String((user as any)?.firstName || ''))
+  const [middleName, setMiddleName] = useState(String((user as any)?.middleName || ''))
+  const [lastName, setLastName] = useState(String((user as any)?.lastName || ''))
   const [email, setEmail] = useState(user?.email || '')
   const [phone, setPhone] = useState(String((user as any)?.phone || ''))
   const [newPassword, setNewPassword] = useState('')
@@ -41,6 +46,7 @@ export function SettingsView() {
   const [profileOtpToken, setProfileOtpToken] = useState('')
   const [isSendingProfileOtp, setIsSendingProfileOtp] = useState(false)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const avatarCrop = useAvatarCrop()
   const [passwordOtpSent, setPasswordOtpSent] = useState(false)
   const [passwordOtpVerified, setPasswordOtpVerified] = useState(false)
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
@@ -99,6 +105,10 @@ export function SettingsView() {
 
   useEffect(() => {
     setName(String((user as any)?.name || ''))
+    const nameParts = String((user as any)?.name || '').trim().split(/\s+/).filter(Boolean)
+    setFirstName(String((user as any)?.firstName || nameParts[0] || ''))
+    setMiddleName(String((user as any)?.middleName || ''))
+    setLastName(String((user as any)?.lastName || nameParts.slice(1).join(' ') || ''))
     setEmail(String((user as any)?.email || ''))
     setPhone(String((user as any)?.phone || ''))
     setAvatarFile(null)
@@ -116,6 +126,26 @@ export function SettingsView() {
       throw new Error(payload?.error || 'Failed to upload avatar')
     }
     return String(payload.imageUrl).trim()
+  }
+
+  const saveCroppedAvatar = async (file: File) => {
+    if (!userId) throw new Error('Unable to resolve user ID')
+    setIsSavingProfile(true)
+    try {
+      const avatar = await uploadAvatar(file)
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to save avatar')
+      setUser((previous: any) => ({ ...(previous || {}), avatar }))
+      setAvatarFile(null)
+      toast.success('Profile photo updated')
+    } finally {
+      setIsSavingProfile(false)
+    }
   }
 
   useEffect(() => {
@@ -227,7 +257,10 @@ export function SettingsView() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name,
+          name: [firstName, middleName, lastName].filter(Boolean).join(' '),
+          firstName,
+          middleName,
+          lastName,
           email,
           phone,
           avatar: nextAvatar,
@@ -242,11 +275,17 @@ export function SettingsView() {
       setUser((prev: any) => ({
         ...(prev || {}),
         name: nextUser.name ?? name,
+        firstName: nextUser.firstName ?? firstName,
+        middleName: nextUser.middleName ?? middleName,
+        lastName: nextUser.lastName ?? lastName,
         email: nextUser.email ?? email,
         phone: nextUser.phone ?? phone,
         avatar: nextUser.avatar ?? nextAvatar,
       }))
       setName(String(nextUser.name ?? name))
+      setFirstName(String(nextUser.firstName ?? firstName))
+      setMiddleName(String(nextUser.middleName ?? middleName))
+      setLastName(String(nextUser.lastName ?? lastName))
       setEmail(String(nextUser.email ?? email))
       setPhone(String(nextUser.phone ?? phone))
       setAvatarFile(null)
@@ -385,7 +424,7 @@ export function SettingsView() {
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null
-                    setAvatarFile(file)
+                    avatarCrop.open(file)
                     if (avatarInputRef.current) avatarInputRef.current.value = ''
                   }}
                 />
@@ -413,16 +452,20 @@ export function SettingsView() {
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="name" className="text-xs font-semibold text-slate-700">
-                  Full Name
-                </label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="h-10 text-sm"
-                  placeholder="Enter full name"
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="first-name" className="text-xs font-semibold text-slate-700">First Name</label>
+                    <Input id="first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="First name" />
+                  </div>
+                  <div>
+                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-700">Middle Name</label>
+                    <Input id="middle-name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Middle name" />
+                  </div>
+                  <div>
+                    <label htmlFor="last-name" className="text-xs font-semibold text-slate-700">Last Name</label>
+                    <Input id="last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Last name" />
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -783,6 +826,7 @@ export function SettingsView() {
               : Promise.resolve(false)
           }
         />
+        <AvatarCropDialog crop={avatarCrop} isSaving={isSavingProfile} onSave={saveCroppedAvatar} />
       </div>
     </div>
   )

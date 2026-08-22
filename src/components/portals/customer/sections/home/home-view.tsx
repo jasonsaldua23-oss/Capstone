@@ -176,7 +176,7 @@ export function CustomerHomeView({
                     key={p?.id || `placeholder-${index}`}
                     className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_8px_20px_rgba(16,24,40,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(16,24,40,0.12)] md:rounded-2xl"
                   >
-                    <CardContent className="relative p-1.5 md:p-6">
+                    <CardContent className="relative p-1.5 pb-5 md:p-6 md:pb-10">
                       <div className="flex gap-1.5 md:gap-5">
                         <div className="relative w-[48%] shrink-0 overflow-hidden rounded-lg bg-[#f3f8f3] p-0 md:w-[46%] md:rounded-xl md:p-1.5">
                           {p?.imageUrl ? (
@@ -193,7 +193,7 @@ export function CustomerHomeView({
                         </div>
 
                         <div className="min-w-0 flex-1 space-y-0.5 leading-tight">
-                          <p className="line-clamp-2 text-[1rem] font-semibold leading-tight text-slate-900 md:line-clamp-1 md:text-[1.45rem] md:font-semibold">
+                          <p className="text-[1rem] font-semibold leading-tight text-slate-900 md:text-[1.45rem] md:font-semibold">
                             {p?.name || 'Product Name'}
                           </p>
                           <p className="text-[0.95rem] font-bold leading-tight text-slate-900 md:text-[1.35rem] md:font-bold md:text-slate-900">

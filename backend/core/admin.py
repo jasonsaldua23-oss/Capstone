@@ -6,7 +6,6 @@ from .models import (
     InventoryReservation,
     MixedCaseComponent,
     Order,
-    PackagingProfile,
     Product,
     ReplacementLine,
     ReturnReceipt,
@@ -32,7 +31,6 @@ admin.site.register(Inventory)
 admin.site.register(Order)
 admin.site.register(Vehicle)
 admin.site.register(Trip)
-admin.site.register(PackagingProfile)
 admin.site.register(MixedCaseComponent)
 admin.site.register(InventoryReservation)
 admin.site.register(ReplacementLine)

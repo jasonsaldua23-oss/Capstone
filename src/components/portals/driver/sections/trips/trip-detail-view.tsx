@@ -600,16 +600,7 @@ export function TripDetailView({
       return
     }
 
-    const notLoadedOrders = (latestTrip.dropPoints || [])
-      .filter((point) => point.order)
-      .filter((point) => !['LOADED', 'DISPATCHED'].includes(String((point.order as any)?.warehouseStage || '').toUpperCase()))
-      .map((point) => String(point.order?.orderNumber || point.order?.id || 'Unknown order'))
 
-    if (notLoadedOrders.length > 0) {
-      toast.error(`Trip cannot start. Orders not loaded: ${notLoadedOrders.slice(0, 3).join(', ')}`)
-      refreshTripsInBackground()
-      return
-    }
 
     // Start tracking in the background so trip start is immediate after confirmation.
     void onStartTracking().catch(() => {
@@ -639,12 +630,7 @@ export function TripDetailView({
             order: point.order
               ? {
                 ...point.order,
-                warehouseStage: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
-                  ? 'DISPATCHED'
-                  : point.order.warehouseStage,
-                status: ['LOADED', 'DISPATCHED'].includes(String(point.order.warehouseStage || '').toUpperCase())
-                  ? 'OUT_FOR_DELIVERY'
-                  : (point.order as any).status,
+                status: 'OUT_FOR_DELIVERY',
               }
               : point.order,
           })),
@@ -816,11 +802,6 @@ export function TripDetailView({
     return dataUrl
   }
 
-  // Orders still waiting for warehouse "LOADED" confirmation.
-  const notLoadedTripOrders = (trip.dropPoints || [])
-    .filter((point) => point.order)
-    .filter((point) => !['LOADED', 'DISPATCHED'].includes(String((point.order as any)?.warehouseStage || '').toUpperCase()))
-    .map((point) => String(point.order?.orderNumber || point.order?.id || 'Unknown order'))
 
   const uploadPodImage = async (file: File) => {
     const preparedFile = await prepareImageForUpload(file)
@@ -2125,15 +2106,10 @@ export function TripDetailView({
           {/* Start Trip Button */}
           {trip.status === 'PLANNED' && (
             <div>
-              {notLoadedTripOrders.length > 0 ? (
-                <p className="mb-2 text-sm text-red-600">
-                  All products in this trip must be marked as loaded first: {notLoadedTripOrders.slice(0, 3).join(', ')}
-                </p>
-              ) : null}
               <Button
                 className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => setIsStartTripConfirmOpen(true)}
-                disabled={isUpdating || notLoadedTripOrders.length > 0}
+                disabled={isUpdating}
               >
                 {isUpdating ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -3240,7 +3216,6 @@ export function TripDetailView({
               <div className="mt-2 space-y-1 text-slate-700">
                 <p><span className="font-medium text-slate-900">PO Number:</span> {selectedDropPointForDetails?.order?.orderNumber || 'Not set'}</p>
                 <p><span className="font-medium text-slate-900">Order Status:</span> {selectedDropPointForDetails?.order?.status || 'Not set'}</p>
-                <p><span className="font-medium text-slate-900">Warehouse Stage:</span> {selectedDropPointForDetails?.order?.warehouseStage || 'Not set'}</p>
                 <p><span className="font-medium text-slate-900">Created At:</span> {formatDateTime(selectedDropPointForDetails?.order?.createdAt)}</p>
                 <p><span className="font-medium text-slate-900">Total Amount:</span> {formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))}</p>
               </div>

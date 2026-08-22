@@ -78,7 +78,6 @@ interface DropPoint {
     warehouseCity?: string | null
     warehouseProvince?: string | null
     totalAmount?: number | null
-    warehouseStage?: string | null
     loadedAt?: string | null
     isDriverAssigned?: boolean
     assignedDriverName?: string | null
@@ -286,7 +285,6 @@ export function useDriverPortalState() {
   const [isNativeCameraGateOpen, setIsNativeCameraGateOpen] = useState(false)
   const [nativeCameraGateMessage, setNativeCameraGateMessage] = useState('Camera permission is required to use AnnDrive.')
   const [isCheckingNativeCameraPermission, setIsCheckingNativeCameraPermission] = useState(false)
-  const [loadingOrderId, setLoadingOrderId] = useState<string | null>(null)
   // Mutable refs for polling/tracking without rerender churn.
   const watchIdRef = useRef<number | null>(null)
   const isFetchingTripsRef = useRef(false)
@@ -438,54 +436,7 @@ export function useDriverPortalState() {
     }
   }, [fetchTrips])
 
-  // Marks order as loaded from driver side and updates nested trip/order state optimistically.
-  const markOrderLoaded = useCallback(async (orderId: string) => {
-    setLoadingOrderId(orderId)
-    try {
-      const response = await fetch(`/api/orders/${orderId}/warehouse-stage`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          warehouseStage: 'LOADED',
-        }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to mark order as loaded')
-      }
-      const updatedOrder = payload?.order || {}
-      setTrips((previousTrips) => {
-        const nextTrips = previousTrips.map((trip) => ({
-          ...trip,
-          dropPoints: (trip.dropPoints || []).map((point) => {
-            if (point.order?.id !== orderId) return point
-            return {
-              ...point,
-              order: point.order
-                ? {
-                    ...point.order,
-                    ...updatedOrder,
-                    warehouseStage: updatedOrder.warehouseStage || 'LOADED',
-                    loadedAt: updatedOrder.loadedAt || new Date().toISOString(),
-                  }
-                : point.order,
-            }
-          }),
-        }))
-        latestTripsRef.current = nextTrips
-        return nextTrips
-      })
-      toast.success(payload?.message || 'Order marked as loaded')
-      emitDataSync(['orders', 'trips'])
-      void fetchTrips(true)
-      return true
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to mark order as loaded')
-      return false
-    } finally {
-      setLoadingOrderId(null)
-    }
-  }, [fetchTrips])
+
 
   // Camera gate check used for native app startup/focus.
   const enforceNativeCameraPermission = useCallback(async () => {
@@ -950,10 +901,8 @@ export function useDriverPortalState() {
     isNativeCameraGateOpen,
     nativeCameraGateMessage,
     isCheckingNativeCameraPermission,
-    loadingOrderId,
     fetchTrips,
     applyTripUpdate,
-    markOrderLoaded,
     enforceNativeCameraPermission,
     startLocationTracking,
     openNativeCameraAppSettings,

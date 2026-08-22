@@ -39,19 +39,6 @@ export interface OrderItem {
   components?: MixedCaseComponent[]
 }
 
-export interface PackagingProfile {
-  id: string
-  code: string
-  name: string
-  containerType: string
-  containerSize: string
-  standardUnitsPerCase: number
-  allowedMixedCaseCapacities: number[]
-  compatibilityKey: string
-  baseUnitLabel: string
-  isActive: boolean
-}
-
 export interface MixedCaseComponent {
   id?: string
   productId: string
@@ -88,7 +75,6 @@ export interface Product {
   baseUnitPrice?: number
   quantityPerUnit?: number | null
   quantityPerCase?: number | null
-  packagingProfile?: PackagingProfile | null
   packagingType?: 'RETURNABLE' | 'NON_RETURNABLE'
   containerTypeId?: string | null
   containerTypeName?: string | null

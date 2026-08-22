@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Home, Package, User } from 'lucide-react'
-import { Poppins } from 'next/font/google'
 import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -28,6 +27,7 @@ import { CustomerRatingDialog } from './sections/orders/rating-dialog'
 import { CustomerPortalHeader } from './sections/layout/portal-header'
 import { CustomerBottomNav } from './sections/layout/bottom-nav'
 import { useCustomerPortalState } from './sections/layout/portal-state'
+import { PullToRefresh } from '../shared/pull-to-refresh'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,10 +86,7 @@ import { downloadOrderReceipt } from './sections/orders/receipt-utils'
 import { isWithinNegrosOccidental } from './sections/checkout/location-utils'
 import { isValidPhilippinePhone } from '@/lib/philippine-phone'
 
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
+const poppins = { className: '' }
 
 const getLocalDateOnly = () => {
   const now = new Date()
@@ -290,6 +287,12 @@ export function CustomerPortal() {
     setIsProfileDialogOpen,
     profileName,
     setProfileName,
+    profileFirstName,
+    setProfileFirstName,
+    profileMiddleName,
+    setProfileMiddleName,
+    profileLastName,
+    setProfileLastName,
     profileEmail,
     setProfileEmail,
     profilePhone,
@@ -348,6 +351,8 @@ export function CustomerPortal() {
   }, [avatarCropSource, avatarCropX, avatarCropY, avatarCropZoom])
 
   const hydrateAddressFromProfile = (customer: any) => {
+    const customerName = String(customer?.name || '').trim()
+    const customerNameParts = customerName.split(/\s+/).filter(Boolean)
     const rawAddress = String(customer?.address || '').trim()
     const city = String(customer?.city || '').trim()
     const state = String(customer?.province || '').trim() || 'Negros Occidental'
@@ -422,6 +427,9 @@ export function CustomerPortal() {
     setShippingLatitude(typeof customer?.latitude === 'number' ? customer.latitude : null)
     setShippingLongitude(typeof customer?.longitude === 'number' ? customer.longitude : null)
     setProfileName(String(customer?.name || '').trim())
+    setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
+    setProfileMiddleName(String(customer?.middleName || '').trim())
+    setProfileLastName(String(customer?.lastName || customerNameParts.slice(1).join(' ') || '').trim())
     setProfileEmail(String(customer?.email || '').trim())
     setProfilePhone(hydratedPhone)
     setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
@@ -435,6 +443,9 @@ export function CustomerPortal() {
   useEffect(() => {
     setShippingName(user?.name || '')
     setProfileName(user?.name || '')
+    setProfileFirstName(String((user as any)?.firstName || '').trim())
+    setProfileMiddleName(String((user as any)?.middleName || '').trim())
+    setProfileLastName(String((user as any)?.lastName || '').trim())
     setProfileEmail(user?.email || '')
     setProfileAvatar((user as any)?.avatar ? String((user as any).avatar) : null)
   }, [user])
@@ -571,6 +582,15 @@ export function CustomerPortal() {
     }
   }, [setIsProductsLoading, setProducts])
 
+  const handlePortalPullRefresh = useCallback(async () => {
+    await Promise.allSettled([
+      fetchOrders(true),
+      fetchProducts(),
+      fetchOrderMeta(),
+      loadCustomerProfile(true),
+    ])
+  }, [fetchOrders, fetchProducts, fetchOrderMeta, loadCustomerProfile])
+
   useEffect(() => {
     fetchOrders()
     fetchProducts()
@@ -601,7 +621,7 @@ export function CustomerPortal() {
       ) {
         void refreshOrders(true)
       }
-      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'packaging-profiles'].includes(scope))) {
+      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches'].includes(scope))) {
         void fetchProducts()
       }
     })
@@ -875,8 +895,15 @@ export function CustomerPortal() {
     return fallback || String((product as any)?.unit || '').trim() || 'case'
   }
 
+  const isReturnableGlassItem = (item: any) => {
+    if (!item) return false
+    if (item.packagingType !== 'RETURNABLE' || item.depositExempt) return false
+    const hasDeposit = Number(item.caseDepositAmount || item.depositAmount || 0) > 0
+    return Boolean(hasDeposit && item.containerTypeId)
+  }
+
   const applyAutomaticEmptyCredit = (item: CartItem, quantity: number): CartItem => {
-    if (item.packagingType !== 'RETURNABLE' || item.depositExempt) {
+    if (!isReturnableGlassItem(item)) {
       return { ...item, quantity, emptyReturnedQuantity: 0, availableEmptyBottles: 0, availableDepositBalance: 0 }
     }
     const customerBalance = Array.isArray(user?.bottleBalances)
@@ -1113,7 +1140,7 @@ export function CustomerPortal() {
   )
   const selectedDepositCharged = useMemo(
     () => selectedCartItems.reduce((sum, i) => {
-      if (i.packagingType !== 'RETURNABLE' || i.depositExempt) return sum
+      if (!isReturnableGlassItem(i)) return sum
       const isCase = String(i.unit || '').trim().toLowerCase() === 'case'
       const deposit = isCase ? Number(i.caseDepositAmount || 0) : Number(i.depositAmount || 0)
       return sum + (i.quantity * deposit)
@@ -1122,7 +1149,7 @@ export function CustomerPortal() {
   )
   const selectedDepositRefunded = useMemo(
     () => selectedCartItems.reduce((sum, i) => {
-      if (i.packagingType !== 'RETURNABLE' || i.depositExempt) return sum
+      if (!isReturnableGlassItem(i)) return sum
       const isCase = String(i.unit || '').trim().toLowerCase() === 'case'
       if (isCase) {
         const coveredCases = Math.floor((i.emptyReturnedQuantity || 0) / Math.max(1, i.containersPerCase || 1))
@@ -2361,7 +2388,7 @@ export function CustomerPortal() {
       toast.error('Unable to save profile right now')
       return false
     }
-    if (!profileName.trim()) {
+    if (!profileFirstName.trim() || !profileLastName.trim()) {
       toast.error('Name is required')
       return false
     }
@@ -2383,7 +2410,9 @@ export function CustomerPortal() {
       }
 
       const { response, payload } = await updateCustomerProfile(customerId, {
-        name: profileName.trim(),
+        firstName: profileFirstName.trim(),
+        middleName: profileMiddleName.trim(),
+        lastName: profileLastName.trim(),
         email: profileEmail.trim(),
         phone: normalizedProfilePhone,
         avatar: avatarToSave,
@@ -2395,6 +2424,9 @@ export function CustomerPortal() {
       const updatedCustomer = extractCustomerPayload(payload)
       if (updatedCustomer) {
         setProfileName(String(updatedCustomer.name || '').trim())
+        setProfileFirstName(String(updatedCustomer.firstName || '').trim())
+        setProfileMiddleName(String(updatedCustomer.middleName || '').trim())
+        setProfileLastName(String(updatedCustomer.lastName || '').trim())
         setProfileEmail(String(updatedCustomer.email || '').trim())
         setProfilePhone(String(updatedCustomer.phone || '').trim())
         setProfileAvatar(updatedCustomer.avatar ? String(updatedCustomer.avatar) : null)
@@ -2408,7 +2440,10 @@ export function CustomerPortal() {
         if (user) {
           setUser({
             ...(user as any),
-            name: String(updatedCustomer.name || profileName).trim(),
+            name: String(updatedCustomer.name || [profileFirstName, profileMiddleName, profileLastName].filter(Boolean).join(' ')).trim(),
+            firstName: String(updatedCustomer.firstName || profileFirstName).trim(),
+            middleName: String(updatedCustomer.middleName || profileMiddleName).trim(),
+            lastName: String(updatedCustomer.lastName || profileLastName).trim(),
             email: String(updatedCustomer.email || profileEmail).trim(),
             avatar: updatedCustomer.avatar ? String(updatedCustomer.avatar) : null,
           })
@@ -2569,6 +2604,10 @@ export function CustomerPortal() {
 
           <div className="flex min-h-0 flex-1">
             <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} setSelectedOrder={setSelectedOrder} />
+            <PullToRefresh
+              onRefresh={() => window.location.reload()}
+              className="flex-1 min-h-0 w-full"
+            >
             <AnimatePresence mode="wait" initial={false}>
               <motion.main
                 key={activeView}
@@ -2576,7 +2615,7 @@ export function CustomerPortal() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.22, ease: 'easeOut' }}
-                className="flex-1 min-h-0 w-full overflow-y-auto space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
+                className="flex-1 min-h-0 w-full space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
               >
                 {activeView === 'home' && (
                   <CustomerHomeView
@@ -2782,6 +2821,12 @@ export function CustomerPortal() {
                     avatarPreviewUrl={avatarPreviewUrl}
                     profileName={profileName}
                     setProfileName={setProfileName}
+                    profileFirstName={profileFirstName}
+                    setProfileFirstName={setProfileFirstName}
+                    profileMiddleName={profileMiddleName}
+                    setProfileMiddleName={setProfileMiddleName}
+                    profileLastName={profileLastName}
+                    setProfileLastName={setProfileLastName}
                     profileEmail={profileEmail}
                     setProfileEmail={setProfileEmail}
                     profilePhone={profilePhone}
@@ -2801,10 +2846,12 @@ export function CustomerPortal() {
                     initialSubView={notifInitialSubViewRef.current}
                     onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
                     onDidMount={() => { notifInitialSubViewRef.current = 'menu' }}
+                    onUserUpdate={(updatedUser) => setUser(updatedUser)}
                   />
                 )}
               </motion.main>
             </AnimatePresence>
+            </PullToRefresh>
           </div>
 
           <CustomerProfileDialog
@@ -2812,6 +2859,12 @@ export function CustomerPortal() {
             setIsProfileDialogOpen={setIsProfileDialogOpen}
             profileName={profileName}
             setProfileName={setProfileName}
+            profileFirstName={profileFirstName}
+            setProfileFirstName={setProfileFirstName}
+            profileMiddleName={profileMiddleName}
+            setProfileMiddleName={setProfileMiddleName}
+            profileLastName={profileLastName}
+            setProfileLastName={setProfileLastName}
             profileEmail={profileEmail}
             setProfileEmail={setProfileEmail}
             profilePhone={profilePhone}

@@ -11,13 +11,19 @@ import { Label } from '@/components/ui/label'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
-import { Bell, Camera, ChevronRight, Loader2, LogOut, MapPin, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound } from 'lucide-react'
+import { Bell, Camera, ChevronRight, Loader2, LogOut, MapPin, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle } from 'lucide-react'
 import { toast } from 'sonner'
 
 type CustomerProfileViewProps = {
   avatarPreviewUrl: string | null
   profileName: string
   setProfileName: (value: string) => void
+  profileFirstName: string
+  setProfileFirstName: (value: string) => void
+  profileMiddleName: string
+  setProfileMiddleName: (value: string) => void
+  profileLastName: string
+  setProfileLastName: (value: string) => void
   profileEmail: string
   setProfileEmail: (value: string) => void
   profilePhone: string
@@ -37,6 +43,7 @@ type CustomerProfileViewProps = {
   initialSubView?: 'real-notifications' | 'menu'
   onUnreadCountChange?: (count: number) => void
   onDidMount?: () => void
+  onUserUpdate?: (user: any) => void
 }
 
 type NotificationPrefs = {
@@ -70,6 +77,12 @@ export function CustomerProfileView({
   avatarPreviewUrl,
   profileName,
   setProfileName,
+  profileFirstName,
+  setProfileFirstName,
+  profileMiddleName,
+  setProfileMiddleName,
+  profileLastName,
+  setProfileLastName,
   profileEmail,
   setProfileEmail,
   profilePhone,
@@ -89,9 +102,82 @@ export function CustomerProfileView({
   initialSubView,
   onUnreadCountChange,
   onDidMount,
+  onUserUpdate,
 }: CustomerProfileViewProps) {
   const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'security-settings' | 'notifications' | 'real-notifications'>(initialSubView ?? 'menu')
+
+  // Empty Bottles Recording State
+  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false)
+  const [eligibleProducts, setEligibleProducts] = useState<any[]>([])
+  const [isLoadingEligible, setIsLoadingEligible] = useState(false)
+  const [selectedProductId, setSelectedProductId] = useState('')
+  const [recordCases, setRecordCases] = useState(1)
+  const [isSubmittingEmpties, setIsSubmittingEmpties] = useState(false)
+
+  const fetchEligibleProducts = async () => {
+    setIsLoadingEligible(true)
+    try {
+      const res = await fetch('/api/customer/empty-bottles/eligible', {
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.success && Array.isArray(data.eligibleItems)) {
+        setEligibleProducts(data.eligibleItems)
+        if (data.eligibleItems.length > 0) {
+          setSelectedProductId(data.eligibleItems[0].productId)
+          setRecordCases(1)
+        } else {
+          setSelectedProductId('')
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch eligible returnable products:', e)
+    } finally {
+      setIsLoadingEligible(false)
+    }
+  }
+
+  const handleRecordEmpties = async () => {
+    const selectedItem = eligibleProducts.find((p) => p.productId === selectedProductId)
+    if (!selectedItem) {
+      toast.error('Please select a product')
+      return
+    }
+    if (recordCases <= 0 || recordCases > selectedItem.availableCasesToReturn) {
+      toast.error(`Please enter a valid case quantity (1 to ${selectedItem.availableCasesToReturn})`)
+      return
+    }
+
+    setIsSubmittingEmpties(true)
+    try {
+      const res = await fetch('/api/customer/empty-bottles/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          productId: selectedProductId,
+          cases: recordCases,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.success) {
+        toast.success(data.message || `Recorded ${recordCases} empty case(s) successfully!`)
+        if (data.user && onUserUpdate) {
+          onUserUpdate(data.user)
+        }
+        setIsRecordModalOpen(false)
+        fetchEligibleProducts()
+      } else {
+        toast.error(data.error || 'Failed to record empty bottles')
+      }
+    } catch (e) {
+      toast.error('Network error while recording empty bottles')
+    } finally {
+      setIsSubmittingEmpties(false)
+    }
+  }
+
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('customer_2fa_enabled')
@@ -357,8 +443,8 @@ export function CustomerProfileView({
   }, [profilePhone])
 
   const canSaveProfile = useMemo(() => {
-    return !phoneError && profilePhone.length > 0 && profileName.trim().length > 0
-  }, [phoneError, profilePhone, profileName])
+    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0
+  }, [phoneError, profilePhone, profileFirstName, profileLastName])
 
   const handleSaveProfile = async () => {
     if (!canSaveProfile) return
@@ -570,6 +656,20 @@ export function CustomerProfileView({
                 void openAvatarCropDialog(file)
               }}
             />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
+                <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+                <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
+                <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" />
+              </div>
+            </div>
             <Button
               type="button"
               size="icon"
@@ -583,16 +683,6 @@ export function CustomerProfileView({
           <p className="mt-2 text-xs font-medium text-slate-500">Tap avatar to change photo</p>
         </div>
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="customer-profile-name" className="text-sm font-semibold text-slate-700">Full Name</Label>
-            <Input
-              id="customer-profile-name"
-              value={profileName}
-              onChange={(e) => setProfileName(e.target.value)}
-              placeholder="Enter your full name"
-              className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-emerald-500 focus-visible:ring-emerald-200"
-            />
-          </div>
           <div className="space-y-2">
             <Label htmlFor="customer-profile-email" className="text-sm font-semibold text-slate-700">Email Address</Label>
             <Input
@@ -1006,26 +1096,48 @@ export function CustomerProfileView({
       currency: 'PHP',
     }).format(Number(amount) || 0)
 
+    const selectedItem = eligibleProducts.find((p) => p.productId === selectedProductId)
+
     return (
       <div className="space-y-5 pb-[calc(env(safe-area-inset-bottom)+6.75rem)] md:pb-6 bg-[#f8f9fa] min-h-screen">
-        <div className="flex items-center gap-3 px-4 pt-5 pb-1">
+        <div className="flex items-center justify-between gap-3 px-4 pt-5 pb-1">
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-full hover:bg-slate-100 text-slate-700"
+              onClick={() => setSubView('menu')}
+              aria-label="Back to profile"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Empties &amp; Deposits</h2>
+          </div>
+
           <Button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-full hover:bg-slate-100 text-slate-700"
-            onClick={() => setSubView('menu')}
-            aria-label="Back to profile"
+            size="sm"
+            className="gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500"
+            onClick={() => {
+              setIsRecordModalOpen(true)
+              fetchEligibleProducts()
+            }}
           >
-            <ArrowLeft className="h-5 w-5" />
+            <Plus className="h-4 w-4" />
+            <span>Record Empties</span>
           </Button>
-          <h2 className="text-xl font-bold tracking-tight text-slate-900">Empties &amp; Deposits</h2>
         </div>
 
         <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
-          <div className="border-b border-slate-100 px-4 py-3.5">
-            <h3 className="text-[15px] font-bold text-slate-900">Empty Bottles</h3>
-            <p className="mt-0.5 text-xs text-slate-500">Outstanding bottles and the deposit for each bottle.</p>
+          <div className="border-b border-slate-100 px-4 py-3.5 flex items-center justify-between">
+            <div>
+              <h3 className="text-[15px] font-bold text-slate-900">Empty Bottles On Record</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Available empty containers applied automatically at checkout.</p>
+            </div>
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+              <Recycle className="h-4 w-4" />
+            </span>
           </div>
 
           {bottleBalances.length > 0 ? (
@@ -1035,21 +1147,177 @@ export function CustomerProfileView({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-800">{balance.containerTypeName}</p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      Deposit per bottle: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}</span>
+                      Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span>
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-lg font-bold text-slate-900">{Number(balance.bottlesOutstanding) || 0}</p>
-                    <p className="text-xs text-slate-500">empty bottles</p>
-                    <p className="mt-1 text-xs font-semibold text-emerald-700">{formatDeposit(balance.depositBalance)}</p>
+                    <p className="text-xs text-slate-500">empty bottle{Number(balance.bottlesOutstanding) !== 1 ? 's' : ''}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-emerald-700">{formatDeposit(balance.depositBalance)} credit</p>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="px-4 py-8 text-center text-sm text-slate-500">No outstanding empty bottles.</p>
+            <div className="px-4 py-8 text-center">
+              <div className="mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-2xl bg-slate-50 text-slate-400">
+                <Recycle className="h-5 w-5" />
+              </div>
+              <p className="text-sm font-semibold text-slate-700">No Empty Bottles Recorded</p>
+              <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
+                Have empty cases at home from past purchases? Click <strong>"Record Empties"</strong> to declare them in cases and waive container deposits on your next order.
+              </p>
+            </div>
           )}
         </div>
+
+        {/* Record Empty Bottles Dialog */}
+        <Dialog open={isRecordModalOpen} onOpenChange={setIsRecordModalOpen}>
+          <DialogContent className="sm:max-w-md rounded-3xl p-6">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Recycle className="h-5 w-5 text-emerald-600" />
+                Record Empty Bottle Cases
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                Declare empty returnable cases from your past orders to automatically waive container deposits at checkout.
+              </DialogDescription>
+            </DialogHeader>
+
+            {isLoadingEligible ? (
+              <div className="py-8 text-center space-y-2">
+                <Loader2 className="h-6 w-6 animate-spin text-emerald-600 mx-auto" />
+                <p className="text-xs text-slate-500">Checking your returnable purchase history...</p>
+              </div>
+            ) : eligibleProducts.length === 0 ? (
+              <div className="py-6 text-center space-y-2">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-600 border border-amber-100">
+                  <Info className="h-6 w-6" />
+                </div>
+                <p className="text-sm font-semibold text-slate-800">No Eligible Returnable History</p>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                  You have no unreturned glass case purchases on record. Empty bottles can only be declared for returnable glass products previously purchased from our store.
+                </p>
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    className="rounded-xl text-xs"
+                    onClick={() => setIsRecordModalOpen(false)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 pt-1">
+                {/* Product Select */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Select Purchased Beverage</Label>
+                  <select
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-800 shadow-2xs focus:border-emerald-600 focus:outline-none"
+                    value={selectedProductId}
+                    onChange={(e) => {
+                      setSelectedProductId(e.target.value)
+                      setRecordCases(1)
+                    }}
+                  >
+                    {eligibleProducts.map((prod) => (
+                      <option key={prod.productId} value={prod.productId}>
+                        {prod.productName} ({prod.availableCasesToReturn} case{prod.availableCasesToReturn > 1 ? 's' : ''} available)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedItem ? (
+                  <>
+                    {/* Case Quantity Stepper */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-slate-700">Number of Cases to Return</Label>
+                        <span className="text-[11px] font-medium text-emerald-700">
+                          Max available: {selectedItem.availableCasesToReturn} case(s)
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                        <span className="text-xs font-medium text-slate-600 pl-2">
+                          {recordCases} case{recordCases > 1 ? 's' : ''} ({recordCases * selectedItem.containersPerCase} bottles)
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 rounded-xl bg-white border-slate-200"
+                            disabled={recordCases <= 1}
+                            onClick={() => setRecordCases((prev) => Math.max(1, prev - 1))}
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          <span className="min-w-[2rem] text-center text-sm font-bold text-slate-900">
+                            {recordCases}
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 rounded-xl bg-white border-slate-200"
+                            disabled={recordCases >= selectedItem.availableCasesToReturn}
+                            onClick={() => setRecordCases((prev) => Math.min(selectedItem.availableCasesToReturn, prev + 1))}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Deposit Preview Card */}
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between font-semibold text-emerald-900">
+                        <span>Deposit Credit to Apply:</span>
+                        <span className="text-sm font-bold text-emerald-700">
+                          {formatDeposit(recordCases * selectedItem.caseDeposit)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 leading-snug">
+                        ✓ At checkout, the system will automatically detect these {recordCases} empty case(s) to waive the container deposit fee.
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1 rounded-xl text-xs"
+                        onClick={() => setIsRecordModalOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        className="flex-1 rounded-xl bg-emerald-600 text-xs font-bold text-white shadow-xs hover:bg-emerald-500"
+                        disabled={isSubmittingEmpties}
+                        onClick={handleRecordEmpties}
+                      >
+                        {isSubmittingEmpties ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            Recording...
+                          </>
+                        ) : (
+                          `Record ${recordCases} Case${recordCases > 1 ? 's' : ''}`
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -1162,6 +1430,7 @@ export function CustomerProfileView({
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-xl font-bold text-slate-900 truncate">{profileName || user?.name || ''}</h3>
+          <p className="text-sm text-slate-500 truncate">{[profileFirstName, profileLastName].filter(Boolean).join(' ') || 'Name details not set'}</p>
           <p className="text-sm text-slate-500 truncate mt-0.5">{profileEmail || user?.email || ''}</p>
           <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#eef8f2] px-2.5 py-0.5 text-xs font-semibold text-[#14532d]">
             <Phone className="h-3 w-3" />

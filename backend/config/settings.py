@@ -60,7 +60,7 @@ def _parse_database_url(url: str) -> dict:
     sslmode = str(query.get("sslmode", ["require"])[0]).strip().lower() or "require"
     options = {
         "sslmode": sslmode,
-        "connect_timeout": int(query.get("connect_timeout", ["10"])[0]),
+        "connect_timeout": int(query.get("connect_timeout", ["30"])[0]),
         "gssencmode": query.get("gssencmode", ["disable"])[0],
     }
     sslrootcert = _resolve_postgres_sslrootcert(query, sslmode)
@@ -74,6 +74,9 @@ def _parse_database_url(url: str) -> dict:
         "HOST": parsed.hostname or "",
         "PORT": str(parsed.port or "5432"),
         "CONN_MAX_AGE": int(query.get("conn_max_age", ["0"])[0]),
+        # Keep health checks on so stale connections are detected quickly.
+        # With transaction-mode pooling CONN_MAX_AGE should remain 0 (default)
+        # so Django never holds a persistent connection across requests.
         # Reconnect cleanly when the remote Postgres pooler closes an idle connection.
         "CONN_HEALTH_CHECKS": True,
         "OPTIONS": options,
@@ -82,10 +85,6 @@ def _parse_database_url(url: str) -> dict:
 
 def _normalize_runtime_database_url(url: str) -> str:
     raw = str(url or "").strip()
-    if not raw:
-        return ""
-    if "pooler.supabase.com:6543" in raw:
-        raw = raw.replace("pooler.supabase.com:6543", "pooler.supabase.com:5432")
     return raw
 
 

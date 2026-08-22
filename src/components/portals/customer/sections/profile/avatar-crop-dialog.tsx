@@ -72,7 +72,7 @@ export function CustomerAvatarCropDialog(props: any) {
                 ) : null}
               </div>
             </div>
-            <p className="text-xs text-gray-500 -mt-2 text-center">Drag photo to position, then tap Apply & Upload.</p>
+            <p className="text-xs text-gray-500 -mt-2 text-center">Drag photo to position, then save or cancel.</p>
 
             <div className="space-y-2">
               <Label htmlFor="avatar-zoom">Zoom</Label>
@@ -87,30 +87,27 @@ export function CustomerAvatarCropDialog(props: any) {
               />
             </div>
 
-            <Button
-              className="w-full"
-              disabled={isSavingProfile || !avatarCropSource}
-              onClick={async () => {
-                try {
-                  const croppedFile = await createCroppedAvatarFile()
-                  const fileToUpload = croppedFile || avatarCropFile
-                  if (!fileToUpload) throw new Error('Failed to prepare image')
-                  await handleAvatarUpload(fileToUpload)
-                  setIsAvatarCropDialogOpen(false)
-                } catch (error: any) {
-                  toast.error(error?.message || 'Failed to upload photo')
-                }
-              }}
-            >
-              {isSavingProfile ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                'Apply & Upload'
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setIsAvatarCropDialogOpen(false)} disabled={isSavingProfile}>Cancel</Button>
+              <Button
+                className="flex-1"
+                disabled={isSavingProfile || !avatarCropSource}
+                onClick={async () => {
+                  try {
+                    const croppedFile = await createCroppedAvatarFile()
+                    const fileToUpload = croppedFile || avatarCropFile
+                    if (!fileToUpload) throw new Error('Failed to prepare image')
+                    await handleAvatarUpload(fileToUpload)
+                    setIsAvatarCropDialogOpen(false)
+                  } catch (error: any) {
+                    toast.error(error?.message || 'Failed to upload photo')
+                  }
+                }}
+              >
+                {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </div>
           </div>
         </motion.div>
       </DialogContent>

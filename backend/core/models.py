@@ -46,12 +46,6 @@ class PurchaseOrderStage(models.TextChoices):
     CANCELLED = "CANCELLED", "Cancelled"
 
 
-class WarehouseStage(models.TextChoices):
-    READY_TO_LOAD = "READY_TO_LOAD", "Ready To Load"
-    LOADED = "LOADED", "Loaded"
-    DISPATCHED = "DISPATCHED", "Dispatched"
-
-
 class VehicleType(models.TextChoices):
     TRUCK = "TRUCK", "Truck"
     TRICYCLE = "TRICYCLE", "Tricycle"
@@ -159,7 +153,6 @@ class User(models.Model):
     email = models.EmailField()
     password = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
-    # Restored: these columns already exist from applied migration 0080.
     first_name = models.CharField(max_length=255, blank=True, null=True)
     middle_name = models.CharField(max_length=255, blank=True, null=True)
     last_name = models.CharField(max_length=255, blank=True, null=True)
@@ -191,7 +184,6 @@ class Customer(models.Model):
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
-    # Restored: these columns already exist from applied migration 0080.
     first_name = models.CharField(max_length=255, blank=True, null=True)
     middle_name = models.CharField(max_length=255, blank=True, null=True)
     last_name = models.CharField(max_length=255, blank=True, null=True)
@@ -280,7 +272,6 @@ class PackagingProfile(models.Model):
     allowed_mixed_case_capacities = models.JSONField(default=list, blank=True)
     compatibility_key = models.CharField(max_length=255, db_index=True)
     base_unit_label = models.CharField(max_length=50, default="unit")
-    # Restored RGB configuration from applied migration 0085.
     is_returnable = models.BooleanField(default=False)
     default_deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     is_active = models.BooleanField(default=True)
@@ -299,7 +290,6 @@ class Product(models.Model):
     unit = models.CharField(max_length=50, default="case")
     weight = models.FloatField(blank=True, null=True)
     price = models.FloatField(default=0)
-    # POS prices remain on Product so every sales channel shares one catalog.
     retail_unit_price = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     case_price = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     category = models.CharField(max_length=150, blank=True, null=True)
@@ -326,7 +316,6 @@ class Inventory(models.Model):
     quantity = models.IntegerField(default=0)
     loose_bottles = models.IntegerField(default=0)
     reserved_quantity = models.IntegerField(default=0)
-    # Restored base-unit reservation counter from applied migration 0083.
     reserved_base_units = models.IntegerField(default=0)
     threshold = models.IntegerField(default=10)
     last_restocked_at = models.DateTimeField(blank=True, null=True)
@@ -385,7 +374,6 @@ class Order(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order_number = models.CharField(max_length=120, unique=True)
     request_id = models.CharField(max_length=120, blank=True, null=True, unique=True)
-    # Walk-in POS sales have no account; existing online orders keep their customer.
     customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, related_name="orders", blank=True, null=True)
     status = models.CharField(max_length=50, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     priority = models.CharField(max_length=30, default="normal")
@@ -432,13 +420,10 @@ class Order(models.Model):
     pod_photo_url = models.TextField(blank=True, null=True)
     pod_submitted_at = models.DateTimeField(blank=True, null=True)
 
-    # Warehouse load and dispatch controls
-    warehouse_stage = models.CharField(max_length=50, choices=WarehouseStage.choices, default=WarehouseStage.READY_TO_LOAD)
     ready_to_load_at = models.DateTimeField(blank=True, null=True)
     loaded_at = models.DateTimeField(blank=True, null=True)
     warehouse_dispatched_at = models.DateTimeField(blank=True, null=True)
 
-    # Restored purchase request/order workflow fields from applied migration 0079.
     purchase_request_number = models.CharField(max_length=120, blank=True, null=True, db_index=True)
     purchase_order_number = models.CharField(max_length=120, blank=True, null=True, db_index=True)
     request_status = models.CharField(max_length=50, choices=PurchaseRequestStatus.choices, default=PurchaseRequestStatus.PENDING_APPROVAL)
@@ -490,7 +475,6 @@ class OrderItem(models.Model):
     quantity = models.IntegerField()
     unit_price = models.FloatField()
     total_price = models.FloatField()
-    # Restored immutable RGB/deposit details from applied migration 0085.
     container_type_id = models.CharField(max_length=25, blank=True, null=True)
     container_type_name = models.CharField(max_length=255, blank=True, null=True)
     is_returnable_item = models.BooleanField(default=False)
@@ -530,6 +514,7 @@ class Vehicle(models.Model):
 
     class Meta:
         db_table = "Vehicle"
+
 
 class Trip(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
@@ -577,7 +562,6 @@ class TripDropPoint(models.Model):
     delivery_photo = models.TextField(blank=True, null=True)
     failure_reason = models.TextField(blank=True, null=True)
     failure_notes = models.TextField(blank=True, null=True)
-    # Restored declarations for columns already present from applied migration 0085.
     bottle_return_id = models.CharField(max_length=25, blank=True, null=True)
     empties_collected = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
@@ -712,7 +696,6 @@ class ReplacementLine(models.Model):
     base_unit_label = models.CharField(max_length=50, default="unit")
     requested_base_units = models.PositiveIntegerField()
     replaced_base_units = models.PositiveIntegerField(default=0)
-    # Schema audit: migration 0083 already created these columns; the live table is empty.
     returned_base_units = models.PositiveIntegerField(default=0)
     reason = models.TextField()
     description = models.TextField(blank=True, null=True)
@@ -842,7 +825,6 @@ class DepositTransaction(models.Model):
         WRITE_OFF = "WRITE_OFF", "Write Off"
 
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    # Walk-in POS transactions retain an order/item audit without a customer ledger.
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="deposit_transactions", blank=True, null=True)
     ledger = models.ForeignKey(CustomerDepositLedger, on_delete=models.CASCADE, related_name="transactions", blank=True, null=True)
     type = models.CharField(max_length=30, choices=TransactionType.choices)
@@ -933,5 +915,3 @@ class BottleReturnLine(models.Model):
         db_table = "BottleReturnLine"
         verbose_name = "Bottle Return Line"
         verbose_name_plural = "Bottle Return Lines"
-
-

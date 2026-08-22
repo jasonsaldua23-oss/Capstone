@@ -138,15 +138,6 @@ export async function quoteMixedCase(body: {
   return { response, data }
 }
 
-export async function fetchPackagingProfiles() {
-  const response = await fetch('/api/packaging-profiles', {
-    cache: 'no-store',
-    credentials: 'include',
-  })
-  const data = await response.json().catch(() => ({}))
-  return { response, data }
-}
-
 export async function receiveReplacementReturn(
   replacementId: string,
   body: {

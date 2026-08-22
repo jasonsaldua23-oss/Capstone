@@ -1,9 +1,10 @@
 'use client'
 
-import { ArrowLeft, CheckCircle, Minus, Pencil, Plus } from 'lucide-react'
+import { useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
+import { ArrowLeft, CheckCircle, Minus, Pencil, Plus, Recycle, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { MapPin } from 'lucide-react'
 
 type CustomerCartViewProps = {
   setActiveView: (view: any) => void
@@ -39,174 +40,263 @@ export function CustomerCartView(props: CustomerCartViewProps) {
     selectedCount,
     selectedSubtotal,
     formatPeso,
-    onEditMixedCase,
+    onEditMixedCase: _onEditMixedCase,
   } = props
+  // Keep the body portal hydration-safe without introducing an extra effect render.
+  const isMounted = useSyncExternalStore(
+    () => () => undefined,
+    () => true,
+    () => false
+  )
+
+  const formattedAddress =
+    [shippingBarangay, shippingCity, shippingProvince].filter(Boolean).join(', ') ||
+    'Select delivery address'
+
+  const checkoutBarContent = (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className={`grid h-5 w-5 place-items-center rounded-full border transition-all ${
+            allCartSelected
+              ? 'border-emerald-600 bg-emerald-600 text-white shadow-xs'
+              : 'border-slate-300 bg-white text-transparent hover:border-slate-400'
+          }`}
+          onClick={() => {
+            setSelectedCartIds(allCartSelected ? new Set() : new Set(cart.map((item) => item.productId)))
+          }}
+          title="Select all"
+        >
+          <CheckCircle className="h-3.5 w-3.5" />
+        </button>
+        <div className="leading-tight">
+          <p className="text-xs font-semibold text-slate-800">All ({cart.length})</p>
+          <p className="text-[10px] text-slate-500">{selectedCount} selected</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="text-right leading-tight">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total</p>
+          <p className="text-base font-bold text-slate-900 sm:text-lg">{formatPeso(selectedSubtotal)}</p>
+        </div>
+
+        <Button
+          disabled={selectedCount === 0}
+          className="h-10 rounded-xl bg-emerald-600 px-5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400"
+          onClick={() => setActiveView('checkout')}
+        >
+          Check out ({selectedCount})
+        </Button>
+      </div>
+    </div>
+  )
 
   return (
-<section className="-mx-4 -mt-4 flex min-h-[calc(100dvh-9.5rem)] flex-col bg-[#f8fafc] pb-28 md:mx-0 md:mt-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:pb-4">
-            <div className="border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur md:rounded-t-[1.6rem]">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-100" onClick={() => setActiveView('home')}>
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
-                  <h2 className="text-[1.15rem] font-bold tracking-tight text-slate-900">Shopping cart ({cart.length})</h2>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                  onClick={() => setIsAddressDialogOpen(true)}
-                  title="Edit delivery address"
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="mt-2 flex items-start gap-2 pl-10">
-                <MapPin className="mt-0.5 h-4 w-4 text-slate-500" />
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500">Delivery address</p>
-                  <p className="truncate text-sm text-slate-700">{shippingBarangay || 'Barangay'}, {shippingCity || 'City'}, {shippingProvince || 'Province'}</p>
-                </div>
-              </div>
-            </div>
+    <section className="-mx-4 -mt-4 flex min-h-[calc(100dvh-9.5rem)] flex-col bg-[#f8fafc] pb-40 md:mx-0 md:mt-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:pb-6">
+      {/* Header */}
+      <div className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 px-4 py-3.5 backdrop-blur-md md:rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8.5 w-8.5 rounded-full border border-slate-200 bg-white text-slate-700 shadow-2xs hover:bg-slate-50"
+              onClick={() => setActiveView('home')}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">
+              Shopping Cart <span className="font-normal text-slate-400">({cart.length})</span>
+            </h2>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 rounded-xl border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-2xs hover:bg-slate-50 hover:text-slate-900"
+            onClick={() => setIsAddressDialogOpen(true)}
+            title="Edit delivery address"
+          >
+            <Pencil className="h-3.5 w-3.5 text-slate-500" />
+            <span>Edit Address</span>
+          </Button>
+        </div>
 
-            <div className="flex-1 space-y-3 px-3 pt-3">
-              {cart.map((item) => {
-                const selected = selectedCartIds.has(item.productId)
-                return (
-                  <Card key={item.productId} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <CardContent className="p-3">
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedCartIds((prev) => {
-                              const next = new Set(prev)
-                              if (next.has(item.productId)) next.delete(item.productId)
-                              else next.add(item.productId)
-                              return next
-                            })
-                          }}
-                          className={`grid h-6 w-6 place-items-center rounded-full border transition-all ${selected ? 'border-emerald-600 bg-emerald-600 text-white shadow-[0_4px_10px_rgba(5,150,105,0.32)]' : 'border-slate-300 bg-white text-transparent'}`}
-                          title="Select item"
-                        >
-                          <CheckCircle className="h-3.5 w-3.5" />
-                        </button>
-                        {item.itemType === 'MIXED_CASE' ? (
-                          <div className="grid h-[96px] w-[96px] shrink-0 grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                            {/* A mixed case uses the images of its first two selected products. */}
-                            {(item.components || []).slice(0, 2).map((component: any) => (
-                              <img
-                                key={component.productId}
-                                src={getProductImage(component.product?.imageUrl)}
-                                alt={component.productName || 'Mixed case product'}
-                                className="h-full w-full min-w-0 object-cover"
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <img
-                            src={getProductImage(item.imageUrl)}
-                            alt={item.name}
-                            className="h-[96px] w-[96px] rounded-xl border border-slate-200 object-cover bg-white"
-                          />
-                        )}
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <p className="truncate text-[1.05rem] font-semibold text-slate-900">
-                            {item.name}{' '}
-                            <span className="text-[0.9rem] font-medium text-sky-700">
-                              {String(item.sizeLabel || item.unit || '').trim() || 'case'}
-                            </span>
-                          </p>
-                          {String((item as any)?.category || '').trim() ? (
-                            <p className="text-xs text-slate-500">{String((item as any).category).trim()}</p>
-                          ) : null}
-                          <p className="text-[2rem] font-bold leading-none text-emerald-700">{formatPeso(item.unitPrice)}</p>
-                          <div className="pt-0.5">
-                            <div className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50/80 px-1">
-                              <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full text-sky-700 hover:bg-sky-100" onClick={() => updateCartQty(item.productId, item.quantity - 1)}>
-                                <Minus className="h-3.5 w-3.5" />
-                              </Button>
-                              <div className="min-w-[2.2rem] px-1 text-center text-base font-medium text-slate-800">{item.quantity}</div>
-                              <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full text-sky-700 hover:bg-sky-100" onClick={() => updateCartQty(item.productId, item.quantity + 1)}>
-                                <Plus className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                            
-                            {item.packagingType === 'RETURNABLE' && !item.depositExempt && (
-                              <div className="mt-3 rounded-xl bg-slate-50 p-3 border border-slate-100">
-                                <p className="text-sm font-semibold text-slate-700">{item.looseUnit || item.containerTypeName || 'Glass Bottle'}</p>
-                                <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                                  <p className="text-slate-600">
-                                    Empty Bottles: <span className="font-bold text-slate-900">{item.availableEmptyBottles || 0}</span>
-                                  </p>
-                                  <p className="text-slate-600">
-                                    Total Deposit: <span className="font-bold text-emerald-700">{formatPeso(item.availableDepositBalance || 0)}</span>
-                                  </p>
-                                </div>
-                                <p className={`mt-2 text-xs font-medium ${(item.emptyReturnedQuantity || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                  {(item.emptyReturnedQuantity || 0) > 0
-                                    ? `${item.emptyReturnedQuantity} existing empties will be used automatically.`
-                                    : 'A new bottle/case deposit will be charged.'}
-                                </p>
-                              </div>
-                            )}
+        <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-1.5">
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+          <p className="truncate text-xs text-slate-600">
+            <span className="font-medium text-slate-800">Deliver to: </span>
+            {formattedAddress}
+          </p>
+        </div>
+      </div>
 
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-
-              {cart.length === 0 && (
-                <div className="px-4 py-10 text-center text-sm text-slate-500">Your cart is empty.</div>
-              )}
-            </div>
-
-            {cart.length > 0 ? (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] left-0 right-0 z-30 border-t border-slate-200 bg-white px-3 py-2 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] md:static md:mt-auto md:rounded-b-2xl md:border md:border-slate-200 md:shadow-none">
-                <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-2 py-2">
+      {/* Cart Items List */}
+      <div className="flex-1 space-y-3 px-3 pt-3 sm:px-4">
+        {cart.map((item) => {
+          const selected = selectedCartIds.has(item.productId)
+          return (
+            <Card
+              key={item.productId}
+              className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-2xs transition-shadow hover:shadow-xs"
+            >
+              <CardContent className="p-3.5 sm:p-4">
+                <div className="flex items-start gap-3">
+                  {/* Select Checkbox */}
                   <button
                     type="button"
-                    className={`grid h-6 w-6 place-items-center rounded-full border transition-all ${allCartSelected ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}
                     onClick={() => {
-                      setSelectedCartIds(allCartSelected ? new Set() : new Set(cart.map((item) => item.productId)))
+                      setSelectedCartIds((prev: Set<string>) => {
+                        const next = new Set(prev)
+                        if (next.has(item.productId)) next.delete(item.productId)
+                        else next.add(item.productId)
+                        return next
+                      })
                     }}
-                    title="Select all"
+                    className={`mt-5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-all ${
+                      selected
+                        ? 'border-emerald-600 bg-emerald-600 text-white shadow-xs'
+                        : 'border-slate-300 bg-white text-transparent hover:border-slate-400'
+                    }`}
+                    title="Select item"
                   >
                     <CheckCircle className="h-3.5 w-3.5" />
                   </button>
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <p className="text-sm font-medium text-slate-700">All selected</p>
-                    <p className="text-xs text-slate-500">({selectedCount} item{selectedCount > 1 ? 's' : ''})</p>
-                  </div>
-                  <div className="ml-auto flex items-center gap-3 md:gap-4">
-                    <div className="pr-1 text-right leading-tight">
-                      <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Sub-total</p>
-                      <p className="text-xl font-bold text-slate-900">{formatPeso(selectedSubtotal)}</p>
+
+                  {/* Product Image Thumbnail */}
+                  {item.itemType === 'MIXED_CASE' ? (
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-1">
+                      <div className="grid h-full w-full grid-cols-2 gap-0.5">
+                        {(item.components || []).slice(0, 2).map((component: any) => (
+                          <img
+                            key={component.productId}
+                            src={getProductImage(component.product?.imageUrl)}
+                            alt={component.productName || 'Mixed case product'}
+                            className="h-full w-full object-contain"
+                            onError={(e) => {
+                              e.currentTarget.src = '/ann-anns-logo.png'
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    {selectedCount > 0 ? (
-                      <Button
-                        className="h-11 rounded-2xl bg-emerald-600 px-6 text-white hover:bg-emerald-500"
-                        onClick={() => setActiveView('checkout')}
-                      >
-                        Check out
-                      </Button>
-                    ) : (
-                      <Button
-                        disabled
-                        className="h-11 rounded-2xl bg-slate-300 px-6 text-white"
-                      >
-                        Check out
-                      </Button>
-                    )}
+                  ) : (
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-1">
+                      <img
+                        src={getProductImage(item.imageUrl)}
+                        alt={item.name}
+                        className="h-full w-full object-contain"
+                        onError={(e) => {
+                          e.currentTarget.src = '/ann-anns-logo.png'
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Info & Price Column */}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="line-clamp-1 text-sm font-bold text-slate-900 leading-snug">
+                      {item.name}
+                    </p>
+
+                    <p className="text-[11px] text-slate-500 line-clamp-1">
+                      {String((item as any)?.category || '').trim() ? `${String((item as any).category).trim()} · ` : ''}
+                      <span className="font-medium text-sky-700">
+                        {String(item.sizeLabel || item.unit || '').trim() || 'case'}
+                      </span>
+                    </p>
+
+                    {/* Price and Quantity Stepper Row */}
+                    <div className="flex items-center justify-between pt-1.5">
+                      <p className="text-base font-bold text-emerald-700 leading-none">
+                        {formatPeso(item.unitPrice)}
+                      </p>
+
+                      <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-2xs">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6.5 w-6.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900"
+                          onClick={() => updateCartQty(item.productId, item.quantity - 1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="min-w-[1.8rem] text-center text-xs font-bold text-slate-900">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6.5 w-6.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900"
+                          onClick={() => updateCartQty(item.productId, item.quantity + 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : null}
-          </section>
+
+                {/* Returnable Empty Bottles / Deposit Box (Glass Bottles Only) */}
+                {(() => {
+                  const isReturnable = item.packagingType === 'RETURNABLE' && !item.depositExempt
+                  const hasDeposit = Number(item.caseDepositAmount || item.depositAmount || 0) > 0
+                  const isGlass =
+                    item.containerPackagingType === 'Glass Bottle' ||
+                    String(item.category || '').toLowerCase().includes('glass') ||
+                    String(item.containerTypeName || '').toLowerCase().includes('glass') ||
+                    String(item.looseUnit || '').toLowerCase().includes('glass') ||
+                    Boolean(item.containerTypeId)
+
+                  if (!isReturnable || !hasDeposit || !isGlass) return null
+
+                  return (
+                    <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 p-2.5 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between font-medium">
+                        <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+                          <Recycle className="h-3.5 w-3.5 text-emerald-600" />
+                          {item.looseUnit || item.containerTypeName || 'Glass Bottle'} Returnable
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          Available Empties: <strong className="text-slate-900">{item.availableEmptyBottles || 0}</strong>
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-slate-200/60 pt-1.5 text-[11px] text-slate-600">
+                        <span>Deposit per case: <strong className="text-emerald-700">{formatPeso(item.caseDepositAmount || item.depositAmount || 0)}</strong></span>
+                        <span className={`font-medium ${(item.emptyReturnedQuantity || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          {(item.emptyReturnedQuantity || 0) > 0
+                            ? `${item.emptyReturnedQuantity} empties applied`
+                            : 'New deposit will apply'}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </CardContent>
+            </Card>
+          )
+        })}
+
+        {cart.length === 0 && (
+          <div className="px-4 py-16 text-center text-sm text-slate-500">Your cart is empty.</div>
+        )}
+      </div>
+
+      {/* Floating Bottom Checkout Bar */}
+      {cart.length > 0 && isMounted
+        ? createPortal(
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] left-0 right-0 z-30 border-t border-slate-200/80 bg-white/95 px-4 py-2.5 backdrop-blur-md shadow-[0_-4px_20px_rgba(15,23,42,0.06)] md:hidden">
+              {checkoutBarContent}
+            </div>,
+            document.body
+          )
+        : null}
+      {cart.length > 0 ? (
+        <div className="mt-auto hidden rounded-b-2xl border border-slate-200 px-4 py-2.5 md:block">
+          {checkoutBarContent}
+        </div>
+      ) : null}
+    </section>
   )
 }

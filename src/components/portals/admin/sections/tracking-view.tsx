@@ -238,10 +238,9 @@ export function TrackingView() {
       snapToRoad?: boolean
     }> = []
 
-    const tripsForMap = trips.filter(
-      (trip: any) =>
-        ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) &&
-        tripMatchesTrackingDay(trip)
+    // Fix: live tracking must show every active trip even when it began before the selected date.
+    const tripsForMap = trips.filter((trip: any) =>
+      ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))
     )
     const cancelledOrderIds = new Set(
       ordersForMap

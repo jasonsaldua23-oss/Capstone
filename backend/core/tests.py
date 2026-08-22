@@ -1,4 +1,4 @@
-﻿import json
+import json
 from datetime import timedelta
 from types import SimpleNamespace
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -27,7 +27,6 @@ from .models import (
     Vehicle,
     VehicleType,
     Warehouse,
-    WarehouseStage,
 )
 from .views_api import _create_scheduled_replacement_order, _mark_order_delivered
 
@@ -456,7 +455,6 @@ class CustomerTrackingApiContractTests(TestCase):
             subtotal=80,
             total_amount=85,
         )
-
         trip = Trip.objects.create(
             trip_number="TRIP-CONTRACT-001",
             driver=self.driver,
@@ -474,23 +472,40 @@ class CustomerTrackingApiContractTests(TestCase):
             province="Negros Occidental",
             zip_code="6100",
         )
-
         response = self.client.get(
             "/api/customer/tracking",
             HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
         )
-
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(len(payload["tracking"]), 1)
-
         item = payload["tracking"][0]
         self.assertEqual(item["orderId"], order.id)
         self.assertEqual(item["status"], OrderStatus.OUT_FOR_DELIVERY)
         self.assertEqual(item["orderStatus"], OrderStatus.OUT_FOR_DELIVERY)
         self.assertIn("trip", item)
         self.assertIsNotNone(item["trip"])
+
+    def test_customer_profile_put_persists_first_and_last_names(self) -> None:
+        response = self.client.put(
+            f"/api/customers/{self.customer.id}",
+            data={
+                "name": "Updated Customer Name",
+                "firstName": "Updated",
+                "lastName": "Customer",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["customer"]["firstName"], "Updated")
+        self.assertEqual(payload["customer"]["lastName"], "Customer")
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.first_name, "Updated")
+        self.assertEqual(self.customer.last_name, "Customer")
 
 
 class CustomerOrdersApiContractTests(TestCase):
@@ -1125,6 +1140,8 @@ class DriverProfileApiContractTests(TestCase):
             "/api/driver/profile",
             data={
                 "name": "Updated Driver Name",
+                "firstName": "Updated",
+                "lastName": "Driver",
                 "phone": "+1-555-4444",
                 "avatar": "/uploads/avatars/new.png",
                 "emergencyContact": "Updated Emergency Contact",
@@ -1140,6 +1157,8 @@ class DriverProfileApiContractTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["driver"]["user"]["name"], "Updated Driver Name")
+        self.assertEqual(payload["driver"]["user"]["firstName"], "Updated")
+        self.assertEqual(payload["driver"]["user"]["lastName"], "Driver")
         self.assertEqual(payload["driver"]["user"]["phone"], "+1-555-4444")
         self.assertEqual(payload["driver"]["licenseNumber"], "LIC-PROFILE-UPDATED")
         self.assertEqual(payload["driver"]["licenseType"], "B")
@@ -1150,6 +1169,8 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(self.driver.license_number, "LIC-PROFILE-UPDATED")
         self.assertEqual(self.driver.license_type, "B")
         self.assertEqual(self.driver_user.name, "Updated Driver Name")
+        self.assertEqual(self.driver_user.first_name, "Updated")
+        self.assertEqual(self.driver_user.last_name, "Driver")
         self.assertEqual(self.driver_user.phone, "+1-555-4444")
         self.assertEqual(self.driver_user.avatar, "/uploads/avatars/new.png")
         self.assertEqual(self.driver.license_expiry.year, 2030)
@@ -1222,7 +1243,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
         self.assertEqual(payload["error"], "status is required")
 
     def test_dispatched_status_is_automatic_when_trip_starts(self) -> None:
-        order = self._create_order(warehouse_stage=WarehouseStage.READY_TO_LOAD)
+        order = self._create_order()
 
         response = self._patch_status(order.id, {"status": "DISPATCHED"})
         self.assertEqual(response.status_code, 400)
@@ -1253,182 +1274,6 @@ class OrderStatusTransitionApiContractTests(TestCase):
 
         timeline = OrderTimeline.objects.get(order=order)
         self.assertIsNotNone(timeline.processed_at)
-
-
-class OrderWarehouseStageTransitionApiContractTests(TestCase):
-    def setUp(self) -> None:
-        self.client = Client()
-        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
-        self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
-        self.admin_user = User.objects.create(
-            email="stage.admin@example.com",
-            password="hashed",
-            name="Stage Admin",
-            role=self.admin_role,
-            is_active=True,
-        )
-        self.driver_user = User.objects.create(
-            email="stage.driver@example.com",
-            password="hashed",
-            name="Stage Driver",
-            role=self.driver_role,
-            is_active=True,
-        )
-        self.driver = Driver.objects.create(
-            user=self.driver_user,
-            license_number="LIC-STAGE-001",
-            license_type="B",
-            license_expiry=timezone.now() + timedelta(days=365),
-            is_active=True,
-        )
-        self.vehicle = Vehicle.objects.create(
-            license_plate="STAGE-001",
-            type=VehicleType.VAN,
-            status="AVAILABLE",
-            is_active=True,
-        )
-        self.admin_token = create_token(
-            {
-                "userId": self.admin_user.id,
-                "email": self.admin_user.email,
-                "name": self.admin_user.name,
-                "role": self.admin_role.name,
-                "type": "staff",
-            }
-        )
-        self.driver_token = create_token(
-            {
-                "userId": self.driver_user.id,
-                "email": self.driver_user.email,
-                "name": self.driver_user.name,
-                "role": self.driver_role.name,
-                "type": "staff",
-            }
-        )
-        self.customer = Customer.objects.create(
-            email="stage.customer@example.com",
-            password="hashed",
-            name="Stage Customer",
-            is_active=True,
-        )
-
-    def _create_order(self, **overrides):
-        base = {
-            "order_number": f"ORD-STAGE-{Order.objects.count() + 1:03d}",
-            "customer": self.customer,
-            "status": OrderStatus.PREPARING,
-            "warehouse_stage": WarehouseStage.READY_TO_LOAD,
-            "subtotal": 100,
-            "total_amount": 110,
-        }
-        base.update(overrides)
-        return Order.objects.create(**base)
-
-    def _assign_order_to_driver(self, order: Order) -> Trip:
-        trip = Trip.objects.create(
-            trip_number=f"TRP-STAGE-{Trip.objects.count() + 1:03d}",
-            driver=self.driver,
-            vehicle=self.vehicle,
-            status=TripStatus.PLANNED,
-            total_drop_points=1,
-        )
-        TripDropPoint.objects.create(
-            trip=trip,
-            order=order,
-            sequence=1,
-            location_name=order.order_number,
-            address="Stage Address",
-            city="Bacolod",
-            province="Negros Occidental",
-            zip_code="6100",
-            drop_point_type=DropPointType.DELIVERY,
-        )
-        return trip
-
-    def _patch_stage(self, order_id: str, payload: dict):
-        return self.client.patch(
-            f"/api/orders/{order_id}/warehouse-stage",
-            data=payload,
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-
-    def test_warehouse_stage_requires_valid_value(self) -> None:
-        order = self._create_order()
-        response = self._patch_stage(order.id, {"warehouseStage": "INVALID"})
-
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "warehouseStage is required and must be READY_TO_LOAD, LOADED, or DISPATCHED")
-
-    def test_warehouse_stage_cannot_move_backward(self) -> None:
-        order = self._create_order(warehouse_stage=WarehouseStage.LOADED)
-        response = self._patch_stage(order.id, {"warehouseStage": "READY_TO_LOAD"})
-
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Warehouse stage cannot move backward")
-
-    def test_loaded_requires_driver_assignment_without_extra_payload(self) -> None:
-        order = self._create_order()
-        response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
-
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Order must be assigned to a driver before LOADED")
-
-    def test_loaded_requires_driver_assignment(self) -> None:
-        order = self._create_order()
-        response = self._patch_stage(
-            order.id,
-            {"warehouseStage": "LOADED"},
-        )
-
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "Order must be assigned to a driver before LOADED")
-
-    def test_loaded_succeeds_when_driver_is_assigned(self) -> None:
-        order = self._create_order()
-        self._assign_order_to_driver(order)
-        response = self._patch_stage(order.id, {"warehouseStage": "LOADED"})
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.LOADED)
-
-    def test_loaded_stage_keeps_order_status_preparing(self) -> None:
-        order = self._create_order(status=OrderStatus.PREPARING)
-        self._assign_order_to_driver(order)
-        response = self._patch_stage(
-            order.id,
-            {"warehouseStage": "LOADED"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["order"]["warehouseStage"], WarehouseStage.LOADED)
-        self.assertEqual(payload["order"]["status"], OrderStatus.PREPARING)
-
-        order.refresh_from_db()
-        self.assertEqual(order.warehouse_stage, WarehouseStage.LOADED)
-        self.assertEqual(order.status, OrderStatus.PREPARING)
-        self.assertIsNotNone(order.loaded_at)
-
-    def test_dispatched_stage_is_automatic_when_trip_starts(self) -> None:
-        order = self._create_order(warehouse_stage=WarehouseStage.LOADED)
-        response = self._patch_stage(order.id, {"warehouseStage": "DISPATCHED"})
-
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"], "DISPATCHED is set automatically when the trip starts")
 
 
 class TripExecutionApiContractTests(TestCase):
@@ -1614,35 +1459,11 @@ class TripExecutionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
 
-    def test_trip_start_rejects_orders_that_are_not_loaded(self) -> None:
-        order = Order.objects.create(
-            order_number="ORD-TRIP-NOT-LOADED-001",
-            customer=self.customer,
-            status=OrderStatus.PREPARING,
-            warehouse_stage=WarehouseStage.READY_TO_LOAD,
-            subtotal=100,
-            total_amount=110,
-        )
-        self.dp_1.order = order
-        self.dp_1.save(update_fields=["order", "updated_at"])
-
-        response = self.client.post(
-            f"/api/trips/{self.trip.id}/start",
-            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
-        )
-
-        self.assertEqual(response.status_code, 400)
-        payload = response.json()
-        self.assertFalse(payload["success"])
-        self.assertIn("Orders not loaded yet", payload["error"])
-        self.assertIn(order.order_number, payload["error"])
-
     def test_trip_start_sets_in_progress_and_actual_start_at(self) -> None:
         order = Order.objects.create(
             order_number="ORD-TRIP-LOADED-001",
             customer=self.customer,
             status=OrderStatus.PREPARING,
-            warehouse_stage=WarehouseStage.LOADED,
             subtotal=100,
             total_amount=110,
         )
@@ -1663,7 +1484,6 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
         self.assertIsNotNone(self.trip.actual_start_at)
         order.refresh_from_db()
-        self.assertEqual(order.warehouse_stage, WarehouseStage.DISPATCHED)
         self.assertEqual(order.status, OrderStatus.OUT_FOR_DELIVERY)
         self.assertIsNotNone(order.warehouse_dispatched_at)
 
@@ -1830,7 +1650,6 @@ class TripExecutionApiContractTests(TestCase):
             subtotal=20,
             total_amount=20,
             warehouse_id=warehouse.id,
-            warehouse_stage=WarehouseStage.DISPATCHED,
             ready_to_load_at=timezone.now() - timedelta(days=1),
             loaded_at=timezone.now() - timedelta(hours=8),
             warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
@@ -1878,7 +1697,6 @@ class TripExecutionApiContractTests(TestCase):
 
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.PREPARING)
-        self.assertEqual(order.warehouse_stage, WarehouseStage.READY_TO_LOAD)
 
     def test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it(self) -> None:
         warehouse = Warehouse.objects.create(
@@ -1916,7 +1734,6 @@ class TripExecutionApiContractTests(TestCase):
             subtotal=50,
             total_amount=50,
             warehouse_id=warehouse.id,
-            warehouse_stage=WarehouseStage.DISPATCHED,
             ready_to_load_at=timezone.now() - timedelta(days=1),
             loaded_at=timezone.now() - timedelta(hours=8),
             warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
@@ -1985,7 +1802,6 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.dp_1.status, "FAILED")
         self.assertEqual(inventory.reserved_quantity, 2)
         self.assertEqual(order.status, OrderStatus.PREPARING)
-        self.assertEqual(order.warehouse_stage, WarehouseStage.READY_TO_LOAD)
         self.assertIsNone(order.loaded_at)
         self.assertIsNone(order.warehouse_dispatched_at)
         self.assertEqual(self.trip.completed_drop_points, 1)
@@ -2066,7 +1882,6 @@ class TripExecutionApiContractTests(TestCase):
             subtotal=50,
             total_amount=50,
             warehouse_id=warehouse.id,
-            warehouse_stage=WarehouseStage.DISPATCHED,
         )
         OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
         order_item = OrderItem.objects.create(
@@ -3258,7 +3073,6 @@ class DeliveryLifecycleFlowContractTests(TestCase):
             order_number="ORD-LIFECYCLE-001",
             customer=self.customer,
             status=OrderStatus.PREPARING,
-            warehouse_stage=WarehouseStage.READY_TO_LOAD,
             warehouse_id=self.warehouse.id,
             subtotal=200,
             total_amount=220,
@@ -3301,15 +3115,6 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         )
 
     def test_delivery_lifecycle_end_to_end(self) -> None:
-        loaded = self.client.patch(
-            f"/api/orders/{self.order.id}/warehouse-stage",
-            data={"warehouseStage": "LOADED"},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
-        )
-        self.assertEqual(loaded.status_code, 200)
-        self.assertEqual(loaded.json()["order"]["status"], OrderStatus.PREPARING)
-
         trip_id = self.trip.id
         drop_point_id = self.trip_drop_point.id
 
@@ -3320,7 +3125,6 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         self.assertEqual(start_trip.status_code, 200)
         self.assertEqual(start_trip.json()["trip"]["status"], TripStatus.IN_PROGRESS)
         self.order.refresh_from_db()
-        self.assertEqual(self.order.warehouse_stage, WarehouseStage.DISPATCHED)
         self.assertEqual(self.order.status, OrderStatus.OUT_FOR_DELIVERY)
 
         arrived = self.client.patch(

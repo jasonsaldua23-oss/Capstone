@@ -201,9 +201,10 @@ function loadNegrosBoundary() {
 
 const truckMarkerIcon = L.divIcon({
   className: 'driver-truck-marker',
-  html: '<div style="width:58px;height:58px;display:flex;align-items:center;justify-content:center;overflow:visible;"><img src="/icons/driver-location-cropped.png" alt="truck" style="width:58px;height:58px;display:block;image-rendering:auto;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.35)) drop-shadow(0 4px 6px rgba(0,0,0,0.4)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src=\'/icons/delivery-truck.png\';" /></div>',
-  iconSize: [58, 58],
-  iconAnchor: [29, 29],
+  // Updated: match the Driver Portal's 2D van icon on customer tracking maps.
+  html: '<div style="width:72px;height:72px;display:flex;align-items:center;justify-content:center;overflow:visible;"><img src="/icons/aab-van-iso.png" alt="truck" style="width:72px;height:72px;display:block;object-fit:contain;image-rendering:auto;filter:drop-shadow(0 4px 10px rgba(15,23,42,0.38)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src=\'/icons/driver-location-cropped.png\';" /></div>',
+  iconSize: [72, 72],
+  iconAnchor: [36, 36],
 })
 
 function getDestinationMarkerIcon(color: 'green' | 'blue') {

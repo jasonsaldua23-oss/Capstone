@@ -95,5 +95,5 @@ export function getReplacementBadgeClass(label: string) {
 
 export const getProductImage = (imageUrl?: string | null) => {
   if (imageUrl && String(imageUrl).trim().length > 0) return imageUrl
-  return 'https://placehold.co/120x120/e2e8f0/475569?text=Product'
+  return '/ann-anns-logo.png'
 }

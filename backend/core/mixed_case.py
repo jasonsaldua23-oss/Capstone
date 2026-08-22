@@ -19,7 +19,6 @@ from .models import (
     Order,
     OrderItem,
     OrderItemType,
-    PackagingProfile,
     Product,
     Replacement,
     ReplacementLine,
@@ -66,9 +65,8 @@ def _positive_whole_number(value: Any, label: str) -> int:
 
 
 def units_per_case(product: Product) -> int:
-    profile = getattr(product, "packaging_profile", None)
-    configured = _int(getattr(profile, "standard_units_per_case", 0), 0)
-    return configured if configured > 0 else max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
+    # Product quantity is the source of truth now that profiles are not used.
+    return max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
 
 
 def base_unit_price(product: Product) -> Decimal:
@@ -76,17 +74,6 @@ def base_unit_price(product: Product) -> Decimal:
         UNIT_PRICE,
         rounding=ROUND_HALF_UP,
     )
-
-
-def normalized_capacities(profile: PackagingProfile | None) -> list[int]:
-    if profile is None:
-        return []
-    raw = profile.allowed_mixed_case_capacities
-    values = raw if isinstance(raw, list) else []
-    capacities = sorted({_int(value, 0) for value in values if _int(value, 0) > 0})
-    if not capacities and profile.standard_units_per_case > 0:
-        capacities = [int(profile.standard_units_per_case)]
-    return capacities
 
 
 def inventory_base_units(inventory: Inventory, product: Product | None = None) -> int:
@@ -202,23 +189,6 @@ def allocatable_standard_cases(inventory: Inventory, product: Product | None = N
     return min(available_cases, available_base_units(inventory, resolved_product) // per_case)
 
 
-def serialize_packaging_profile(profile: PackagingProfile | None) -> dict[str, Any] | None:
-    if profile is None:
-        return None
-    return {
-        "id": profile.id,
-        "code": profile.code,
-        "name": profile.name,
-        "containerType": profile.container_type,
-        "containerSize": profile.container_size,
-        "standardUnitsPerCase": profile.standard_units_per_case,
-        "allowedMixedCaseCapacities": normalized_capacities(profile),
-        "compatibilityKey": profile.compatibility_key,
-        "baseUnitLabel": profile.base_unit_label or "unit",
-        "isActive": profile.is_active,
-    }
-
-
 def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Decimal]:
     if not isinstance(raw_items, list) or not raw_items:
         raise ValueError("items are required")
@@ -230,7 +200,7 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
         item_type = str(item.get("itemType") or OrderItemType.STANDARD_CASE).strip().upper()
         if item_type == OrderItemType.STANDARD_CASE:
             product_id = str(item.get("productId") or "").strip()
-            product = Product.objects.select_related("packaging_profile").filter(id=product_id, is_active=True).first()
+            product = Product.objects.filter(id=product_id, is_active=True).first()
             if product is None:
                 raise ValueError(f"Active product not found: {product_id or 'missing product id'}")
             quantity = _positive_whole_number(
@@ -276,10 +246,9 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
 
         products = {
             product.id: product
-            for product in Product.objects.select_related("packaging_profile").filter(
+            for product in Product.objects.filter(
                 id__in=product_ids,
                 is_active=True,
-                packaging_profile__is_active=True,
             )
         }
         if len(products) != len(product_ids):
@@ -292,15 +261,17 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
         for raw_component in raw_components:
             product_id = str((raw_component or {}).get("productId") or "").strip()
             product = products[product_id]
-            profile = product.packaging_profile
             category_details = require_category_spec(product.category)
             quantity_per_case = _positive_whole_number(
                 raw_component.get("quantity"),
                 f"Component quantity for product {product.sku}",
             )
-            if case_capacity not in normalized_capacities(profile):
+            # Only full cases of carbonated glass bottles can supply a Mixed Case.
+            if category_details["category"] != "Carbonated (Glass)" or str(product.unit or "").strip().lower() != "case":
+                raise ValueError(f"Product {product.sku} is not eligible for Mixed Case ordering")
+            if case_capacity != units_per_case(product):
                 raise ValueError(
-                    f"Capacity {case_capacity} is not configured for product {product.sku}"
+                    f"Capacity {case_capacity} does not match product {product.sku} case quantity"
                 )
             # Mixed-case compatibility follows the product category, never a manually typed profile key.
             compatibility_keys.add(category_details["compatibilityKey"])
@@ -400,7 +371,7 @@ def _reserve_product_units(
 ) -> list[InventoryReservation]:
     inventory = (
         Inventory.objects.select_for_update(of=("self",))
-        .select_related("warehouse", "product", "product__packaging_profile")
+        .select_related("warehouse", "product")
         .filter(warehouse_id=order_item.order.warehouse_id, product=product)
         .first()
     )
@@ -531,7 +502,7 @@ def _reserve_product_units(
 def reserve_order_item(order_item: OrderItem, allocation_policy: str, performed_by: str | None) -> None:
     order_item = (
         OrderItem.objects.select_for_update(of=("self",))
-        .select_related("order", "product", "product__packaging_profile")
+        .select_related("order", "product")
         .get(id=order_item.id)
     )
     if InventoryReservation.objects.filter(order_item=order_item).exists():
@@ -541,7 +512,6 @@ def reserve_order_item(order_item: OrderItem, allocation_policy: str, performed_
         components = list(
             order_item.mixed_case_components.select_related(
                 "product",
-                "product__packaging_profile",
             ).order_by("product_id", "id")
         )
         if len(components) < 2:
@@ -584,7 +554,7 @@ def reserve_base_unit_order_item(
 ) -> None:
     order_item = (
         OrderItem.objects.select_for_update(of=("self",))
-        .select_related("order", "product", "product__packaging_profile")
+        .select_related("order", "product")
         .get(id=order_item.id)
     )
     if InventoryReservation.objects.filter(order_item=order_item).exists():
@@ -618,7 +588,7 @@ def _persist_batch(batch: StockBatch) -> None:
 def _consume_reservation(reservation: InventoryReservation, performed_by: str | None) -> None:
     inventory = (
         Inventory.objects.select_for_update(of=("self",))
-        .select_related("warehouse", "product", "product__packaging_profile")
+        .select_related("warehouse", "product")
         .get(id=reservation.inventory_id)
     )
     product = inventory.product
@@ -945,7 +915,7 @@ def receive_component_return(
                 continue
             inventory = (
                 Inventory.objects.select_for_update(of=("self",))
-                .select_related("warehouse", "product", "product__packaging_profile")
+                .select_related("warehouse", "product")
                 .get(id=reservation.inventory_id)
             )
             before_units = inventory_base_units(inventory, inventory.product)

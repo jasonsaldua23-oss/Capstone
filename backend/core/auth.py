@@ -10,6 +10,7 @@ TOKEN_NAME = "auth_token"
 STAFF_TOKEN_NAME = "auth_token_staff"
 CUSTOMER_TOKEN_NAME = "auth_token_customer"
 TOKEN_EXP_HOURS = 24
+# Keep-me-logged-in tokens expire after exactly 30 * 24 hours.
 REMEMBER_ME_EXP_HOURS = 24 * 30
 
 

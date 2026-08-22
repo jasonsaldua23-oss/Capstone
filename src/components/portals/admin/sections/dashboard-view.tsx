@@ -13,6 +13,7 @@ import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shar
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
+  const [dashboardOrdersLoading, setDashboardOrdersLoading] = useState(true)
   const [welcomeState] = useState(() => {
     if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
     try {
@@ -31,16 +32,17 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   })
   const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
   const welcomeMessage = welcomeState.message
-  const [warehouseCount, setWarehouseCount] = useState(0)
+  const [warehouseName, setWarehouseName] = useState('Ann Ann warehouse')
 
   useEffect(() => {
     async function fetchDashboardData() {
       try {
         const ordersResult = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=none',
+          '/api/orders?includeItems=none&summaryOnly=true',
           'orders',
           { cache: 'no-store' },
-          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+          // Keep the dashboard loading state until the real order totals arrive.
+          { retries: 1, timeoutMs: 90000, pageSize: 200, maxPages: 100 }
         )
 
         if (ordersResult.ok) {
@@ -48,13 +50,15 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error)
+      } finally {
+        setDashboardOrdersLoading(false)
       }
     }
     fetchDashboardData()
   }, [])
 
   useEffect(() => {
-    async function fetchWarehouseCount() {
+    async function fetchWarehouseInfo() {
       try {
         const result = await fetchAllPaginatedCollection<any>(
           '/api/warehouses',
@@ -63,12 +67,15 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
           { retries: 2, timeoutMs: 12000, pageSize: 100, maxPages: 20 }
         )
         if (!result.ok) return
-        setWarehouseCount(getCollection<any>(result.data, ['warehouses']).length)
+        const warehouses = getCollection<any>(result.data, ['warehouses'])
+        if (warehouses.length > 0 && warehouses[0]?.name) {
+          setWarehouseName(warehouses[0].name)
+        }
       } catch {
-        setWarehouseCount(0)
+        // keep fallback
       }
     }
-    fetchWarehouseCount()
+    fetchWarehouseInfo()
   }, [])
 
   const dashboardOrderStats = useMemo(() => {
@@ -92,7 +99,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const statCards = [
     { label: 'Purchase Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
-    { label: 'Warehouse', value: warehouseCount === 1 ? 'Registered' : 'Setup Required', color: 'red', icon: Warehouse },
+    { label: 'Warehouse', value: warehouseName, color: 'red', icon: Warehouse },
     { label: 'Vehicles', value: totalVehicles, color: 'green', icon: Truck },
     { label: 'Clients', value: totalClients, color: 'indigo', icon: Users },
   ]
@@ -157,32 +164,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     },
   }
 
-  // Order Status Distribution
-  const orderStatusData = useMemo(() => {
-    const statusMap = new Map<string, number>([
-      ['Cancelled', 0],
-      ['Rescheduled', 0],
-    ])
-
-    for (const order of dashboardOrders) {
-      const rawStatus = String(order?.status || '').toUpperCase()
-
-      if (['CANCELLED', 'CANCELED', 'FAILED', 'FAILED_DELIVERY', 'REJECTED', 'SKIPPED'].includes(rawStatus)) {
-        statusMap.set('Cancelled', (statusMap.get('Cancelled') || 0) + 1)
-        continue
-      }
-
-      if (rawStatus === 'RESCHEDULED') {
-        statusMap.set('Rescheduled', (statusMap.get('Rescheduled') || 0) + 1)
-      }
-    }
-
-    return Array.from(statusMap.entries())
-      .map(([name, value]) => ({ name, value }))
-      .filter((entry) => entry.value > 0)
-  }, [dashboardOrders])
-
-  // Delivery Performance
   const deliveryPerformance = useMemo(() => {
     const delivered = dashboardOrderStats.delivered
     const failed = Number(stats?.failedOrders || 0)
@@ -193,10 +174,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     ]
   }, [dashboardOrderStats.delivered, stats?.failedOrders])
 
-  const statusColors: { [key: string]: string } = {
-    'Cancelled': '#ef4444',
-    'Rescheduled': '#f59e0b',
-  }
   return (
     <>
       <WelcomePopup
@@ -210,7 +187,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         subtitleClassName="text-slate-600"
         buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
       />
-      {isLoading ? (
+      {isLoading || dashboardOrdersLoading ? (
         <PortalDashboardSkeleton />
       ) : (
         <div className="space-y-6">
@@ -240,7 +217,9 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                 <div className={`inline-flex rounded-xl border-0 p-3 ${colorClasses[stat.color as keyof typeof colorClasses]}`}>
                   <stat.icon className="h-6 w-6" />
                 </div>
-                <p className={`text-3xl font-bold leading-none mt-4 ${textColors[stat.color as keyof typeof textColors] || 'text-gray-900'}`}>{stat.value.toLocaleString()}</p>
+                <p className={`font-bold leading-tight mt-4 ${typeof stat.value === 'string' ? 'text-lg sm:text-xl line-clamp-2 px-1' : 'text-3xl'} ${textColors[stat.color as keyof typeof textColors] || 'text-gray-900'}`}>
+                  {typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}
+                </p>
                 <p className="mt-2 text-sm leading-tight text-gray-600">{stat.label}</p>
               </CardContent>
             </Card>
@@ -290,7 +269,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </div>
           </CardContent>
         </Card>
-          </div>
+      </div>
 
       <div className="grid grid-cols-3 gap-4">
         <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
@@ -314,11 +293,17 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                     <stop offset="5%" stopColor="#60a5fa" stopOpacity={0.45} />
                     <stop offset="95%" stopColor="#60a5fa" stopOpacity={0.08} />
                   </linearGradient>
+                  <linearGradient id="fillLastWeekAdmin" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1d4ed8" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#1d4ed8" stopOpacity={0.04} />
+                  </linearGradient>
                 </defs>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 <YAxis axisLine={false} tickLine={false} width={28} domain={[0, 'auto']} />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} />
+                <Tooltip />
                 <Area type="monotone" dataKey="thisWeek" stroke="#3b82f6" strokeWidth={2.5} fill="url(#fillThisWeekAdmin)" dot={false} />
+                <Area type="monotone" dataKey="lastWeek" stroke="#1d4ed8" strokeWidth={2} fill="url(#fillLastWeekAdmin)" dot={false} />
               </AreaChart>
             </ChartContainer>
           </CardContent>
@@ -336,7 +321,11 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                   <YAxis axisLine={false} tickLine={false} width={28} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} />
                   <Tooltip />
-                  <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                    {deliveryPerformance.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -345,11 +334,10 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       </div>
 
       {/* Alerts Section */}
-          <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {/* <Undo2 className="h-5 w-5 text-purple-500" /> */}
               Pending Replacements
             </CardTitle>
             <CardDescription>Replacement cases awaiting driver follow-up</CardDescription>
@@ -368,9 +356,9 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             </div>
           </CardContent>
         </Card>
-          </div>
-        </div>
-      )}
-    </>
-  )
+      </div>
+    </div>
+  )}
+</>
+)
 }

@@ -18,6 +18,12 @@ export function CustomerProfileDialog(props: any) {
     setIsProfileDialogOpen,
     profileName,
     setProfileName,
+    profileFirstName,
+    setProfileFirstName,
+    profileMiddleName,
+    setProfileMiddleName,
+    profileLastName,
+    setProfileLastName,
     profileEmail,
     setProfileEmail,
     profilePhone,
@@ -97,15 +103,19 @@ export function CustomerProfileDialog(props: any) {
                 <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="customer-profile-name" className="text-slate-800">Full Name</Label>
-              <Input
-                id="customer-profile-name"
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                placeholder="Enter your full name"
-                className="border-slate-200 bg-white text-slate-800 focus-visible:ring-emerald-500"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-first-name" className="text-slate-800">First Name</Label>
+                <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-middle-name" className="text-slate-800">Middle Name</Label>
+                <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-last-name" className="text-slate-800">Last Name</Label>
+                <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="customer-profile-email" className="text-slate-800">Email</Label>
