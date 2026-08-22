@@ -8,6 +8,7 @@ import os
 import requests
 import re
 import secrets
+from html import escape
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -3356,7 +3357,9 @@ def _get_gmail_api_access_token() -> str:
     return ""
 
 
-def _send_via_gmail_api(*, subject: str, message: str, recipient: str) -> bool:
+def _send_via_gmail_api(*, subject: str, message: str, recipient: str, html_message: str | None = None) -> bool:
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.image import MIMEImage
     from email.mime.text import MIMEText
     token = _get_gmail_api_access_token()
     if not token:
@@ -3365,7 +3368,26 @@ def _send_via_gmail_api(*, subject: str, message: str, recipient: str) -> bool:
     from_email = str(getattr(settings, "GMAIL_API_SENDER_EMAIL", "") or getattr(settings, "OTP_FROM_EMAIL", "") or getattr(settings, "OTP_GMAIL_USER", "") or "").strip()
     from_name = str(getattr(settings, "OTP_FROM_NAME", "Ann Ann's Beverages Trading") or "Ann Ann's Beverages Trading").strip()
 
-    msg = MIMEText(message, "plain", "utf-8")
+    # Send multipart email so modern clients show the branded design while plain text remains available.
+    msg = MIMEMultipart("related")
+    alternatives = MIMEMultipart("alternative")
+    alternatives.attach(MIMEText(message, "plain", "utf-8"))
+    if html_message:
+        public_logo_url = _email_public_url("/email-assets/ann-anns-logo.png")
+        logo_path = Path(settings.BASE_DIR).parent / "public" / "ann-anns-logo.png"
+        resolved_html = html_message
+        if public_logo_url and logo_path.is_file():
+            # Embed the real system logo so Gmail does not need access to a local server URL.
+            resolved_html = resolved_html.replace(public_logo_url, "cid:ann-anns-logo")
+        alternatives.attach(MIMEText(resolved_html, "html", "utf-8"))
+        msg.attach(alternatives)
+        if public_logo_url and logo_path.is_file():
+            logo_image = MIMEImage(logo_path.read_bytes(), _subtype="png")
+            logo_image.add_header("Content-ID", "<ann-anns-logo>")
+            logo_image.add_header("Content-Disposition", "inline", filename="ann-anns-logo.png")
+            msg.attach(logo_image)
+    else:
+        msg.attach(alternatives)
     msg["To"] = recipient
     msg["From"] = f"{from_name} <{from_email}>" if from_email else from_name
     msg["Subject"] = subject
@@ -3396,7 +3418,7 @@ def _otp_mail_ready() -> bool:
     return bool(has_gmail_api or has_brevo or has_gmail)
 
 
-def _send_via_brevo(*, subject: str, message: str, recipient: str) -> bool:
+def _send_via_brevo(*, subject: str, message: str, recipient: str, html_message: str | None = None) -> bool:
     api_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     from_email = str(getattr(settings, "OTP_FROM_EMAIL", "") or "").strip()
     from_name = str(getattr(settings, "OTP_FROM_NAME", "Ann Ann's Beverages Trading") or "Ann Ann's Beverages Trading").strip()
@@ -3415,11 +3437,108 @@ def _send_via_brevo(*, subject: str, message: str, recipient: str) -> bool:
             "to": [{"email": recipient}],
             "subject": subject,
             "textContent": message,
+            "htmlContent": html_message or None,
         },
         timeout=20,
     )
     response.raise_for_status()
     return True
+
+
+def _email_public_url(path: Any) -> str:
+    value = str(path or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("https://", "http://")):
+        return value
+    origin = str(os.getenv("EMAIL_PUBLIC_BASE_URL") or os.getenv("DJANGO_API_ORIGIN") or "").strip().rstrip("/")
+    return f"{origin}/{value.lstrip('/')}" if origin else ""
+
+
+def _render_order_product_rows(order: Order | None) -> str:
+    if order is None or not hasattr(order, "items"):
+        return ""
+    rows: list[str] = []
+    for item in order.items.select_related("product").all():
+        product = getattr(item, "product", None)
+        name = str(getattr(product, "name", "") or getattr(item, "product_name", "") or "Product").strip()
+        size = _get_product_size_label(product)
+        quantity = max(0, _int(getattr(item, "quantity", 0), 0))
+        total = float(getattr(item, "total_price", 0) or (quantity * float(getattr(item, "unit_price", 0) or 0)))
+        image_url = _email_public_url(getattr(product, "image_url", ""))
+        image = (
+            f'<img src="{escape(image_url)}" alt="{escape(name)}" width="64" height="64" '
+            'style="display:block;width:64px;height:64px;border-radius:12px;object-fit:cover;border:1px solid #e2e8f0;">'
+            if image_url else
+            '<div style="width:64px;height:64px;border-radius:12px;background:#eff6ff;border:1px solid #dbeafe;text-align:center;line-height:64px;color:#0b3b82;font-weight:700;">AAB</div>'
+        )
+        rows.append(
+            '<tr><td style="padding:10px 0;border-bottom:1px solid #e8eef6;width:76px;vertical-align:middle;">'
+            f'{image}</td><td style="padding:10px 0;border-bottom:1px solid #e8eef6;vertical-align:middle;">'
+            f'<div style="font-size:15px;font-weight:700;color:#102a56;">{escape(name)}</div>'
+            f'<div style="font-size:13px;color:#64748b;margin-top:3px;">{escape(size) if size else "Beverage"} &nbsp;&middot;&nbsp; Qty {quantity}</div>'
+            f'</td><td style="padding:10px 0;border-bottom:1px solid #e8eef6;text-align:right;vertical-align:middle;font-size:14px;font-weight:700;color:#102a56;">PHP {total:,.2f}</td></tr>'
+        )
+    if not rows:
+        return ""
+    return (
+        '<div style="margin-top:24px;"><div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2fa913;margin-bottom:8px;">Order products</div>'
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">{"".join(rows)}</table></div>'
+    )
+
+
+def _build_branded_email_html(*, subject: str, message: str, otp_code: str | None = None, order: Order | None = None) -> str:
+    """Create one responsive, email-client-safe AAB design for every outgoing message."""
+    title = subject.split(" - ")[-1].strip() or subject
+    subject_key = subject.casefold()
+    # Match the reference's direct, human-readable headline style.
+    if "password reset" in subject_key:
+        title = "Reset Your Password"
+    elif "email verification" in subject_key:
+        title = "Verify Your Email"
+    elif "login verification" in subject_key:
+        title = "Verify Your Login"
+    logo_url = _email_public_url("/email-assets/ann-anns-logo.png")
+    logo = (
+        f'<img src="{escape(logo_url)}" alt="AAB Trading" width="180" style="display:block;width:180px;height:auto;margin:0 auto;">'
+        if logo_url else
+        '<div style="font-size:42px;line-height:1;font-weight:800;letter-spacing:.08em;color:#073783;">A<span style="color:#43b51a;">A</span>B</div><div style="margin-top:6px;color:#073783;font-size:18px;font-weight:800;letter-spacing:.28em;">TRADING</div>'
+    )
+    visible_message = message
+    if otp_code:
+        # The reference places the code and expiry exclusively inside the OTP panel.
+        visible_message = "\n".join(
+            line for line in message.splitlines()
+            if not line.strip().lower().startswith(("otp:", "verification code:", "expires in"))
+        ).strip()
+    body_html = escape(visible_message).replace("\n", "<br>")
+    otp_html = ""
+    if otp_code:
+        digits = "&nbsp; ".join(escape(character) for character in str(otp_code))
+        otp_html = (
+            '<div style="margin:26px 0 22px;border:2px solid #0a3e91;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(7,55,131,.10);">'
+            '<div style="background:#073783;padding:15px 20px;text-align:center;color:#ffffff;font-size:16px;font-weight:800;letter-spacing:.04em;">&#128737;&nbsp;&nbsp; YOUR OTP CODE</div>'
+            f'<div style="padding:28px 18px 20px;text-align:center;background:#ffffff;font-size:43px;line-height:1.2;font-weight:800;letter-spacing:.13em;color:#35ad15;">{digits}</div>'
+            '<div style="margin:0 24px;border-top:2px dashed #b4c9eb;"></div>'
+            f'<div style="padding:18px;text-align:center;color:#17233b;font-size:16px;">&#128339;&nbsp; Expires in <strong style="color:#35ad15;">{OTP_EXPIRY_MINUTES} minutes.</strong></div></div>'
+        )
+    products_html = _render_order_product_rows(order)
+    year = timezone.localtime(timezone.now()).year
+    return f'''<!doctype html><html><body style="margin:0;padding:0;background:#e7edf7;font-family:Arial,Helvetica,sans-serif;color:#17233b;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#e7edf7;"><tr><td align="center" style="padding:20px 10px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#ffffff;overflow:hidden;box-shadow:0 18px 48px rgba(2,35,91,.20);">
+<tr><td style="height:76px;background:#063784;font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td style="height:12px;background:#42b719;font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td align="center" style="padding:0 28px 18px;background:#ffffff;">{logo}</td></tr>
+<tr><td style="padding:0 42px 32px;background:#ffffff;"><h1 style="margin:0;text-align:center;color:#073783;font-size:40px;line-height:1.16;font-weight:800;">{escape(title)}</h1>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:22px 0 26px;"><tr><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td><td align="center" width="76" style="color:#43b719;font-size:25px;line-height:1;">&#127811;</td><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td></tr></table>
+<div style="font-size:17px;line-height:1.72;color:#151b27;"><strong style="color:#073783;">Hello,</strong><br>{body_html}</div>{otp_html}{products_html}
+<div style="margin-top:26px;padding:18px 20px;border:1px solid #71c953;border-radius:14px;background:#f8fcf6;color:#17233b;font-size:15px;line-height:1.55;">&#128737;&nbsp;&nbsp; If you did not request this, <strong style="color:#35ad15;">you can ignore this email.</strong></div>
+<div style="padding:30px 0 16px;text-align:center;font-size:58px;line-height:1;color:#073783;">&#128666;</div></td></tr>
+<tr><td style="height:11px;background:#43b719;font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td style="height:28px;background:#063784;font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td align="center" style="padding:22px 24px;background:#ffffff;color:#17233b;font-size:13px;line-height:1.7;">&copy; {year} Ann Ann's Beverages Trading. All rights reserved.<br><span style="color:#35ad15;font-weight:700;font-style:italic;">Moving fresh ideas, <span style="color:#073783;">delivering great service.</span></span></td></tr>
+</table></td></tr></table></body></html>'''
 
 
 def _get_reset_account(account_type: str, email: str) -> User | Customer | None:
@@ -3438,17 +3557,18 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
     gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
     if gmail_refresh:
         try:
-            if _send_via_gmail_api(subject=subject, message=message, recipient=email):
+            if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
                 return
         except Exception:
             logger.exception("Gmail API OTP send failed for password reset; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
-            _send_via_brevo(subject=subject, message=message, recipient=email)
+            _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message)
             return
         except Exception:
             logger.exception("Brevo OTP send failed for password reset; falling back to SMTP")
@@ -3458,6 +3578,7 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[email],
         fail_silently=False,
+        html_message=html_message,
     )
 
 
@@ -3469,17 +3590,18 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not request this, you can ignore this email."
     )
+    html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
     gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
     if gmail_refresh:
         try:
-            if _send_via_gmail_api(subject=subject, message=message, recipient=email):
+            if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
                 return
         except Exception:
             logger.exception("Gmail API OTP send failed for email verification; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
-            _send_via_brevo(subject=subject, message=message, recipient=email)
+            _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message)
             return
         except Exception:
             logger.exception("Brevo OTP send failed for email verification; falling back to SMTP")
@@ -3489,6 +3611,7 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[email],
         fail_silently=False,
+        html_message=html_message,
     )
 
 
@@ -3500,17 +3623,18 @@ def _send_login_otp_email(email: str, otp_code: str) -> None:
         f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
         "If you did not attempt to login, please reset your password immediately."
     )
+    html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
     gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
     if gmail_refresh:
         try:
-            if _send_via_gmail_api(subject=subject, message=message, recipient=email):
+            if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
                 return
         except Exception:
             logger.exception("Gmail API OTP send failed for login verification; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
-            _send_via_brevo(subject=subject, message=message, recipient=email)
+            _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message)
             return
         except Exception:
             logger.exception("Brevo OTP send failed for login verification; falling back to SMTP")
@@ -3520,19 +3644,21 @@ def _send_login_otp_email(email: str, otp_code: str) -> None:
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[email],
         fail_silently=False,
+        html_message=html_message,
     )
 
 
-def _send_transactional_email(*, subject: str, message: str, recipients: list[str]) -> None:
+def _send_transactional_email(*, subject: str, message: str, recipients: list[str], order: Order | None = None) -> None:
     cleaned = [str(x or "").strip().lower() for x in recipients if str(x or "").strip()]
     if not cleaned:
         return
+    html_message = _build_branded_email_html(subject=subject, message=message, order=order)
     try:
         gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
         if gmail_refresh:
             for recipient in cleaned:
                 try:
-                    _send_via_gmail_api(subject=subject, message=message, recipient=recipient)
+                    _send_via_gmail_api(subject=subject, message=message, recipient=recipient, html_message=html_message)
                 except Exception:
                     logger.exception("Gmail API transactional send failed for %s; falling back", recipient)
                     send_mail(
@@ -3541,6 +3667,7 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
                         from_email=settings.DEFAULT_FROM_EMAIL,
                         recipient_list=[recipient],
                         fail_silently=False,
+                        html_message=html_message,
                     )
             return
 
@@ -3548,7 +3675,7 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
         if brevo_key:
             for recipient in cleaned:
                 try:
-                    _send_via_brevo(subject=subject, message=message, recipient=recipient)
+                    _send_via_brevo(subject=subject, message=message, recipient=recipient, html_message=html_message)
                 except Exception:
                     logger.exception("Brevo transactional send failed for %s; falling back to SMTP", recipient)
                     send_mail(
@@ -3557,6 +3684,7 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
                         from_email=settings.DEFAULT_FROM_EMAIL,
                         recipient_list=[recipient],
                         fail_silently=False,
+                        html_message=html_message,
                     )
             return
 
@@ -3566,6 +3694,7 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=cleaned,
             fail_silently=False,
+            html_message=html_message,
         )
     except Exception:
         logger.exception("Failed to send transactional email: subject=%s recipients=%s", subject, cleaned)
@@ -3645,7 +3774,7 @@ def _email_new_order_to_warehouse_staff(order: Order) -> None:
         f"Ordered Products:\n"
         f"{items_block}\n"
     )
-    _send_transactional_email(subject=subject, message=message, recipients=recipients)
+    _send_transactional_email(subject=subject, message=message, recipients=recipients, order=order)
 
 
 def _email_new_staff_credentials(user: User, plain_password: str) -> None:
@@ -3717,7 +3846,7 @@ def _email_order_out_for_delivery_to_customer(order: Order) -> None:
         f"Please prepare the payment amount and be ready to receive your order.\n\n"
         f"Thank you for ordering with us."
     )
-    _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
+    _send_transactional_email(subject=subject, message=message, recipients=[customer_email], order=order)
 
 
 def _email_order_confirmed_to_customer(order: Order) -> None:
@@ -3760,7 +3889,7 @@ def _email_order_confirmed_to_customer(order: Order) -> None:
         f"We are now preparing your order for dispatch.\n\n"
         f"Thank you for ordering with us."
     )
-    _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
+    _send_transactional_email(subject=subject, message=message, recipients=[customer_email], order=order)
 
 
 def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> None:
@@ -3792,7 +3921,7 @@ def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> No
         f"Date: {timezone.localtime(getattr(order, 'created_at', timezone.now())).strftime('%Y-%m-%d %I:%M %p')}\n\n"
         f"If you need help, please contact support."
     )
-    _send_transactional_email(subject=subject, message=message, recipients=[customer_email])
+    _send_transactional_email(subject=subject, message=message, recipients=[customer_email], order=order)
 
 
 def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reason: str) -> None:

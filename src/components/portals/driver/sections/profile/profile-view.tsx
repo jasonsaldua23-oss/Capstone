@@ -1317,17 +1317,21 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                   {initials || 'D'}
                 </AvatarFallback>
               </Avatar>
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#0d61ad] text-white shadow-md border-2 border-white hover:bg-[#0a4f8f] active:scale-95 transition"
+                title="Change Avatar"
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
               <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { avatarCrop.open(event.target.files?.[0] || null); event.currentTarget.value = '' }} />
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-xl font-bold text-[#17365d] truncate">{form.name}</h3>
               <p className="text-sm text-[#5f7390] truncate">{[form.firstName, form.lastName].filter(Boolean).join(' ') || 'Name details not set'}</p>
               <p className="text-sm text-[#5f7390] truncate mt-0.5">{form.email}</p>
-              <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={() => avatarInputRef.current?.click()}>
-                <Camera className="mr-2 h-3.5 w-3.5" />
-                {avatarFile ? 'Change Selected Avatar' : 'Change Avatar'}
-              </Button>
-              <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-xs font-semibold text-[#0369a1]">
+              <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-xs font-semibold text-[#0369a1]">
                 Driver
               </span>
             </div>

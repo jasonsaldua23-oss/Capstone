@@ -69,6 +69,7 @@ def forwards(apps, schema_editor):
     InventoryTransaction = apps.get_model("core", "InventoryTransaction")
     InventoryReservation = apps.get_model("core", "InventoryReservation")
     OrderItem = apps.get_model("core", "OrderItem")
+    Order = apps.get_model("core", "Order")
     StockBatch = apps.get_model("core", "StockBatch")
 
     profile_by_key = {}
@@ -112,8 +113,12 @@ def forwards(apps, schema_editor):
         inventory.save(update_fields=["reserved_base_units"])
         expected_reserved_by_inventory[inventory.id] = reserved_base_units
 
+    order_map = {
+        row["id"]: row
+        for row in Order.objects.all().values("id", "status", "warehouse_id")
+    }
     reserved_cases_by_batch = {}
-    for order_item in OrderItem.objects.select_related("product", "order").all().order_by("created_at", "id"):
+    for order_item in OrderItem.objects.select_related("product").all().order_by("created_at", "id"):
         active_reserved_cases = _active_reserved_cases(InventoryTransaction, order_item.id)
         if active_reserved_cases < 0:
             raise RuntimeError(
@@ -126,7 +131,9 @@ def forwards(apps, schema_editor):
                 f"Cannot backfill order item {order_item.id}: active reservation is "
                 f"{active_reserved_cases} case(s), but the item quantity is {int(order_item.quantity or 0)}."
             )
-        if str(order_item.order.status or "").strip().upper() in {"CANCELLED", "REJECTED", "DELIVERED"}:
+        parent_order = order_map.get(order_item.order_id) or {}
+        order_status = str(parent_order.get("status") or "").strip().upper()
+        if order_status in {"CANCELLED", "REJECTED", "DELIVERED"}:
             raise RuntimeError(
                 f"Cannot backfill order item {order_item.id}: terminal order has an active reservation."
             )
@@ -146,7 +153,7 @@ def forwards(apps, schema_editor):
             batch = StockBatch.objects.select_related("inventory").filter(
                 batch_number=batch_number,
                 inventory__product_id=product.id,
-                inventory__warehouse_id=order_item.order.warehouse_id,
+                inventory__warehouse_id=parent_order.get("warehouse_id"),
             ).first()
             if batch is None:
                 raise RuntimeError(

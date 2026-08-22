@@ -22,7 +22,19 @@ def backfill_purchase_request_workflow(apps, schema_editor) -> None:
     request_counter_by_year: dict[int, int] = {}
     order_counter_by_year: dict[int, int] = {}
 
-    for order in Order.objects.all().order_by("created_at", "id"):
+    for order in Order.objects.all().only(
+        "id",
+        "created_at",
+        "status",
+        "purchase_request_number",
+        "purchase_order_number",
+        "purchase_order_stage",
+        "request_status",
+        "approved_at",
+        "rejected_at",
+        "cancelled_at",
+        "updated_at",
+    ).order_by("created_at", "id"):
         created_at = getattr(order, "created_at", None)
         year = int(getattr(created_at, "year", 0) or 0) or 2026
         request_counter_by_year.setdefault(year, 0)

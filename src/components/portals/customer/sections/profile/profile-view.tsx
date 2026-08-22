@@ -641,6 +641,15 @@ export function CustomerProfileView({
               ) : null}
               <AvatarFallback className="bg-teal-700 text-2xl font-bold text-white">{initials}</AvatarFallback>
             </Avatar>
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-white shadow-md border-2 border-white hover:bg-teal-800 active:scale-95 transition"
+              title="Change Avatar"
+              disabled={isSavingProfile}
+            >
+              <Camera className="h-3.5 w-3.5" />
+            </button>
             <input
               ref={avatarInputRef}
               type="file"
@@ -656,33 +665,24 @@ export function CustomerProfileView({
                 void openAvatarCropDialog(file)
               }}
             />
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
-                <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
-                <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
-                <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" />
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="icon"
-              className="absolute bottom-0 right-0 h-6 w-6 rounded-full bg-[#14532d] p-0 text-white hover:bg-[#0f3f22] shadow-md border-2 border-white"
-              onClick={() => avatarInputRef.current?.click()}
-              disabled={isSavingProfile}
-            >
-              <Camera className="h-3 w-3" />
-            </Button>
           </div>
-          <p className="mt-2 text-xs font-medium text-slate-500">Tap avatar to change photo</p>
+          <p className="mt-2 text-xs font-medium text-slate-500">Tap camera icon to change photo</p>
         </div>
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
+              <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+              <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
+              <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" />
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="customer-profile-email" className="text-sm font-semibold text-slate-700">Email Address</Label>
             <Input
@@ -1418,15 +1418,15 @@ export function CustomerProfileView({
               void openAvatarCropDialog(file)
             }}
           />
-          <Button
+          <button
             type="button"
-            size="icon"
-            className="absolute bottom-0 right-0 h-6 w-6 rounded-full bg-[#14532d] p-0 text-white hover:bg-[#0f3f22] shadow-md border-2 border-white"
             onClick={() => avatarInputRef.current?.click()}
+            className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-white shadow-md border-2 border-white hover:bg-teal-800 active:scale-95 transition"
+            title="Change Avatar"
             disabled={isSavingProfile}
           >
-            <Camera className="h-3 w-3" />
-          </Button>
+            <Camera className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-xl font-bold text-slate-900 truncate">{profileName || user?.name || ''}</h3>
