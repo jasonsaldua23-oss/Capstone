@@ -5509,7 +5509,6 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
         qs = qs.filter(
             Q(product__name__icontains=search)
             | Q(product__sku__icontains=search)
-            | Q(performed_by_name__icontains=search)
             | Q(notes__icontains=search)
             | Q(id__icontains=search)
             | Q(reference_id__icontains=search)

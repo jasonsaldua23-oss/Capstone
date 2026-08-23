@@ -168,7 +168,6 @@ model InventoryTransaction {
   referenceType    String?    // order, trip, manual, etc.
   referenceId      String?    // orderId, tripId, etc.
   notes            String?
-  performedBy      String?
   createdAt        DateTime   @default(now())
 }
 

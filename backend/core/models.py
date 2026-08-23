@@ -345,7 +345,6 @@ class InventoryTransaction(models.Model):
     reference_type = models.CharField(max_length=100, blank=True, null=True)
     reference_id = models.CharField(max_length=100, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
-    performed_by = models.CharField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

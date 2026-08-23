@@ -18,7 +18,6 @@ import {
   Loader2,
   Package,
   Building2,
-  User,
   Clock,
   Hash,
   FileText,
@@ -63,14 +62,60 @@ interface TransactionRow {
   productSku: string | null
   warehouseName: string | null
   warehouseCode: string | null
-  performedByName: string | null
-  performedByRole: string | null
   notes: string | null
   createdAt: string
   referenceType: string | null
   referenceId: string | null
-  product?: { name?: string; sku?: string; category?: string }
+  product?: {
+    name?: string
+    sku?: string
+    category?: string
+    sizes?: string[] | string | null
+    size?: string | null
+    packagingProfile?: { containerSize?: string; name?: string } | null
+  }
   warehouse?: { name?: string; code?: string }
+}
+
+function getProductSizeString(tx: TransactionRow): string {
+  const p = tx.product
+  if (!p) return ''
+  if (Array.isArray(p.sizes) && p.sizes.length > 0) {
+    const validSizes = p.sizes.map((s) => String(s || '').trim()).filter(Boolean)
+    if (validSizes.length > 0) return validSizes.join(', ')
+  }
+  if (typeof p.sizes === 'string' && p.sizes.trim()) {
+    try {
+      const parsed = JSON.parse(p.sizes)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const validSizes = parsed.map((s) => String(s || '').trim()).filter(Boolean)
+        if (validSizes.length > 0) return validSizes.join(', ')
+      }
+    } catch {
+      return p.sizes.trim()
+    }
+  }
+  if (p.size && typeof p.size === 'string' && p.size.trim()) {
+    return p.size.trim()
+  }
+  if (p.packagingProfile?.containerSize && typeof p.packagingProfile.containerSize === 'string' && p.packagingProfile.containerSize.trim()) {
+    return p.packagingProfile.containerSize.trim()
+  }
+  return ''
+}
+
+function formatProductNameWithSize(tx: TransactionRow): string {
+  const baseName = String(tx.productName || tx.product?.name || '').trim()
+  if (!baseName) return 'N/A'
+  const size = getProductSizeString(tx)
+  if (!size) return baseName
+  const cleanSize = size.replace(/^\((.*)\)$/, '$1').trim()
+  const escapeRegex = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const trailingPattern = new RegExp(`\\s*\\(?${escapeRegex(cleanSize)}\\)?\\s*$`, 'i')
+  if (trailingPattern.test(baseName)) {
+    return baseName
+  }
+  return `${baseName} (${cleanSize})`
 }
 
 function getTransactionLooseMeasurement(tx: TransactionRow): string {
@@ -297,8 +342,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                     <th className="text-right p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Performed By</th>
                     <th className="text-center p-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Action</th>
                   </tr>
                 </thead>
@@ -316,24 +361,21 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                       </td>
                       <td className="p-3">
                         <div className="text-sm font-medium text-gray-900">
-                          {tx.productName || tx.product?.name || ''}
+                          {formatProductNameWithSize(tx)}
                         </div>
                         {tx.productSku && (
                           <div className="text-xs text-gray-400">{tx.productSku}</div>
                         )}
                       </td>
+                      <td className="p-3">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                          {tx.productCategory || tx.product?.category || 'General'}
+                        </span>
+                      </td>
                       <td className="p-3 text-right text-sm font-semibold tabular-nums">
                         <span className={isIncomingType(tx.stockType || tx.type) ? 'text-emerald-600' : 'text-red-600'}>
                           {formatTransactionQuantity(tx)}
                         </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="text-sm text-gray-700">
-                          {tx.performedByName || 'System'}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {tx.performedByName ? (tx.performedByRole || 'Warehouse Staff') : 'System'}
-                        </div>
                       </td>
                       <td className="p-3 text-center">
                         <button
@@ -457,7 +499,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                     Product
                   </div>
                   <p className="text-sm font-medium text-gray-800">
-                    {selectedTx.productName || selectedTx.product?.name || ''}
+                    {formatProductNameWithSize(selectedTx)}
                   </p>
                   {selectedTx.productSku && (
                     <p className="text-xs text-gray-400">SKU: {selectedTx.productSku}</p>
@@ -520,20 +562,6 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                     <p className="text-xs text-gray-400">Code: {selectedTx.warehouseCode}</p>
                   )}
                 </div>
-
-                {/* Performed By */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                    <User className="h-3 w-3" />
-                    Performed By
-                  </div>
-                  <p className="text-sm font-medium text-gray-800">
-                    {selectedTx.performedByName || 'System'}
-                  </p>
-                  <Badge variant="outline" className="text-xs text-gray-500 mt-0.5">
-                    {selectedTx.performedByName ? (selectedTx.performedByRole || 'Warehouse Staff') : 'System'}
-                  </Badge>
-                </div>
               </div>
 
               {selectedTx.mixedCase ? (
@@ -545,7 +573,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                   <div className="mt-2 grid gap-2 text-sm text-sky-950 sm:grid-cols-2">
                     <p><span className="font-medium">Order:</span> {selectedTx.mixedCase.orderNumber || selectedTx.referenceId || 'N/A'}</p>
                     <p className="break-all"><span className="font-medium">Order item:</span> {selectedTx.mixedCase.orderItemId || 'N/A'}</p>
-                    <p><span className="font-medium">Component:</span> {selectedTx.productName || selectedTx.product?.name || 'Product'}</p>
+                    <p><span className="font-medium">Component:</span> {formatProductNameWithSize(selectedTx)}</p>
                     <p className="break-all"><span className="font-medium">Component ID:</span> {selectedTx.mixedCase.componentId || 'N/A'}</p>
                     <p><span className="font-medium">Case capacity:</span> {selectedTx.mixedCase.caseCapacity == null ? 'N/A' : formatLooseQuantity(selectedTx.mixedCase.caseCapacity, getTransactionLooseMeasurement(selectedTx))}</p>
                     <p><span className="font-medium">Case count:</span> {selectedTx.mixedCase.caseCount ?? 'N/A'}</p>

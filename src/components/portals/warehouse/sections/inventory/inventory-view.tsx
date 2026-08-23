@@ -102,7 +102,7 @@ export function WarehouseInventoryView({
                         </td>
                         <td className="p-2.5 text-center font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{getThresholdValue(item)}</td>
-                        <td className="p-2.5 text-center font-semibold text-gray-900">{quantityPerCase}</td>
+                        <td className="p-2.5 text-center font-semibold text-gray-900">x{quantityPerCase}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{formatLooseQuantity(looseBottles, looseUnit)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{availableQty}</td>
                         <td className="p-2.5 text-center font-semibold text-orange-600">{reservedQty}</td>

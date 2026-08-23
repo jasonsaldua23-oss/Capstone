@@ -28,6 +28,18 @@ const getAllowedCapacities = (product: Product) => {
   return Number.isInteger(capacity) && capacity > 0 ? [capacity] : []
 }
 
+const getAvailableBaseUnits = (product: Product) => {
+  const explicitBaseUnits = Number(product.availableBaseUnits)
+  if (product.availableBaseUnits != null && Number.isFinite(explicitBaseUnits)) {
+    return Math.max(0, explicitBaseUnits)
+  }
+
+  // Fix: the customer catalog reports available cases, so convert them to bottles for Mixed Case limits.
+  const availableCases = Math.max(0, Number(product.availableQuantity || 0))
+  const caseCapacity = getAllowedCapacities(product)[0] || 0
+  return availableCases * caseCapacity
+}
+
 const getSupportedCapacities = (products: Product[]) => {
   const supportByCapacity = new Map<number, number>()
   products.forEach((product) => {
@@ -55,7 +67,7 @@ export function MixedCaseBuilderDialog({
       const categorySpec = getBeverageCategorySpec(product.category)
       const orderFormat = String((product as any)?.unit || '').trim().toLowerCase()
       // Mixed Case is only available for full cases of carbonated glass bottles.
-      if ((product as any)?.isActive === false || categorySpec?.category !== 'Carbonated (Glass)' || orderFormat !== 'case' || Number(product.availableBaseUnits || 0) <= 0) return
+      if ((product as any)?.isActive === false || categorySpec?.category !== 'Carbonated (Glass)' || orderFormat !== 'case' || getAvailableBaseUnits(product) <= 0) return
       const rows = map.get(categorySpec.compatibilityKey) || []
       rows.push(product)
       map.set(categorySpec.compatibilityKey, rows)
@@ -134,7 +146,7 @@ export function MixedCaseBuilderDialog({
           next[product.id] = 0
           return
         }
-        const stockLimit = Math.floor(Number(product.availableBaseUnits || 0) / Math.max(1, nextCaseCount))
+        const stockLimit = Math.floor(getAvailableBaseUnits(product) / Math.max(1, nextCaseCount))
         const requested = Number(current[product.id])
         const safeRequested = Number.isFinite(requested) ? Math.max(0, Math.floor(requested)) : 0
         const value = Math.min(stockLimit, availableCapacity, safeRequested)
@@ -158,7 +170,7 @@ export function MixedCaseBuilderDialog({
   }
 
   const updateQuantity = (product: Product, nextValue: number) => {
-    const availableForEachCase = Math.floor(Number(product.availableBaseUnits || 0) / Math.max(1, caseCount))
+    const availableForEachCase = Math.floor(getAvailableBaseUnits(product) / Math.max(1, caseCount))
     const currentQuantity = Math.max(0, Number(quantities[product.id] || 0))
     const requestedQuantity = Math.max(0, Math.floor(Number(nextValue || 0)))
     if (requestedQuantity > currentQuantity + remaining) {
@@ -197,7 +209,9 @@ export function MixedCaseBuilderDialog({
       const maxCases = Math.min(
         ...quote.components.map((component: any) => {
           const product = products.find((row) => row.id === component.productId)
-          return Math.floor(Number(product?.availableBaseUnits || 0) / Math.max(1, Number(component.quantityPerCase || 1)))
+          return product
+            ? Math.floor(getAvailableBaseUnits(product) / Math.max(1, Number(component.quantityPerCase || 1)))
+            : 0
         })
       )
       // Keep the selected product data on each component so mixed-case cards can show both images.
@@ -284,7 +298,7 @@ export function MixedCaseBuilderDialog({
               {eligibleProducts.map((product) => {
                 const quantity = Math.max(0, Number(quantities[product.id] || 0))
                 const label = getBeverageCategorySpec(product.category)?.looseUnit || product.looseUnit || 'unit'
-                const maxForCases = Math.floor(Number(product.availableBaseUnits || 0) / Math.max(1, caseCount))
+                const maxForCases = Math.floor(getAvailableBaseUnits(product) / Math.max(1, caseCount))
                 const maxAllowedForRow = Math.min(maxForCases, quantity + remaining)
                 return (
                   <div key={product.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
