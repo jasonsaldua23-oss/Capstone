@@ -571,7 +571,6 @@ export function InventoryView() {
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Loose Base Units</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Available Cases</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Reserved</th>
-                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Location</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Status</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Actions</th>
                   </tr>
@@ -622,7 +621,6 @@ export function InventoryView() {
                           <p>{reservedQty} case(s)</p>
                           <p className="text-[11px] font-medium text-orange-500">{reservedBaseQty} {baseUnitLabel}(s)</p>
                         </td>
-                        <td className="p-2.5 text-center text-gray-600">{item.warehouse?.name || item.warehouse?.code || 'N/A'}</td>
                         <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
                           {status === 'overstocked' && <Badge className="whitespace-nowrap bg-blue-100 text-blue-800 hover:bg-blue-100">Overstocked</Badge>}

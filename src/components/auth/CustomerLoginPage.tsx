@@ -49,17 +49,9 @@ export function CustomerLoginPage() {
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false)
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
-  const googleButtonRef = useRef<HTMLDivElement | null>(null)
+  const loginGoogleButtonRef = useRef<HTMLDivElement | null>(null)
+  const registerGoogleButtonRef = useRef<HTMLDivElement | null>(null)
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
-  const googleContinueSection = googleClientId ? (
-    <div className="mb-0.5 mt-0.5 space-y-1 sm:mb-1 sm:mt-1 sm:space-y-1.5">
-      <div className="flex justify-center w-full">
-        <div ref={googleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
-      </div>
-    </div>
-  ) : (
-    <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
-  )
 
   const persistCustomerWelcomeState = (mode: 'existing' | 'new', fallbackName?: string) => {
     if (typeof window === 'undefined') return
@@ -80,7 +72,7 @@ export function CustomerLoginPage() {
 
   const handleGoogleCredential = async (credential: string) => {
     if (!credential) {
-      toast.error('Google sign-in failed. Please try again.')
+      toast.error('Google authentication failed. Please try again.')
       return
     }
 
@@ -102,13 +94,13 @@ export function CustomerLoginPage() {
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
         const fallbackError = response.status >= 500
-          ? 'Google sign-in is temporarily unavailable. Please use email/password for now.'
+          ? 'Google service is temporarily unavailable. Please use email/password for now.'
           : 'Google authentication failed'
         toast.error(apiError || fallbackError)
         return
       }
 
-      persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
+      persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       router.replace('/')
     } catch {
@@ -121,30 +113,33 @@ export function CustomerLoginPage() {
   const renderGoogleButton = () => {
     if (!googleClientId) return
     if (!window.google?.accounts?.id) return
-    if (!googleButtonRef.current) return
 
-    const availableWidth = googleButtonRef.current.parentElement?.clientWidth ?? googleButtonRef.current.clientWidth ?? 0
-    const buttonWidth = Math.max(220, Math.min(360, Math.floor(availableWidth || 280)))
-
-    googleButtonRef.current.innerHTML = ''
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: (response) => {
         if (response.credential) {
           void handleGoogleCredential(response.credential)
         } else {
-          toast.error('Google sign-in failed. Please try again.')
+          toast.error('Google authentication failed. Please try again.')
         }
       },
     })
-    window.google.accounts.id.renderButton(googleButtonRef.current, {
-      theme: 'outline',
-      size: 'large',
-      text: 'continue_with',
-      shape: 'pill',
-      logo_alignment: 'left',
-      width: buttonWidth,
-    })
+
+    const targetEl = authMode === 'login' ? loginGoogleButtonRef.current : registerGoogleButtonRef.current
+    if (targetEl) {
+      targetEl.innerHTML = ''
+      const availableWidth = targetEl.parentElement?.clientWidth ?? targetEl.clientWidth ?? 0
+      const buttonWidth = Math.max(220, Math.min(360, Math.floor(availableWidth || 280)))
+
+      window.google.accounts.id.renderButton(targetEl, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'pill',
+        logo_alignment: 'left',
+        width: buttonWidth,
+      })
+    }
   }
 
   useEffect(() => {
@@ -174,7 +169,10 @@ export function CustomerLoginPage() {
   }, [router])
 
   useEffect(() => {
-    renderGoogleButton()
+    const timer = setTimeout(() => {
+      renderGoogleButton()
+    }, 60)
+    return () => clearTimeout(timer)
   }, [authMode, googleClientId])
 
   useEffect(() => {
@@ -468,7 +466,15 @@ export function CustomerLoginPage() {
                     <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
                   </div>
                 </div>
-                {googleContinueSection}
+                {googleClientId ? (
+                  <div className="mb-0.5 mt-0.5 space-y-1 sm:mb-1 sm:mt-1 sm:space-y-1.5">
+                    <div className="flex justify-center w-full">
+                      <div ref={loginGoogleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
+                )}
                 <p className="pt-0.5 text-center text-[12px] text-slate-600 sm:text-sm">
                   Don&apos;t have an account?{' '}
                   <button
@@ -600,7 +606,28 @@ export function CustomerLoginPage() {
                 <Button type="submit" className="h-10 w-full rounded-xl bg-emerald-600 text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(5,150,105,0.2)] hover:bg-emerald-500 sm:h-12 sm:text-base sm:shadow-[0_12px_24px_rgba(5,150,105,0.26)]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
-                {googleContinueSection}
+                <div className="pt-0.5">
+                  <div className="relative py-0 sm:py-0.5">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-[#dce5e6]" />
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
+                      <span className="bg-white px-2 text-[#7f8fa5]">OR CONTINUE WITH</span>
+                    </div>
+                  </div>
+                  <div className="mt-0.5 flex justify-center">
+                    <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
+                  </div>
+                </div>
+                {googleClientId ? (
+                  <div className="mb-0.5 mt-0.5 space-y-1 sm:mb-1 sm:mt-1 sm:space-y-1.5">
+                    <div className="flex justify-center w-full">
+                      <div ref={registerGoogleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
+                )}
                 <p className="text-center text-[12px] text-slate-600 sm:text-sm">
                   Already have an account?{' '}
                   <button

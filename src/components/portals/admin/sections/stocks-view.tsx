@@ -118,7 +118,6 @@ export function StocksView() {
                   <th className="text-left p-4 font-medium text-gray-600">Expiry Date</th>
                   <th className="text-left p-4 font-medium text-gray-600">Days Left</th>
                   <th className="text-left p-4 font-medium text-gray-600">Status</th>
-                  <th className="text-left p-4 font-medium text-gray-600">Location</th>
                 </tr>
               </thead>
               <tbody>
@@ -142,9 +141,6 @@ export function StocksView() {
                         {expired && <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Expired</Badge>}
                         {!expired && expiringSoon && <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Expiring Soon</Badge>}
                         {!expired && !expiringSoon && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>}
-                      </td>
-                      <td className="p-4 text-gray-600">
-                        {batch.inventory?.warehouse?.code || batch.inventory?.warehouse?.name || batch.locationLabel || 'N/A'}
                       </td>
                     </tr>
                   )

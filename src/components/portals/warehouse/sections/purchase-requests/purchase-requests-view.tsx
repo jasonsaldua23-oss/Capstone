@@ -143,12 +143,11 @@ export function WarehousePurchaseRequestsView({
             </div>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="min-w-[1200px] w-full">
+              <table className="min-w-[1060px] w-full">
                 <thead className="bg-slate-50 text-left text-sm text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Request ID</th>
                     <th className="px-4 py-3 font-semibold">Customer Name</th>
-                    <th className="px-4 py-3 font-semibold">Warehouse</th>
                     <th className="px-4 py-3 font-semibold">Products</th>
                     <th className="px-4 py-3 font-semibold">Total Quantity</th>
                     <th className="px-4 py-3 font-semibold">Total Amount</th>
@@ -171,7 +170,6 @@ export function WarehousePurchaseRequestsView({
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
                         <td className="px-4 py-3 font-semibold text-slate-900">{order.purchaseRequestNumber || order.orderNumber}</td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
-                        <td className="px-4 py-3">{order.warehouseName || order.warehouseCode || 'Unassigned'}</td>
                         <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>
                         <td className="px-4 py-3">{totalQuantity}</td>
                         <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>

@@ -1,14 +1,10 @@
 'use client'
 
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis, PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
-import { AlertTriangle, Boxes, Loader2, Warehouse, TrendingUp, Package, ShoppingCart, CircleCheck, Truck } from 'lucide-react'
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { AlertTriangle, Boxes, Warehouse, TrendingUp, Package, ShoppingCart, CircleCheck, Truck } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { ChartContainer } from '@/components/ui/chart'
-import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import type { WarehouseDashboardViewProps } from '../shared/types'
 
@@ -23,15 +19,6 @@ export function WarehouseDashboardView({
   totalReplacementCases,
   warehouseOrdersChartConfig,
   weeklyTrendData,
-  transactionDateFrom,
-  setTransactionDateFrom,
-  transactionDatePreset,
-  setTransactionDatePreset,
-  transactionTypeFilter,
-  setTransactionTypeFilter,
-  availableInventoryTransactionTypes,
-  loadingInventoryTransactions,
-  filteredInventoryTransactions,
 }: WarehouseDashboardViewProps) {
   const [welcomeState] = useState(() => {
     if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
@@ -65,18 +52,6 @@ export function WarehouseDashboardView({
       ticks,
     }
   }, [weeklyTrendData])
-  // Calculate transaction type distribution
-  const transactionTypeData = useMemo(() => {
-    const typeMap = new Map<string, number>()
-    for (const transaction of filteredInventoryTransactions) {
-      const type = String(transaction?.type || 'OTHER').toUpperCase()
-      typeMap.set(type, (typeMap.get(type) || 0) + 1)
-    }
-    return Array.from(typeMap.entries()).map(([name, value]) => ({
-      name: name.replace(/_/g, ' '),
-      value,
-    }))
-  }, [filteredInventoryTransactions])
 
   // Calculate stock health percentage
   const stockHealthPercentage = useMemo(() => {
@@ -90,23 +65,6 @@ export function WarehouseDashboardView({
     const totalQty = scopedInventory.reduce((sum, item) => sum + (Number(item?.quantity || 0)), 0)
     return Math.round(totalQty / scopedInventory.length)
   }, [scopedInventory])
-
-  // Calculate total transactions count
-  const totalTransactionCount = useMemo(() => {
-    return filteredInventoryTransactions.length
-  }, [filteredInventoryTransactions])
-
-  // Color palette for transaction types
-  const transactionColors = [
-    '#3b82f6', // blue
-    '#10b981', // green
-    '#f59e0b', // amber
-    '#ef4444', // red
-    '#8b5cf6', // purple
-    '#06b6d4', // cyan
-    '#ec4899', // pink
-    '#f97316', // orange
-  ]
 
   return (
     <div className="space-y-6">
@@ -227,92 +185,6 @@ export function WarehouseDashboardView({
               <p className="text-sm font-medium text-amber-900/75">Avg Stock Level</p>
               <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight text-amber-900">{averageStockLevel}</p>
               <p className="mt-2 text-xs text-amber-900/60">Units per item</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="rounded-2xl border-0 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-orange-500" />
-            Low Stock Alerts
-          </CardTitle>
-          <CardDescription>Items that need restocking soon</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">{lowStockCount || 0}</h1>
-                <p className="text-sm text-gray-500">Items currently below threshold</p>
-              </div>
-              <Badge variant={Number(lowStockCount || 0) > 0 ? 'destructive' : 'secondary'}>
-                {Number(lowStockCount || 0) > 0 ? 'Needs Action' : 'Stable'}
-              </Badge>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-2xl border-0 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Pending Replacements
-          </CardTitle>
-          <CardDescription>Replacement cases awaiting driver follow-up</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between py-2 border-b last:border-0">
-              <div>
-                <p className="font-medium">{pendingReplacementCases || 0} pending replacement case(s)</p>
-                <p className="text-sm text-gray-500">Awaiting driver follow-up or closure</p>
-              </div>
-              <Badge variant={Number(pendingReplacementCases || 0) > 0 ? 'secondary' : 'outline'}>
-                {Number(pendingReplacementCases || 0) > 0 ? 'Pending' : 'Clear'}
-              </Badge>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card className="bg-gradient-to-br from-indigo-600 to-purple-700 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-indigo-100 text-sm">Total Transactions</p>
-                <p className="text-3xl font-bold mt-1">{totalTransactionCount}</p>
-              </div>
-              <TrendingUp className="h-10 w-10 text-indigo-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-violet-500 to-pink-600 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-violet-100 text-sm">Stock Health Status</p>
-                <p className="text-3xl font-bold mt-1">{stockHealthPercentage > 30 ? '⚠️' : '✓'}</p>
-              </div>
-              <AlertTriangle className="h-10 w-10 text-violet-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-cyan-500 to-teal-600 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-cyan-100 text-sm">Inventory Utilization</p>
-                <p className="text-3xl font-bold mt-1">
-                  {scopedInventory.length > 0 ? Math.round(((scopedInventory.length - lowStockCount) / scopedInventory.length) * 100) : 0}%
-                </p>
-              </div>
-              <Boxes className="h-10 w-10 text-cyan-200" />
             </div>
           </CardContent>
         </Card>
@@ -450,129 +322,6 @@ export function WarehouseDashboardView({
           </CardContent>
         </Card>
       </div>
-
-      {/* Transaction Type Distribution Chart */}
-      {transactionTypeData.length > 0 && (
-        <Card className="rounded-2xl border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Transaction Type Distribution</CardTitle>
-            <CardDescription>Breakdown of inventory transactions by type</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={transactionTypeData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={(entry: any) => `${entry.name}: ${entry.value}`}
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {transactionTypeData.map((entry: any, index: number) => (
-                      <Cell key={`cell-${index}`} fill={transactionColors[index % transactionColors.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: any) => `${value} transactions`} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="rounded-2xl border-0 shadow-sm">
-        <CardHeader>
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <CardTitle>Inventory Transactions</CardTitle>
-              <CardDescription>All inventory movement records for this warehouse.</CardDescription>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <Input
-                type="date"
-                value={transactionDateFrom}
-                onChange={(event) => {
-                  setTransactionDateFrom(event.target.value)
-                  setTransactionDatePreset('custom')
-                }}
-                className="h-9"
-              />
-              <select
-                aria-label="Transaction date range preset"
-                value={transactionDatePreset}
-                onChange={(event) => setTransactionDatePreset(event.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="custom">Custom range</option>
-                <option value="past_7_days">Past 7 days</option>
-                <option value="past_14_days">Past 14 days</option>
-                <option value="past_1_month">Past 1 month</option>
-                <option value="past_3_months">Past 3 months</option>
-                <option value="past_6_months">Past 6 months</option>
-                <option value="past_1_year">Past 1 year</option>
-              </select>
-              <select
-                aria-label="Transaction type filter"
-                value={transactionTypeFilter}
-                onChange={(event) => setTransactionTypeFilter(event.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="all">All types</option>
-                {availableInventoryTransactionTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loadingInventoryTransactions ? (
-            <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
-          ) : filteredInventoryTransactions.length === 0 ? (
-            <div className="h-40 flex items-center justify-center text-gray-500">No inventory transactions found</div>
-          ) : (
-            <div className="max-h-[380px] overflow-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b sticky top-0 z-10">
-                  <tr>
-                    <th className="text-left p-4 font-medium text-gray-600">Date</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Type</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Product</th>
-                    <th className="text-left p-4 font-medium text-gray-600">SKU</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Qty</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Reference</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredInventoryTransactions.map((entry) => (
-                    <tr key={entry.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="p-4">{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'N/A'}</td>
-                      <td className="p-4">
-                        <Badge variant="outline">{String(entry.type || 'N/A').replace(/_/g, ' ')}</Badge>
-                      </td>
-                      <td className="p-4">{entry.product?.name || 'N/A'}</td>
-                      <td className="p-4">{entry.product?.sku || 'N/A'}</td>
-                      <td className="p-4 font-semibold">
-                        {Number(entry.quantity || 0).toLocaleString()} {entry.stockUnitLabel || ''}
-                      </td>
-                      <td className="p-4 text-gray-600">
-                        {entry.referenceType || 'N/A'}
-                        {entry.referenceId ? ` #${entry.referenceId}` : ''}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }

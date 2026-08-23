@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, User, Mail, Phone, PackageCheck, Route, Car, CalendarClock, Camera } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, User, Mail, Phone, PackageCheck, Route, Car, CalendarClock, Camera, Check, X } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -57,6 +57,22 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+type RequestActionState = {
+  order: any
+  action: 'approve' | 'reject' | 'cancel'
+}
+
+const requestBadgeClass: Record<string, string> = {
+  PENDING_APPROVAL: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
+  APPROVED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
+  REJECTED: 'bg-rose-100 text-rose-700 hover:bg-rose-100',
+  CANCELLED: 'bg-slate-200 text-slate-700 hover:bg-slate-200',
+}
+
+function formatRequestStatus(value: string) {
+  return String(value || 'PENDING_APPROVAL').replace(/_/g, ' ')
+}
+
 export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' }: { mode?: string; onOpenTransportation?: () => void; globalSearchQuery?: string } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
@@ -80,6 +96,15 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   const ordersPageSize = 10
   const latestOrderMarkerRef = useRef('')
   const latestOrderUpdatedAtRef = useRef('')
+
+  // Purchase Requests dedicated state (aligned with Warehouse Staff)
+  const [requestSearch, setRequestSearch] = useState('')
+  const [requestStatusFilter, setRequestStatusFilter] = useState('all')
+  const [requestDateFilter, setRequestDateFilter] = useState('')
+  const [requestMinAmount, setRequestMinAmount] = useState('')
+  const [requestMaxAmount, setRequestMaxAmount] = useState('')
+  const [actionState, setActionState] = useState<RequestActionState | null>(null)
+  const [actionReason, setActionReason] = useState('')
 
   useEffect(() => {
     setOrderSearchQuery(String(globalSearchQuery || ''))
@@ -753,240 +778,449 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
     }
   }
 
+  const filteredRequests = useMemo(() => {
+    const query = (requestSearch || orderSearchQuery).trim().toLowerCase()
+    const min = Number(requestMinAmount)
+    const max = Number(requestMaxAmount)
+    return orders
+      .filter((order) => !isReplacementOrder(order) && isPurchaseRequestOrder(order))
+      .filter((order) => {
+        const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
+        const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
+        const amount = Number(order?.totalAmount || 0)
+        const dateRequested = String(order?.dateRequested || order?.createdAt || '').slice(0, 10)
+        const productText = Array.isArray(order?.items)
+          ? order.items.map((item: any) => String(item?.productName || item?.product?.name || '').trim()).join(' ')
+          : ''
+
+        if (requestStatusFilter !== 'all' && requestStatus !== requestStatusFilter) return false
+        if (requestDateFilter && dateRequested !== requestDateFilter) return false
+        if (requestMinAmount.trim() && Number.isFinite(min) && amount < min) return false
+        if (requestMaxAmount.trim() && Number.isFinite(max) && amount > max) return false
+        if (!query) return true
+
+        return [
+          order?.purchaseRequestNumber,
+          order?.purchase_request_number,
+          order?.orderNumber,
+          order?.purchaseOrderNumber,
+          order?.customer?.name,
+          order?.shippingName,
+          warehouseLabel,
+          requestStatus,
+          productText,
+        ].some((value) => String(value || '').toLowerCase().includes(query))
+      })
+  }, [orders, requestSearch, orderSearchQuery, requestStatusFilter, requestDateFilter, requestMinAmount, requestMaxAmount])
+
+  const handleRequestAction = async () => {
+    if (!actionState) return
+    const { order, action } = actionState
+    const nextStatus = action === 'approve' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
+    const nextReason = action === 'approve' ? undefined : actionReason.trim() || undefined
+    const success = await updateOrderStatus(order.id, nextStatus as any, nextReason)
+    if (success) {
+      setActionState(null)
+      setActionReason('')
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{mode === 'requests' ? 'Purchase Requests' : 'Purchase Orders'}</h1>
-          <p className="text-gray-700">
-            {mode === 'requests'
-              ? 'Review customer purchase requests'
-              : 'View customer purchase orders and fulfillment status'}
-          </p>
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="pt-4">
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
-            <select
-              aria-label="Filter orders by warehouse"
-              title="Filter by warehouse"
-              value={warehouseFilterId}
-              onChange={(event) => setWarehouseFilterId(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-            >
-              <option value="all">All warehouses</option>
-              {warehouseFilterOptions.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.label}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter orders by status"
-              value={orderStatusFilter}
-              onChange={(event) => setOrderStatusFilter(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-            >
-              <option value="all">All statuses</option>
-              {orderStatusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter orders by date range"
-              value={orderDatePreset}
-              onChange={(event) => setOrderDatePreset(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-            >
-              <option value="all">All dates</option>
-              <option value="past_7_days">Past 7 days</option>
-              <option value="past_14_days">Past 14 days</option>
-              <option value="past_1_month">Past 1 month</option>
-              <option value="past_3_months">Past 3 months</option>
-              <option value="past_6_months">Past 6 months</option>
-              <option value="past_1_year">Past 1 year</option>
-              <option value="custom">Custom date</option>
-            </select>
-            <Input
-              type="date"
-              value={orderCustomDateFilter}
-              onChange={(event) => setOrderCustomDateFilter(event.target.value)}
-              disabled={orderDatePreset !== 'custom'}
-              className="h-10"
-            />
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Min price"
-              value={orderMinPriceFilter}
-              onChange={(event) => setOrderMinPriceFilter(event.target.value)}
-              className="h-10"
-            />
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Max price"
-              value={orderMaxPriceFilter}
-              onChange={(event) => setOrderMaxPriceFilter(event.target.value)}
-              className="h-10"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="h-10"
-              onClick={() => {
-                setWarehouseFilterId('all')
-                setOrderStatusFilter('all')
-                setOrderDatePreset('all')
-                setOrderCustomDateFilter('')
-                setOrderMinPriceFilter('')
-                setOrderMaxPriceFilter('')
-              }}
-            >
-              Reset Filters
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-0">
-          <CardTitle className="text-base">{mode === 'requests' ? 'Purchase Requests' : 'Purchase Orders'}</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
-          ) : orders.length === 0 ? (
-            <div className="text-center py-12">
-              {/* <Package className="h-12 w-12 text-gray-300 mx-auto mb-4" /> */}
-              <p className="text-gray-500">{mode === 'requests' ? 'No purchase requests found' : 'No purchase orders found'}</p>
-            </div>
-          ) : filteredOrders.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-500">No orders match the selected filters</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">CUSTOMER</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">WAREHOUSE</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">DELIVERY DATE</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">VALUE</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">STATUS</th>
-                    <th className="text-left p-4 font-semibold text-gray-800">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedOrders.map((order: any) => (
-                    <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          {/* <Package className="h-4 w-4 text-gray-400" /> */}
-                          <span className="font-semibold text-gray-900">{order.orderNumber}</span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
-                        <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
-                      </td>
-                      <td className="p-4">
-                        {(() => {
-                          const enrichedOrder =
-                            orderDetailsById[String(order.id)] ||
-                            (selectedOrder?.id === order.id ? selectedOrder : null) ||
-                            order
-                          const summary = deriveOrderFulfillmentSummary(enrichedOrder)
-                          const warehouseMeta = getOrderWarehouseMeta(enrichedOrder)
-                          const warehouseNames = getOrderWarehouseNames(enrichedOrder)
-                          const warehouseText = warehouseNames.length > 0
-                            ? warehouseNames.slice(0, 2).join(', ')
-                            : warehouseMeta.hasMultipleWarehouses
-                              ? 'Multiple warehouses'
-                              : 'Pending warehouse allocation'
-                          const extraWarehouseCount = warehouseNames.length > 2 ? warehouseNames.length - 2 : 0
-                          return (
-                            <div className="space-y-1">
-                              <p className="font-medium text-gray-900">
-                                {warehouseText}
-                                {extraWarehouseCount > 0 ? ` +${extraWarehouseCount} more` : ''}
-                              </p>
-                              {summary.totalLegs > 1 && (
-                                <p className="text-xs text-gray-700">
-                                  Legs: {summary.deliveredLegs}/{summary.totalLegs} delivered
-                                  {summary.unassignedTripCount > 0 ? ` | ${summary.unassignedTripCount} without trip` : ''}
-                                  {!warehouseMeta.hasMultipleWarehouses && warehouseNames.length === 0 ? ' | awaiting warehouse assignment' : ''}
-                                </p>
-                              )}
-                            </div>
-                          )
-                        })()}
-                      </td>
-                      <td className="p-4 text-gray-600">
-                        {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="p-4 font-semibold text-gray-900">{formatPeso(order.totalAmount || 0)}</td>
-                      <td className="p-4">
-                        {(() => {
-                          const displayStatus = getDisplayOrderStatus(order)
-                          return <Badge className={getOrderStatusBadgeClass(displayStatus)}>{displayStatus}</Badge>
-                        })()}
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            onClick={() => void openOrderDetail(order)}
-                            title="View order progress"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex items-center justify-between border-t px-4 py-3">
-                <p className="text-xs text-slate-500">
-                  Showing {(ordersPage - 1) * ordersPageSize + 1}-{Math.min(ordersPage * ordersPageSize, filteredOrders.length)} of {filteredOrders.length}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={ordersPage <= 1}
-                    onClick={() => setOrdersPage((prev) => Math.max(1, prev - 1))}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm text-slate-600">Page {ordersPage} of {totalOrdersPages}</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={ordersPage >= totalOrdersPages}
-                    onClick={() => setOrdersPage((prev) => Math.min(totalOrdersPages, prev + 1))}
-                  >
-                    Next
-                  </Button>
-                </div>
+      {mode === 'requests' ? (
+        <>
+          <Card className="rounded-3xl border-slate-200 shadow-sm">
+            <CardHeader className="space-y-2">
+              <CardTitle className="text-2xl text-slate-900">Purchase Requests</CardTitle>
+              <CardDescription>Review and manage customer purchase requests before approval.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+                <Input
+                  value={requestSearch}
+                  onChange={(event) => setRequestSearch(event.target.value)}
+                  placeholder="Search request, customer, product..."
+                />
+                <select
+                  value={requestStatusFilter}
+                  onChange={(event) => setRequestStatusFilter(event.target.value)}
+                  className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+                >
+                  <option value="all">All request statuses</option>
+                  <option value="PENDING_APPROVAL">Pending Approval</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+                <Input
+                  type="date"
+                  value={requestDateFilter}
+                  onChange={(event) => setRequestDateFilter(event.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={requestMinAmount}
+                  onChange={(event) => setRequestMinAmount(event.target.value)}
+                  placeholder="Minimum amount"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={requestMaxAmount}
+                  onChange={(event) => setRequestMaxAmount(event.target.value)}
+                  placeholder="Maximum amount"
+                />
               </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRequestSearch('')
+                    setRequestStatusFilter('all')
+                    setRequestDateFilter('')
+                    setRequestMinAmount('')
+                    setRequestMaxAmount('')
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </div>
+
+              {isLoading ? (
+                <PortalTableSkeleton rows={5} columns={9} className="border-0 shadow-none" />
+              ) : filteredRequests.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
+                  <p className="text-base font-semibold text-slate-700">No purchase requests found.</p>
+                  <p className="mt-1 text-sm text-slate-500">New customer purchase requests will appear here once submitted.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="min-w-[1060px] w-full">
+                    <thead className="bg-slate-50 text-left text-sm text-slate-600">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Request ID</th>
+                        <th className="px-4 py-3 font-semibold">Customer Name</th>
+                        <th className="px-4 py-3 font-semibold">Products</th>
+                        <th className="px-4 py-3 font-semibold">Total Quantity</th>
+                        <th className="px-4 py-3 font-semibold">Total Amount</th>
+                        <th className="px-4 py-3 font-semibold">Date Requested</th>
+                        <th className="px-4 py-3 font-semibold">Request Status</th>
+                        <th className="px-4 py-3 font-semibold">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRequests.map((order: any) => {
+                        const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
+                        const totalQuantity = Array.isArray(order?.items)
+                          ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
+                          : 0
+                        const productLabel = Array.isArray(order?.items) && order.items.length > 0
+                          ? order.items.map((item: any) => String(item?.productName || item?.product?.name || 'Product')).join(', ')
+                          : 'No products'
+                        const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
+                        const reqId = order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber
+
+                        return (
+                          <tr key={order.id} className="border-t border-slate-200 align-top text-sm hover:bg-slate-50/70 transition-colors">
+                            <td className="px-4 py-3 font-semibold text-slate-900">{reqId}</td>
+                            <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
+                            <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>
+                            <td className="px-4 py-3">{totalQuantity}</td>
+                            <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
+                            <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
+                            <td className="px-4 py-3">
+                              <Badge className={requestBadgeClass[requestStatus] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>
+                                {formatRequestStatus(requestStatus)}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => void openOrderDetail(order)}
+                                  title="View Details"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
+                                  disabled={!isPending || updatingOrderId === order.id}
+                                  onClick={() => setActionState({ order, action: 'approve' })}
+                                  title="Approve Request"
+                                >
+                                  {updatingOrderId === order.id && actionState?.action === 'approve' ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Check className="h-4 w-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                                  disabled={!isPending || updatingOrderId === order.id}
+                                  onClick={() => setActionState({ order, action: 'reject' })}
+                                  title="Reject Request"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <AlertDialog open={!!actionState} onOpenChange={(open) => !open && setActionState(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {actionState?.action === 'approve'
+                    ? 'Approve Purchase Request'
+                    : actionState?.action === 'reject'
+                      ? 'Reject Purchase Request'
+                      : 'Cancel Purchase Request'}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {actionState?.action === 'approve'
+                    ? 'Are you sure you want to approve this purchase request? Once approved, this request will become an official purchase order.'
+                    : actionState?.action === 'reject'
+                      ? 'Please enter the reason for rejecting this purchase request.'
+                      : 'Are you sure you want to cancel this purchase request? This action will prevent the request from becoming a purchase order.'}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              {actionState?.action !== 'approve' ? (
+                <textarea
+                  className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  placeholder={actionState?.action === 'reject' ? 'Reason for rejection' : 'Optional cancellation reason'}
+                  value={actionReason}
+                  onChange={(event) => setActionReason(event.target.value)}
+                />
+              ) : null}
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => { setActionState(null); setActionReason('') }}>
+                  {actionState?.action === 'cancel' ? 'No, Keep Request' : 'Cancel'}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => void handleRequestAction()}
+                  className={actionState?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : actionState?.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-slate-900 hover:bg-slate-800'}
+                >
+                  {actionState?.action === 'approve' ? 'Approve Request' : actionState?.action === 'reject' ? 'Reject Request' : 'Cancel Request'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
+              <p className="text-gray-700">
+                View customer purchase orders and fulfillment status
+              </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+
+          <Card>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
+                <select
+                  aria-label="Filter orders by warehouse"
+                  title="Filter by warehouse"
+                  value={warehouseFilterId}
+                  onChange={(event) => setWarehouseFilterId(event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+                >
+                  <option value="all">All warehouses</option>
+                  {warehouseFilterOptions.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Filter orders by status"
+                  value={orderStatusFilter}
+                  onChange={(event) => setOrderStatusFilter(event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+                >
+                  <option value="all">All statuses</option>
+                  {orderStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Filter orders by date range"
+                  value={orderDatePreset}
+                  onChange={(event) => setOrderDatePreset(event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+                >
+                  <option value="all">All dates</option>
+                  <option value="past_7_days">Past 7 days</option>
+                  <option value="past_14_days">Past 14 days</option>
+                  <option value="past_1_month">Past 1 month</option>
+                  <option value="past_3_months">Past 3 months</option>
+                  <option value="past_6_months">Past 6 months</option>
+                  <option value="past_1_year">Past 1 year</option>
+                  <option value="custom">Custom date</option>
+                </select>
+                <Input
+                  type="date"
+                  value={orderCustomDateFilter}
+                  onChange={(event) => setOrderCustomDateFilter(event.target.value)}
+                  disabled={orderDatePreset !== 'custom'}
+                  className="h-10"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Min price"
+                  value={orderMinPriceFilter}
+                  onChange={(event) => setOrderMinPriceFilter(event.target.value)}
+                  className="h-10"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Max price"
+                  value={orderMaxPriceFilter}
+                  onChange={(event) => setOrderMaxPriceFilter(event.target.value)}
+                  className="h-10"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10"
+                  onClick={() => {
+                    setWarehouseFilterId('all')
+                    setOrderStatusFilter('all')
+                    setOrderDatePreset('all')
+                    setOrderCustomDateFilter('')
+                    setOrderMinPriceFilter('')
+                    setOrderMaxPriceFilter('')
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-0">
+              <CardTitle className="text-base">Purchase Orders</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {isLoading ? (
+                <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
+              ) : orders.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-gray-500">No purchase orders found</p>
+                </div>
+              ) : filteredOrders.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-gray-500">No orders match the selected filters</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">CUSTOMER</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">DELIVERY DATE</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">VALUE</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">STATUS</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedOrders.map((order: any) => (
+                        <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <td className="p-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-gray-900">{order.orderNumber}</span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
+                            <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
+                          </td>
+                          <td className="p-4 text-gray-600">
+                            {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="p-4 font-semibold text-gray-900">{formatPeso(order.totalAmount || 0)}</td>
+                          <td className="p-4">
+                            {(() => {
+                              const displayStatus = getDisplayOrderStatus(order)
+                              return <Badge className={getOrderStatusBadgeClass(displayStatus)}>{displayStatus}</Badge>
+                            })()}
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => void openOrderDetail(order)}
+                                title="View order progress"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center justify-between border-t px-4 py-3">
+                    <p className="text-xs text-slate-500">
+                      Showing {(ordersPage - 1) * ordersPageSize + 1}-{Math.min(ordersPage * ordersPageSize, filteredOrders.length)} of {filteredOrders.length}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={ordersPage <= 1}
+                        onClick={() => setOrdersPage((prev) => Math.max(1, prev - 1))}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm text-slate-600">Page {ordersPage} of {totalOrdersPages}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={ordersPage >= totalOrdersPages}
+                        onClick={() => setOrdersPage((prev) => Math.min(totalOrdersPages, prev + 1))}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
         <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-[980px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">

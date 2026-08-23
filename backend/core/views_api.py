@@ -4367,27 +4367,56 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
         if not _is_gmail_email(email):
             return _err("Invalid email format (example@domain.com)")
 
-        name = str(claims.get("name") or "").strip() or email.split("@")[0]
+        given_name = str(claims.get("given_name") or "").strip()
+        family_name = str(claims.get("family_name") or "").strip()
+        full_name = str(claims.get("name") or "").strip() or email.split("@")[0]
         avatar = str(claims.get("picture") or "").strip() or None
+
+        if not given_name and not family_name:
+            parts = full_name.split()
+            given_name = parts[0] if parts else full_name
+            family_name = parts[-1] if len(parts) > 1 else ""
+            middle_name = " ".join(parts[1:-1]) if len(parts) > 2 else None
+        else:
+            middle_name = None
 
         with transaction.atomic():
             customer = Customer.objects.filter(email=email).first()
             if not customer:
-                return _err("no registered account using this email", 404)
+                # Create a new active Customer for Google OAuth registration
+                random_secret = secrets.token_urlsafe(32)
+                customer = Customer.objects.create(
+                    email=email,
+                    password=hash_password(random_secret),
+                    name=full_name,
+                    first_name=given_name or full_name,
+                    last_name=family_name or None,
+                    middle_name=middle_name,
+                    avatar=avatar,
+                    is_active=True,
+                )
+                created = True
+            else:
+                if not customer.is_active:
+                    return _err("Account is deactivated", 403)
 
-            if not customer.is_active:
-                return _err("Account is deactivated", 403)
-
-            changed_fields: list[str] = []
-            if not str(customer.name or "").strip() and name:
-                customer.name = name
-                changed_fields.append("name")
-            if avatar and customer.avatar != avatar:
-                customer.avatar = avatar
-                changed_fields.append("avatar")
-            if changed_fields:
-                changed_fields.append("updated_at")
-                customer.save(update_fields=changed_fields)
+                changed_fields: list[str] = []
+                if not str(customer.name or "").strip() and full_name:
+                    customer.name = full_name
+                    changed_fields.append("name")
+                if not str(customer.first_name or "").strip() and given_name:
+                    customer.first_name = given_name
+                    changed_fields.append("first_name")
+                if not str(customer.last_name or "").strip() and family_name:
+                    customer.last_name = family_name
+                    changed_fields.append("last_name")
+                if avatar and customer.avatar != avatar:
+                    customer.avatar = avatar
+                    changed_fields.append("avatar")
+                if changed_fields:
+                    changed_fields.append("updated_at")
+                    customer.save(update_fields=changed_fields)
+                created = False
 
         payload = _customer_payload(customer)
         token = create_token(payload, REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS)
@@ -4396,10 +4425,10 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                 "success": True,
                 "user": payload,
                 "token": token,
-                "message": "Login successful",
-                "created": False,
+                "message": "Registration successful" if created else "Login successful",
+                "created": created,
             },
-            200,
+            201 if created else 200,
         )
         _set_auth_cookie(resp, token, remember_me)
         return resp
