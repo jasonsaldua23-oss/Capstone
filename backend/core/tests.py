@@ -1566,15 +1566,23 @@ class TripExecutionApiContractTests(TestCase):
     def test_drop_point_completion_updates_trip_completion_fields(self) -> None:
         order_1 = Order.objects.create(
             order_number="PO-NOTIFY-DELIVERY-001",
+            purchase_request_number="PR-NOTIFY-DELIVERY-001",
+            purchase_order_number="PO-NOTIFY-DELIVERY-001",
             customer=self.customer,
             status=OrderStatus.OUT_FOR_DELIVERY,
+            request_status="APPROVED",
+            purchase_order_stage="OUT_FOR_DELIVERY",
             subtotal=100,
             total_amount=100,
         )
         order_2 = Order.objects.create(
             order_number="PO-NOTIFY-DELIVERY-002",
+            purchase_request_number="PR-NOTIFY-DELIVERY-002",
+            purchase_order_number="PO-NOTIFY-DELIVERY-002",
             customer=self.customer,
             status=OrderStatus.OUT_FOR_DELIVERY,
+            request_status="APPROVED",
+            purchase_order_stage="OUT_FOR_DELIVERY",
             subtotal=100,
             total_amount=100,
         )
@@ -1610,6 +1618,10 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.trip.completed_drop_points, 2)
         self.assertEqual(self.trip.status, TripStatus.COMPLETED)
         self.assertIsNotNone(self.trip.actual_end_at)
+        order_1.refresh_from_db()
+        order_2.refresh_from_db()
+        self.assertEqual(order_1.purchase_order_stage, "DELIVERED")
+        self.assertEqual(order_2.purchase_order_stage, "DELIVERED")
         delivered_order_ids = {str(self.dp_1.order_id), str(self.dp_2.order_id)}
         notified_order_ids = set(
             Notification.objects.filter(

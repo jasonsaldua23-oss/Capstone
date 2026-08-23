@@ -359,11 +359,19 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
       }
     }
 
+    // Cross-device status changes cannot use BroadcastChannel, so poll the lightweight marker.
+    const orderStatusPollInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchOrdersDeltaIfChanged(true)
+      }
+    }, 4000)
+
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       isMounted = false
       unsubscribe()
+      window.clearInterval(orderStatusPollInterval)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }

@@ -723,6 +723,7 @@ export function WarehousePortal() {
   const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
   const orderDetailsLoadedRef = useRef(false)
+  const isPollingOrderStatusesRef = useRef(false)
   const savedRoutesGetUnsupportedRef = useRef(false)
   const isRefreshingAllRef = useRef(false)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
@@ -3132,6 +3133,31 @@ export function WarehousePortal() {
       void fetchTripsData()
     }
   }, [activeView, trackingDate])
+
+  useEffect(() => {
+    if (activeView !== 'orders' && activeView !== 'purchaseRequests') return
+
+    const refreshChangedOrderStatuses = async () => {
+      if (document.visibilityState !== 'visible' || isPollingOrderStatusesRef.current) return
+      isPollingOrderStatusesRef.current = true
+      try {
+        // Use the order marker/delta path so PO statuses synchronize without reloading the screen.
+        await fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true, lightweightDetails: true })
+      } finally {
+        isPollingOrderStatusesRef.current = false
+      }
+    }
+
+    void refreshChangedOrderStatuses()
+    const orderStatusPollInterval = window.setInterval(() => {
+      void refreshChangedOrderStatuses()
+    }, 4000)
+
+    return () => {
+      window.clearInterval(orderStatusPollInterval)
+      isPollingOrderStatusesRef.current = false
+    }
+  }, [activeView])
 
   useEffect(() => {
     if (activeView !== 'liveTracking') return

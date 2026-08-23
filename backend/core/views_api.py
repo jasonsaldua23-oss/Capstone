@@ -1711,11 +1711,8 @@ def _serialize_order(
     data["status"] = _normalize_order_status(data.get("status"))
     normalized_order_status = str(data.get("status") or "").strip().upper()
     request_status_value = str(data.get("requestStatus") or "").strip().upper()
-    stage_value = str(data.get("purchaseOrderStage") or "").strip().upper()
-    # Only approved purchase requests may expose a derived Purchase Order stage.
-    if request_status_value == PurchaseRequestStatus.APPROVED and (
-        not stage_value or (stage_value == PurchaseOrderStage.APPROVED and normalized_order_status != OrderStatus.CONFIRMED)
-    ):
+    # For approved orders, the current delivery status is authoritative for the displayed PO stage.
+    if request_status_value == PurchaseRequestStatus.APPROVED:
         stage_by_status = {
             OrderStatus.CONFIRMED: PurchaseOrderStage.APPROVED,
             OrderStatus.PREPARING: PurchaseOrderStage.PROCESSING,
@@ -3082,7 +3079,12 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
     _finalize_order_inventory_on_delivery(order, performed_by)
     _reconcile_replacement_bottle_remainder_on_delivery(order, performed_by)
     order.status = OrderStatus.DELIVERED
-    order.save(update_fields=["status", "updated_at"])
+    update_fields = ["status", "updated_at"]
+    if str(order.request_status or "").strip().upper() == PurchaseRequestStatus.APPROVED:
+        # Keep the PO workflow stage synchronized with driver-completed delivery.
+        order.purchase_order_stage = PurchaseOrderStage.DELIVERED
+        update_fields.append("purchase_order_stage")
+    order.save(update_fields=update_fields)
 
     timeline, _ = OrderTimeline.objects.get_or_create(order=order)
     if not timeline.shipped_at:
