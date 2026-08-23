@@ -59,6 +59,7 @@ export function CustomerOrdersView(props: any) {
     getProductImage,
     formatPeso,
     openFilterDialog,
+    setIsReceiptDialogOpen,
   } = props
   const handleOpenOrderDetail = (o: any) => {
     if (typeof openOrderDetail === 'function') {
@@ -669,7 +670,25 @@ export function CustomerOrdersView(props: any) {
                     </div>
 
                     <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
-                      <Button
+                    {isDelivered && (
+                      <div className="mt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] rounded-md border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => {
+                            if (typeof setSelectedOrder === 'function') setSelectedOrder(o)
+                            setIsReceiptDialogOpen?.(true)
+                          }}
+                        >
+                          View Receipt
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
+                    <Button
                         variant="outline"
                         className="h-8 w-full rounded-md border-slate-300 text-[11px]"
                         onClick={() => {
@@ -697,7 +716,8 @@ export function CustomerOrdersView(props: any) {
                           Track Replacement
                         </Button>
                       ) : null}
-                    </div>
+                  </div>
+                
                   </div>
                 </div>
               )
@@ -826,7 +846,7 @@ export function CustomerOrdersView(props: any) {
                     ) : (
                       <p className="text-xs text-slate-500">No items</p>
                     )}
-                    {isDelivered && !isReplacementOrder(o) && !hasReplacementCase ? (
+                    {isDelivered && !isReplacementOrder(o) && !hasReplacementCase && ordersTab !== 'TO_REVIEW' ? (
                       <p className="text-xs text-slate-500">No replacement case filed for this order.</p>
                     ) : null}
                     {deliveryIssue ? (
@@ -863,6 +883,24 @@ export function CustomerOrdersView(props: any) {
                         </div>
                       </div>
                     ) : null}
+                    {isDelivered && (
+                      <div className="mt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] rounded-md border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => {
+                            if (typeof setSelectedOrder === 'function') setSelectedOrder(o)
+                            setIsReceiptDialogOpen?.(true)
+                          }}
+                        >
+                          View Receipt
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
                     <Button
                       variant="outline"
                       className="h-8 w-full rounded-md border-slate-300 text-[11px]"
@@ -871,21 +909,8 @@ export function CustomerOrdersView(props: any) {
                       View Details
                       <ChevronRight className="ml-1 h-3.5 w-3.5" />
                     </Button>
-                    {isOrderTrackable(o.status) && !(isDelivered && isReplacementOrder(o)) ? (
-                      <Button
-                        className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
-                        onClick={() => {
-                          if (isDelivered) {
-                            buyAgainFromOrder?.(o)
-                            return
-                          }
-                          openTrackView(o.id)
-                        }}
-                      >
-                        <Truck className="mr-1 h-3.5 w-3.5" />
-                        {isDelivered ? 'Buy Again' : isReplacementOrder(o) ? 'Track Replacement' : 'Track Order'}
-                      </Button>
-                    ) : isDelivered && !isReplacementOrder(o) ? (
+
+                    {isDelivered && !isReplacementOrder(o) ? (
                       <Button
                         className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
                         onClick={() => {
@@ -896,9 +921,30 @@ export function CustomerOrdersView(props: any) {
                           openRatingDialog(o)
                         }}
                       >
+                        <Star className="mr-1 h-3.5 w-3.5" />
                         {isReviewed ? 'Review Details' : 'Rate Order'}
                       </Button>
+                    ) : isOrderTrackable(o.status) ? (
+                      <Button
+                        className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
+                        onClick={() => openTrackView(o.id)}
+                      >
+                        <Truck className="mr-1 h-3.5 w-3.5" />
+                        {isReplacementOrder(o) ? 'Track Replacement' : 'Track Order'}
+                      </Button>
                     ) : null}
+
+                    {isDelivered && ordersTab !== 'TO_REVIEW' && (
+                      <Button
+                        variant="outline"
+                        className="h-8 w-full rounded-md border-emerald-300 text-[11px] text-emerald-700 hover:bg-emerald-50"
+                        onClick={() => buyAgainFromOrder?.(o)}
+                      >
+                        <Truck className="mr-1 h-3.5 w-3.5" />
+                        Buy Again
+                      </Button>
+                    )}
+
                     {isOrderCancellable(o.status, o.paymentStatus) ? (
                       <Button
                         variant="outline"
@@ -908,7 +954,8 @@ export function CustomerOrdersView(props: any) {
                         Cancel Order
                       </Button>
                     ) : null}
-                    {isDelivered && !isReplacementOrder(o) ? (
+
+                    {isDelivered && !isReplacementOrder(o) && ordersTab !== 'TO_REVIEW' ? (
                       <Button
                         variant="outline"
                         className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -921,6 +968,7 @@ export function CustomerOrdersView(props: any) {
                       </Button>
                     ) : null}
                   </div>
+                
                 </div>
               </div>
             )

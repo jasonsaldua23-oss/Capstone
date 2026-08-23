@@ -130,6 +130,7 @@ export function WarehouseOrdersView({
 
       return [
         order?.orderNumber,
+        order?.purchaseRequestNumber,
         order?.customer?.name,
         warehouseLabel,
         purchaseOrderStage,
@@ -239,6 +240,7 @@ export function WarehouseOrdersView({
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
                         <td className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}</td>
+                        <td className="px-4 py-3 text-slate-600">{order.purchaseRequestNumber || 'N/A'}</td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                         <td className="px-4 py-3 max-w-[260px] text-slate-600">{productLabel}</td>
                         <td className="px-4 py-3">{totalQuantity}</td>

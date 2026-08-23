@@ -2859,6 +2859,7 @@ export function CustomerPortal() {
                     getProductImage={getProductImage}
                     formatPeso={formatPeso}
                     openFilterDialog={() => setIsFilterDialogOpen(true)}
+                    setIsReceiptDialogOpen={setIsReceiptDialogOpen}
                   />
                 )}
 

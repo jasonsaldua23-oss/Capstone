@@ -368,6 +368,15 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertTrue(str(self.order.purchase_order_number or "").startswith("PO-"))
         self.assertEqual(self.order.approved_by_name, self.staff.name)
         self.assertIsNotNone(self.order.approved_at)
+        approval_notice = Notification.objects.filter(
+            customer=self.customer,
+            type="ORDER",
+            reference_id=self.order.id,
+            title="Purchase request approved",
+        ).first()
+        self.assertIsNotNone(approval_notice)
+        self.assertIn(str(self.order.purchase_request_number), approval_notice.message)
+        self.assertIn(str(self.order.purchase_order_number), approval_notice.message)
 
     def test_pending_request_cannot_skip_approval_and_start_processing(self) -> None:
         response = self.client.patch(
@@ -1555,6 +1564,25 @@ class TripExecutionApiContractTests(TestCase):
         self.assertIsNotNone(self.dp_1.actual_arrival)
 
     def test_drop_point_completion_updates_trip_completion_fields(self) -> None:
+        order_1 = Order.objects.create(
+            order_number="PO-NOTIFY-DELIVERY-001",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=100,
+            total_amount=100,
+        )
+        order_2 = Order.objects.create(
+            order_number="PO-NOTIFY-DELIVERY-002",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=100,
+            total_amount=100,
+        )
+        self.dp_1.order = order_1
+        self.dp_1.save(update_fields=["order", "updated_at"])
+        self.dp_2.order = order_2
+        self.dp_2.save(update_fields=["order", "updated_at"])
+
         response_first = self.client.patch(
             f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
             data={"status": "COMPLETED"},
@@ -1582,6 +1610,16 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.trip.completed_drop_points, 2)
         self.assertEqual(self.trip.status, TripStatus.COMPLETED)
         self.assertIsNotNone(self.trip.actual_end_at)
+        delivered_order_ids = {str(self.dp_1.order_id), str(self.dp_2.order_id)}
+        notified_order_ids = set(
+            Notification.objects.filter(
+                customer=self.customer,
+                type="ORDER",
+                title="Order delivered",
+                reference_id__in=delivered_order_ids,
+            ).values_list("reference_id", flat=True)
+        )
+        self.assertEqual(notified_order_ids, delivered_order_ids)
 
     def test_trip_completes_when_remaining_drop_point_is_skipped(self) -> None:
         response_first = self.client.patch(
@@ -2668,7 +2706,7 @@ class RoutePlanStructureContractTests(TestCase):
 class TripsPostCreationContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
-        self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.admin_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
         self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
         self.admin_user = User.objects.create(
             email="trips.post.admin@example.com",
@@ -2681,6 +2719,7 @@ class TripsPostCreationContractTests(TestCase):
             email="trips.post.driver@example.com",
             password="hashed",
             name="Trips Post Driver",
+            phone="09123456789",
             role=self.driver_role,
             is_active=True,
         )
@@ -2695,7 +2734,15 @@ class TripsPostCreationContractTests(TestCase):
             license_plate="TRIPS-POST-001",
             type=VehicleType.VAN,
             status="AVAILABLE",
+            driver=self.driver_user,
             is_active=True,
+        )
+        self.warehouse = Warehouse.objects.create(
+            name="Trips Post Warehouse",
+            code="WH-TRIPS-POST",
+            city="Bacolod",
+            province="Negros Occidental",
+            manager_id=self.admin_user.id,
         )
         self.customer = Customer.objects.create(
             email="trips.post.customer@example.com",
@@ -2711,6 +2758,7 @@ class TripsPostCreationContractTests(TestCase):
             status=OrderStatus.OUT_FOR_DELIVERY,
             subtotal=120,
             total_amount=132,
+            warehouse_id=self.warehouse.id,
         )
         self.order_2 = Order.objects.create(
             order_number="ORD-TRIPS-POST-002",
@@ -2718,6 +2766,7 @@ class TripsPostCreationContractTests(TestCase):
             status=OrderStatus.OUT_FOR_DELIVERY,
             subtotal=140,
             total_amount=154,
+            warehouse_id=self.warehouse.id,
         )
         self.order_1.shipping_name = "Customer 1"
         self.order_1.shipping_phone = "+1-555-0001"
@@ -2770,7 +2819,7 @@ class TripsPostCreationContractTests(TestCase):
                 "userId": self.admin_user.id,
                 "email": self.admin_user.email,
                 "name": self.admin_user.name,
-                "role": "ADMIN",
+                "role": "WAREHOUSE_STAFF",
                 "type": "staff",
             }
         )
@@ -2781,6 +2830,7 @@ class TripsPostCreationContractTests(TestCase):
             data={
                 "driverId": self.driver.id,
                 "vehicleId": self.vehicle.id,
+                "warehouseId": self.warehouse.id,
                 "orderIds": [self.order_1.id, self.order_2.id],
                 "status": "PLANNED",
                 "notes": "Test trip creation",
@@ -2789,7 +2839,7 @@ class TripsPostCreationContractTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
         )
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 201, response.content.decode())
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertIn("trip", payload)
@@ -2803,6 +2853,14 @@ class TripsPostCreationContractTests(TestCase):
         trip_db = Trip.objects.get(id=trip["id"])
         self.assertEqual(trip_db.total_drop_points, 2)
         self.assertEqual(trip_db.drop_points.count(), 2)
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.driver_user,
+                type="TRIP",
+                reference_id=trip_db.id,
+                title="New trip assigned",
+            ).exists()
+        )
 
     def test_trips_post_returns_404_when_driver_or_vehicle_missing(self) -> None:
         response = self.client.post(

@@ -1578,6 +1578,29 @@ def _create_customer_notification(
     )
 
 
+def _create_user_notification(
+    *,
+    user: User | None,
+    title: str,
+    message: str,
+    notification_type: str,
+    reference_type: str | None = None,
+    reference_id: str | None = None,
+) -> None:
+    """Create a notification for one staff user, such as an assigned driver."""
+    if not user:
+        return
+    Notification.objects.create(
+        user=user,
+        title=title,
+        message=message,
+        type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        is_read=False,
+    )
+
+
 def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = False) -> None:
     # Use secure cookies in production (HTTPS) - required for cross-origin/cross-site contexts
     is_prod = not getattr(settings, "DEBUG", True)
@@ -1828,11 +1851,11 @@ def _serialize_order(
     # A workflow status alone must never promote an unapproved request into a PO.
     is_approved_order = request_status_value == PurchaseRequestStatus.APPROVED
     po_num = str(getattr(order, "purchase_order_number", "") or "").strip() or None
-    pr_num = str(getattr(order, "purchase_request_number", "") or "").strip() or str(order.order_number or "").strip()
+    pr_num = str(getattr(order, "purchase_request_number", "") or "").strip() or None
 
-    data["purchaseRequestNumber"] = pr_num
+    data["purchaseRequestNumber"] = pr_num or order.order_number
     data["purchaseOrderNumber"] = po_num if is_approved_order else None
-    data["orderNumber"] = (po_num if (is_approved_order and po_num) else pr_num)
+    data["orderNumber"] = (po_num if (is_approved_order and po_num) else (pr_num or order.order_number))
     return data
 
 
@@ -3067,6 +3090,16 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
     if not timeline.delivered_at:
         timeline.delivered_at = delivered_at or timezone.now()
     timeline.save(update_fields=["shipped_at", "delivered_at", "updated_at"])
+
+    # Notify the order owner only after delivery was successfully persisted.
+    _create_customer_notification(
+        customer=order.customer,
+        title="Order delivered",
+        message=f"Your order {order.order_number} has been delivered successfully.",
+        notification_type="ORDER",
+        reference_type="order",
+        reference_id=order.id,
+    )
 
 
 def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_by: str | None) -> None:
@@ -6963,6 +6996,29 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         reference_id=updated.id,
     )
 
+    if next_status == OrderStatus.CONFIRMED:
+        pr_number = str(updated.purchase_request_number or updated.order_number or "").strip()
+        po_number = str(updated.purchase_order_number or updated.order_number or "").strip()
+        # Approval keeps the PR identity while telling the customer which PO was created.
+        _create_customer_notification(
+            customer=updated.customer,
+            title="Purchase request approved",
+            message=f"Your purchase request {pr_number} was approved as purchase order {po_number}.",
+            notification_type="ORDER",
+            reference_type="order",
+            reference_id=updated.id,
+        )
+    elif next_status == OrderStatus.DELIVERED:
+        # Direct staff delivery updates do not pass through _mark_order_delivered.
+        _create_customer_notification(
+            customer=updated.customer,
+            title="Order delivered",
+            message=f"Your order {updated.order_number} has been delivered successfully.",
+            notification_type="ORDER",
+            reference_type="order",
+            reference_id=updated.id,
+        )
+
     if str(staff.get("role") or "").strip().upper() == RoleType.WAREHOUSE_STAFF and next_status == OrderStatus.CONFIRMED:
         _email_order_confirmed_to_customer(updated)
     # Rejection flow from portal actions carries a reason; notify customer by email with order details.
@@ -7243,6 +7299,15 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         reference_type="trip",
         reference_id=trip.id,
     )
+    # Send the assignment directly to the driver who owns this trip.
+    _create_user_notification(
+        user=trip.driver,
+        title="New trip assigned",
+        message=f"You were assigned to trip {trip.trip_number} with {trip.total_drop_points} delivery stop(s).",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
     return _ok({"success": True, "trip": _serialize_trip(trip)}, 201)
 
 
@@ -7515,6 +7580,16 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
             reference_type="trip",
             reference_id=trip.id,
         )
+        if driver_changed and next_driver:
+            # Notify only the newly assigned driver when trip ownership changes.
+            _create_user_notification(
+                user=next_driver,
+                title="Trip assigned to you",
+                message=f"You were assigned to trip {trip.trip_number}.",
+                notification_type="TRIP",
+                reference_type="trip",
+                reference_id=trip.id,
+            )
         trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
         return _ok({"success": True, "trip": _serialize_trip(trip)})
 

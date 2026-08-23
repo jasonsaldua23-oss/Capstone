@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function useCustomerPortalState(user: any) {
   const [activeView, setActiveView] = useState('home')
@@ -16,7 +16,24 @@ export function useCustomerPortalState(user: any) {
   const [isAddToCartDialogOpen, setIsAddToCartDialogOpen] = useState(false)
   const [pendingCartProduct, setPendingCartProduct] = useState<any | null>(null)
   const [pendingCartQty, setPendingCartQty] = useState('1')
-  const [cart, setCart] = useState<any[]>([])
+  const [cart, setCart] = useState<any[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const userId = user?.id || user?._id || 'guest'
+      const stored = localStorage.getItem(`customer_cart_${userId}`)
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const userId = user?.id || user?._id || 'guest'
+    try {
+      localStorage.setItem(`customer_cart_${userId}`, JSON.stringify(cart))
+    } catch {}
+  }, [cart, user])
   const [selectedCartIds, setSelectedCartIds] = useState<Set<string>>(new Set())
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [isMixedCaseBuilderOpen, setIsMixedCaseBuilderOpen] = useState(false)

@@ -280,17 +280,27 @@ export function CustomerOrderDetailPage(props: any) {
 
   return (
     <>
-      <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f8fafc] pb-5 md:mx-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white">
+      <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f8fafc] pb-20 md:mx-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:pb-8">
         {/* ── Back header ── */}
-        <div className="border-b border-slate-200 px-3 py-3 md:px-5">
+        <div className="flex items-center justify-between border-b border-slate-200 px-3 py-3 md:px-5">
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors"
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            Back to Purchase Orders
           </button>
+          {isDelivered && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-lg border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50"
+              onClick={() => setIsReceiptDialogOpen?.(true)}
+            >
+              View Receipt
+            </Button>
+          )}
         </div>
 
         <div className="px-3 pt-4 pb-6 md:px-5 md:pt-5 space-y-4">
@@ -512,72 +522,6 @@ export function CustomerOrderDetailPage(props: any) {
                 {String(order.notes || '').trim() || 'No note for this order.'}
               </div>
             </div>
-          </div>
-
-          {/* ── Action buttons ── */}
-          <div className="grid grid-cols-2 gap-2 md:gap-3">
-            <Button
-              variant="outline"
-              className="h-9 rounded-lg border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50 md:h-10 md:text-sm"
-              onClick={() => setIsReceiptDialogOpen?.(true)}
-              disabled={!isDelivered}
-            >
-              View Receipt
-            </Button>
-
-            {isOrderTrackable?.(order.status) && !(isDelivered && isReplacementOrder) ? (
-              <Button
-                className="h-9 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 md:h-10 md:text-sm"
-                onClick={() => {
-                  if (isDelivered) { buyAgainFromOrder?.(order); return }
-                  openTrackView?.(order.id)
-                }}
-              >
-                {isDelivered ? 'Buy Again' : isReplacementOrder ? 'Track Replacement' : 'Track Order'}
-              </Button>
-            ) : isDelivered && !isReplacementOrder ? (
-              <Button
-                className="h-9 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 md:h-10 md:text-sm"
-                onClick={() => {
-                  if (isReviewed) { openReviewDetails?.(order); return }
-                  openRatingDialog?.(order)
-                }}
-              >
-                {isReviewed ? 'Review Details' : 'Rate Order'}
-              </Button>
-            ) : (
-              <Button
-                className="h-9 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500 md:h-10 md:text-sm"
-                onClick={onBack}
-              >
-                Back
-              </Button>
-            )}
-
-            {isOrderCancellable?.(order.status, order.paymentStatus) && (
-              <Button
-                variant="outline"
-                className="col-span-2 h-9 rounded-lg border-red-200 text-xs text-red-600 hover:bg-red-50 md:h-10 md:text-sm"
-                onClick={() => void cancelOrder?.(order.id)}
-              >
-                Cancel Order
-              </Button>
-            )}
-
-            {isDelivered && !isReplacementOrder && (
-              <Button
-                variant="outline"
-                className="col-span-2 h-9 rounded-lg border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 md:h-10 md:text-sm"
-                disabled={hasCompletedReplacementRequest || hasActiveReplacementRequest}
-                onClick={() => setIsReplacementRequestOpen(true)}
-              >
-                {hasCompletedReplacementRequest
-                  ? 'Replacement Completed'
-                  : hasActiveReplacementRequest
-                    ? 'Replacement In Progress'
-                    : 'Request Replacement'}
-              </Button>
-            )}
           </div>
         </div>
       </section>
