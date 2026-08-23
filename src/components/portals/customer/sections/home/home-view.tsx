@@ -74,7 +74,7 @@ export function CustomerHomeView({
 
   const getCardQty = (productId: string, maxQty?: number) => {
     const raw = Number(cardQtyByProductId[productId])
-    const base = Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 24
+    const base = Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 12
     const safeMaxQty = Number.isFinite(Number(maxQty)) && Number(maxQty) > 0 ? Math.floor(Number(maxQty)) : null
     return safeMaxQty ? Math.min(base, safeMaxQty) : base
   }
@@ -170,7 +170,7 @@ export function CustomerHomeView({
                 const categoryLabel = p
                   ? String((p as any)?.category?.name || (p as any)?.category || '').trim()
                   : ''
-                const currentQty = p ? getCardQty(p.id, availableQty) : 24
+                const currentQty = p ? getCardQty(p.id, availableQty) : 12
                 return (
                   <Card
                     key={p?.id || `placeholder-${index}`}
@@ -234,7 +234,7 @@ export function CustomerHomeView({
                           </button>
                         </div>
                         <div className="relative z-10 mb-0.5 grid grid-cols-4 gap-1">
-                          {['24', '48', '72', '100'].map((qty) => {
+                          {['12', '24', '36', '48'].map((qty) => {
                             const parsed = Number(qty)
                             const isActive = currentQty === parsed
                             const exceedsAvailable = parsed > Math.max(0, Number(availableQty || 0))

@@ -296,6 +296,49 @@ class NotificationsApiContractTests(TestCase):
         self.assertTrue(n2.is_read)
 
 
+class DriverLocationAccuracyContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver = User.objects.create(
+            email="accurate.location.driver@example.com",
+            password="hashed",
+            name="Accurate Location Driver",
+            role="DRIVER",
+            is_active=True,
+        )
+        self.token = create_token(
+            {
+                "userId": self.driver.id,
+                "email": self.driver.email,
+                "name": self.driver.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+
+    def test_inaccurate_sample_cannot_overwrite_reliable_driver_location(self) -> None:
+        reliable = self.client.post(
+            "/api/driver/location",
+            data={"latitude": 10.6765, "longitude": 122.9509, "accuracy": 15},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        self.assertEqual(reliable.status_code, 200)
+
+        inaccurate = self.client.post(
+            "/api/driver/location",
+            data={"latitude": 10.7000, "longitude": 123.0000, "accuracy": 500},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        self.assertEqual(inaccurate.status_code, 400)
+
+        latest = LocationLog.objects.get(driver=self.driver)
+        self.assertEqual(latest.latitude, 10.6765)
+        self.assertEqual(latest.longitude, 122.9509)
+        self.assertEqual(latest.accuracy, 15)
+
+
 class PurchaseRequestWorkflowTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
@@ -834,6 +877,32 @@ class DriverTripsApiContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
+
+    def test_driver_trip_uses_latest_unlinked_driver_log_as_gps_fallback(self) -> None:
+        trip = Trip.objects.create(
+            trip_number="TRP-DRIVER-FALLBACK-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+        )
+        latest_log = LocationLog.objects.create(
+            driver=self.driver,
+            trip=None,
+            latitude=10.3155,
+            longitude=123.8855,
+            accuracy=18,
+        )
+
+        response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["trips"] if item["id"] == trip.id)
+        self.assertEqual(row["latestLocation"]["latitude"], latest_log.latitude)
+        self.assertEqual(row["latestLocation"]["longitude"], latest_log.longitude)
+        self.assertEqual(row["latestLocation"]["accuracy"], latest_log.accuracy)
 
 
 class CustomerOrdersPostApiContractTests(TestCase):

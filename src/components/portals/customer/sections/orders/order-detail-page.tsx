@@ -101,6 +101,13 @@ export function CustomerOrderDetailPage(props: any) {
 
   // ── helpers ──────────────────────────────────────────────────────────────────
 
+  useEffect(() => {
+    // Fix: honor the order-card action after navigating to the full-page order details.
+    if (!(order as any)?.__openReplacementRequest) return
+    if (hasCompletedReplacementRequest || hasActiveReplacementRequest) return
+    setIsReplacementRequestOpen(true)
+  }, [order, hasCompletedReplacementRequest, hasActiveReplacementRequest])
+
   const parseReplacementMeta = (record: any) => {
     const rawNotes = String(record?.notes || '')
     const marker = rawNotes.lastIndexOf('Meta:')

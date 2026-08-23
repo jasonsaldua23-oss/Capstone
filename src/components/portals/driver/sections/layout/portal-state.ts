@@ -127,7 +127,7 @@ export type DriverGpsLocation = {
 // Security and GPS filtering constants used by tracking flow.
 const isSecureWebContext = typeof window !== 'undefined' ? window.isSecureContext : true
 const DRIVER_GPS_GOOD_ACCURACY_METERS = 35
-const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 250
+const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 100
 const DRIVER_GPS_MAX_JUMP_METERS = 180
 const DRIVER_GPS_MAX_REALISTIC_SPEED_MPS = 45
 const DRIVER_HEARTBEAT_INTERVAL_MS = 5000
@@ -747,10 +747,7 @@ export function useDriverPortalState() {
               const location = gpsFromPosition(position)
               if (!location) return
               const activeTripId = getActiveTripId()
-              if (activeTripId) {
-                void sendLocationUpdate(location, activeTripId)
-                lastLocationUploadAtRef.current = Date.now()
-              }
+              // applyGpsLocation performs accuracy and impossible-jump checks before upload.
               applyGpsLocation(location, activeTripId)
             } catch {
               // heartbeat is best-effort
@@ -802,10 +799,7 @@ export function useDriverPortalState() {
           const location = gpsFromPosition(position)
           if (!location) return
           const activeTripId = getActiveTripId()
-          if (activeTripId) {
-            void sendLocationUpdate(location, activeTripId)
-            lastLocationUploadAtRef.current = Date.now()
-          }
+          // Never bypass the GPS quality filter with a raw heartbeat sample.
           applyGpsLocation(location, activeTripId)
         } catch {
           // heartbeat is best-effort

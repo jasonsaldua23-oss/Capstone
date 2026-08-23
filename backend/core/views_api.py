@@ -1671,9 +1671,18 @@ def _user_payload(user: User) -> dict[str, Any]:
 def _customer_payload(customer: Customer) -> dict[str, Any]:
     balances = []
     for b in customer.bottle_balances.select_related("container_type").all():
+        associated_products = list(
+            ProductPackaging.objects.filter(container_type=b.container_type, is_active=True)
+            .select_related("product")
+            .values_list("product__name", flat=True)
+            .distinct()
+        )
+        prod_names = [p for p in associated_products if p]
         balances.append({
             "containerTypeId": b.container_type_id,
             "containerTypeName": b.container_type.name,
+            "productName": ", ".join(prod_names) if prod_names else None,
+            "productNames": prod_names,
             "bottlesOutstanding": b.bottles_outstanding,
             "depositAmount": float(b.container_type.deposit_amount),
             "depositBalance": float(b.deposit_balance),
@@ -5241,13 +5250,14 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 row["containersPerCase"] = pkg.containers_per_case
                 row["depositAmount"] = float(pkg.deposit_amount)
                 row["caseDepositAmount"] = float(pkg.case_deposit_amount)
-            elif str(product.category or "").strip().lower() in {"carbonated(glass)", "carbonated (glass)", "energy drinks (glass)", "energy drinks(glass)"}:
-                is_1l = any("1l" in str(sz).lower() or "1 liter" in str(sz).lower() for sz in (product.sizes or []))
-                is_8oz = any("8oz" in str(sz).lower() for sz in (product.sizes or []))
+            elif _is_returnable_product(product):
+                pkg_obj, ct_obj = _get_or_create_product_packaging(product)
                 row["packagingType"] = "RETURNABLE"
-                row["containersPerCase"] = 12 if is_1l else 24
-                row["depositAmount"] = 6.0 if is_1l else 2.0
-                row["caseDepositAmount"] = 52.0 if is_1l else 42.0
+                row["containerTypeId"] = ct_obj.id
+                row["containerTypeName"] = ct_obj.name
+                row["containersPerCase"] = pkg_obj.containers_per_case
+                row["depositAmount"] = float(pkg_obj.deposit_amount)
+                row["caseDepositAmount"] = float(pkg_obj.case_deposit_amount)
 
             products_out.append(row)
 
@@ -7751,6 +7761,8 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
 
     trip_ids = [trip.id for trip in rows]
     latest_log_by_trip: dict[str, LocationLog] = {}
+    # Preserve the driver's last reliable fix even if it was recorded between trip links.
+    latest_driver_log = LocationLog.objects.filter(driver=d).order_by("-recorded_at", "-id").first()
     if trip_ids:
         logs = LocationLog.objects.filter(trip_id__in=trip_ids).order_by("trip_id", "-recorded_at")
         for log in logs:
@@ -7762,7 +7774,7 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
     payload_rows: list[dict[str, Any]] = []
     for trip in rows:
         row = _serialize_trip(trip)
-        latest_log = latest_log_by_trip.get(trip.id)
+        latest_log = latest_log_by_trip.get(trip.id) or latest_driver_log
         row["latestLocation"] = (
             {
                 "latitude": float(latest_log.latitude),
@@ -8398,9 +8410,12 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     lat = _to_float_or_none(body.get("latitude"))
     lng = _to_float_or_none(body.get("longitude"))
-    if lat is None or lng is None:
+    if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         return _err("Invalid coordinates")
     accuracy = _to_float_or_none(body.get("accuracy"))
+    # Do not let a weak network/cell estimate overwrite the driver's last reliable GPS fix.
+    if accuracy is not None and (accuracy < 0 or accuracy > 100):
+        return _err("Location accuracy is too low for live tracking", 400)
     heading = _to_float_or_none(body.get("heading"))
     altitude = _to_float_or_none(body.get("altitude"))
     requested_trip_id = str(body.get("tripId") or "").strip()
@@ -9360,6 +9375,67 @@ def ensure_demo_accounts() -> None:
     )
 
 
+def _is_returnable_product(product: Product) -> bool:
+    if not product:
+        return False
+    if product.packaging_type == "RETURNABLE":
+        return True
+    cat = str(product.category or "").strip().lower()
+    if any(k in cat for k in ["(glass)", "glass", "returnable"]):
+        if not any(k in cat for k in ["pet", "plastic", "can"]):
+            return True
+    return ProductPackaging.objects.filter(product=product, is_returnable=True, is_active=True).exists()
+
+
+def _get_or_create_product_packaging(product: Product) -> tuple[ProductPackaging, ContainerType]:
+    """Ensure a returnable glass product has active ProductPackaging and ContainerType records."""
+    from decimal import Decimal
+    is_1l = any("1l" in str(sz).lower() or "1 liter" in str(sz).lower() for sz in (product.sizes or []))
+    container_code = "RGB-GLASS-1L" if is_1l else "RGB-GLASS-330"
+    container_name = "1L Returnable Glass Bottle" if is_1l else "330ml Returnable Glass Bottle"
+    deposit_amount = Decimal("6.00") if is_1l else Decimal("2.00")
+    case_deposit_amount = Decimal("52.00") if is_1l else Decimal("42.00")
+    containers_per_case = 12 if is_1l else (product.quantity_per_unit or 24)
+
+    container_type, _ = ContainerType.objects.get_or_create(
+        code=container_code,
+        defaults={
+            "name": container_name,
+            "category": ContainerType.Category.BOTTLE,
+            "material": ContainerType.Material.GLASS,
+            "deposit_amount": deposit_amount,
+            "is_returnable": True,
+            "is_active": True,
+        },
+    )
+
+    pkg = ProductPackaging.objects.filter(product=product, is_active=True).select_related("container_type").first()
+    if not pkg:
+        pkg, _ = ProductPackaging.objects.get_or_create(
+            product=product,
+            container_type=container_type,
+            defaults={
+                "containers_per_case": containers_per_case,
+                "units_per_container": 1,
+                "is_primary": True,
+                "is_returnable": True,
+                "deposit_amount": deposit_amount,
+                "case_deposit_amount": case_deposit_amount,
+                "is_active": True,
+            },
+        )
+    if not pkg.is_returnable or not pkg.is_active:
+        pkg.is_returnable = True
+        pkg.is_active = True
+        pkg.save(update_fields=["is_returnable", "is_active"])
+
+    if product.packaging_type != "RETURNABLE":
+        product.packaging_type = "RETURNABLE"
+        product.save(update_fields=["packaging_type"])
+
+    return pkg, container_type
+
+
 @require_GET
 def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
@@ -9373,35 +9449,34 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
     # Find all returnable products purchased by this customer across non-cancelled orders
     order_items = (
         OrderItem.objects.filter(order__customer=customer)
-        .exclude(order__status="CANCELLED")
-        .select_related("product")
+        .exclude(order__status__in=["CANCELLED", "REJECTED"])
+        .select_related("product", "order")
     )
 
     # Group purchased quantities by product
     purchased_cases_by_product: dict[str, int] = {}
     for item in order_items:
         prod = item.product
-        if not prod or not prod.is_active:
+        if not prod or not prod.is_active or not _is_returnable_product(prod):
             continue
-        is_case = str(item.unit or prod.unit or "").strip().lower() == "case"
-        qty_cases = item.quantity if is_case else max(1, item.quantity // (prod.quantity_per_unit or 24))
+        pkg, _ = _get_or_create_product_packaging(prod)
+        containers_per_case = pkg.containers_per_case or (prod.quantity_per_unit or 24)
+        item_unit = str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(prod, "unit", "") or "").strip().lower()
+        qty_cases = item.quantity if item_unit == "case" else max(1, item.quantity // containers_per_case)
         purchased_cases_by_product[prod.id] = purchased_cases_by_product.get(prod.id, 0) + qty_cases
 
     eligible_items = []
     for prod_id, total_cases_ordered in purchased_cases_by_product.items():
         product = Product.objects.filter(id=prod_id).first()
-        if not product or product.packaging_type != "RETURNABLE":
+        if not product or not _is_returnable_product(product):
             continue
 
-        pkg = ProductPackaging.objects.filter(product=product, is_active=True).select_related("container_type").first()
-        if not pkg or not pkg.is_returnable or not pkg.container_type or not pkg.container_type.is_returnable:
-            continue
-
+        pkg, container_type = _get_or_create_product_packaging(product)
         containers_per_case = pkg.containers_per_case or (product.quantity_per_unit or 24)
         case_deposit = float(pkg.case_deposit_amount or 42.0)
         unit_deposit = float(pkg.deposit_amount or 2.0)
 
-        balance = CustomerBottleBalance.objects.filter(customer=customer, container_type=pkg.container_type).first()
+        balance = CustomerBottleBalance.objects.filter(customer=customer, container_type=container_type).first()
         currently_held_bottles = balance.bottles_outstanding if balance else 0
         currently_held_cases = currently_held_bottles // max(1, containers_per_case)
 
@@ -9412,8 +9487,8 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
                 "productName": product.name,
                 "imageUrl": product.image_url,
                 "category": product.category,
-                "containerTypeId": pkg.container_type.id,
-                "containerTypeName": pkg.container_type.name,
+                "containerTypeId": container_type.id,
+                "containerTypeName": container_type.name,
                 "containersPerCase": containers_per_case,
                 "unitDeposit": unit_deposit,
                 "caseDeposit": case_deposit,
@@ -9448,22 +9523,19 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
         return _err("Number of cases must be at least 1", 400)
 
     product = Product.objects.filter(id=product_id, is_active=True).first()
-    if not product or product.packaging_type != "RETURNABLE":
+    if not product or not _is_returnable_product(product):
         return _err("Product is not a returnable glass item", 400)
 
-    pkg = ProductPackaging.objects.filter(product=product, is_active=True).select_related("container_type").first()
-    if not pkg or not pkg.is_returnable or not pkg.container_type or not pkg.container_type.is_returnable:
-        return _err("Returnable container packaging not configured for this product", 400)
-
+    pkg, container_type = _get_or_create_product_packaging(product)
     containers_per_case = pkg.containers_per_case or (product.quantity_per_unit or 24)
     case_deposit = Decimal(str(pkg.case_deposit_amount or "42.00"))
 
     order_items = (
         OrderItem.objects.filter(order__customer=customer, product=product)
-        .exclude(order__status="CANCELLED")
+        .exclude(order__status__in=["CANCELLED", "REJECTED"])
     )
     total_cases_ordered = sum(
-        item.quantity if str(item.unit or "").strip().lower() == "case" else max(1, item.quantity // containers_per_case)
+        item.quantity if str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(product, "unit", "") or "").strip().lower() == "case" else max(1, item.quantity // containers_per_case)
         for item in order_items
     )
     if total_cases_ordered <= 0:
@@ -9472,7 +9544,7 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
     with transaction.atomic():
         balance, _ = CustomerBottleBalance.objects.select_for_update().get_or_create(
             customer=customer,
-            container_type=pkg.container_type,
+            container_type=container_type,
             defaults={
                 "bottles_outstanding": 0,
                 "deposit_balance": Decimal("0.00"),
@@ -9504,7 +9576,7 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
             amount=added_deposit,
             balance_before=balance_before,
             balance_after=balance.deposit_balance,
-            container_type=pkg.container_type,
+            container_type=container_type,
             container_count=added_bottles,
             reason=f"Customer declared {cases} empty case(s) ({added_bottles} bottles) of {product.name}",
             performed_by=customer.name or "Customer",
@@ -9521,13 +9593,3 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
 @require_GET
 def bottle_returns_collection(_request: HttpRequest) -> JsonResponse:
     return _ok({"success": True, "returns": []})
-
-
-
-
-
-
-
-
-
-

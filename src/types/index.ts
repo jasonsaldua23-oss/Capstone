@@ -22,6 +22,8 @@ export interface UserWithRole {
 export interface CustomerBottleBalance {
   containerTypeId: string
   containerTypeName: string
+  productName?: string
+  productNames?: string[]
   depositAmount: number
   depositBalance: number
   bottlesOutstanding: number

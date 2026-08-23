@@ -1481,8 +1481,8 @@ export function TripDetailView({
     .filter(Boolean)
     .sort((a: any, b: any) => Number(toRecordedAtMs(b?.recordedAt) || 0) - Number(toRecordedAtMs(a?.recordedAt) || 0))[0] || null
 
-  // Fix: use fresh device GPS first, then retain the latest saved GPS reading.
-  // The warehouse marker below is used only when no driver position exists yet.
+  // Use fresh device GPS first, then retain the driver's latest saved GPS reading.
+  // Never substitute the warehouse coordinates for the driver's position.
   const effectiveDriverLocation = (currentLocation && isValidDeviceCoordinate(Number(currentLocation.lat), Number(currentLocation.lng))
     && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
     ? currentLocation
@@ -1651,21 +1651,8 @@ export function TripDetailView({
 
   const driverLocationMarker = (() => {
     const sourceLocation = effectiveDriverLocation
-    if (!sourceLocation) {
-      if (!warehouseRouteStart) return null
-      return {
-        id: `driver-start-${trip.id}`,
-        driverName: 'Driver location pending',
-        vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
-        lat: warehouseRouteStart.lat,
-        lng: warehouseRouteStart.lng,
-        status: 'WAITING_FOR_GPS',
-        markerLabel: 'Route start - waiting for live GPS',
-        markerType: 'truck' as const,
-        markerHeading: driverMarkerHeading ?? undefined,
-        markerColor: '#1d4ed8',
-      }
-    }
+    // Never represent the warehouse/start point as the driver's live position.
+    if (!sourceLocation) return null
     const lat = toCoordinate(sourceLocation?.lat)
     const lng = toCoordinate(sourceLocation?.lng)
     if (lat === null || lng === null) return null
@@ -1899,6 +1886,8 @@ export function TripDetailView({
           opacity: 0.95,
           weight: 9,
           snapToRoad: true,
+          // Fix: keep the completed endpoint on OSRM's nearest road so the truck is never pulled to raw off-road GPS.
+          preserveExactEndpoints: false,
         },
       ]
       : []),
@@ -1912,12 +1901,13 @@ export function TripDetailView({
           opacity: 1,
           weight: 8,
           snapToRoad: true,
+          // Fix: begin the visible path and truck marker at the routed road position.
+          preserveExactEndpoints: false,
         },
       ]
       : []),
   ]
-  // Fix: never invent a Bacolod/default center. The driver marker already uses
-  // the latest detected position, falling back to this trip's warehouse only.
+  // Center only on a real, fresh driver GPS position.
   const mapCenter = driverLocationMarker
     ? [driverLocationMarker.lat, driverLocationMarker.lng] as [number, number]
     : null

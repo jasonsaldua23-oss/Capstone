@@ -354,6 +354,7 @@ export type LiveRouteLine = {
   weight?: number;
   dashArray?: string;
   snapToRoad?: boolean;
+  preserveExactEndpoints?: boolean;
 };
 
 interface LiveTrackingMapProps {
@@ -715,13 +716,24 @@ async function fetchRoadSnappedPoints(
   const bearings = typeof initialBearing === 'number' && Number.isFinite(initialBearing)
     ? `&bearings=${Math.round(normalizeAngle(initialBearing))},60${';'.repeat(uniquePoints.length - 1)}&continue_straight=true`
     : '';
-  const response = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false${bearings}`,
-    { signal }
-  );
-  const payload = await response.json().catch(() => ({}));
-  const rawCoordinates = payload?.routes?.[0]?.geometry?.coordinates;
-  if (!response.ok || !Array.isArray(rawCoordinates) || rawCoordinates.length < 2) return [];
+  const requestRoute = async (bearingQuery: string) => {
+    const response = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false${bearingQuery}`,
+      { signal }
+    );
+    const payload = await response.json().catch(() => ({}));
+    const rawCoordinates = payload?.routes?.[0]?.geometry?.coordinates;
+    return response.ok && Array.isArray(rawCoordinates) && rawCoordinates.length > 1
+      ? rawCoordinates
+      : null;
+  };
+
+  let rawCoordinates = await requestRoute(bearings);
+  if (!rawCoordinates && bearings) {
+    // Fix: retry without the heading constraint so the road path remains available near junctions.
+    rawCoordinates = await requestRoute('');
+  }
+  if (!rawCoordinates) return [];
 
   const snappedPoints = rawCoordinates
     .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
@@ -1055,14 +1067,33 @@ export default function LiveTrackingMap({
             isUpcomingPath ? sharedDriverBearing : null
           );
 
-          if (isCompletedPath && snappedPoints.length > 1) {
+          const anchoredSnappedPoints = [...snappedPoints];
+          if (line.preserveExactEndpoints) {
+            // Driver Portal only: keep the path attached to the live/raw GPS endpoint.
+            const startPoint = routeInputPoints[0];
+            const endPoint = routeInputPoints[routeInputPoints.length - 1];
+            const samePoint = (left: [number, number], right: [number, number]) =>
+              Math.abs(left[0] - right[0]) < 0.000001 && Math.abs(left[1] - right[1]) < 0.000001;
+            if (startPoint && anchoredSnappedPoints[0] && !samePoint(startPoint, anchoredSnappedPoints[0])) {
+              anchoredSnappedPoints.unshift(startPoint);
+            }
+            if (
+              endPoint &&
+              anchoredSnappedPoints[anchoredSnappedPoints.length - 1] &&
+              !samePoint(endPoint, anchoredSnappedPoints[anchoredSnappedPoints.length - 1])
+            ) {
+              anchoredSnappedPoints.push(endPoint);
+            }
+          }
+
+          if (isCompletedPath && anchoredSnappedPoints.length > 1) {
             // The completed route defines both the truck junction and the
             // direction of travel through that junction.
-            sharedDriverRoadPoint = snappedPoints[snappedPoints.length - 1];
-            sharedDriverBearing = bearingAtRouteEnd(snappedPoints);
+            sharedDriverRoadPoint = anchoredSnappedPoints[anchoredSnappedPoints.length - 1];
+            sharedDriverBearing = bearingAtRouteEnd(anchoredSnappedPoints);
           }
-          if (snappedPoints.length > 1) {
-            nextSnappedLines[line.id] = snappedPoints;
+          if (anchoredSnappedPoints.length > 1) {
+            nextSnappedLines[line.id] = anchoredSnappedPoints;
           }
         } catch {
           // Keep the line hidden rather than drawing a shortcut across buildings.

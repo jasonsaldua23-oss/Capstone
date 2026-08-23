@@ -1188,8 +1188,11 @@ export function CustomerProfileView({
               {bottleBalances.map((balance: any) => (
                 <div key={balance.containerTypeId} className="flex items-center justify-between gap-4 px-4 py-3.5">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-800">{balance.containerTypeName}</p>
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {balance.productName || balance.containerTypeName}
+                    </p>
                     <p className="mt-0.5 text-xs text-slate-500">
+                      {balance.productName && balance.containerTypeName ? `${balance.containerTypeName} • ` : ''}
                       Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span>
                     </p>
                   </div>
