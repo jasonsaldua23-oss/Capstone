@@ -29,8 +29,6 @@ import {
   DropPoint,
   isNativeCapacitorApp,
   mergeDropPointIntoTrip,
-  type NavigationApp,
-  openNavigation as launchExternalNavigation,
   openNativeAppSettings,
   stripPhilippinesFromAddress,
   TERMINAL_DROP_POINT_STATUSES,
@@ -1313,86 +1311,7 @@ export function TripDetailView({
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
   }
-  const navigationAppChoices: Array<{ app: NavigationApp; label: string }> = [
-    { app: 'google', label: 'Google Maps' },
-    { app: 'waze', label: 'Waze' },
-    { app: 'organic', label: 'Organic Maps' },
-  ]
-  const handleOpenNavigation = async (
-    app: NavigationApp,
-    latitude: number,
-    longitude: number,
-    locationName: string
-  ) => {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      toast.error('Navigation is unavailable because this drop point has no valid coordinates.')
-      return
-    }
-    try {
-      await launchExternalNavigation({
-        latitude,
-        longitude,
-        label: locationName,
-        app,
-      })
-    } catch {
-      toast.error('Unable to open navigation right now.')
-    }
-  }
-  const renderNavigationControl = (dropPoint: DropPoint) => {
-    const latitude = toCoordinate((dropPoint as any)?.lat ?? dropPoint?.latitude)
-    const longitude = toCoordinate((dropPoint as any)?.lng ?? dropPoint?.longitude)
-    if (latitude === null || longitude === null) return null
 
-    const locationName = String(dropPoint?.locationName || `Stop ${dropPoint?.sequence || ''}`).trim() || 'Destination'
-    if (isNativeCapacitorApp()) {
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs text-sky-700 hover:bg-sky-50"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <Navigation className="mr-1 h-3 w-3" />
-              Open Navigation
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" onClick={(event) => event.stopPropagation()}>
-            {navigationAppChoices.map((choice) => (
-              <DropdownMenuItem
-                key={`${dropPoint?.id || locationName}-${choice.app}`}
-                onSelect={(event) => {
-                  event.preventDefault()
-                  void handleOpenNavigation(choice.app, latitude, longitude, locationName)
-                }}
-              >
-                {choice.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )
-    }
-
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7 text-xs text-sky-700 hover:bg-sky-50"
-        onClick={(event) => {
-          event.stopPropagation()
-          void handleOpenNavigation('google', latitude, longitude, locationName)
-        }}
-      >
-        <Navigation className="mr-1 h-3 w-3" />
-        Open Navigation
-      </Button>
-    )
-  }
   const mappableDropPoints = sortedDropPoints
     .map((point) => {
       const latitude = toCoordinate(point.latitude)
@@ -2103,24 +2022,6 @@ export function TripDetailView({
             </div>
           )}
 
-          {/* Start Trip Button */}
-          {trip.status === 'PLANNED' && (
-            <div>
-              <Button
-                className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => setIsStartTripConfirmOpen(true)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Play className="h-5 w-5" />
-                )}
-                Start Trip
-              </Button>
-            </div>
-          )}
-
           <Dialog open={isStartTripConfirmOpen} onOpenChange={setIsStartTripConfirmOpen}>
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-white/75 bg-gradient-to-b from-[#f4fbff] via-white to-[#eef8f2] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
@@ -2322,6 +2223,24 @@ export function TripDetailView({
             </div>
           ) : null}
 
+          {/* Start Trip Button - Desktop */}
+          {!isMobileViewport && trip.status === 'PLANNED' && (
+            <div className="hidden md:block">
+              <Button
+                className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setIsStartTripConfirmOpen(true)}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Play className="h-5 w-5" />
+                )}
+                Start Trip
+              </Button>
+            </div>
+          )}
+
           {isMobileViewport ? (
             <div className="relative overflow-hidden md:hidden">
               <div ref={mobileMapViewportRef} className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f8fbfe]">
@@ -2431,6 +2350,24 @@ export function TripDetailView({
                   </button>
                 </div>
 
+                {/* Start Trip Button - Mobile */}
+                {trip.status === 'PLANNED' && (
+                  <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] left-4 right-4 z-[1100]">
+                    <Button
+                      className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => setIsStartTripConfirmOpen(true)}
+                      disabled={isUpdating}
+                    >
+                      {isUpdating ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <Play className="h-5 w-5" />
+                      )}
+                      Start Trip
+                    </Button>
+                  </div>
+                )}
+
                 <Drawer
                   open={isMobileSheetOpen && !hasBlockingDialogOpen}
                   onOpenChange={handleMobileSheetOpenChange}
@@ -2536,7 +2473,6 @@ export function TripDetailView({
                                         Call Contact
                                       </a>
                                     ) : null}
-                                    {renderNavigationControl(dropPoint)}
                                   </div>
                                 </div>
                               </div>
@@ -2743,9 +2679,8 @@ export function TripDetailView({
                               <Phone className="h-4 w-4" />
                               Call Contact
                             </a>
-                          )}
-                          {renderNavigationControl(dropPoint)}
-                        </div>
+                           )}
+                         </div>
                       </div>
                     </div>
 

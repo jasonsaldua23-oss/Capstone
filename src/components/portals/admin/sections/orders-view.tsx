@@ -783,7 +783,13 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
     const min = Number(requestMinAmount)
     const max = Number(requestMaxAmount)
     return orders
-      .filter((order) => !isReplacementOrder(order) && isPurchaseRequestOrder(order))
+      // Keep the full PR history here after approval; Purchase Orders remain available in their own view too.
+      .filter((order) => {
+        if (isReplacementOrder(order)) return false
+        const requestNumber = order?.purchaseRequestNumber || order?.purchase_request_number
+        const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
+        return Boolean(requestNumber) || ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(requestStatus)
+      })
       .filter((order) => {
         const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
         const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
@@ -824,6 +830,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
       setActionReason('')
     }
   }
+
+  const isRequestActionLoading = Boolean(actionState && updatingOrderId === actionState.order.id)
 
   return (
     <div className="space-y-6">
@@ -890,7 +898,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
               </div>
 
               {isLoading ? (
-                <PortalTableSkeleton rows={5} columns={9} className="border-0 shadow-none" />
+                <PortalTableSkeleton rows={5} columns={8} className="border-0 shadow-none" />
               ) : filteredRequests.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
                   <p className="text-base font-semibold text-slate-700">No purchase requests found.</p>
@@ -947,29 +955,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                                 >
                                   <Eye className="h-4 w-4" />
                                 </Button>
-                                <Button
-                                  size="icon"
-                                  className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
-                                  disabled={!isPending || updatingOrderId === order.id}
-                                  onClick={() => setActionState({ order, action: 'approve' })}
-                                  title="Approve Request"
-                                >
-                                  {updatingOrderId === order.id && actionState?.action === 'approve' ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Check className="h-4 w-4" />
-                                  )}
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="h-8 w-8 border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-40"
-                                  disabled={!isPending || updatingOrderId === order.id}
-                                  onClick={() => setActionState({ order, action: 'reject' })}
-                                  title="Reject Request"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -982,7 +967,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
             </CardContent>
           </Card>
 
-          <AlertDialog open={!!actionState} onOpenChange={(open) => !open && setActionState(null)}>
+          <AlertDialog open={!!actionState} onOpenChange={(open) => !open && !isRequestActionLoading && setActionState(null)}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
@@ -994,7 +979,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {actionState?.action === 'approve'
-                    ? 'Are you sure you want to approve this purchase request? Once approved, this request will become an official purchase order.'
+                    ? 'Approve this purchase request and create its official Purchase Order ID?'
                     : actionState?.action === 'reject'
                       ? 'Please enter the reason for rejecting this purchase request.'
                       : 'Are you sure you want to cancel this purchase request? This action will prevent the request from becoming a purchase order.'}
@@ -1009,14 +994,22 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                 />
               ) : null}
               <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => { setActionState(null); setActionReason('') }}>
+                <AlertDialogCancel disabled={isRequestActionLoading} onClick={() => { setActionState(null); setActionReason('') }}>
                   {actionState?.action === 'cancel' ? 'No, Keep Request' : 'Cancel'}
                 </AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => void handleRequestAction()}
+                  disabled={isRequestActionLoading}
+                  onClick={(event) => {
+                    // Keep the controlled dialog visible while the approval request is running.
+                    event.preventDefault()
+                    void handleRequestAction()
+                  }}
                   className={actionState?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : actionState?.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-slate-900 hover:bg-slate-800'}
                 >
-                  {actionState?.action === 'approve' ? 'Approve Request' : actionState?.action === 'reject' ? 'Reject Request' : 'Cancel Request'}
+                  {isRequestActionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isRequestActionLoading
+                    ? actionState?.action === 'approve' ? 'Approving...' : actionState?.action === 'reject' ? 'Rejecting...' : 'Cancelling...'
+                    : actionState?.action === 'approve' ? 'Approve Request' : actionState?.action === 'reject' ? 'Reject Request' : 'Cancel Request'}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -1155,7 +1148,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                         <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
                           <td className="p-4">
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold text-gray-900">{order.orderNumber}</span>
+                              <span className="font-semibold text-gray-900">{order.purchaseOrderNumber || order.purchase_order_number || order.orderNumber}</span>
                             </div>
                           </td>
                           <td className="p-4">

@@ -44,7 +44,7 @@ export type WarehousePurchaseRequestsViewProps = {
     orderId: string,
     status: 'CONFIRMED' | 'REJECTED' | 'CANCELLED',
     reason?: string
-  ) => Promise<void>
+  ) => Promise<boolean | void>
 }
 
 export type WarehouseOrdersViewProps = {
@@ -54,7 +54,7 @@ export type WarehouseOrdersViewProps = {
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
-    status: 'PREPARING' | 'READY_FOR_DELIVERY' | 'FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED',
+    status: 'PREPARING' | 'FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED',
     reason?: string
   ) => Promise<void>
   updatingOrderId: string | null

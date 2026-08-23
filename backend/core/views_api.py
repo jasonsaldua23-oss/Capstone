@@ -53,6 +53,8 @@ from .models import (
     Notification,
     Order,
     OrderItem,
+    PurchaseOrderStage,
+    PurchaseRequestStatus,
     OrderStatus,
     OrderTimeline,
     Product,
@@ -442,6 +444,18 @@ def _build_discount_breakdown_for_customer(*, customer: Customer, subtotal: floa
     }
 
 
+def _generate_next_purchase_workflow_number(field_name: str, prefix: str) -> str:
+    """Return the next PR/PO number while preserving the existing four-digit format."""
+    year = timezone.now().year
+    full_prefix = f"{prefix}-{year}-"
+    max_sequence = 0
+    for value in Order.objects.filter(**{f"{field_name}__startswith": full_prefix}).values_list(field_name, flat=True):
+        suffix = str(value or "")[len(full_prefix):]
+        if suffix.isdigit():
+            max_sequence = max(max_sequence, int(suffix))
+    return f"{full_prefix}{str(max_sequence + 1).zfill(4)}"
+
+
 def _create_order_from_checkout_payload(
     *,
     customer: Customer,
@@ -468,6 +482,8 @@ def _create_order_from_checkout_payload(
 
     order = Order.objects.create(
         order_number=order_number,
+        # Added: customer submissions start as Purchase Requests with their own stable PR identifier.
+        purchase_request_number=_generate_next_purchase_workflow_number("purchase_request_number", "PR"),
         customer=customer,
         status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
         priority=body.get("priority") or "normal",
@@ -6785,8 +6801,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err("Order not found", 404)
 
     current_status = _normalize_order_status(o.status)
+    is_pending_request = str(o.request_status or "").strip().upper() == PurchaseRequestStatus.PENDING_APPROVAL
+    repairs_missing_approval = (
+        next_status == OrderStatus.CONFIRMED
+        and (is_pending_request or not str(o.purchase_order_number or "").strip())
+    )
 
-    if current_status == next_status:
+    if current_status == next_status and not repairs_missing_approval:
         current = Order.objects.select_related("customer", "timeline").get(id=o.id)
         return _ok({"success": True, "order": _serialize_order(current, include_items=False)})
 
@@ -6803,30 +6824,68 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         OrderStatus.REJECTED: set(),
         OrderStatus.CANCELLED: set(),
     }
-    if next_status not in allowed_transitions.get(current_status, set()):
+    if current_status != next_status and next_status not in allowed_transitions.get(current_status, set()):
         return _err(f"Invalid transition from {current_status} to {next_status}", 400)
 
-    if next_status == OrderStatus.OUT_FOR_DELIVERY:
-        return _err("OUT_FOR_DELIVERY is set automatically when the trip starts", 400)
+    staff_role = str(staff.get("role") or "").strip().upper()
+    if (is_pending_request or current_status == OrderStatus.PENDING) and next_status == OrderStatus.CONFIRMED:
+        if staff_role != RoleType.WAREHOUSE_STAFF:
+            return _err("Only warehouse staff can approve purchase requests", 403)
+
+    if is_pending_request and next_status == OrderStatus.REJECTED and not rejection_reason:
+        return _err("A rejection reason is required", 400)
 
     try:
         with transaction.atomic():
+            # Fix: lock and update the PR workflow together with the order status so approval creates one PO.
+            o = Order.objects.select_for_update().get(id=order_id)
+            now = timezone.now()
+            actor_id = str(staff.get("userId") or "").strip()
+            actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             if next_status == OrderStatus.DELIVERED:
                 _finalize_order_inventory_on_delivery(o, staff.get("userId"))
             elif next_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
                 _release_order_reservations(o, staff.get("userId"))
 
             o.status = next_status
+            update_fields = ["status", "updated_at"]
+
+            if next_status == OrderStatus.CONFIRMED:
+                if not str(o.purchase_request_number or "").strip():
+                    o.purchase_request_number = _generate_next_purchase_workflow_number("purchase_request_number", "PR")
+                    update_fields.append("purchase_request_number")
+                if not str(o.purchase_order_number or "").strip():
+                    o.purchase_order_number = _generate_next_purchase_workflow_number("purchase_order_number", "PO")
+                    update_fields.append("purchase_order_number")
+                o.request_status = PurchaseRequestStatus.APPROVED
+                o.purchase_order_stage = PurchaseOrderStage.APPROVED
+                o.approved_by_user_id = actor_id
+                o.approved_by_name = actor_name
+                o.approved_at = now
+                update_fields.extend(["request_status", "purchase_order_stage", "approved_by_user_id", "approved_by_name", "approved_at"])
+            elif is_pending_request and next_status == OrderStatus.REJECTED:
+                o.request_status = PurchaseRequestStatus.REJECTED
+                o.rejected_by_user_id = actor_id
+                o.rejected_by_name = actor_name
+                o.rejection_reason = rejection_reason
+                o.rejected_at = now
+                update_fields.extend(["request_status", "rejected_by_user_id", "rejected_by_name", "rejection_reason", "rejected_at"])
+            elif is_pending_request and next_status == OrderStatus.CANCELLED:
+                o.request_status = PurchaseRequestStatus.CANCELLED
+                o.cancelled_by_user_id = actor_id
+                o.cancelled_by_name = actor_name
+                o.cancellation_reason = rejection_reason
+                o.cancelled_at = now
+                update_fields.extend(["request_status", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason", "cancelled_at"])
+
             if rejection_reason:
                 existing_notes = str(getattr(o, "notes", "") or "").strip()
                 note_line = f"Order Rejected: {rejection_reason}"
                 o.notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
-                o.save(update_fields=["status", "notes", "updated_at"])
-            else:
-                o.save(update_fields=["status", "updated_at"])
+                update_fields.append("notes")
+            o.save(update_fields=list(dict.fromkeys(update_fields)))
 
             timeline, _ = OrderTimeline.objects.get_or_create(order=o)
-            now = timezone.now()
             status_map = {
                 "CONFIRMED": "confirmed_at",
                 "PREPARING": "processed_at",

@@ -3965,8 +3965,10 @@ export function WarehousePortal() {
         fetchOrdersData({ showLoading: false, silent: true }),
         fetchTripsData({ showLoading: false }),
       ])
+      return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update order status')
+      return false
     } finally {
       setUpdatingOrderId(null)
     }

@@ -256,22 +256,7 @@ export function MixedCaseBuilderDialog({
           </p>
         ) : (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="space-y-1 text-sm">
-                <span className="font-medium text-slate-700">Packaging Type</span>
-                <select
-                  value={selectedGroup?.key || ''}
-                  onChange={(event) => {
-                    setGroupKey(event.target.value)
-                    setQuantities({})
-                  }}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3"
-                >
-                  {groups.map((group) => (
-                    <option key={group.key} value={group.key}>{getBeverageCategorySpec(group.products[0]?.category)?.packagingType || group.key}</option>
-                  ))}
-                </select>
-              </label>
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-slate-700">Case capacity</span>
                 <select
@@ -303,8 +288,8 @@ export function MixedCaseBuilderDialog({
                 return (
                   <div key={product.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-slate-900">{product.name}</p>
-                      <p className="text-xs text-slate-500">{formatLooseQuantity(maxForCases, label)} available per case · {formatPeso(Number(product.baseUnitPrice || 0))}/{label}</p>
+                      <p className="truncate font-medium text-slate-900">{product.name} {product.sizeLabel || product.size ? `— ${product.sizeLabel || product.size}` : ''}</p>
+                      <p className="text-xs text-slate-500">{formatPeso(Number(product.baseUnitPrice || 0))}/{label}</p>
                       {quantity > 0 ? <p className="text-xs font-medium text-emerald-700">Subtotal/case: {formatPeso(Number(product.baseUnitPrice || 0) * quantity)}</p> : null}
                     </div>
                     <div className="flex items-center rounded-lg border border-slate-200">

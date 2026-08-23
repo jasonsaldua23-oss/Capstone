@@ -90,13 +90,17 @@ export function WarehousePurchaseRequestsView({
     const nextReason = action === 'approve' ? undefined : reason.trim() || undefined
     try {
       setBusyId(order.id)
-      await updateWarehouseOrderStatus(order.id, nextStatus, nextReason)
-      setActionState(null)
-      setReason('')
+      const updated = await updateWarehouseOrderStatus(order.id, nextStatus, nextReason)
+      if (updated !== false) {
+        setActionState(null)
+        setReason('')
+      }
     } finally {
       setBusyId(null)
     }
   }
+
+  const isActionLoading = Boolean(actionState && busyId === actionState.order.id)
 
   return (
     <>
@@ -168,7 +172,9 @@ export function WarehousePurchaseRequestsView({
                     const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
-                        <td className="px-4 py-3 font-semibold text-slate-900">{order.purchaseRequestNumber || order.orderNumber}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          {order.purchaseRequestNumber || order.orderNumber}
+                        </td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                         <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>
                         <td className="px-4 py-3">{totalQuantity}</td>
@@ -225,7 +231,7 @@ export function WarehousePurchaseRequestsView({
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && setActionState(null)}>
+      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && !isActionLoading && setActionState(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -252,11 +258,22 @@ export function WarehousePurchaseRequestsView({
             />
           ) : null}
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setActionState(null); setReason('') }}>
+            <AlertDialogCancel disabled={isActionLoading} onClick={() => { setActionState(null); setReason('') }}>
               {actionState?.action === 'cancel' ? 'No, Keep Request' : 'Cancel'}
             </AlertDialogCancel>
-            <AlertDialogAction onClick={() => void handleAction()} className={actionState?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : actionState?.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-slate-900 hover:bg-slate-800'}>
-              {actionState?.action === 'approve' ? 'Approve Request' : actionState?.action === 'reject' ? 'Reject Request' : 'Cancel Request'}
+            <AlertDialogAction
+              disabled={isActionLoading}
+              onClick={(event) => {
+                // Keep the dialog visible so staff can see approval progress and cannot submit twice.
+                event.preventDefault()
+                void handleAction()
+              }}
+              className={actionState?.action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : actionState?.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-slate-900 hover:bg-slate-800'}
+            >
+              {isActionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {isActionLoading
+                ? actionState?.action === 'approve' ? 'Approving...' : actionState?.action === 'reject' ? 'Rejecting...' : 'Cancelling...'
+                : actionState?.action === 'approve' ? 'Approve Request' : actionState?.action === 'reject' ? 'Reject Request' : 'Cancel Request'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

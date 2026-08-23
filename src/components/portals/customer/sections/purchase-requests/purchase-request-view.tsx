@@ -119,6 +119,8 @@ function PurchaseRequestCard({
 
   // ID to display — prefer purchaseRequestNumber, fallback to orderNumber
   const displayId =
+    // Approved requests show the generated PO ID; all other states retain the PR ID.
+    (status === 'APPROVED' ? String(order?.purchaseOrderNumber || '').trim() : '') ||
     String(order?.purchaseRequestNumber || '').trim() ||
     String(order?.orderNumber || '').trim()
 
@@ -307,12 +309,8 @@ export function CustomerPurchaseRequestView(props: any) {
   }, [orders, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pagedItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-
-  // Reset to page 1 when filter changes
-  useMemo(() => {
-    setCurrentPage(1)
-  }, [search, orders.length])
+  const activePage = Math.min(currentPage, totalPages)
+  const pagedItems = filtered.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE)
 
   const isEmpty = !isLoading && filtered.length === 0
 
@@ -332,7 +330,10 @@ export function CustomerPurchaseRequestView(props: any) {
           <Search className="h-4 w-4 text-slate-500" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setCurrentPage(1)
+            }}
             placeholder="Search by ID or item..."
             className="h-auto border-0 bg-transparent p-0 text-xs text-slate-700 shadow-none focus-visible:ring-0"
           />
@@ -376,28 +377,28 @@ export function CustomerPurchaseRequestView(props: any) {
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-slate-100 pt-3 pb-1">
               <p className="text-xs text-slate-500">
-                {(currentPage - 1) * PAGE_SIZE + 1}–
-                {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+                {(activePage - 1) * PAGE_SIZE + 1}–
+                {Math.min(activePage * PAGE_SIZE, filtered.length)} of {filtered.length}
               </p>
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(Math.max(1, activePage - 1))}
+                  disabled={activePage === 1}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <span className="min-w-[2rem] text-center text-xs font-medium text-slate-700">
-                  {currentPage}/{totalPages}
+                  {activePage}/{totalPages}
                 </span>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md"
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(Math.min(totalPages, activePage + 1))}
+                  disabled={activePage === totalPages}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>

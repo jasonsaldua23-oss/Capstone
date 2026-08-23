@@ -10,7 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseOrdersViewProps } from '../shared/types'
 
-type OrderAction = 'processing' | 'ready' | 'assign' | 'delivered' | 'completed' | 'cancel'
+type OrderAction = 'processing' | 'assign' | 'delivered' | 'completed' | 'cancel'
 
 const orderBadgeClass: Record<string, string> = {
   APPROVED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
@@ -128,9 +128,7 @@ export function WarehouseOrdersView({
     const nextStatus =
       action === 'processing'
         ? 'PREPARING'
-        : action === 'ready'
-          ? 'READY_FOR_DELIVERY'
-          : action === 'assign'
+        : action === 'assign'
             ? 'FOR_DELIVERY'
             : action === 'delivered'
               ? 'DELIVERED'
@@ -230,10 +228,10 @@ export function WarehouseOrdersView({
                               <Eye className="mr-2 h-4 w-4" />
                               View Details
                             </Button>
-                            {(stage === 'APPROVED' || stage === 'PROCESSING') ? (
-                              <Button size="sm" className="bg-violet-600 hover:bg-violet-700" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: stage === 'APPROVED' ? 'processing' : 'ready' })}>
+                            {stage === 'APPROVED' ? (
+                              <Button size="sm" className="bg-violet-600 hover:bg-violet-700" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'processing' })}>
                                 {updatingOrderId === order.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                {stage === 'APPROVED' ? 'Start Processing' : 'Mark as Ready for Delivery'}
+                                Start Processing
                               </Button>
                             ) : null}
                             {stage === 'READY_FOR_DELIVERY' ? (
@@ -269,13 +267,11 @@ export function WarehouseOrdersView({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {actionState?.action === 'processing' && 'Start Purchase Order Processing'}
-              {actionState?.action === 'ready' && 'Mark Purchase Order as Ready for Delivery'}
               {actionState?.action === 'assign' && 'Assign Delivery'}
               {actionState?.action === 'cancel' && 'Cancel Purchase Order'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {actionState?.action === 'processing' && 'Move this approved purchase order into processing.'}
-              {actionState?.action === 'ready' && 'Are you sure you want to mark this purchase order as ready for delivery?'}
               {actionState?.action === 'assign' && (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id
                 ? 'This purchase order still needs a transportation assignment. Continue to the Transportation module to assign delivery.'
                 : 'Confirm delivery assignment for this purchase order.' )}
