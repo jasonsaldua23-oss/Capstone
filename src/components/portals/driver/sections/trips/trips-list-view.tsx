@@ -97,18 +97,10 @@ export function TripsListView({
         <div className="space-y-3">
           {filteredDeliveryTrips.map((trip) => (
             <Card key={trip.id} className="cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onSelectTrip(trip)}>
-              <CardContent className="p-3.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
-                      <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} text-xs px-2 py-0.5`}>
-                        {trip.status.replace(/_/g, ' ')}
-                      </Badge>
-                    </div>
-                    <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
-                    <p className="text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
-                    <p className="text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
                   </div>
                   <Button
                     size="sm"
@@ -121,6 +113,14 @@ export function TripsListView({
                   >
                     View Details
                   </Button>
+                </div>
+                <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} text-xs px-2 py-0.5 mt-2`}>
+                  {trip.status.replace(/_/g, ' ')}
+                </Badge>
+                <div className="mt-3 space-y-1">
+                  <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
+                  <p className="text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
+                  <p className="text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
                 </div>
               </CardContent>
             </Card>

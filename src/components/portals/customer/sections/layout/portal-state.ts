@@ -79,6 +79,7 @@ export function useCustomerPortalState(user: any) {
   const [profileFirstName, setProfileFirstName] = useState('')
   const [profileMiddleName, setProfileMiddleName] = useState('')
   const [profileLastName, setProfileLastName] = useState('')
+  const [profileSuffix, setProfileSuffix] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
   const [profilePhone, setProfilePhone] = useState('')
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
@@ -238,6 +239,8 @@ export function useCustomerPortalState(user: any) {
     setProfileMiddleName,
     profileLastName,
     setProfileLastName,
+    profileSuffix,
+    setProfileSuffix,
     profileEmail,
     setProfileEmail,
     profilePhone,

@@ -73,8 +73,7 @@ export function WarehousePurchaseRequestsView({
       if (!query) return true
 
       return [
-        order?.purchaseRequestNumber,
-        order?.purchaseOrderNumber,
+        order?.orderNumber,
         order?.customer?.name,
         warehouseLabel,
         requestStatus,
@@ -173,7 +172,7 @@ export function WarehousePurchaseRequestsView({
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
                         <td className="px-4 py-3 font-semibold text-slate-900">
-                          {order.purchaseRequestNumber || order.orderNumber}
+                          {requestStatus === 'APPROVED' ? order.orderNumber : (order.purchaseRequestNumber || order.orderNumber)}
                         </td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                         <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>

@@ -185,7 +185,7 @@ async function main() {
       name: 'Smartphone Case',
       description: 'Protective case for smartphones',
       categoryId: category.id,
-      unit: 'pack(bundle)',
+      unit: 'pack',
       weight: 0.1,
       price: 29.99,
     }
@@ -209,7 +209,7 @@ async function main() {
       name: 'Denim Jeans',
       description: 'Classic blue denim jeans',
       categoryId: category2.id,
-      unit: 'pack(bundle)',
+      unit: 'pack',
       weight: 0.5,
       price: 59.99,
     }

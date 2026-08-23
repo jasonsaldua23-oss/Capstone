@@ -138,10 +138,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   // Purchase requests remain separate until an approved purchase order exists.
   const isPurchaseRequestOrder = (order: any): boolean => {
     const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
-    const requestNumber = order?.purchaseRequestNumber || order?.purchase_request_number
-    const purchaseOrderNumber = order?.purchaseOrderNumber || order?.purchase_order_number
     const purchaseOrderStage = order?.purchaseOrderStage || order?.purchase_order_stage
-    return requestStatus === 'PENDING_APPROVAL' || Boolean(requestNumber && !purchaseOrderNumber && !purchaseOrderStage)
+    return requestStatus === 'PENDING_APPROVAL' || Boolean(!purchaseOrderStage)
   }
 
   useEffect(() => {
@@ -754,10 +752,14 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
         }
       }
       if (!response.ok || payload?.success === false) {
+        const rawBackendResponse = typeof payload?.raw === 'string' ? payload.raw : ''
+        const safeRawError = /<html|<!doctype|body\s*\{|typeerror at \/api/i.test(rawBackendResponse)
+          ? ''
+          : rawBackendResponse.replace(/<[^>]*>/g, ' ').trim().slice(0, 180)
         const backendError =
           payload?.error ||
           payload?.message ||
-          (typeof payload?.raw === 'string' ? payload.raw.replace(/<[^>]*>/g, ' ').trim().slice(0, 180) : '')
+          safeRawError
         throw new Error(
           backendError
             ? `Failed to update status (HTTP ${response.status}): ${backendError}`
@@ -786,9 +788,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
       // Keep the full PR history here after approval; Purchase Orders remain available in their own view too.
       .filter((order) => {
         if (isReplacementOrder(order)) return false
-        const requestNumber = order?.purchaseRequestNumber || order?.purchase_request_number
         const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
-        return Boolean(requestNumber) || ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(requestStatus)
+        return ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(requestStatus)
       })
       .filter((order) => {
         const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
@@ -806,10 +807,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
         if (!query) return true
 
         return [
-          order?.purchaseRequestNumber,
-          order?.purchase_request_number,
           order?.orderNumber,
-          order?.purchaseOrderNumber,
           order?.customer?.name,
           order?.shippingName,
           warehouseLabel,
@@ -929,7 +927,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                           ? order.items.map((item: any) => String(item?.productName || item?.product?.name || 'Product')).join(', ')
                           : 'No products'
                         const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
-                        const reqId = order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber
+                        const reqId = requestStatus === 'APPROVED' ? order.orderNumber : (order.purchaseRequestNumber || order.orderNumber)
 
                         return (
                           <tr key={order.id} className="border-t border-slate-200 align-top text-sm hover:bg-slate-50/70 transition-colors">
@@ -1148,7 +1146,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                         <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
                           <td className="p-4">
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold text-gray-900">{order.purchaseOrderNumber || order.purchase_order_number || order.orderNumber}</span>
+                              <span className="font-semibold text-gray-900">{order.orderNumber}</span>
                             </div>
                           </td>
                           <td className="p-4">

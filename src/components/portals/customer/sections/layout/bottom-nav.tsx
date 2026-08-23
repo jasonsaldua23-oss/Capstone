@@ -27,7 +27,7 @@ export function CustomerBottomNav(props: any) {
 
           <Button
             variant="ghost"
-            className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'purchase-requests' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'purchase-requests' || activeView === 'purchase-request-detail' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => handleNav('purchase-requests')}
           >
             <ClipboardList className="h-4 w-4" />
@@ -36,7 +36,7 @@ export function CustomerBottomNav(props: any) {
 
           <Button
             variant="ghost"
-            className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'orders' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'orders' || activeView === 'order-detail' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => handleNav('orders')}
           >
             <Package className="h-4 w-4" />
@@ -45,7 +45,7 @@ export function CustomerBottomNav(props: any) {
 
           <Button
             variant="ghost"
-            className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'profile' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`w-full justify-start gap-2.5 h-10 rounded-lg transition-all ${activeView === 'profile' || activeView === 'edit-address' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}`}
             onClick={() => handleNav('profile')}
           >
             <User className="h-4 w-4" />
@@ -68,7 +68,7 @@ export function CustomerBottomNav(props: any) {
 
           <Button
             variant="ghost"
-            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'purchase-requests' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'purchase-requests' || activeView === 'purchase-request-detail' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
             onClick={() => handleNav('purchase-requests')}
           >
             <ClipboardList className="h-4 w-4" />
@@ -77,7 +77,7 @@ export function CustomerBottomNav(props: any) {
 
           <Button
             variant="ghost"
-            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'orders' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'orders' || activeView === 'order-detail' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
             onClick={() => handleNav('orders')}
           >
             <Package className="h-4 w-4" />
@@ -86,7 +86,7 @@ export function CustomerBottomNav(props: any) {
 
           <Button
             variant="ghost"
-            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'profile' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
+            className={`h-12 flex-col gap-0.5 rounded-xl ${activeView === 'profile' || activeView === 'edit-address' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700'}`}
             onClick={() => handleNav('profile')}
           >
             <User className="h-4 w-4" />

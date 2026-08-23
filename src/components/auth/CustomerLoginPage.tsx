@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { setTabAuthToken } from '@/lib/client-auth'
@@ -23,7 +23,7 @@ declare global {
     google?: {
       accounts?: {
         id?: {
-          initialize: (config: { client_id: string; callback: (response: { credential?: string }) => void }) => void
+          initialize: (config: Record<string, unknown>) => void
           renderButton: (element: HTMLElement, options: Record<string, unknown>) => void
         }
       }
@@ -47,10 +47,13 @@ export function CustomerLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isVerificationSending, setIsVerificationSending] = useState(false)
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false)
+  const [isLoginOtpOpen, setIsLoginOtpOpen] = useState(false)
+  const [loginChallengeToken, setLoginChallengeToken] = useState('')
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
   const loginGoogleButtonRef = useRef<HTMLDivElement | null>(null)
   const registerGoogleButtonRef = useRef<HTMLDivElement | null>(null)
+  const isRenderingGoogleRef = useRef(false)
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
 
   const persistCustomerWelcomeState = (mode: 'existing' | 'new', fallbackName?: string) => {
@@ -81,7 +84,8 @@ export function CustomerLoginPage() {
       const response = await fetch('/api/auth/customer/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, rememberMe }),
+        // Google customer sign-in is always remembered for the full persistent session.
+        body: JSON.stringify({ credential, rememberMe: true }),
       })
       const rawBody = await response.text()
       let data: any = null
@@ -101,7 +105,7 @@ export function CustomerLoginPage() {
       }
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
-      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      if (data.token) setTabAuthToken(data.token, { persistent: true })
       router.replace('/')
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
@@ -110,28 +114,72 @@ export function CustomerLoginPage() {
     }
   }
 
-  const renderGoogleButton = () => {
+  const verifyLoginOtp = async (otp: string) => {
+    const response = await fetch('/api/auth/login/verify-otp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: loginChallengeToken, otp }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data?.success || !data?.user) {
+      toast.error(data?.error || 'Invalid or expired verification code')
+      return false
+    }
+    persistCustomerWelcomeState('existing', String(data.user.name || '').trim())
+    if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+    setIsLoginOtpOpen(false)
+    router.replace('/')
+    return true
+  }
+
+  const resendLoginOtp = async () => {
+    const response = await fetch('/api/auth/customer/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, rememberMe }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (response.status === 202 && data?.challengeToken) {
+      setLoginChallengeToken(String(data.challengeToken))
+      return true
+    }
+    toast.error(data?.error || 'Failed to resend verification code')
+    return false
+  }
+
+  const renderGoogleButton = useCallback(() => {
     if (!googleClientId) return
     if (!window.google?.accounts?.id) return
 
-    window.google.accounts.id.initialize({
-      client_id: googleClientId,
-      callback: (response) => {
-        if (response.credential) {
-          void handleGoogleCredential(response.credential)
-        } else {
-          toast.error('Google authentication failed. Please try again.')
-        }
-      },
-    })
+    // Clean BOTH containers to avoid any orphan iframes
+    if (loginGoogleButtonRef.current) {
+      loginGoogleButtonRef.current.innerHTML = ''
+    }
+    if (registerGoogleButtonRef.current) {
+      registerGoogleButtonRef.current.innerHTML = ''
+    }
 
     const targetEl = authMode === 'login' ? loginGoogleButtonRef.current : registerGoogleButtonRef.current
-    if (targetEl) {
+    if (!targetEl) return
+
+    try {
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+        callback: (response: { credential?: string }) => {
+          if (response.credential) {
+            void handleGoogleCredential(response.credential)
+          } else {
+            toast.error('Google authentication failed. Please try again.')
+          }
+        },
+      })
+
       targetEl.innerHTML = ''
-      const availableWidth = targetEl.parentElement?.clientWidth ?? targetEl.clientWidth ?? 0
-      const buttonWidth = Math.max(220, Math.min(360, Math.floor(availableWidth || 280)))
+      const parentWidth = targetEl.parentElement?.clientWidth || targetEl.clientWidth || 300
+      const buttonWidth = Math.max(240, Math.min(340, Math.floor(parentWidth)))
 
       window.google.accounts.id.renderButton(targetEl, {
+        type: 'standard',
         theme: 'outline',
         size: 'large',
         text: 'continue_with',
@@ -139,8 +187,10 @@ export function CustomerLoginPage() {
         logo_alignment: 'left',
         width: buttonWidth,
       })
+    } catch (err) {
+      console.warn('Error rendering Google button:', err)
     }
-  }
+  }, [authMode, googleClientId])
 
   useEffect(() => {
     let cancelled = false
@@ -169,24 +219,33 @@ export function CustomerLoginPage() {
   }, [router])
 
   useEffect(() => {
+    // Clear both ref containers immediately on authMode switch
+    if (loginGoogleButtonRef.current) loginGoogleButtonRef.current.innerHTML = ''
+    if (registerGoogleButtonRef.current) registerGoogleButtonRef.current.innerHTML = ''
+
     const timer = setTimeout(() => {
       renderGoogleButton()
     }, 60)
     return () => clearTimeout(timer)
-  }, [authMode, googleClientId])
+  }, [authMode, googleClientId, renderGoogleButton])
 
   useEffect(() => {
     if (!googleClientId) return
 
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined
     const handleResize = () => {
-      renderGoogleButton()
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => {
+        renderGoogleButton()
+      }, 200)
     }
 
     window.addEventListener('resize', handleResize)
     return () => {
+      if (resizeTimer) clearTimeout(resizeTimer)
       window.removeEventListener('resize', handleResize)
     }
-  }, [authMode, googleClientId])
+  }, [authMode, googleClientId, renderGoogleButton])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -205,6 +264,13 @@ export function CustomerLoginPage() {
         data = rawBody ? JSON.parse(rawBody) : null
       } catch {
         data = null
+      }
+
+      if (response.status === 202 && data?.requiresTwoFactor && data?.challengeToken) {
+        setLoginChallengeToken(String(data.challengeToken))
+        setIsLoginOtpOpen(true)
+        toast.success(data?.message || 'Verification code sent')
+        return
       }
 
       if (!response.ok || !data?.success || !data?.user) {
@@ -409,8 +475,8 @@ export function CustomerLoginPage() {
             </h1>
           </div>
           <CardContent className="w-full px-4 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-0 sm:px-7 sm:pb-4 sm:pt-0">
-          {authMode === 'login' ? (
-              <form onSubmit={handleLogin} autoComplete="off" className="space-y-1.5 sm:space-y-2">
+            {authMode === 'login' ? (
+              <form key="customer-login-form" onSubmit={handleLogin} autoComplete="off" className="space-y-1.5 sm:space-y-2">
                 <div className="flex items-center gap-3 px-1 pt-0">
                   <span className="h-px flex-1 bg-[#dce5e6]" />
                   <Leaf className="h-4 w-4 text-[#4aa13d]" />
@@ -453,27 +519,23 @@ export function CustomerLoginPage() {
                   initialEmail={email}
                   triggerClassName="w-full text-center text-[12px] text-[#3f9a35] transition-colors hover:text-[#34832d] sm:text-sm"
                 />
-                <div className="pt-0.5">
-                  <div className="relative py-0 sm:py-0.5">
+                <div key="login-divider" className="my-2.5 sm:my-3">
+                  <div className="relative flex items-center justify-center">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t border-[#dce5e6]" />
                     </div>
-                    <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
-                      <span className="bg-white px-2 text-[#7f8fa5]">OR CONTINUE WITH</span>
+                    <div className="relative flex items-center gap-1.5 bg-white px-3 text-[10px] uppercase font-semibold tracking-wider text-[#7f8fa5] sm:text-xs">
+                      <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
+                      <span>OR CONTINUE WITH</span>
                     </div>
-                  </div>
-                  <div className="mt-0.5 flex justify-center">
-                    <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
                   </div>
                 </div>
                 {googleClientId ? (
-                  <div className="mb-0.5 mt-0.5 space-y-1 sm:mb-1 sm:mt-1 sm:space-y-1.5">
-                    <div className="flex justify-center w-full">
-                      <div ref={loginGoogleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
-                    </div>
+                  <div key="login-google-container" className="my-1.5 flex w-full justify-center">
+                    <div ref={loginGoogleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center relative z-10" />
                   </div>
                 ) : (
-                  <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
+                  <p className="text-center text-xs text-slate-500 my-2">Google sign-in is not configured yet.</p>
                 )}
                 <p className="pt-0.5 text-center text-[12px] text-slate-600 sm:text-sm">
                   Don&apos;t have an account?{' '}
@@ -490,7 +552,7 @@ export function CustomerLoginPage() {
                 </p>
               </form>
             ) : (
-              <form onSubmit={handleRegister} autoComplete="off" className="space-y-2.5 sm:space-y-4">
+              <form key="customer-register-form" onSubmit={handleRegister} autoComplete="off" className="space-y-2.5 sm:space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
                   <div className="space-y-1 sm:space-y-1.5">
                     <Label htmlFor="reg-first-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
@@ -606,27 +668,23 @@ export function CustomerLoginPage() {
                 <Button type="submit" className="h-10 w-full rounded-xl bg-emerald-600 text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(5,150,105,0.2)] hover:bg-emerald-500 sm:h-12 sm:text-base sm:shadow-[0_12px_24px_rgba(5,150,105,0.26)]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
-                <div className="pt-0.5">
-                  <div className="relative py-0 sm:py-0.5">
+                <div key="register-divider" className="my-2.5 sm:my-3">
+                  <div className="relative flex items-center justify-center">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t border-[#dce5e6]" />
                     </div>
-                    <div className="relative flex justify-center text-[10px] uppercase sm:text-xs">
-                      <span className="bg-white px-2 text-[#7f8fa5]">OR CONTINUE WITH</span>
+                    <div className="relative flex items-center gap-1.5 bg-white px-3 text-[10px] uppercase font-semibold tracking-wider text-[#7f8fa5] sm:text-xs">
+                      <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
+                      <span>OR CONTINUE WITH</span>
                     </div>
-                  </div>
-                  <div className="mt-0.5 flex justify-center">
-                    <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
                   </div>
                 </div>
                 {googleClientId ? (
-                  <div className="mb-0.5 mt-0.5 space-y-1 sm:mb-1 sm:mt-1 sm:space-y-1.5">
-                    <div className="flex justify-center w-full">
-                      <div ref={registerGoogleButtonRef} className="flex min-w-0 w-full max-w-xs items-center justify-center" />
-                    </div>
+                  <div key="register-google-container" className="my-1.5 flex w-full justify-center">
+                    <div ref={registerGoogleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center relative z-10" />
                   </div>
                 ) : (
-                  <p className="text-center text-xs text-slate-500">Google sign-in is not configured yet.</p>
+                  <p className="text-center text-xs text-slate-500 my-2">Google sign-in is not configured yet.</p>
                 )}
                 <p className="text-center text-[12px] text-slate-600 sm:text-sm">
                   Already have an account?{' '}
@@ -655,6 +713,14 @@ export function CustomerLoginPage() {
         email={email.trim().toLowerCase()}
         onVerify={handleVerifyOtp}
         onResendCode={handleResendOtp}
+        theme="emerald"
+      />
+      <OtpVerificationModal
+        open={isLoginOtpOpen}
+        onOpenChange={setIsLoginOtpOpen}
+        email={email.trim().toLowerCase()}
+        onVerify={verifyLoginOtp}
+        onResendCode={resendLoginOtp}
         theme="emerald"
       />
     </div>

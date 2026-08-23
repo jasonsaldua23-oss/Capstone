@@ -219,6 +219,8 @@ class Customer(models.Model):
         help_text="Optional per-customer deposit discount percentage.",
     )
     is_active = models.BooleanField(default=True)
+    two_factor_enabled = models.BooleanField(default=False)
+    login_alerts_enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

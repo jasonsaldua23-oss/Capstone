@@ -1,18 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
+import { Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
+import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 
 const poppins = { className: '' }
-
-const DRIVER_CARD_FALLBACK_WIDTH = 420
-const DRIVER_CARD_FALLBACK_HEIGHT = 740
 
 function DriverRouteArtwork() {
   return (
@@ -83,17 +81,14 @@ function DriverSpeedLines({ className = '' }: { className?: string }) {
 export function DriverLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [isLoginOtpOpen, setIsLoginOtpOpen] = useState(false)
+  const [loginChallengeToken, setLoginChallengeToken] = useState('')
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
-  const [rememberMe, setRememberMe] = useState(true)
+  const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [isMobileViewport, setIsMobileViewport] = useState(false)
-  const [layoutScale, setLayoutScale] = useState(1)
-  const [frameWidth, setFrameWidth] = useState(DRIVER_CARD_FALLBACK_WIDTH)
-  const [frameHeight, setFrameHeight] = useState(DRIVER_CARD_FALLBACK_HEIGHT)
-  const cardRef = useRef<HTMLDivElement | null>(null)
 
   const persistDriverWelcomeState = (userData: any) => {
     if (typeof window === 'undefined') return
@@ -134,43 +129,6 @@ export function DriverLoginPage() {
     }
   }, [router])
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    let frameId = 0
-
-    const updateLayoutScale = () => {
-      window.cancelAnimationFrame(frameId)
-      frameId = window.requestAnimationFrame(() => {
-        const mobileViewport = window.innerWidth < 768
-        const measuredWidth = cardRef.current?.offsetWidth ?? DRIVER_CARD_FALLBACK_WIDTH
-        const measuredHeight = cardRef.current?.offsetHeight ?? DRIVER_CARD_FALLBACK_HEIGHT
-        const horizontalPadding = mobileViewport ? 0 : 104
-        const verticalPadding = mobileViewport ? 4 : 80
-        const availableWidth = Math.max(window.innerWidth - horizontalPadding, 280)
-        const availableHeight = Math.max(window.innerHeight - verticalPadding, 520)
-        const maxScale = 1
-        const nextScale = Math.min(
-          availableWidth / measuredWidth,
-          availableHeight / measuredHeight,
-          maxScale
-        )
-
-        setIsMobileViewport(mobileViewport)
-        setFrameWidth(measuredWidth)
-        setFrameHeight(measuredHeight)
-        setLayoutScale(Number(nextScale.toFixed(4)))
-      })
-    }
-
-    updateLayoutScale()
-    window.addEventListener('resize', updateLayoutScale)
-    return () => {
-      window.cancelAnimationFrame(frameId)
-      window.removeEventListener('resize', updateLayoutScale)
-    }
-  }, [isCheckingSession])
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginError('')
@@ -188,6 +146,13 @@ export function DriverLoginPage() {
         data = rawBody ? JSON.parse(rawBody) : null
       } catch {
         data = null
+      }
+
+      if (response.status === 202 && data?.requiresTwoFactor && data?.challengeToken) {
+        setLoginChallengeToken(String(data.challengeToken))
+        setIsLoginOtpOpen(true)
+        toast.success(data?.message || 'Verification code sent')
+        return
       }
 
       if (!response.ok || !data?.success || !data?.user) {
@@ -239,32 +204,46 @@ export function DriverLoginPage() {
     )
   }
 
-  const scaledFrameStyle = {
-    width: `${Math.ceil(frameWidth * layoutScale)}px`,
-    height: `${Math.ceil(frameHeight * layoutScale)}px`,
+  const verifyLoginOtp = async (otp: string) => {
+    const response = await fetch('/api/auth/login/verify-otp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: loginChallengeToken, otp }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data?.success || resolvePortalFromUser(data?.user) !== 'driver') {
+      toast.error(data?.error || 'Invalid or expired verification code')
+      return false
+    }
+    persistDriverWelcomeState(data.user)
+    if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+    setIsLoginOtpOpen(false)
+    router.replace('/')
+    return true
   }
 
-  const scaledCardStyle = {
-    width: '26.25rem',
-    transform: `scale(${layoutScale})`,
-    transformOrigin: 'center center' as const,
+  const resendLoginOtp = async () => {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, rememberMe, portal: 'driver' }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (response.status === 202 && data?.challengeToken) {
+      setLoginChallengeToken(String(data.challengeToken))
+      return true
+    }
+    toast.error(data?.error || 'Failed to resend verification code')
+    return false
   }
 
   return (
     <div
-      className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-x-hidden overflow-y-auto bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-0 py-1 md:min-h-screen md:px-12 md:py-10`}
+      className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-2 py-3 sm:min-h-screen sm:px-4 sm:py-8`}
       style={{ backgroundImage: "url('/customer-login-bg.png')" }}
     >
       <Toaster position="top-right" />
 
-      <div className="relative z-[1] flex w-full justify-center">
-        <div className="flex items-center justify-center" style={scaledFrameStyle}>
-        <div
-          ref={cardRef}
-          className="relative shrink-0 max-w-none"
-          style={scaledCardStyle}
-        >
-        <div className="relative overflow-hidden rounded-[1.35rem] border border-white/70 bg-white px-4 pb-3 pt-3 shadow-[0_18px_52px_rgba(81,136,119,0.15)] backdrop-blur-[18px]">
+      <div className="relative z-[1] mx-auto flex w-full max-w-md items-center justify-center">
+        <div className="relative w-full overflow-hidden rounded-[20px] border border-[#d9e4e5] bg-white px-4 pb-3 pt-3 shadow-[0_18px_46px_rgba(15,67,94,0.12)] backdrop-blur-md sm:rounded-[30px] sm:px-7 sm:pb-4 sm:pt-4">
           <DriverRouteArtwork />
 
           <div className="relative z-[1] flex flex-col items-center">
@@ -299,9 +278,9 @@ export function DriverLoginPage() {
 
             <div className="relative mt-3 w-full px-1 py-1">
               <form onSubmit={handleLogin} autoComplete="off" className="space-y-3">
-                <div className="space-y-2.5">
-                  <div className="px-1 text-[0.85rem] font-bold text-[#12356a]">Email</div>
-                  <label className={`flex h-12 items-center gap-2.5 rounded-[14px] border px-3 shadow-[0_6px_18px_rgba(151,193,177,0.12)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <div className="text-[12px] font-semibold tracking-[0.01em] text-[#324766] sm:text-[13px]">Email</div>
+                  <label className={`flex h-11 items-center gap-2.5 rounded-xl border px-3 ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
                     <Mail className="h-4 w-4 text-[#8a99b3]" strokeWidth={1.9} />
                     <span className="min-w-0 flex-1">
                       <input
@@ -315,15 +294,15 @@ export function DriverLoginPage() {
                         }}
                         placeholder="Enter email"
                         required
-                        className="block w-full border-0 bg-transparent p-0 text-[0.95rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
+                        className="block w-full border-0 bg-transparent p-0 text-[15px] text-slate-900 outline-none placeholder:text-[#8a99b3] sm:text-base"
                       />
                     </span>
                   </label>
                 </div>
 
-                <div className="space-y-2.5">
-                  <div className="px-1 text-[0.85rem] font-bold text-[#12356a]">Password</div>
-                  <label className={`flex h-12 items-center gap-2.5 rounded-[14px] border px-3 shadow-[0_6px_18px_rgba(151,193,177,0.12)] ${loginError ? 'border-[#e18b90] bg-[#fff7f8]' : 'border-[#cfeadf] bg-white/95'}`}>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <div className="text-[12px] font-semibold tracking-[0.01em] text-[#324766] sm:text-[13px]">Password</div>
+                  <label className={`flex h-11 items-center gap-2.5 rounded-xl border px-3 ${loginError ? 'border-rose-300 bg-rose-50/40' : 'border-[#d5dee4] bg-white'}`}>
                     <LockKeyhole className="h-4 w-4 text-[#8a99b3]" strokeWidth={1.9} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
@@ -338,7 +317,7 @@ export function DriverLoginPage() {
                           }}
                           placeholder="Enter password"
                           required
-                          className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-[0.95rem] font-medium text-[#283662] outline-none placeholder:text-[#98a5c0]"
+                          className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-[15px] text-slate-900 outline-none placeholder:text-[#8a99b3] sm:text-base"
                         />
                         <button
                           type="button"
@@ -360,20 +339,13 @@ export function DriverLoginPage() {
                   ) : null}
                 </div>
 
-                <label className="flex cursor-pointer items-center gap-2.5 px-1 pt-1 text-[0.85rem] font-medium text-[#24375f]">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[#4e5f79] sm:text-sm">
                   <input
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="peer sr-only"
+                    className="h-4 w-4 rounded border-slate-300 text-[#3e9f34] focus:ring-[#3e9f34]"
                   />
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-[0.5rem] border border-[#cfeadf] text-white shadow-[0_6px_18px_rgba(20,168,80,0.12)] transition peer-focus-visible:ring-4 peer-focus-visible:ring-emerald-200 ${
-                    rememberMe
-                      ? 'bg-[linear-gradient(180deg,#14a850,#0d9944)] border-transparent shadow-[0_6px_18px_rgba(20,168,80,0.28)]'
-                      : 'bg-white'
-                  }`}>
-                    <Check className={`h-3 w-3 transition ${rememberMe ? 'opacity-100' : 'opacity-0'}`} strokeWidth={3} />
-                  </span>
                   <span>Keep me logged in</span>
                 </label>
 
@@ -406,9 +378,15 @@ export function DriverLoginPage() {
             </div>
           </div>
         </div>
-        </div>
-        </div>
       </div>
+      <OtpVerificationModal
+        open={isLoginOtpOpen}
+        onOpenChange={setIsLoginOtpOpen}
+        email={email.trim().toLowerCase()}
+        onVerify={verifyLoginOtp}
+        onResendCode={resendLoginOtp}
+        theme="emerald"
+      />
     </div>
   )
 }

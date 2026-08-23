@@ -27,6 +27,17 @@ function formatStage(value: string) {
   return String(value || 'APPROVED').replace(/_/g, ' ')
 }
 
+function getOrderStage(order: any): string {
+  const explicit = String(order?.purchaseOrderStage || '').toUpperCase()
+  if (explicit && explicit !== 'APPROVED') return explicit
+  const status = String(order?.status || '').toUpperCase()
+  if (status === 'PREPARING') return 'PROCESSING'
+  if (status === 'OUT_FOR_DELIVERY') return 'OUT_FOR_DELIVERY'
+  if (status === 'DELIVERED') return 'DELIVERED'
+  if (status === 'CANCELLED' || status === 'REJECTED') return 'CANCELLED'
+  return explicit || 'APPROVED'
+}
+
 function isMixedCaseItem(item: any) {
   return String(item?.itemType || item?.item_type || '').toUpperCase() === 'MIXED_CASE'
 }
@@ -40,13 +51,15 @@ function formatOrderItemContents(item: any) {
       : item?.product?.sizeLabel
         ? ` (${item.product.sizeLabel})`
         : ''
-    return `${name}${size}${qty > 0 ? ` x${qty}` : ''}`
+    return `${name}${size} x${qty}`
   }
-  const caseCount = Math.max(0, Number(item?.quantity || 0))
-  const capacity = Math.max(0, Number(item?.caseCapacity || item?.case_capacity || 0))
-  const components = (Array.isArray(item?.components) ? item.components : []).map((component: any) => {
-    const perCase = Math.max(0, Number(component?.quantityPerCase || 0))
-    const total = Math.max(0, Number(component?.totalBaseUnits ?? perCase * caseCount))
+
+  const caseCount = Number(item?.quantity || 1)
+  const capacity = Number(item?.caseCapacity || 0)
+  const rawComponents = Array.isArray(item?.components) ? item.components : []
+  const components = rawComponents.map((component: any) => {
+    const perCase = Number(component?.quantityPerCase || 0)
+    const total = Number(component?.totalBaseUnits || perCase * caseCount)
     const label = String(component?.baseUnitLabel || 'unit').trim() || 'unit'
     return `${component?.productName || component?.product?.name || 'Product'} ${perCase} ${label}(s)/case (${total} total)`
   })
@@ -69,6 +82,7 @@ export function WarehouseOrdersView({
   const [minAmount, setMinAmount] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
   const [actionState, setActionState] = useState<{ order: any; action: OrderAction } | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
 
   const warehouseOptions = useMemo(() => {
     return Array.from(
@@ -85,7 +99,7 @@ export function WarehouseOrdersView({
     const min = Number(minAmount)
     const max = Number(maxAmount)
     return purchaseOrders.filter((order) => {
-      const purchaseOrderStage = String(order?.purchaseOrderStage || 'APPROVED').toUpperCase()
+      const purchaseOrderStage = getOrderStage(order)
       const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
       const amount = Number(order?.totalAmount || 0)
       const dateApproved = String(order?.dateApproved || order?.approvedAt || '').slice(0, 10)
@@ -105,8 +119,7 @@ export function WarehouseOrdersView({
       if (!query) return true
 
       return [
-        order?.purchaseOrderNumber,
-        order?.purchaseRequestNumber,
+        order?.orderNumber,
         order?.customer?.name,
         warehouseLabel,
         purchaseOrderStage,
@@ -122,6 +135,7 @@ export function WarehouseOrdersView({
     if (action === 'assign' && !order?.assignedTripId && !order?.progress?.trip?.id) {
       onOpenTransportation()
       setActionState(null)
+      setCancelReason('')
       return
     }
 
@@ -136,8 +150,9 @@ export function WarehouseOrdersView({
                 ? 'COMPLETED'
                 : 'CANCELLED'
 
-    await updateWarehouseOrderStatus(order.id, nextStatus)
+    await updateWarehouseOrderStatus(order.id, nextStatus, action === 'cancel' ? cancelReason.trim() || undefined : undefined)
     setActionState(null)
+    setCancelReason('')
   }
 
   return (
@@ -204,7 +219,7 @@ export function WarehouseOrdersView({
                 </thead>
                 <tbody>
                   {filteredOrders.map((order) => {
-                    const stage = String(order?.purchaseOrderStage || 'APPROVED').toUpperCase()
+                    const stage = getOrderStage(order)
                     const totalQuantity = Array.isArray(order?.items)
                       ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
                       : 0
@@ -213,8 +228,7 @@ export function WarehouseOrdersView({
                       : 'No products'
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
-                        <td className="px-4 py-3 font-semibold text-slate-900">{order.purchaseOrderNumber || 'Pending PO ID'}</td>
-                        <td className="px-4 py-3">{order.purchaseRequestNumber || order.orderNumber}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}</td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                         <td className="px-4 py-3 max-w-[260px] text-slate-600">{productLabel}</td>
                         <td className="px-4 py-3">{totalQuantity}</td>
@@ -234,8 +248,8 @@ export function WarehouseOrdersView({
                                 Start Processing
                               </Button>
                             ) : null}
-                            {stage === 'READY_FOR_DELIVERY' ? (
-                              <Button size="sm" variant="outline" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'assign' })}>
+                            {stage === 'PROCESSING' || stage === 'READY_FOR_DELIVERY' ? (
+                              <Button size="sm" variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'assign' })}>
                                 Assign Delivery
                               </Button>
                             ) : null}
@@ -262,26 +276,70 @@ export function WarehouseOrdersView({
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && setActionState(null)}>
+      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && updatingOrderId !== actionState?.order?.id && (setActionState(null), setCancelReason(''))}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {actionState?.action === 'processing' && 'Start Purchase Order Processing'}
-              {actionState?.action === 'assign' && 'Assign Delivery'}
-              {actionState?.action === 'cancel' && 'Cancel Purchase Order'}
+              {actionState?.action === 'processing'
+                ? 'Start Purchase Order Processing'
+                : actionState?.action === 'assign'
+                  ? 'Assign Delivery'
+                  : 'Cancel Purchase Order'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {actionState?.action === 'processing' && 'Move this approved purchase order into processing.'}
-              {actionState?.action === 'assign' && (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id
-                ? 'This purchase order still needs a transportation assignment. Continue to the Transportation module to assign delivery.'
-                : 'Confirm delivery assignment for this purchase order.' )}
-              {actionState?.action === 'cancel' && 'Cancel this purchase order and stop further delivery processing.'}
+              {actionState?.action === 'processing'
+                ? `Are you sure you want to move order ${actionState?.order?.orderNumber || ''} into processing? This will prepare it for warehouse picking and packing.`
+                : actionState?.action === 'assign'
+                  ? (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id
+                    ? 'This order needs a transportation trip assignment. Proceed to the Transportation module to assign a vehicle and driver.'
+                    : `Confirm delivery assignment for order ${actionState?.order?.orderNumber || ''}?`)
+                  : `Are you sure you want to cancel order ${actionState?.order?.orderNumber || ''}? This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {actionState?.action === 'cancel' ? (
+            <textarea
+              className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              placeholder="Optional cancellation reason"
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+            />
+          ) : null}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void submitAction()}>
-              Confirm
+            <AlertDialogCancel
+              disabled={updatingOrderId === actionState?.order?.id}
+              onClick={() => {
+                setActionState(null)
+                setCancelReason('')
+              }}
+            >
+              {actionState?.action === 'cancel' ? 'No, Keep Order' : 'Cancel'}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={updatingOrderId === actionState?.order?.id}
+              onClick={(event) => {
+                event.preventDefault()
+                void submitAction()
+              }}
+              className={
+                actionState?.action === 'processing'
+                  ? 'bg-violet-600 hover:bg-violet-700'
+                  : actionState?.action === 'cancel'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+              }
+            >
+              {updatingOrderId === actionState?.order?.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {updatingOrderId === actionState?.order?.id
+                ? actionState?.action === 'processing'
+                  ? 'Starting...'
+                  : actionState?.action === 'cancel'
+                    ? 'Cancelling...'
+                    : 'Assigning...'
+                : actionState?.action === 'processing'
+                  ? 'Start Processing'
+                  : actionState?.action === 'cancel'
+                    ? 'Cancel Order'
+                    : (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id ? 'Go to Transportation' : 'Assign Delivery')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -16,12 +16,12 @@ import { CustomerCheckoutView } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
 import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
 import { CustomerPurchaseRequestView } from './sections/purchase-requests/purchase-request-view'
+import { CustomerPurchaseRequestDetailPage } from './sections/purchase-requests/purchase-request-detail-page'
 import { CustomerTrackView } from './sections/track/track-view'
 import { CustomerProfileDialog } from './sections/profile/profile-dialog'
 import { CustomerAvatarCropDialog } from './sections/profile/avatar-crop-dialog'
 import { CustomerAddressDialog } from './sections/checkout/address-dialog'
 import { CustomerEditAddressPage } from './sections/profile/edit-address-page'
-import { CustomerOrderDetailsDialog } from './sections/orders/order-details-dialog'
 import { CustomerReceiptDialog } from './sections/orders/receipt-dialog'
 import { CustomerRatingDialog } from './sections/orders/rating-dialog'
 import { CustomerPortalHeader } from './sections/layout/portal-header'
@@ -137,6 +137,12 @@ export function CustomerPortal() {
     setSelectedOrder(order)
     setBackView(fromView)
     setActiveView('order-detail')
+  }
+
+  const openPRDetail = (order: any) => {
+    setSelectedOrder(order)
+    setBackView('purchase-requests')
+    setActiveView('purchase-request-detail')
   }
 
   const openEditAddressPage = (fromView = activeView) => {
@@ -293,6 +299,8 @@ export function CustomerPortal() {
     setProfileMiddleName,
     profileLastName,
     setProfileLastName,
+    profileSuffix,
+    setProfileSuffix,
     profileEmail,
     setProfileEmail,
     profilePhone,
@@ -430,6 +438,7 @@ export function CustomerPortal() {
     setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
     setProfileMiddleName(String(customer?.middleName || '').trim())
     setProfileLastName(String(customer?.lastName || customerNameParts.slice(1).join(' ') || '').trim())
+    setProfileSuffix(String(customer?.suffix || '').trim())
     setProfileEmail(String(customer?.email || '').trim())
     setProfilePhone(hydratedPhone)
     setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
@@ -446,6 +455,7 @@ export function CustomerPortal() {
     setProfileFirstName(String((user as any)?.firstName || '').trim())
     setProfileMiddleName(String((user as any)?.middleName || '').trim())
     setProfileLastName(String((user as any)?.lastName || '').trim())
+    setProfileSuffix(String((user as any)?.suffix || '').trim())
     setProfileEmail(user?.email || '')
     setProfileAvatar((user as any)?.avatar ? String((user as any).avatar) : null)
   }, [user])
@@ -1164,7 +1174,7 @@ export function CustomerPortal() {
       const isMixedCase = item.itemType === 'MIXED_CASE'
       const normalizedUnit = String(item.unit || '').trim().toLowerCase()
       // Packs count toward the discount minimum alongside standard and mixed cases.
-      const isCaseOrPack = normalizedUnit === 'case' || normalizedUnit === 'pack(bundle)'
+      const isCaseOrPack = normalizedUnit === 'case' || normalizedUnit === 'pack'
       return isMixedCase || isCaseOrPack
         ? sum + Math.max(0, Number(item.quantity || 0))
         : sum
@@ -1302,7 +1312,6 @@ export function CustomerPortal() {
       shippingCity,
       shippingProvince || 'Negros Occidental',
       shippingZipCode,
-      'Philippines',
     ]
       .map((part) => part.trim())
       .filter(Boolean)
@@ -1317,8 +1326,20 @@ export function CustomerPortal() {
     shippingZipCode,
   ])
 
+  const isReplacementOrder = (order: any): boolean =>
+    String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
+
+  const isApprovedPurchaseOrder = (order: any): boolean => {
+    if (isReplacementOrder(order)) return true
+    const reqStatus = String(order?.requestStatus || order?.approvalStatus || '').trim().toUpperCase()
+    return reqStatus === 'APPROVED'
+  }
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
+      // Unapproved purchase requests remain in Purchase Request navigation
+      if (!isApprovedPurchaseOrder(order)) return false
+
       const normalized = String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase()
       const orderDate = new Date(order.createdAt)
 
@@ -1381,9 +1402,6 @@ export function CustomerPortal() {
     { id: 'TO_REVIEW', label: 'To Review' },
     { id: 'REPLACEMENT', label: 'Replacement' },
   ]
-
-  const isReplacementOrder = (order: any): boolean =>
-    String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
 
   const tabFilteredOrders = useMemo(() => {
     if (ordersTab === 'ALL') return sortedFilteredOrders.filter((order) => !isReplacementOrder(order))
@@ -1562,7 +1580,7 @@ export function CustomerPortal() {
         const errorMessage = String(data?.error || data?.message || '').trim()
         throw new Error(errorMessage || `Failed to place order (HTTP ${response.status})`)
       }
-      setLastPlacedOrderNumber(String(data?.order?.orderNumber || data?.order?.id || '').trim())
+      setLastPlacedOrderNumber(String(data?.order?.purchaseRequestNumber || data?.order?.orderNumber || data?.order?.id || '').trim())
       setIsOrderConfirmationOpen(true)
       if (data?.order) {
         setOrders((prev) => [data.order, ...prev.filter((order) => order.id !== data.order.id)])
@@ -1579,7 +1597,7 @@ export function CustomerPortal() {
       void fetchProducts()
       setOrdersTab('ALL')
       setOrdersSearch('')
-      setActiveView('orders')
+      setActiveView('purchase-requests')
       checkoutRequestRef.current = null
     } catch (e: any) {
       setCart(cartSnapshot)
@@ -2408,11 +2426,11 @@ export function CustomerPortal() {
       if (profileAvatarFile) {
         avatarToSave = await uploadProfileAvatar(profileAvatarFile)
       }
-
       const { response, payload } = await updateCustomerProfile(customerId, {
         firstName: profileFirstName.trim(),
         middleName: profileMiddleName.trim(),
         lastName: profileLastName.trim(),
+        suffix: profileSuffix.trim(),
         email: profileEmail.trim(),
         phone: normalizedProfilePhone,
         avatar: avatarToSave,
@@ -2427,6 +2445,7 @@ export function CustomerPortal() {
         setProfileFirstName(String(updatedCustomer.firstName || '').trim())
         setProfileMiddleName(String(updatedCustomer.middleName || '').trim())
         setProfileLastName(String(updatedCustomer.lastName || '').trim())
+        setProfileSuffix(String(updatedCustomer.suffix || '').trim())
         setProfileEmail(String(updatedCustomer.email || '').trim())
         setProfilePhone(String(updatedCustomer.phone || '').trim())
         setProfileAvatar(updatedCustomer.avatar ? String(updatedCustomer.avatar) : null)
@@ -2440,10 +2459,11 @@ export function CustomerPortal() {
         if (user) {
           setUser({
             ...(user as any),
-            name: String(updatedCustomer.name || [profileFirstName, profileMiddleName, profileLastName].filter(Boolean).join(' ')).trim(),
+            name: String(updatedCustomer.name || [profileFirstName, profileMiddleName, profileLastName, profileSuffix].filter(Boolean).join(' ')).trim(),
             firstName: String(updatedCustomer.firstName || profileFirstName).trim(),
             middleName: String(updatedCustomer.middleName || profileMiddleName).trim(),
             lastName: String(updatedCustomer.lastName || profileLastName).trim(),
+            suffix: String(updatedCustomer.suffix || profileSuffix).trim(),
             email: String(updatedCustomer.email || profileEmail).trim(),
             avatar: updatedCustomer.avatar ? String(updatedCustomer.avatar) : null,
           })
@@ -2693,8 +2713,28 @@ export function CustomerPortal() {
                     orders={orders}
                     isLoading={isLoading}
                     formatPeso={formatPeso}
+                    getProductImage={getProductImage}
+                    cancelOrder={requestCancelOrder}
+                    isOrderCancellable={isOrderCancellable}
                     setActiveView={setActiveView}
-                    setSelectedOrder={(order: any) => openOrderDetail(order, 'purchase-requests')}
+                    setSelectedOrder={setSelectedOrder}
+                    openPRDetail={openPRDetail}
+                  />
+                )}
+
+                {activeView === 'purchase-request-detail' && selectedOrder && (
+                  <CustomerPurchaseRequestDetailPage
+                    order={selectedOrder}
+                    onBack={() => {
+                      setSelectedOrder(null)
+                      setActiveView('purchase-requests')
+                    }}
+                    formatPeso={formatPeso}
+                    getProductImage={getProductImage}
+                    cancelOrder={requestCancelOrder}
+                    isOrderCancellable={isOrderCancellable}
+                    setActiveView={setActiveView}
+                    setSelectedOrder={setSelectedOrder}
                   />
                 )}
 
@@ -2827,6 +2867,8 @@ export function CustomerPortal() {
                     setProfileMiddleName={setProfileMiddleName}
                     profileLastName={profileLastName}
                     setProfileLastName={setProfileLastName}
+                    profileSuffix={profileSuffix}
+                    setProfileSuffix={setProfileSuffix}
                     profileEmail={profileEmail}
                     setProfileEmail={setProfileEmail}
                     profilePhone={profilePhone}
@@ -2955,29 +2997,6 @@ export function CustomerPortal() {
             />
           )}
 
-          {activeView !== 'order-detail' && (
-            <CustomerOrderDetailsDialog
-              selectedOrder={selectedOrder}
-              setSelectedOrder={setSelectedOrder}
-              setIsReceiptDialogOpen={setIsReceiptDialogOpen}
-              downloadReceipt={downloadReceipt}
-              formatOrderStatus={formatOrderStatus}
-              orderStages={orderStages}
-              getOrderStageIndex={getOrderStageIndex}
-              getProductImage={getProductImage}
-              formatPeso={formatPeso}
-              deliveryIssueRecords={deliveryIssueRecords}
-              getReplacementStatusLabel={getReplacementStatusLabel}
-              getReplacementBadgeClass={getReplacementBadgeClass}
-              isOrderTrackable={isOrderTrackable}
-              openTrackView={openTrackView}
-              isOrderCancellable={isOrderCancellable}
-              cancelOrder={requestCancelOrder}
-              isOrderDelivered={isOrderDelivered}
-              submitReplacementRequest={submitReplacementRequest}
-            />
-          )}
-
           <CustomerReceiptDialog
             selectedOrder={selectedOrder}
             isReceiptDialogOpen={isReceiptDialogOpen}
@@ -3063,11 +3082,11 @@ export function CustomerPortal() {
           <Dialog open={isOrderConfirmationOpen} onOpenChange={setIsOrderConfirmationOpen}>
             <DialogContent className="w-[92vw] max-w-[360px] rounded-2xl border border-emerald-100 bg-white p-4 shadow-xl md:max-w-sm md:p-6">
               <DialogHeader>
-                <DialogTitle className="text-lg font-bold text-emerald-700">Order Placed Successfully</DialogTitle>
+                <DialogTitle className="text-lg font-bold text-emerald-700">Purchase Request Submitted</DialogTitle>
                 <DialogDescription className="text-sm text-slate-600">
                   {lastPlacedOrderNumber
-                    ? `Your order ${lastPlacedOrderNumber} has been submitted and is now being processed.`
-                    : 'Your order has been submitted and is now being processed.'}
+                    ? `Your purchase request ${lastPlacedOrderNumber} has been submitted and is currently pending review by warehouse staff.`
+                    : 'Your purchase request has been submitted and is currently pending review by warehouse staff.'}
                 </DialogDescription>
               </DialogHeader>
               <div className="flex items-center justify-end gap-2 pt-2">

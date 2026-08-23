@@ -88,7 +88,7 @@ from .retail_pos import (
 logger = logging.getLogger(__name__)
 
 PRODUCT_UNIT_CASE = "case"
-PRODUCT_UNIT_PACK_BUNDLE = "pack(bundle)"
+PRODUCT_UNIT_PACK_BUNDLE = "pack"
 PRODUCT_UNIT_BOTTLE = "bottle"
 PRODUCT_UNIT_MIXED_CASE = "mixed_case"
 ALLOWED_PRODUCT_UNITS = {PRODUCT_UNIT_CASE, PRODUCT_UNIT_PACK_BUNDLE, PRODUCT_UNIT_BOTTLE, PRODUCT_UNIT_MIXED_CASE}
@@ -473,18 +473,15 @@ def _create_order_from_checkout_payload(
     performed_by: str | None,
     discount_breakdown: dict[str, Any] | None = None,
 ) -> Order:
-    year = timezone.now().year
-    sequence = Order.objects.filter(created_at__year=year).count() + 1
-    order_number = f"ORD-{year}-{str(sequence).zfill(4)}"
-    while Order.objects.filter(order_number=order_number).exists():
-        sequence += 1
-        order_number = f"ORD-{year}-{str(sequence).zfill(4)}"
+    pr_number = _generate_next_purchase_workflow_number("purchase_request_number", "PR")
 
     order = Order.objects.create(
-        order_number=order_number,
-        # Added: customer submissions start as Purchase Requests with their own stable PR identifier.
-        purchase_request_number=_generate_next_purchase_workflow_number("purchase_request_number", "PR"),
+        order_number=pr_number,
+        # Customer submissions start as Purchase Requests without a PO number until approved.
+        purchase_order_number=None,
+        purchase_request_number=pr_number,
         customer=customer,
+        request_status=PurchaseRequestStatus.PENDING_APPROVAL,
         status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
         priority=body.get("priority") or "normal",
         subtotal=0,
@@ -1601,11 +1598,44 @@ def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = Fal
     response.delete_cookie(TOKEN_NAME, path="/")
 
 
+def _format_display_name(
+    first_name: str | None,
+    middle_name: str | None,
+    last_name: str | None,
+    suffix: str | None = None,
+    fallback_name: str | None = None,
+) -> str:
+    first = str(first_name or "").strip()
+    middle = str(middle_name or "").strip()
+    last = str(last_name or "").strip()
+    suf = str(suffix or "").strip()
+
+    parts = []
+    if first:
+        parts.append(first)
+    if middle:
+        clean_m = middle.rstrip(".")
+        if clean_m:
+            initial = f"{clean_m[0].upper()}."
+            parts.append(initial)
+    if last:
+        parts.append(last)
+
+    base = " ".join(parts)
+    if suf:
+        base = f"{base} {suf}".strip() if base else suf
+    return base or str(fallback_name or "").strip()
+
+
 def _user_payload(user: User) -> dict[str, Any]:
     return {
         "userId": user.id,
         "email": user.email,
         "name": user.name,
+        "firstName": getattr(user, "first_name", None),
+        "middleName": getattr(user, "middle_name", None),
+        "lastName": getattr(user, "last_name", None),
+        "suffix": getattr(user, "suffix", None),
         "avatar": user.avatar,
         "role": user.role,
         "twoFactorEnabled": bool(getattr(user, "two_factor_enabled", False)),
@@ -1657,6 +1687,20 @@ def _serialize_order(
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
     normalized_order_status = str(data.get("status") or "").strip().upper()
+    stage_value = str(data.get("purchaseOrderStage") or "").strip().upper()
+    if not stage_value or (stage_value == PurchaseOrderStage.APPROVED and normalized_order_status != OrderStatus.CONFIRMED):
+        stage_by_status = {
+            OrderStatus.CONFIRMED: PurchaseOrderStage.APPROVED,
+            OrderStatus.PREPARING: PurchaseOrderStage.PROCESSING,
+            OrderStatus.OUT_FOR_DELIVERY: PurchaseOrderStage.OUT_FOR_DELIVERY,
+            OrderStatus.RESCHEDULED: PurchaseOrderStage.OUT_FOR_DELIVERY,
+            OrderStatus.DELIVERED: PurchaseOrderStage.DELIVERED,
+            OrderStatus.CANCELLED: PurchaseOrderStage.CANCELLED,
+            OrderStatus.REJECTED: PurchaseOrderStage.CANCELLED,
+        }
+        derived_stage = stage_by_status.get(normalized_order_status)
+        if derived_stage:
+            data["purchaseOrderStage"] = derived_stage
     data["customer"] = _serialize_model(order.customer, exclude={"password"})
     warehouse = None
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
@@ -1776,6 +1820,14 @@ def _serialize_order(
                 "notes": getattr(progress_drop_point, "notes", None) if progress_drop_point else None,
             },
         }
+
+    is_approved_order = str(data.get("requestStatus") or "").strip().upper() == PurchaseRequestStatus.APPROVED or str(order.status or "").strip().upper() not in {OrderStatus.PENDING}
+    po_num = str(getattr(order, "purchase_order_number", "") or "").strip() or None
+    pr_num = str(getattr(order, "purchase_request_number", "") or "").strip() or str(order.order_number or "").strip()
+
+    data["purchaseRequestNumber"] = pr_num
+    data["purchaseOrderNumber"] = po_num if is_approved_order else None
+    data["orderNumber"] = (po_num if (is_approved_order and po_num) else pr_num)
     return data
 
 
@@ -2178,7 +2230,6 @@ def _assign_order_items_to_trip_for_warehouse(
                 },
                 separators=(",", ":"),
             ),
-            performed_by=str(performed_by or "").strip() or None,
         )
         rows_created += 1
 
@@ -2788,7 +2839,6 @@ def _reserve_inventory_for_order_item(
             reference_type="order_item_reserve",
             reference_id=order_item.id,
             notes=f"{allocation_policy} reserve for order {order.order_number}",
-            performed_by=performed_by,
         )
 
     return allocation_rows
@@ -2930,7 +2980,6 @@ def _adjust_reserved_for_order_item(
                 reference_type="order_item_reserve",
                 reference_id=order_item.id,
                 notes="Reserved quantity consumed on delivery",
-                performed_by=performed_by,
             )
             remaining -= qty
         return
@@ -2952,7 +3001,6 @@ def _adjust_reserved_for_order_item(
             reference_type="order_item_reserve",
             reference_id=order_item.id,
             notes="Reserved quantity released on cancellation",
-            performed_by=performed_by,
         )
 
 
@@ -3071,7 +3119,6 @@ def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_
             f"expected {expected_bottles}, deducted {delivered_bottle_equivalent}, "
             f"returned remainder {remainder_bottles} as loose bottles"
         ),
-        performed_by=performed_by,
     )
 
 
@@ -3145,7 +3192,6 @@ def _allocate_inventory_for_order_item(
                     reference_type="order_item",
                     reference_id=order_item.id,
                     notes=f"Replacement bottle allocation from loose stock for order {order.order_number}",
-                    performed_by=performed_by,
                 )
                 loose_consumed_total += consume_loose
                 remaining_bottles -= consume_loose
@@ -3214,7 +3260,6 @@ def _allocate_inventory_for_order_item(
             reference_type="order_item",
             reference_id=order_item.id,
             notes=f"{allocation_policy} allocation for order {order.order_number}; batch {batch.batch_number}",
-            performed_by=performed_by,
         )
 
         allocation_rows.append(
@@ -3754,23 +3799,6 @@ def _email_new_order_to_warehouse_staff(order: Order) -> None:
     if not recipients:
         return
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-    order_items = list(order.items.select_related("product").all())
-    item_lines: list[str] = []
-    for item in order_items:
-        product = getattr(item, "product", None)
-        product_name = (
-            str(getattr(product, "name", "") or "").strip()
-            or str(getattr(item, "product_name", "") or "").strip()
-            or "Product"
-        )
-        size_label = _get_product_size_label(product)
-        display_name = f"{product_name} ({size_label})" if size_label else product_name
-        quantity = _int(getattr(item, "quantity", 0), 0)
-        unit_price = float(getattr(item, "unit_price", 0) or 0)
-        line_total = float(getattr(item, "total_price", 0) or (quantity * unit_price))
-        item_lines.append(f"- {display_name}: qty {quantity}, unit PHP {unit_price:.2f}, total PHP {line_total:.2f}")
-
-    items_block = "\n".join(item_lines) if item_lines else "- No order items found"
     shipping_address_parts = [
         str(getattr(order, "shipping_address", "") or "").strip(),
         str(getattr(order, "shipping_city", "") or "").strip(),
@@ -3786,9 +3814,7 @@ def _email_new_order_to_warehouse_staff(order: Order) -> None:
         f"Status: {order.status}\n"
         f"Total Amount: PHP {float(order.total_amount or 0):.2f}\n\n"
         f"Delivery Address: {shipping_address}\n"
-        f"Customer Contact: {shipping_phone}\n\n"
-        f"Ordered Products:\n"
-        f"{items_block}\n"
+        f"Customer Contact: {shipping_phone}\n"
     )
     _send_transactional_email(subject=subject, message=message, recipients=recipients, order=order)
 
@@ -3819,22 +3845,6 @@ def _email_order_out_for_delivery_to_customer(order: Order) -> None:
     if not customer_email:
         return
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-    order_items = list(order.items.select_related("product").all())
-    item_lines: list[str] = []
-    for item in order_items:
-        product_name = (
-            str(getattr(getattr(item, "product", None), "name", "") or "").strip()
-            or str(getattr(item, "product_name", "") or "").strip()
-            or "Product"
-        )
-        quantity = max(0, _int(getattr(item, "quantity", 0), 0))
-        unit_price = float(getattr(item, "unit_price", 0) or 0)
-        line_total = float(getattr(item, "total_price", 0) or (quantity * unit_price))
-        size_label = _get_product_size_label(getattr(item, "product", None))
-        display_name = f"{product_name} ({size_label})" if size_label else product_name
-        item_lines.append(f"- {display_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
-
-    products_text = "\n".join(item_lines) if item_lines else "- No product details available"
     total_amount = float(getattr(order, "total_amount", 0) or 0)
 
     assigned_driver_name = "To be assigned"
@@ -3855,7 +3865,6 @@ def _email_order_out_for_delivery_to_customer(order: Order) -> None:
         f"Hi {customer_name},\n\n"
         f"Good news. Your order is now out for delivery.\n\n"
         f"Order Number: {order.order_number}\n"
-        f"Products:\n{products_text}\n"
         f"Total Price: PHP {total_amount:.2f}\n\n"
         f"Assigned Driver: {assigned_driver_name}\n"
         f"Contact Info: {assigned_driver_phone}\n\n"
@@ -3870,21 +3879,6 @@ def _email_order_confirmed_to_customer(order: Order) -> None:
     if not customer_email:
         return
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-    order_items = list(order.items.select_related("product").all())
-    item_lines: list[str] = []
-    for item in order_items:
-        product = getattr(item, "product", None)
-        product_name = (
-            str(getattr(product, "name", "") or "").strip()
-            or str(getattr(item, "product_name", "") or "").strip()
-            or "Product"
-        )
-        size_label = _get_product_size_label(product)
-        display_name = f"{product_name} ({size_label})" if size_label else product_name
-        quantity = max(0, _int(getattr(item, "quantity", 0), 0))
-        line_total = float(getattr(item, "total_price", 0) or 0)
-        item_lines.append(f"- {display_name}: qty {quantity}, subtotal PHP {line_total:.2f}")
-    products_text = "\n".join(item_lines) if item_lines else "- No product details available"
 
     shipping_address_parts = [
         str(getattr(order, "shipping_address", "") or "").strip(),
@@ -3899,7 +3893,6 @@ def _email_order_confirmed_to_customer(order: Order) -> None:
         f"Hi {customer_name},\n\n"
         f"Your order has been confirmed by our warehouse team.\n\n"
         f"Order Number: {order.order_number}\n"
-        f"Products:\n{products_text}\n"
         f"Total Price: PHP {total_amount:.2f}\n"
         f"Delivery Address: {shipping_address}\n\n"
         f"We are now preparing your order for dispatch.\n\n"
@@ -3913,26 +3906,12 @@ def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> No
     if not customer_email:
         return
 
-    item_lines: list[str] = []
-    order_items = list(order.items.select_related("product").all()) if hasattr(order, "items") else []
-    for item in order_items:
-        product = getattr(item, "product", None)
-        product_name = str(getattr(product, "name", "") or "Product").strip() or "Product"
-        size_label = _get_product_size_label(product)
-        display_name = f"{product_name} ({size_label})" if size_label else product_name
-        quantity = int(getattr(item, "quantity", 0) or 0)
-        unit_price = float(getattr(item, "unit_price", 0) or 0)
-        subtotal = float(quantity * unit_price)
-        item_lines.append(f"- {display_name} x{quantity} ({subtotal:,.2f})")
-
     subject = f"Order Rejected: {order.order_number}"
     message = (
         f"Your order request has been rejected.\n\n"
         f"Order Number: {order.order_number}\n"
         f"Customer: {getattr(order, 'shipping_name', '') or getattr(getattr(order, 'customer', None), 'name', '') or 'N/A'}\n"
         f"Reason: {rejection_reason or 'No reason provided'}\n\n"
-        f"Order Details:\n"
-        f"{chr(10).join(item_lines) if item_lines else '- No items found'}\n\n"
         f"Total Amount: {float(getattr(order, 'total_amount', 0) or 0):,.2f}\n"
         f"Date: {timezone.localtime(getattr(order, 'created_at', timezone.now())).strftime('%Y-%m-%d %I:%M %p')}\n\n"
         f"If you need help, please contact support."
@@ -4790,7 +4769,21 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
             if not _is_email_verification_token_valid(email_verification_token, verification_email, "staff"):
                 return _err("Please verify OTP before changing email or password", 400)
 
-    for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
+    if "firstName" in body:
+        user.first_name = str(body.get("firstName") or "").strip() or None
+    if "middleName" in body:
+        user.middle_name = str(body.get("middleName") or "").strip() or None
+    if "lastName" in body:
+        user.last_name = str(body.get("lastName") or "").strip() or None
+    if "suffix" in body:
+        user.suffix = str(body.get("suffix") or "").strip() or None
+
+    if any(k in body for k in ("firstName", "middleName", "lastName", "suffix")):
+        user.name = _format_display_name(user.first_name, user.middle_name, user.last_name, user.suffix, user.name)
+    elif "name" in body:
+        user.name = str(body.get("name") or "").strip()
+
+    for key, attr in [("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
             setattr(user, attr, body.get(key))
     if "twoFactorEnabled" in body:
@@ -4946,7 +4939,21 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         c.discount_applied_by_name = str(p.get("name") or "").strip() or None
         c.discount_updated_at = timezone.now()
 
-    mapping = [("name", "name"), ("phone", "phone"), ("avatar", "avatar"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("latitude", "latitude"), ("longitude", "longitude")]
+    if "firstName" in body:
+        c.first_name = str(body.get("firstName") or "").strip() or None
+    if "middleName" in body:
+        c.middle_name = str(body.get("middleName") or "").strip() or None
+    if "lastName" in body:
+        c.last_name = str(body.get("lastName") or "").strip() or None
+    if "suffix" in body:
+        c.suffix = str(body.get("suffix") or "").strip() or None
+
+    if any(k in body for k in ("firstName", "middleName", "lastName", "suffix")):
+        c.name = _format_display_name(c.first_name, c.middle_name, c.last_name, c.suffix, c.name)
+    elif "name" in body:
+        c.name = str(body.get("name") or "").strip()
+
+    mapping = [("phone", "phone"), ("avatar", "avatar"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("latitude", "latitude"), ("longitude", "longitude")]
     for key, attr in mapping:
         if key in body:
             if key == "address":
@@ -5177,6 +5184,14 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             )
             row["inventory"] = inventory_entries
             row["availableQuantity"] = available_quantity
+
+            qty_per_unit = max(1, int(product.quantity_per_unit or 1)) if product.quantity_per_unit else 1
+            if product.price and product.price > 0:
+                row["baseUnitPrice"] = round(float(product.price) / qty_per_unit, 2)
+            elif hasattr(product, "retail_unit_price") and product.retail_unit_price:
+                row["baseUnitPrice"] = float(product.retail_unit_price)
+            else:
+                row["baseUnitPrice"] = 0.0
 
             pkg = packaging_by_product.get(product.id)
             if pkg:
@@ -5468,7 +5483,6 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         reference_type=body.get("referenceType"),
         reference_id=body.get("referenceId"),
         notes=body.get("notes"),
-        performed_by=(_payload(request) or {}).get("userId"),
     )
     return _ok({"success": True, "inventory": _serialize_model(item, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)})}, 201)
 
@@ -5658,8 +5672,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             if tx:
                 tx.quantity = next_qty
                 tx.notes = "Stock batch added (edited quantity)"
-                tx.performed_by = (_payload(request) or {}).get("userId")
-                tx.save(update_fields=["quantity", "notes", "performed_by"])
+                tx.save(update_fields=["quantity", "notes"])
             else:
                 InventoryTransaction.objects.create(
                     warehouse=inv.warehouse,
@@ -5669,7 +5682,6 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     reference_type="stock_batch",
                     reference_id=batch_id,
                     notes="Stock batch added (edited quantity)",
-                    performed_by=(_payload(request) or {}).get("userId"),
                 )
 
         updated_batch = (
@@ -5804,7 +5816,6 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 reference_type="stock_batch",
                 reference_id=batch.id,
                 notes="Stock batch added",
-                performed_by=created_by,
             )
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
@@ -5948,7 +5959,6 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     reference_type="stock_batch",
                     reference_id=batch.id,
                     notes="Bulk stock batch added",
-                    performed_by=created_by,
                 )
 
                 created_stock_batches.append(batch)
@@ -6857,12 +6867,26 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 if not str(o.purchase_order_number or "").strip():
                     o.purchase_order_number = _generate_next_purchase_workflow_number("purchase_order_number", "PO")
                     update_fields.append("purchase_order_number")
+                o.order_number = o.purchase_order_number
+                update_fields.append("order_number")
                 o.request_status = PurchaseRequestStatus.APPROVED
                 o.purchase_order_stage = PurchaseOrderStage.APPROVED
                 o.approved_by_user_id = actor_id
                 o.approved_by_name = actor_name
                 o.approved_at = now
                 update_fields.extend(["request_status", "purchase_order_stage", "approved_by_user_id", "approved_by_name", "approved_at"])
+            elif next_status == OrderStatus.PREPARING:
+                o.purchase_order_stage = PurchaseOrderStage.PROCESSING
+                update_fields.append("purchase_order_stage")
+            elif next_status in {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RESCHEDULED}:
+                o.purchase_order_stage = PurchaseOrderStage.OUT_FOR_DELIVERY
+                update_fields.append("purchase_order_stage")
+            elif next_status == OrderStatus.DELIVERED:
+                o.purchase_order_stage = PurchaseOrderStage.DELIVERED
+                update_fields.append("purchase_order_stage")
+            elif next_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+                o.purchase_order_stage = PurchaseOrderStage.CANCELLED
+                update_fields.append("purchase_order_stage")
             elif is_pending_request and next_status == OrderStatus.REJECTED:
                 o.request_status = PurchaseRequestStatus.REJECTED
                 o.rejected_by_user_id = actor_id
@@ -7696,10 +7720,27 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
 
     with transaction.atomic():
         _release_order_reservations(o, p.get("userId"))
+        now = timezone.now()
+        actor_name = str((o.customer.name if getattr(o, "customer", None) else None) or "Customer").strip() or "Customer"
         o.status = OrderStatus.CANCELLED
-        o.save(update_fields=["status", "updated_at"])
+        o.request_status = PurchaseRequestStatus.CANCELLED
+        o.purchase_order_stage = PurchaseOrderStage.CANCELLED
+        o.cancelled_by_user_id = str(p.get("userId") or "").strip() or None
+        o.cancelled_by_name = actor_name
+        o.cancellation_reason = "Cancelled by customer"
+        o.cancelled_at = now
+        o.save(update_fields=[
+            "status",
+            "request_status",
+            "purchase_order_stage",
+            "cancelled_by_user_id",
+            "cancelled_by_name",
+            "cancellation_reason",
+            "cancelled_at",
+            "updated_at",
+        ])
         timeline, _ = OrderTimeline.objects.get_or_create(order=o)
-        timeline.cancelled_at = timezone.now()
+        timeline.cancelled_at = now
         timeline.save()
 
     return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
@@ -8377,9 +8418,27 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         if duplicate:
             return _err("License number is already used by another driver", 409)
 
-    for key, attr in [("name", "name"), ("phone", "phone"), ("avatar", "avatar")]:
+    if "firstName" in body:
+        d.first_name = str(body.get("firstName") or "").strip() or None
+    if "middleName" in body:
+        d.middle_name = str(body.get("middleName") or "").strip() or None
+    if "lastName" in body:
+        d.last_name = str(body.get("lastName") or "").strip() or None
+    if "suffix" in body:
+        d.suffix = str(body.get("suffix") or "").strip() or None
+
+    if any(k in body for k in ("firstName", "middleName", "lastName", "suffix")):
+        d.name = _format_display_name(d.first_name, d.middle_name, d.last_name, d.suffix, d.name)
+    elif "name" in body:
+        d.name = str(body.get("name") or "").strip()
+
+    for key, attr in [("phone", "phone"), ("avatar", "avatar")]:
         if key in body:
             setattr(d, attr, body.get(key))
+    if "twoFactorEnabled" in body:
+        d.two_factor_enabled = bool(body.get("twoFactorEnabled"))
+    if "loginAlertsEnabled" in body:
+        d.login_alerts_enabled = bool(body.get("loginAlertsEnabled"))
     try:
         d.save()
     except IntegrityError:

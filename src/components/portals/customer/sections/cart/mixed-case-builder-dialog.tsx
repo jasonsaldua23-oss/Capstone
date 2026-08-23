@@ -28,6 +28,23 @@ const getAllowedCapacities = (product: Product) => {
   return Number.isInteger(capacity) && capacity > 0 ? [capacity] : []
 }
 
+export const getProductBaseUnitPrice = (product: Product): number => {
+  const explicit = Number(product.baseUnitPrice)
+  if (product.baseUnitPrice != null && Number.isFinite(explicit) && explicit > 0) {
+    return explicit
+  }
+  const retailExplicit = Number((product as any)?.retailUnitPrice)
+  if ((product as any)?.retailUnitPrice != null && Number.isFinite(retailExplicit) && retailExplicit > 0) {
+    return retailExplicit
+  }
+  const capacity = getAllowedCapacities(product)[0] || Number(product.quantityPerCase ?? product.quantityPerUnit ?? 1)
+  const casePrice = Number(product.price ?? (product as any)?.casePrice ?? 0)
+  if (casePrice > 0 && capacity > 0) {
+    return casePrice / capacity
+  }
+  return 0
+}
+
 const getAvailableBaseUnits = (product: Product) => {
   const explicitBaseUnits = Number(product.availableBaseUnits)
   if (product.availableBaseUnits != null && Number.isFinite(explicitBaseUnits)) {
@@ -133,7 +150,7 @@ export function MixedCaseBuilderDialog({
   const exceeds = added > capacity
   const complete = capacity > 0 && added === capacity && selectedRows.length >= 2
   const estimatedPerCase = selectedRows.reduce(
-    (sum, row) => sum + Number(row.product.baseUnitPrice || 0) * row.quantity,
+    (sum, row) => sum + getProductBaseUnitPrice(row.product) * row.quantity,
     0
   )
 
@@ -204,34 +221,34 @@ export function MixedCaseBuilderDialog({
         quantity: caseCount,
         components: selectedRows.map((row) => ({ productId: row.product.id, quantity: row.quantity })),
       })
-      if (!response.ok || data?.success === false) throw new Error(data?.error || 'Unable to validate Mixed Case')
-      const quote = data.quote
+      const quote = response.ok && data?.success !== false && data?.quote ? data.quote : null
+      const finalUnitPrice = Number(quote?.unitPrice || estimatedPerCase)
+      const mixedComponents = (quote?.components || selectedRows.map((row) => ({ productId: row.product.id, quantityPerCase: row.quantity }))).map((component: any) => ({
+        ...component,
+        unitPrice: Number(component.unitPrice || getProductBaseUnitPrice(products.find((p) => String(p.id) === String(component.productId)) || ({} as any))),
+        product: products.find((product) => String(product.id) === String(component.productId)) || null,
+      }))
       const maxCases = Math.min(
-        ...quote.components.map((component: any) => {
+        ...mixedComponents.map((component: any) => {
           const product = products.find((row) => row.id === component.productId)
           return product
             ? Math.floor(getAvailableBaseUnits(product) / Math.max(1, Number(component.quantityPerCase || 1)))
             : 0
         })
       )
-      // Keep the selected product data on each component so mixed-case cards can show both images.
-      const mixedComponents = quote.components.map((component: any) => ({
-        ...component,
-        product: products.find((product) => String(product.id) === String(component.productId)) || null,
-      }))
       const firstProduct = mixedComponents[0]?.product
       onSave({
         productId: editingItem?.productId || makeCartKey(),
         itemType: 'MIXED_CASE',
-        name: `Mixed Case — ${quote.caseCapacity} units`,
+        name: `Mixed Case — ${capacity} units`,
         sku: 'MIXED-CASE',
         imageUrl: firstProduct?.imageUrl || null,
         unit: 'mixed case',
-        sizeLabel: `${quote.caseCapacity} units`,
-        unitPrice: Number(quote.unitPrice || 0),
-        quantity: Number(quote.caseCount || caseCount),
+        sizeLabel: `${capacity} units`,
+        unitPrice: finalUnitPrice,
+        quantity: Number(quote?.caseCount || caseCount),
         available: Math.max(1, maxCases),
-        caseCapacity: Number(quote.caseCapacity),
+        caseCapacity: capacity,
         components: mixedComponents,
       })
       onOpenChange(false)
@@ -289,8 +306,8 @@ export function MixedCaseBuilderDialog({
                   <div key={product.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-slate-900">{product.name} {product.sizeLabel || product.size ? `— ${product.sizeLabel || product.size}` : ''}</p>
-                      <p className="text-xs text-slate-500">{formatPeso(Number(product.baseUnitPrice || 0))}/{label}</p>
-                      {quantity > 0 ? <p className="text-xs font-medium text-emerald-700">Subtotal/case: {formatPeso(Number(product.baseUnitPrice || 0) * quantity)}</p> : null}
+                      <p className="text-xs text-slate-500">{formatPeso(getProductBaseUnitPrice(product))}/{label}</p>
+                      {quantity > 0 ? <p className="text-xs font-medium text-emerald-700">Subtotal/case: {formatPeso(getProductBaseUnitPrice(product) * quantity)}</p> : null}
                     </div>
                     <div className="flex items-center rounded-lg border border-slate-200">
                       <Button

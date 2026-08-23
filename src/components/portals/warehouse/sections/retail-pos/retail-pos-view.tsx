@@ -68,7 +68,6 @@ type RetailCartLine = {
   components?: Array<{ productId: string; quantityBaseUnits: number; emptyBottlesProvided: number }>
 }
 
-type RetailCustomer = { id: string; name: string; email?: string; phone?: string }
 type RetailSale = Record<string, any>
 
 const peso = (value: unknown) =>
@@ -108,43 +107,30 @@ async function authFetch(url: string, init?: RequestInit) {
 
 export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string }) {
   const [products, setProducts] = useState<RetailProduct[]>([])
-  const [customers, setCustomers] = useState<RetailCustomer[]>([])
   const [sales, setSales] = useState<RetailSale[]>([])
   const [cart, setCart] = useState<RetailCartLine[]>([])
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('ALL')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [quoteResult, setQuoteResult] = useState<any>(null)
-  const [quoteToken, setQuoteToken] = useState('')
   const [receipt, setReceipt] = useState<RetailSale | null>(null)
-  const [receiptPaymentAmount, setReceiptPaymentAmount] = useState('0.00')
-  const [customerType, setCustomerType] = useState<'WALK_IN' | 'EXISTING'>('WALK_IN')
-  const [customerId, setCustomerId] = useState('')
   const [walkInFirstName, setWalkInFirstName] = useState('')
   const [walkInLastName, setWalkInLastName] = useState('')
   const [walkInMiddleName, setWalkInMiddleName] = useState('')
   const [walkInContact, setWalkInContact] = useState('')
   const [walkInNotes, setWalkInNotes] = useState('')
   const fulfillmentType = 'IMMEDIATE'
-  const [amountPaid, setAmountPaid] = useState('0.00')
   const [mixedCapacity, setMixedCapacity] = useState(12)
   const [mixedProductA, setMixedProductA] = useState('')
   const [mixedProductB, setMixedProductB] = useState('')
   const [mixedQuantityA, setMixedQuantityA] = useState(6)
 
-  const invalidateQuote = useCallback(() => {
-    setQuoteResult(null)
-    setQuoteToken('')
-  }, [])
-
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const warehouseParam = warehouseId ? `warehouseId=${encodeURIComponent(warehouseId)}&` : ''
-      const [productRes, customerRes, salesRes] = await Promise.allSettled([
+      const [productRes, salesRes] = await Promise.allSettled([
         authFetch(`/api/retail/products?${warehouseParam}pageSize=100`),
-        authFetch('/api/customers?pageSize=200'),
         authFetch(`/api/retail/sales?${warehouseParam}pageSize=20`),
       ])
 
@@ -153,10 +139,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       } else {
         console.error('Failed to load retail products:', productRes.reason)
         toast.error('Could not load products for this warehouse')
-      }
-
-      if (customerRes.status === 'fulfilled') {
-        setCustomers(customerRes.value.customers || [])
       }
 
       if (salesRes.status === 'fulfilled') {
@@ -172,10 +154,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   useEffect(() => {
     void loadData()
   }, [loadData])
-
-  useEffect(() => {
-    if (receipt) setReceiptPaymentAmount(String(receipt.amountPaid || '0.00'))
-  }, [receipt])
 
   // Extract unique categories for filter tabs
   const categories = useMemo(() => {
@@ -237,24 +215,20 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         { key: crypto.randomUUID(), mode, productId: product.id, quantity: 1, emptyBottlesProvided: 0 },
       ]
     })
-    invalidateQuote()
     toast.success(`Added ${product.name} (${mode === 'CASE' ? 'Case' : 'Loose'}) to sale`)
   }
 
   const updateLine = (key: string, changes: Partial<RetailCartLine>) => {
     setCart((current) => current.map((line) => (line.key === key ? { ...line, ...changes } : line)))
-    invalidateQuote()
   }
 
   const removeLine = (key: string) => {
     setCart((current) => current.filter((line) => line.key !== key))
-    invalidateQuote()
   }
 
   const clearCart = () => {
     if (!cart.length) return
     setCart([])
-    invalidateQuote()
     toast.info('Sale cart cleared')
   }
 
@@ -283,29 +257,21 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         ],
       },
     ])
-    invalidateQuote()
     toast.success(`Added Mixed Case (${mixedCapacity} bottles) to sale`)
   }
 
   const validateCustomerInfo = () => {
-    if (customerType === 'EXISTING') {
-      if (!customerId) {
-        toast.error('Please select an existing customer')
-        return false
-      }
-    } else {
-      if (!walkInFirstName.trim()) {
-        toast.error('First name is required for walk-in customer')
-        return false
-      }
-      if (!walkInLastName.trim()) {
-        toast.error('Last name is required for walk-in customer')
-        return false
-      }
-      if (!walkInContact.trim()) {
-        toast.error('Contact number is required for walk-in customer')
-        return false
-      }
+    if (!walkInFirstName.trim()) {
+      toast.error('First name is required for walk-in customer')
+      return false
+    }
+    if (!walkInLastName.trim()) {
+      toast.error('Last name is required for walk-in customer')
+      return false
+    }
+    if (!walkInContact.trim()) {
+      toast.error('Contact number is required for walk-in customer')
+      return false
     }
     return true
   }
@@ -317,57 +283,34 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
     return {
       warehouseId,
-      customerType,
-      customerId: customerType === 'EXISTING' ? customerId : undefined,
-      walkIn:
-        customerType === 'WALK_IN'
-          ? {
-              name: walkInFullName,
-              contactNumber: walkInContact.trim(),
-              notes: walkInNotes.trim(),
-            }
-          : undefined,
+      customerType: 'WALK_IN',
+      walkIn: {
+        name: walkInFullName,
+        contactNumber: walkInContact.trim(),
+        notes: walkInNotes.trim(),
+      },
       fulfillmentType,
-      amountPaid: amountPaid.trim() || '0.00',
       items: cart.map(({ key: _key, ...line }) => line),
-    }
-  }
-
-  const reviewSale = async () => {
-    if (!cart.length) return toast.error('Add at least one product to the sale')
-    if (!validateCustomerInfo()) return
-    setSubmitting(true)
-    try {
-      const payload = await authFetch('/api/retail/quote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody()),
-      })
-      setQuoteResult(payload.quote)
-      setQuoteToken(payload.quoteToken)
-      toast.success('Sale totals verified and ready for checkout')
-    } catch (error: any) {
-      toast.error(error?.message || 'Unable to quote this sale')
-    } finally {
-      setSubmitting(false)
     }
   }
 
   const completeSale = async () => {
     if (!cart.length) return toast.error('Add at least one product to the sale')
     if (!validateCustomerInfo()) return
-    if (!quoteToken) return toast.error('Please review the current totals before completing checkout')
     setSubmitting(true)
     try {
+      // Validate authoritative prices and deposits immediately before creating the sale.
+      const quoted = await authFetch('/api/retail/quote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody()),
+      })
       const payload = await authFetch('/api/retail/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...requestBody(), quoteToken, idempotencyKey: crypto.randomUUID() }),
+        body: JSON.stringify({ ...requestBody(), quoteToken: quoted.quoteToken, idempotencyKey: crypto.randomUUID() }),
       })
       setReceipt(payload.sale)
       setCart([])
-      invalidateQuote()
-      setAmountPaid('0.00')
       setWalkInFirstName('')
       setWalkInLastName('')
       setWalkInMiddleName('')
@@ -376,7 +319,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       toast.success('Retail sale completed successfully')
       await loadData()
     } catch (error: any) {
-      invalidateQuote()
       toast.error(error?.message || 'Unable to complete this retail sale')
     } finally {
       setSubmitting(false)
@@ -415,6 +357,41 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
     [cart]
   )
+
+  const getCartLineUnitPrice = (line: RetailCartLine) => {
+    if (line.mode === 'MIXED_CASE') {
+      return (line.components || []).reduce((sum, component) => {
+        const product = products.find((item) => item.id === component.productId)
+        return sum + Number(product?.retailUnitPrice || 0) * component.quantityBaseUnits
+      }, 0)
+    }
+    const product = products.find((item) => item.id === line.productId)
+    return Number(line.mode === 'CASE' ? product?.casePrice : product?.retailUnitPrice || 0)
+  }
+
+  const cartProductTotal = useMemo(
+    () => cart.reduce((sum, line) => sum + getCartLineUnitPrice(line) * line.quantity, 0),
+    [cart, products]
+  )
+
+  const cartDepositTotal = useMemo(() => cart.reduce((sum, line) => {
+    if (line.mode === 'MIXED_CASE') {
+      const depositPerCase = (line.components || []).reduce((componentSum, component) => {
+        const product = products.find((item) => item.id === component.productId)
+        if (!product?.depositEligible) return componentSum
+        const returned = Math.min(component.quantityBaseUnits, Number(component.emptyBottlesProvided || 0))
+        return componentSum + Math.max(0, component.quantityBaseUnits - returned) * Number(product.depositPerUnit || 0)
+      }, 0)
+      return sum + depositPerCase * line.quantity
+    }
+    const product = products.find((item) => item.id === line.productId)
+    if (!product?.depositEligible) return sum
+    const units = line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity
+    const returned = Math.min(units, Number(line.emptyBottlesProvided || 0))
+    return sum + Math.max(0, units - returned) * Number(product.depositPerUnit || 0)
+  }, 0), [cart, products])
+
+  const cartGrandTotal = cartProductTotal + cartDepositTotal
 
   return (
     <div className="space-y-6">
@@ -826,7 +803,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         <th className="px-4 py-3">Customer</th>
                         <th className="px-4 py-3">Date & Time</th>
                         <th className="px-4 py-3">Total Amount</th>
-                        <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3 text-right">Action</th>
                       </tr>
                     </thead>
@@ -849,19 +825,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                           </td>
                           <td className="px-4 py-3 font-bold text-slate-900">
                             {peso(sale.grandTotal)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge
-                              className={`text-[10px] font-semibold ${
-                                sale.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-                                  : sale.paymentStatus === 'PARTIALLY_PAID'
-                                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-100'
-                                  : 'bg-rose-100 text-rose-800 hover:bg-rose-100'
-                              }`}
-                            >
-                              {String(sale.paymentStatus || 'PAID').replace(/_/g, ' ')}
-                            </Badge>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <Button
@@ -917,66 +880,8 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
             </CardHeader>
 
             <CardContent className="p-4 sm:p-5 space-y-4">
-              {/* Customer Type Segmented Switch */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-slate-700">Customer Classification</Label>
-                <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100/80 p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomerType('WALK_IN')
-                      invalidateQuote()
-                    }}
-                    className={`rounded-lg py-1.5 text-xs font-semibold transition-all ${
-                      customerType === 'WALK_IN'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Walk-in Customer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomerType('EXISTING')
-                      invalidateQuote()
-                    }}
-                    className={`rounded-lg py-1.5 text-xs font-semibold transition-all ${
-                      customerType === 'EXISTING'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Existing / Registered
-                  </button>
-                </div>
-              </div>
-
-              {/* Customer Information Form */}
-              {customerType === 'EXISTING' ? (
-                <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
-                  <Label htmlFor="retail-customer" className="text-xs font-semibold text-slate-700">
-                    Select Customer <span className="text-rose-500">*</span>
-                  </Label>
-                  <select
-                    id="retail-customer"
-                    value={customerId}
-                    onChange={(e) => {
-                      setCustomerId(e.target.value)
-                      invalidateQuote()
-                    }}
-                    className="h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    <option value="">Choose an existing registered customer...</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} {c.phone ? `(${c.phone})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5">
+              {/* Counter sales now use one direct walk-in checkout flow. */}
+              <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5">
                   <p className="text-xs font-bold text-slate-800">Walk-in Customer Details</p>
 
                   <div className="grid grid-cols-2 gap-2.5">
@@ -987,10 +892,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                       <Input
                         id="walk-in-first-name"
                         value={walkInFirstName}
-                        onChange={(e) => {
-                          setWalkInFirstName(e.target.value)
-                          invalidateQuote()
-                        }}
+                        onChange={(e) => setWalkInFirstName(e.target.value)}
                         placeholder="e.g. Juan"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
@@ -1003,10 +905,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                       <Input
                         id="walk-in-last-name"
                         value={walkInLastName}
-                        onChange={(e) => {
-                          setWalkInLastName(e.target.value)
-                          invalidateQuote()
-                        }}
+                        onChange={(e) => setWalkInLastName(e.target.value)}
                         placeholder="e.g. Dela Cruz"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
@@ -1021,10 +920,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                       <Input
                         id="walk-in-middle-name"
                         value={walkInMiddleName}
-                        onChange={(e) => {
-                          setWalkInMiddleName(e.target.value)
-                          invalidateQuote()
-                        }}
+                        onChange={(e) => setWalkInMiddleName(e.target.value)}
                         placeholder="e.g. Santos"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
@@ -1038,10 +934,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         id="walk-in-contact"
                         value={walkInContact}
                         inputMode="numeric"
-                        onChange={(e) => {
-                          setWalkInContact(formatPhilippinePhoneInput(e.target.value))
-                          invalidateQuote()
-                        }}
+                        onChange={(e) => setWalkInContact(formatPhilippinePhoneInput(e.target.value))}
                         placeholder="0912 345 6789"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
@@ -1055,16 +948,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     <Textarea
                       id="walk-in-notes"
                       value={walkInNotes}
-                      onChange={(e) => {
-                        setWalkInNotes(e.target.value)
-                        invalidateQuote()
-                      }}
+                      onChange={(e) => setWalkInNotes(e.target.value)}
                       placeholder="e.g. Customer brought empty bottles, special packaging instructions..."
                       className="mt-1 min-h-[60px] rounded-xl text-xs border-slate-200 bg-white"
                     />
                   </div>
-                </div>
-              )}
+              </div>
 
               {/* Cart Items List */}
               <div className="space-y-2">
@@ -1102,6 +991,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                               >
                                 {line.mode.replace(/_/g, ' ')}
                               </Badge>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {peso(getCartLineUnitPrice(line))} each ·{' '}
+                                <span className="font-bold text-slate-800">
+                                  {peso(getCartLineUnitPrice(line) * line.quantity)} total
+                                </span>
+                              </p>
                             </div>
 
                             <Button
@@ -1218,115 +1113,30 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 </div>
               </div>
 
-              {/* Amount Paid Input */}
-              <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
-                <Label htmlFor="amount-paid" className="text-xs font-semibold text-slate-700">
-                  Amount Received / Tendered (₱)
-                </Label>
-                <Input
-                  id="amount-paid"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={amountPaid}
-                  onChange={(e) => {
-                    setAmountPaid(e.target.value)
-                    invalidateQuote()
-                  }}
-                  className="h-9 rounded-xl text-xs font-bold border-slate-200 bg-white"
-                />
-
-                {/* Fast Cash Shortcut Buttons */}
-                {quoteResult?.grandTotal && (
-                  <div className="mt-2 flex flex-wrap gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAmountPaid(String(quoteResult.grandTotal))
-                        invalidateQuote()
-                      }}
-                      className="rounded-lg bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"
-                    >
-                      Exact ({peso(quoteResult.grandTotal)})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAmountPaid('500.00')
-                        invalidateQuote()
-                      }}
-                      className="rounded-lg bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"
-                    >
-                      ₱500
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAmountPaid('1000.00')
-                        invalidateQuote()
-                      }}
-                      className="rounded-lg bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"
-                    >
-                      ₱1,000
-                    </button>
-                  </div>
-                )}
+              {/* Always-visible cart totals; final deposit validation still runs during checkout. */}
+              <div className="space-y-2 rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 text-xs shadow-none">
+                <div className="flex justify-between text-slate-600">
+                  <span>Product Subtotal</span>
+                  <span className="font-medium text-slate-800">{peso(cartProductTotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Bottle Deposit</span>
+                  <span className="font-medium text-slate-800">{peso(cartDepositTotal)}</span>
+                </div>
+                <div className="h-px bg-slate-100" />
+                <div className="flex justify-between text-[15px] font-semibold text-slate-900">
+                  <span>Total</span>
+                  <span className="text-emerald-600">{peso(cartGrandTotal)}</span>
+                </div>
               </div>
 
-              {/* Verified Quote Breakdown Card */}
-              {quoteResult ? (
-                <div className="space-y-2 rounded-2xl bg-slate-900 p-4 text-xs text-white shadow-md">
-                  <div className="flex justify-between text-slate-300">
-                    <span>Products Subtotal</span>
-                    <span className="font-semibold text-white">{peso(quoteResult.productTotal)}</span>
-                  </div>
-
-                  {Number(quoteResult.emptyBottlesProvided || 0) > 0 && (
-                    <div className="flex justify-between text-emerald-400">
-                      <span>Empties Credit ({quoteResult.emptyBottlesProvided} returned)</span>
-                      <span className="font-semibold">-{peso(quoteResult.depositCredit || 0)}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between text-slate-300">
-                    <span>Bottle Deposit</span>
-                    <span className="font-semibold text-white">{peso(quoteResult.deposit)}</span>
-                  </div>
-
-                  <div className="flex justify-between border-t border-slate-700 pt-2 text-sm font-bold text-white">
-                    <span>Grand Total</span>
-                    <span className="text-base text-sky-400">{peso(quoteResult.grandTotal)}</span>
-                  </div>
-
-                  <div className="flex justify-between border-t border-slate-800 pt-1.5 text-[11px] text-slate-300">
-                    <span className="capitalize">{String(quoteResult.paymentStatus || 'UNPAID').replace(/_/g, ' ')}</span>
-                    <span className="font-semibold">
-                      {Number(quoteResult.remainingBalance || 0) <= 0
-                        ? `Change: ${peso(Math.abs(Number(quoteResult.remainingBalance || 0)))}`
-                        : `Balance: ${peso(quoteResult.remainingBalance)}`}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
               {/* Checkout Action Buttons */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="pt-1">
                 <Button
                   type="button"
-                  variant="outline"
                   disabled={submitting || !cart.length}
-                  onClick={reviewSale}
-                  className="h-10 rounded-xl text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50"
-                >
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
-                  Review Totals
-                </Button>
-
-                <Button
-                  type="button"
-                  disabled={submitting || !quoteToken}
                   onClick={completeSale}
-                  className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+                  className="h-10 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
                   Complete Sale
@@ -1405,28 +1215,23 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               </div>
 
               {/* Financial Totals */}
-              <div className="rounded-2xl bg-slate-900 p-4 text-white space-y-2">
-                <div className="flex justify-between text-slate-300">
+              <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 text-xs shadow-none space-y-2">
+                <div className="flex justify-between text-slate-600">
                   <span>Product Subtotal</span>
-                  <span className="font-semibold text-white">{peso(receipt.productTotal)}</span>
+                  <span className="font-medium text-slate-800">{peso(receipt.productTotal)}</span>
                 </div>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-slate-600">
                   <span>Empty Bottles Returned</span>
-                  <span className="font-semibold text-white">{receipt.emptyBottlesProvided || 0} pcs</span>
+                  <span className="font-medium text-slate-800">{receipt.emptyBottlesProvided || 0} pcs</span>
                 </div>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-slate-600">
                   <span>Bottle Deposit</span>
-                  <span className="font-semibold text-white">{peso(receipt.deposit)}</span>
+                  <span className="font-medium text-slate-800">{peso(receipt.deposit)}</span>
                 </div>
-                <div className="flex justify-between border-t border-slate-700 pt-2 text-sm font-bold">
+                <div className="h-px bg-slate-100" />
+                <div className="flex justify-between text-[15px] font-semibold text-slate-900">
                   <span>Grand Total</span>
-                  <span className="text-base text-sky-400">{peso(receipt.grandTotal)}</span>
-                </div>
-                <div className="flex justify-between border-t border-slate-800 pt-1.5 text-[11px] text-slate-300">
-                  <span className="capitalize">{String(receipt.paymentStatus || 'PAID').replace(/_/g, ' ')}</span>
-                  <span className="font-semibold">
-                    Remaining Balance: {peso(receipt.remainingBalance)}
-                  </span>
+                  <span className="text-emerald-600">{peso(receipt.grandTotal)}</span>
                 </div>
               </div>
 
@@ -1434,35 +1239,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               {receipt.transactionStatus !== 'CANCELLED' ? (
                 <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <p className="font-bold text-slate-800">Manage Transaction</p>
-
-                  <div>
-                    <Label htmlFor="receipt-payment" className="text-xs font-semibold text-slate-700">
-                      Update Amount Paid (₱)
-                    </Label>
-                    <div className="mt-1 flex gap-2">
-                      <Input
-                        id="receipt-payment"
-                        type="number"
-                        min="0"
-                        max={receipt.grandTotal}
-                        step="0.01"
-                        value={receiptPaymentAmount}
-                        onChange={(e) => setReceiptPaymentAmount(e.target.value)}
-                        className="h-9 rounded-xl text-xs font-bold border-slate-200 bg-white"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={submitting}
-                        onClick={() =>
-                          mutateReceipt('payment', 'PATCH', { amountPaid: receiptPaymentAmount })
-                        }
-                        className="h-9 rounded-xl text-xs font-semibold"
-                      >
-                        Update Payment
-                      </Button>
-                    </div>
-                  </div>
 
                   <Button
                     type="button"

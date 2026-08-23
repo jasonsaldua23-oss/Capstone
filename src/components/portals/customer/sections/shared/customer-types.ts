@@ -60,8 +60,8 @@ export interface Product {
   imageUrl?: string | null
   unit: string
   category?: string
-  containerPackagingType?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
-  looseUnit?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
+  containerPackagingType?: 'Glass Bottle' | 'Plastic Bottle' | 'Can'
+  looseUnit?: 'Glass Bottle' | 'Plastic Bottle' | 'Can'
   packagingCompatibilityKey?: 'GLASS_BOTTLE' | 'PET_PLASTIC_BOTTLE' | 'CAN'
   depositAllowed?: boolean
   depositExempt?: boolean
@@ -70,6 +70,8 @@ export interface Product {
   size?: string
   sizeLabel?: string
   price: number
+  casePrice?: number | null
+  retailUnitPrice?: number | null
   availableQuantity?: number
   availableBaseUnits?: number
   baseUnitPrice?: number
@@ -96,8 +98,8 @@ export interface CartItem {
   unit: string
   sizeLabel?: string
   category?: string
-  containerPackagingType?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
-  looseUnit?: 'Glass Bottle' | 'PET/Plastic Bottle' | 'Can'
+  containerPackagingType?: 'Glass Bottle' | 'Plastic Bottle' | 'Can'
+  looseUnit?: 'Glass Bottle' | 'Plastic Bottle' | 'Can'
   packagingCompatibilityKey?: 'GLASS_BOTTLE' | 'PET_PLASTIC_BOTTLE' | 'CAN'
   depositExempt?: boolean
   unitPrice: number

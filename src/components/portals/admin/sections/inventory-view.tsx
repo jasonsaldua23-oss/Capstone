@@ -31,7 +31,7 @@ import { BEVERAGE_CATEGORIES, formatLooseQuantity, getBeverageCategorySpec } fro
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
-  { value: 'pack(bundle)', label: 'pack(bundle)' },
+  { value: 'pack', label: 'pack' },
 ]
 
 const CASE_SIZE_OPTIONS = [
@@ -67,7 +67,7 @@ const PACK_SIZE_OPTIONS = [
 const SIZE_OPTIONS = {
   case: CASE_SIZE_OPTIONS,
   bottle: CASE_SIZE_OPTIONS,
-  'pack(bundle)': PACK_SIZE_OPTIONS,
+  'pack': PACK_SIZE_OPTIONS,
 }
 
 const GLASS_DEPOSIT_BY_SIZE: Record<string, { bottle: number; case: number }> = {
@@ -153,7 +153,7 @@ export function InventoryView() {
   const selectedCategorySpec = getBeverageCategorySpec(productCategory)
   const editingCategorySpec = getBeverageCategorySpec(editCategory)
   const selectedProductBaseWeight = selectedProductSize
-    ? (productUnit === 'pack(bundle)' ? WEIGHT_BY_SIZE_PACK[selectedProductSize] : WEIGHT_BY_SIZE_CASE[selectedProductSize])
+    ? (productUnit === 'pack' ? WEIGHT_BY_SIZE_PACK[selectedProductSize] : WEIGHT_BY_SIZE_CASE[selectedProductSize])
     : null
   const selectedProductQuantityPerUnit = Number(productQuantityPerUnit)
   const selectedProductWeight =

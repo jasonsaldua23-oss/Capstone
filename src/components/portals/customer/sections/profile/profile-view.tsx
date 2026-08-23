@@ -14,6 +14,35 @@ import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philip
 import { Bell, Camera, ChevronRight, Loader2, LogOut, MapPin, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle } from 'lucide-react'
 import { toast } from 'sonner'
 
+export function formatFullName(
+  firstName?: string | null,
+  middleName?: string | null,
+  lastName?: string | null,
+  suffix?: string | null,
+  fallback?: string
+): string {
+  const first = (firstName || '').trim()
+  const middle = (middleName || '').trim()
+  const last = (lastName || '').trim()
+  const suf = (suffix || '').trim()
+
+  const parts: string[] = []
+  if (first) parts.push(first)
+  if (middle) {
+    const cleanM = middle.replace(/\.+$/, '')
+    if (cleanM) {
+      parts.push(`${cleanM.charAt(0).toUpperCase()}.`)
+    }
+  }
+  if (last) parts.push(last)
+
+  let result = parts.join(' ')
+  if (suf) {
+    result = result ? `${result} ${suf}` : suf
+  }
+  return result || fallback || ''
+}
+
 type CustomerProfileViewProps = {
   avatarPreviewUrl: string | null
   profileName: string
@@ -24,6 +53,8 @@ type CustomerProfileViewProps = {
   setProfileMiddleName: (value: string) => void
   profileLastName: string
   setProfileLastName: (value: string) => void
+  profileSuffix?: string
+  setProfileSuffix?: (value: string) => void
   profileEmail: string
   setProfileEmail: (value: string) => void
   profilePhone: string
@@ -83,6 +114,8 @@ export function CustomerProfileView({
   setProfileMiddleName,
   profileLastName,
   setProfileLastName,
+  profileSuffix = '',
+  setProfileSuffix,
   profileEmail,
   setProfileEmail,
   profilePhone,
@@ -178,20 +211,9 @@ export function CustomerProfileView({
     }
   }
 
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('customer_2fa_enabled')
-      return saved !== null ? saved === 'true' : true
-    }
-    return true
-  })
-  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('customer_login_alerts_enabled')
-      return saved !== null ? saved === 'true' : true
-    }
-    return true
-  })
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(Boolean(user?.twoFactorEnabled ?? user?.two_factor_enabled))
+  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(Boolean(user?.loginAlertsEnabled ?? user?.login_alerts_enabled ?? true))
+  const [isSavingSecurity, setIsSavingSecurity] = useState(false)
   const [rememberDeviceEnabled, setRememberDeviceEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('customer_remember_device_enabled')
@@ -203,6 +225,28 @@ export function CustomerProfileView({
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+
+  const saveSecuritySetting = async (field: 'twoFactorEnabled' | 'loginAlertsEnabled', value: boolean) => {
+    const customerId = String(user?.userId || user?.id || '').trim()
+    if (!customerId) return toast.error('Customer account is unavailable')
+    setIsSavingSecurity(true)
+    try {
+      const response = await fetch(`/api/customers/${customerId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ [field]: value }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to save security setting')
+      if (field === 'twoFactorEnabled') setTwoFactorEnabled(value)
+      else setLoginAlertsEnabled(value)
+      onUserUpdate?.({ ...user, ...payload.customer })
+      toast.success(field === 'twoFactorEnabled' ? `2FA ${value ? 'enabled' : 'disabled'}` : `Login alerts ${value ? 'enabled' : 'disabled'}`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save security setting')
+    } finally {
+      setIsSavingSecurity(false)
+    }
+  }
   const [otp, setOtp] = useState('')
   const [otpVals, setOtpVals] = useState<string[]>(Array(6).fill(''))
   const [otpSent, setOtpSent] = useState(false)
@@ -666,10 +710,13 @@ export function CustomerProfileView({
               }}
             />
           </div>
-          <p className="mt-2 text-xs font-medium text-slate-500">Tap camera icon to change photo</p>
+          <p className="mt-2 text-base font-bold text-slate-900">
+            {formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName || 'Your Name')}
+          </p>
+          <p className="text-xs font-medium text-slate-400">Live Preview (Middle Initial)</p>
         </div>
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
               <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200" />
@@ -681,6 +728,10 @@ export function CustomerProfileView({
             <div className="space-y-2">
               <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
               <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-profile-suffix" className="text-sm font-semibold text-slate-700">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
+              <Input id="customer-profile-suffix" value={profileSuffix} onChange={(e) => setProfileSuffix?.(e.target.value)} placeholder="e.g. Jr., Sr., III" className="h-11 rounded-xl border-slate-200" />
             </div>
           </div>
           <div className="space-y-2">
@@ -830,12 +881,8 @@ export function CustomerProfileView({
               type="button"
               role="switch"
               aria-checked={twoFactorEnabled}
-              onClick={() => {
-                const next = !twoFactorEnabled
-                setTwoFactorEnabled(next)
-                if (typeof window !== 'undefined') localStorage.setItem('customer_2fa_enabled', String(next))
-                toast.success(next ? '2FA Authentication enabled' : '2FA Authentication disabled')
-              }}
+              disabled={isSavingSecurity}
+              onClick={() => void saveSecuritySetting('twoFactorEnabled', !twoFactorEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 twoFactorEnabled ? 'bg-[#14532d]' : 'bg-slate-200'
               }`}
@@ -853,12 +900,8 @@ export function CustomerProfileView({
               type="button"
               role="switch"
               aria-checked={loginAlertsEnabled}
-              onClick={() => {
-                const next = !loginAlertsEnabled
-                setLoginAlertsEnabled(next)
-                if (typeof window !== 'undefined') localStorage.setItem('customer_login_alerts_enabled', String(next))
-                toast.success(next ? 'Login alerts enabled' : 'Login alerts disabled')
-              }}
+              disabled={isSavingSecurity}
+              onClick={() => void saveSecuritySetting('loginAlertsEnabled', !loginAlertsEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 loginAlertsEnabled ? 'bg-[#14532d]' : 'bg-slate-200'
               }`}
@@ -1429,8 +1472,12 @@ export function CustomerProfileView({
           </button>
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-xl font-bold text-slate-900 truncate">{profileName || user?.name || ''}</h3>
-          <p className="text-sm text-slate-500 truncate">{[profileFirstName, profileLastName].filter(Boolean).join(' ') || 'Name details not set'}</p>
+          <h3 className="text-xl font-bold text-slate-900 truncate">
+            {formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName || user?.name || '')}
+          </h3>
+          <p className="text-sm text-slate-500 truncate">
+            {[profileFirstName, profileMiddleName ? `${profileMiddleName.replace(/\.+$/, '').charAt(0).toUpperCase()}.` : '', profileLastName, profileSuffix].filter(Boolean).join(' ') || 'Name details not set'}
+          </p>
           <p className="text-sm text-slate-500 truncate mt-0.5">{profileEmail || user?.email || ''}</p>
           <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#eef8f2] px-2.5 py-0.5 text-xs font-semibold text-[#14532d]">
             <Phone className="h-3 w-3" />

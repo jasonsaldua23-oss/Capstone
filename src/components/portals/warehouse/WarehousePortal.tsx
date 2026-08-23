@@ -105,6 +105,31 @@ const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMa
   ssr: false,
 })
 
+function formatFullName(
+  firstName?: string | null,
+  middleName?: string | null,
+  lastName?: string | null,
+  suffix?: string | null,
+  fallback?: string
+): string {
+  const first = (firstName || '').trim()
+  const middle = (middleName || '').trim()
+  const last = (lastName || '').trim()
+  const suf = (suffix || '').trim()
+
+  const parts: string[] = []
+  if (first) parts.push(first)
+  if (middle) {
+    const cleanM = middle.replace(/\.+$/, '')
+    if (cleanM) parts.push(`${cleanM.charAt(0).toUpperCase()}.`)
+  }
+  if (last) parts.push(last)
+
+  let result = parts.join(' ')
+  if (suf) result = result ? `${result} ${suf}` : suf
+  return result || fallback || ''
+}
+
 interface WarehouseItem {
   id: string
   name: string
@@ -552,7 +577,7 @@ function getStockHealthDotClass(name: string) {
 
 const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Boxes },
-  { id: 'retailPos', label: 'Retail / POS', icon: Store },
+  { id: 'retailPos', label: 'Retail', icon: Store },
   { id: 'purchaseRequests', label: 'Purchase Requests', icon: ShoppingCart },
   { id: 'orders', label: 'Purchase Orders', icon: PackageCheck },
   { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
@@ -648,6 +673,7 @@ export function WarehousePortal() {
   const [profileFirstName, setProfileFirstName] = useState('')
   const [profileMiddleName, setProfileMiddleName] = useState('')
   const [profileLastName, setProfileLastName] = useState('')
+  const [profileSuffix, setProfileSuffix] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
   const [profilePhone, setProfilePhone] = useState('')
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null)
@@ -722,6 +748,7 @@ export function WarehousePortal() {
     setProfileFirstName(String((user as any)?.firstName || nameParts[0] || ''))
     setProfileMiddleName(String((user as any)?.middleName || ''))
     setProfileLastName(String((user as any)?.lastName || nameParts.slice(1).join(' ') || ''))
+    setProfileSuffix(String((user as any)?.suffix || ''))
     setProfileEmail(String((user as any)?.email || ''))
     setProfilePhone(String((user as any)?.phone || ''))
     setProfileAvatarFile(null)
@@ -877,10 +904,11 @@ export function WarehousePortal() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: [profileFirstName, profileMiddleName, profileLastName].filter(Boolean).join(' '),
+          name: formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName),
           firstName: profileFirstName.trim(),
           middleName: profileMiddleName.trim(),
           lastName: profileLastName.trim(),
+          suffix: profileSuffix.trim() || null,
           email: profileEmail.trim(),
           phone: profilePhone.trim() || null,
           avatar: avatarToSave,
@@ -895,10 +923,11 @@ export function WarehousePortal() {
       const nextUser = payload?.user || {}
       setUser((prev: any) => ({
         ...(prev || {}),
-        name: nextUser.name ?? profileName.trim(),
+        name: nextUser.name ?? formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName.trim()),
         firstName: nextUser.firstName ?? profileFirstName.trim(),
         middleName: nextUser.middleName ?? profileMiddleName.trim(),
         lastName: nextUser.lastName ?? profileLastName.trim(),
+        suffix: nextUser.suffix ?? profileSuffix.trim(),
         email: nextUser.email ?? profileEmail.trim(),
         phone: nextUser.phone ?? (profilePhone.trim() || ''),
         avatar: nextUser.avatar ?? avatarToSave,
@@ -3945,10 +3974,14 @@ export function WarehousePortal() {
         }
       }
       if (!response.ok || payload?.success === false) {
+        const rawBackendResponse = typeof payload?.raw === 'string' ? payload.raw : ''
+        const safeRawError = /<html|<!doctype|body\s*\{|typeerror at \/api/i.test(rawBackendResponse)
+          ? ''
+          : rawBackendResponse.replace(/<[^>]*>/g, ' ').trim().slice(0, 180)
         const backendError =
           payload?.error ||
           payload?.message ||
-          (typeof payload?.raw === 'string' ? payload.raw.replace(/<[^>]*>/g, ' ').trim().slice(0, 180) : '')
+          safeRawError
         throw new Error(
           backendError
             ? `Failed to update status (HTTP ${response.status}): ${backendError}`
@@ -4661,15 +4694,18 @@ export function WarehousePortal() {
                       </Avatar>
                       <input ref={profileAvatarInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { profileAvatarCrop.open(event.target.files?.[0] || null); event.currentTarget.value = '' }} />
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">{profileName || user?.name || 'User'}</p>
-                        <p className="text-sm text-slate-500">{profileEmail || user?.email || 'No email provided'}</p>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName || user?.name || 'User')}
+                        </p>
+                        <p className="text-xs text-slate-400 font-medium">Live Preview (Middle Initial)</p>
+                        <p className="text-sm text-slate-500 mt-0.5">{profileEmail || user?.email || 'No email provided'}</p>
                         <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={() => profileAvatarInputRef.current?.click()}>
                           {profileAvatarFile ? 'Change Selected Avatar' : 'Change Avatar'}
                         </Button>
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <div>
                           <Label htmlFor="warehouse-profile-first-name">First Name</Label>
                           <Input id="warehouse-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} />
@@ -4681,6 +4717,10 @@ export function WarehousePortal() {
                         <div>
                           <Label htmlFor="warehouse-profile-last-name">Last Name</Label>
                           <Input id="warehouse-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} />
+                        </div>
+                        <div>
+                          <Label htmlFor="warehouse-profile-suffix">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
+                          <Input id="warehouse-profile-suffix" value={profileSuffix} onChange={(e) => setProfileSuffix(e.target.value)} placeholder="e.g. Jr., Sr., III" />
                         </div>
                       </div>
                     </div>

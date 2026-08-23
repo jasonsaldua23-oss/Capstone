@@ -107,7 +107,7 @@ function getWidthClass(value: number) {
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
-  { value: 'pack(bundle)', label: 'pack(bundle)' },
+  { value: 'pack', label: 'pack' },
 ]
 
 function toArray<T>(value: unknown): T[] {

@@ -72,6 +72,31 @@ function timeAgo(dateString: string) {
   }
 }
 
+function formatFullName(
+  firstName?: string | null,
+  middleName?: string | null,
+  lastName?: string | null,
+  suffix?: string | null,
+  fallback?: string
+): string {
+  const first = (firstName || '').trim()
+  const middle = (middleName || '').trim()
+  const last = (lastName || '').trim()
+  const suf = (suffix || '').trim()
+
+  const parts: string[] = []
+  if (first) parts.push(first)
+  if (middle) {
+    const cleanM = middle.replace(/\.+$/, '')
+    if (cleanM) parts.push(`${cleanM.charAt(0).toUpperCase()}.`)
+  }
+  if (last) parts.push(last)
+
+  let result = parts.join(' ')
+  if (suf) result = result ? `${result} ${suf}` : suf
+  return result || fallback || ''
+}
+
 function splitProfileName(value: unknown) {
   const parts = String(value || '').trim().split(/\s+/).filter(Boolean)
   return {
@@ -85,20 +110,9 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const [isSaving, setIsSaving] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'security' | 'account-security' | 'change-password' | 'security-settings' | 'notifications' | 'license' | 'real-notifications'>(initialSubView ?? 'menu')
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('driver_2fa_enabled')
-      return saved !== null ? saved === 'true' : true
-    }
-    return true
-  })
-  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('driver_login_alerts_enabled')
-      return saved !== null ? saved === 'true' : true
-    }
-    return true
-  })
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(Boolean((user as any)?.twoFactorEnabled ?? (user as any)?.two_factor_enabled))
+  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(Boolean((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true))
+  const [isSavingSecurity, setIsSavingSecurity] = useState(false)
   const [rememberDeviceEnabled, setRememberDeviceEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('driver_remember_device_enabled')
@@ -108,6 +122,25 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   })
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  const saveSecuritySetting = async (field: 'twoFactorEnabled' | 'loginAlertsEnabled', value: boolean) => {
+    setIsSavingSecurity(true)
+    try {
+      const response = await fetch('/api/driver/profile', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ [field]: value }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'Failed to save security setting')
+      if (field === 'twoFactorEnabled') setTwoFactorEnabled(value)
+      else setLoginAlertsEnabled(value)
+      toast.success(field === 'twoFactorEnabled' ? `2FA ${value ? 'enabled' : 'disabled'}` : `Login alerts ${value ? 'enabled' : 'disabled'}`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save security setting')
+    } finally {
+      setIsSavingSecurity(false)
+    }
+  }
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordOtp, setPasswordOtp] = useState('')
@@ -149,7 +182,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   useEffect(() => {
     fetchRealNotifications()
     onDidMount?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Inline OTP Error inside dialog
@@ -171,6 +203,17 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     return () => clearInterval(interval)
   }, [isOtpDialogOpen])
 
+  // Clear verification state when dialog closes
+  useEffect(() => {
+    if (!isOtpDialogOpen) {
+      setPasswordOtp('')
+      setOtpVals(Array(6).fill(''))
+      setPasswordOtpSent(false)
+      setPasswordOtpVerified(false)
+      setOtpError(null)
+    }
+  }, [isOtpDialogOpen])
+
   const [notifications, setNotifications] = useState<NotificationPrefs>({
     tripNotifications: true,
     deliveryUpdates: true,
@@ -182,6 +225,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     firstName: '',
     middleName: '',
     lastName: '',
+    suffix: '',
     email: '',
     phone: '',
     licenseNumber: '',
@@ -193,6 +237,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     firstName: '',
     middleName: '',
     lastName: '',
+    suffix: '',
     phone: '',
     licenseNumber: '',
     licenseType: '',
@@ -261,6 +306,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           firstName: profile?.user?.firstName || profile?.firstName || user?.firstName || nameParts.firstName,
           middleName: profile?.user?.middleName || profile?.middleName || user?.middleName || '',
           lastName: profile?.user?.lastName || profile?.lastName || user?.lastName || nameParts.lastName,
+          suffix: profile?.user?.suffix || profile?.suffix || user?.suffix || '',
           email: profile?.user?.email || user?.email || '',
           phone: profile?.phone || profile?.user?.phone || '',
           licenseNumber: resolvedLicenseNumber,
@@ -309,6 +355,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       firstName: form.firstName,
       middleName: form.middleName,
       lastName: form.lastName,
+      suffix: form.suffix,
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
@@ -323,6 +370,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       firstName: form.firstName,
       middleName: form.middleName,
       lastName: form.lastName,
+      suffix: form.suffix,
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
@@ -372,6 +420,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         firstName: draft.firstName,
         middleName: draft.middleName,
         lastName: draft.lastName,
+        suffix: draft.suffix,
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
@@ -400,10 +449,11 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       setForm((prev) => ({
         ...prev,
         avatar: payloadBody.avatar || prev.avatar,
-        name: [draft.firstName, draft.middleName, draft.lastName].filter(Boolean).join(' '),
+        name: formatFullName(draft.firstName, draft.middleName, draft.lastName, draft.suffix, prev.name),
         firstName: draft.firstName,
         middleName: draft.middleName,
         lastName: draft.lastName,
+        suffix: draft.suffix,
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
@@ -744,8 +794,15 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           <h2 className="text-xl font-bold tracking-tight text-slate-900">Edit Profile</h2>
         </div>
 
+        <div className="flex flex-col items-center py-4 bg-white border-y border-slate-100 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-base font-bold text-slate-900">
+            {formatFullName(draft.firstName, draft.middleName, draft.lastName, draft.suffix, form.name || 'Driver Name')}
+          </p>
+          <p className="text-xs font-medium text-slate-400">Live Preview (Middle Initial)</p>
+        </div>
+
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="driver-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
               <Input id="driver-first-name" value={draft.firstName} onChange={(e) => onChange('firstName', e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
@@ -757,6 +814,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             <div className="space-y-2">
               <Label htmlFor="driver-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
               <Input id="driver-last-name" value={draft.lastName} onChange={(e) => onChange('lastName', e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="driver-suffix" className="text-sm font-semibold text-slate-700">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
+              <Input id="driver-suffix" value={draft.suffix} onChange={(e) => onChange('suffix', e.target.value)} placeholder="e.g. Jr., Sr., III" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
             </div>
           </div>
 
@@ -972,12 +1033,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               type="button"
               role="switch"
               aria-checked={twoFactorEnabled}
-              onClick={() => {
-                const next = !twoFactorEnabled
-                setTwoFactorEnabled(next)
-                if (typeof window !== 'undefined') localStorage.setItem('driver_2fa_enabled', String(next))
-                toast.success(next ? '2FA Authentication enabled' : '2FA Authentication disabled')
-              }}
+              disabled={isSavingSecurity}
+              onClick={() => void saveSecuritySetting('twoFactorEnabled', !twoFactorEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 twoFactorEnabled ? 'bg-[#0d61ad]' : 'bg-slate-200'
               }`}
@@ -995,12 +1052,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               type="button"
               role="switch"
               aria-checked={loginAlertsEnabled}
-              onClick={() => {
-                const next = !loginAlertsEnabled
-                setLoginAlertsEnabled(next)
-                if (typeof window !== 'undefined') localStorage.setItem('driver_login_alerts_enabled', String(next))
-                toast.success(next ? 'Login alerts enabled' : 'Login alerts disabled')
-              }}
+              disabled={isSavingSecurity}
+              onClick={() => void saveSecuritySetting('loginAlertsEnabled', !loginAlertsEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 loginAlertsEnabled ? 'bg-[#0d61ad]' : 'bg-slate-200'
               }`}
@@ -1328,8 +1381,12 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { avatarCrop.open(event.target.files?.[0] || null); event.currentTarget.value = '' }} />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-xl font-bold text-[#17365d] truncate">{form.name}</h3>
-              <p className="text-sm text-[#5f7390] truncate">{[form.firstName, form.lastName].filter(Boolean).join(' ') || 'Name details not set'}</p>
+              <h3 className="text-xl font-bold text-[#17365d] truncate">
+                {formatFullName(form.firstName, form.middleName, form.lastName, form.suffix, form.name || 'Driver')}
+              </h3>
+              <p className="text-sm text-[#5f7390] truncate">
+                {[form.firstName, form.middleName ? `${form.middleName.replace(/\.+$/, '').charAt(0).toUpperCase()}.` : '', form.lastName, form.suffix].filter(Boolean).join(' ') || 'Name details not set'}
+              </p>
               <p className="text-sm text-[#5f7390] truncate mt-0.5">{form.email}</p>
               <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-xs font-semibold text-[#0369a1]">
                 Driver

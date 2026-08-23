@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -10,9 +9,6 @@ import {
   Store,
   Search,
   Receipt,
-  Banknote,
-  CheckCircle2,
-  Clock,
   Building2,
   Calendar,
   Eye,
@@ -65,15 +61,11 @@ type RetailSale = {
   customerPhone?: string
   fulfillmentType: string
   pickupStatus: string
-  paymentStatus: string
   subtotal: string | number
   taxAmount: string | number
   depositTotal: string | number
   depositCreditTotal: string | number
   totalAmount: string | number
-  amountPaid: string | number
-  changeAmount: string | number
-  balanceRemaining: string | number
   items: RetailSaleItem[]
 }
 
@@ -91,7 +83,6 @@ export function RetailTransactionsView() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [warehouseFilter, setWarehouseFilter] = useState('ALL')
-  const [paymentFilter, setPaymentFilter] = useState('ALL')
   const [selectedReceipt, setSelectedReceipt] = useState<RetailSale | null>(null)
 
   const fetchSales = useCallback(async () => {
@@ -143,39 +134,14 @@ export function RetailTransactionsView() {
         (sale.walkInContact && sale.walkInContact.toLowerCase().includes(q)) ||
         (sale.warehouseName && sale.warehouseName.toLowerCase().includes(q))
 
-      const matchesPayment =
-        paymentFilter === 'ALL' ||
-        String(sale.paymentStatus).toUpperCase() === paymentFilter
-
-      return matchesSearch && matchesPayment
+      return matchesSearch
     })
-  }, [sales, searchQuery, paymentFilter])
+  }, [sales, searchQuery])
 
   // Summary Metrics
   const totalRevenue = useMemo(() => {
     return sales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
   }, [sales])
-
-  const totalPaid = useMemo(() => {
-    return sales.reduce((sum, s) => sum + Number(s.amountPaid || 0), 0)
-  }, [sales])
-
-  const fullyPaidCount = useMemo(() => {
-    return sales.filter((s) => String(s.paymentStatus).toUpperCase() === 'PAID').length
-  }, [sales])
-
-  const pendingPayments = useMemo(() => {
-    return sales.filter((s) => ['PARTIALLY_PAID', 'PENDING', 'UNPAID'].includes(String(s.paymentStatus).toUpperCase()))
-      .length
-  }, [sales])
-
-  const getPaymentBadgeClass = (status: string) => {
-    const s = String(status || '').toUpperCase()
-    if (s === 'PAID') return 'bg-emerald-100 text-emerald-800 border-emerald-200'
-    if (s === 'PARTIALLY_PAID') return 'bg-amber-100 text-amber-800 border-amber-200'
-    if (s === 'CANCELLED' || s === 'VOID') return 'bg-red-100 text-red-800 border-red-200'
-    return 'bg-rose-100 text-rose-800 border-rose-200'
-  }
 
   return (
     <div className="space-y-6">
@@ -187,7 +153,7 @@ export function RetailTransactionsView() {
             Retail / Counter Transactions
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Track walk-in POS counter sales and payment settlements across warehouses.
+            Track walk-in counter sales and transaction details across warehouses.
           </p>
         </div>
         <Button
@@ -219,50 +185,6 @@ export function RetailTransactionsView() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-emerald-50/50 to-white">
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Collected Payments</p>
-                <p className="text-2xl font-bold text-emerald-700 mt-1">{formatPeso(totalPaid)}</p>
-                <p className="text-xs text-slate-500 mt-0.5">Settled at counter</p>
-              </div>
-              <div className="rounded-xl p-2.5 bg-emerald-100 text-emerald-600">
-                <Banknote className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-indigo-50/50 to-white">
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Fully Settled Sales</p>
-                <p className="text-2xl font-bold text-indigo-700 mt-1">{fullyPaidCount}</p>
-                <p className="text-xs text-slate-500 mt-0.5">Paid in full at release</p>
-              </div>
-              <div className="rounded-xl p-2.5 bg-indigo-100 text-indigo-600">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-amber-50/50 to-white">
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Pending Balances</p>
-                <p className="text-2xl font-bold text-amber-700 mt-1">{pendingPayments}</p>
-                <p className="text-xs text-slate-500 mt-0.5">Unsettled counter balances</p>
-              </div>
-              <div className="rounded-xl p-2.5 bg-amber-100 text-amber-600">
-                <Clock className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Main Table Card */}
@@ -302,17 +224,6 @@ export function RetailTransactionsView() {
                 ))}
               </select>
 
-              {/* Payment filter */}
-              <select
-                value={paymentFilter}
-                onChange={(e) => setPaymentFilter(e.target.value)}
-                className="h-9 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
-              >
-                <option value="ALL">All Payments</option>
-                <option value="PAID">Paid</option>
-                <option value="PARTIALLY_PAID">Partially Paid</option>
-                <option value="PENDING">Pending</option>
-              </select>
             </div>
           </div>
         </CardHeader>
@@ -343,8 +254,6 @@ export function RetailTransactionsView() {
                     <th className="px-4 py-3">Customer</th>
                     <th className="px-4 py-3 text-center">Items</th>
                     <th className="px-4 py-3 text-right">Total Amount</th>
-                    <th className="px-4 py-3 text-right">Amount Paid</th>
-                    <th className="px-4 py-3 text-center">Payment Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -398,14 +307,6 @@ export function RetailTransactionsView() {
                         <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">
                           {formatPeso(sale.totalAmount)}
                         </td>
-                        <td className="px-4 py-3 text-right font-medium text-emerald-700 whitespace-nowrap">
-                          {formatPeso(sale.amountPaid)}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Badge variant="outline" className={getPaymentBadgeClass(sale.paymentStatus)}>
-                            {sale.paymentStatus || 'UNPAID'}
-                          </Badge>
-                        </td>
                         <td className="px-4 py-3 text-right">
                           <Button
                             size="sm"
@@ -447,9 +348,6 @@ export function RetailTransactionsView() {
                       • {selectedReceipt.warehouseName || 'Warehouse'}
                     </DialogDescription>
                   </div>
-                  <Badge variant="outline" className={getPaymentBadgeClass(selectedReceipt.paymentStatus)}>
-                    {selectedReceipt.paymentStatus}
-                  </Badge>
                 </div>
               </DialogHeader>
 
@@ -538,22 +436,6 @@ export function RetailTransactionsView() {
                   <span>Total Amount:</span>
                   <span className="text-sky-700">{formatPeso(selectedReceipt.totalAmount)}</span>
                 </div>
-                <div className="flex justify-between text-slate-600 pt-1">
-                  <span>Amount Paid:</span>
-                  <span className="font-semibold text-emerald-700">{formatPeso(selectedReceipt.amountPaid)}</span>
-                </div>
-                {Number(selectedReceipt.changeAmount || 0) > 0 && (
-                  <div className="flex justify-between text-slate-500">
-                    <span>Change Returned:</span>
-                    <span>{formatPeso(selectedReceipt.changeAmount)}</span>
-                  </div>
-                )}
-                {Number(selectedReceipt.balanceRemaining || 0) > 0 && (
-                  <div className="flex justify-between text-amber-700 font-semibold">
-                    <span>Remaining Balance:</span>
-                    <span>{formatPeso(selectedReceipt.balanceRemaining)}</span>
-                  </div>
-                )}
               </div>
 
               <DialogFooter className="border-t pt-3 flex gap-2">

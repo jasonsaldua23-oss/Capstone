@@ -124,7 +124,7 @@ model Product {
   description  String?
   categoryId   String?
   category     ProductCategory? @relation(fields: [categoryId], references: [id])
-  unit         String    @default("case") // case or pack(bundle)
+  unit         String    @default("case") // case or pack
   weight       Float?
   dimensions   String?   // LxWxH in cm
   price        Float     @default(0)

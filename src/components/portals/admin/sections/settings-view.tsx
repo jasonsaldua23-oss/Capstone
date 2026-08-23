@@ -26,12 +26,38 @@ import {
   XCircle,
 } from 'lucide-react'
 
+function formatFullName(
+  firstName?: string | null,
+  middleName?: string | null,
+  lastName?: string | null,
+  suffix?: string | null,
+  fallback?: string
+): string {
+  const first = (firstName || '').trim()
+  const middle = (middleName || '').trim()
+  const last = (lastName || '').trim()
+  const suf = (suffix || '').trim()
+
+  const parts: string[] = []
+  if (first) parts.push(first)
+  if (middle) {
+    const cleanM = middle.replace(/\.+$/, '')
+    if (cleanM) parts.push(`${cleanM.charAt(0).toUpperCase()}.`)
+  }
+  if (last) parts.push(last)
+
+  let result = parts.join(' ')
+  if (suf) result = result ? `${result} ${suf}` : suf
+  return result || fallback || ''
+}
+
 export function SettingsView() {
   const { user, setUser } = useAuth()
   const [name, setName] = useState(user?.name || '')
   const [firstName, setFirstName] = useState(String((user as any)?.firstName || ''))
   const [middleName, setMiddleName] = useState(String((user as any)?.middleName || ''))
   const [lastName, setLastName] = useState(String((user as any)?.lastName || ''))
+  const [suffix, setSuffix] = useState(String((user as any)?.suffix || ''))
   const [email, setEmail] = useState(user?.email || '')
   const [phone, setPhone] = useState(String((user as any)?.phone || ''))
   const [newPassword, setNewPassword] = useState('')
@@ -109,6 +135,7 @@ export function SettingsView() {
     setFirstName(String((user as any)?.firstName || nameParts[0] || ''))
     setMiddleName(String((user as any)?.middleName || ''))
     setLastName(String((user as any)?.lastName || nameParts.slice(1).join(' ') || ''))
+    setSuffix(String((user as any)?.suffix || ''))
     setEmail(String((user as any)?.email || ''))
     setPhone(String((user as any)?.phone || ''))
     setAvatarFile(null)
@@ -257,10 +284,11 @@ export function SettingsView() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: [firstName, middleName, lastName].filter(Boolean).join(' '),
+          name: formatFullName(firstName, middleName, lastName, suffix, name),
           firstName,
           middleName,
           lastName,
+          suffix: suffix.trim() || null,
           email,
           phone,
           avatar: nextAvatar,
@@ -274,18 +302,20 @@ export function SettingsView() {
       const nextUser = data?.user || {}
       setUser((prev: any) => ({
         ...(prev || {}),
-        name: nextUser.name ?? name,
+        name: nextUser.name ?? formatFullName(firstName, middleName, lastName, suffix, name),
         firstName: nextUser.firstName ?? firstName,
         middleName: nextUser.middleName ?? middleName,
         lastName: nextUser.lastName ?? lastName,
+        suffix: nextUser.suffix ?? suffix,
         email: nextUser.email ?? email,
         phone: nextUser.phone ?? phone,
         avatar: nextUser.avatar ?? nextAvatar,
       }))
-      setName(String(nextUser.name ?? name))
+      setName(String(nextUser.name ?? formatFullName(firstName, middleName, lastName, suffix, name)))
       setFirstName(String(nextUser.firstName ?? firstName))
       setMiddleName(String(nextUser.middleName ?? middleName))
       setLastName(String(nextUser.lastName ?? lastName))
+      setSuffix(String(nextUser.suffix ?? suffix))
       setEmail(String(nextUser.email ?? email))
       setPhone(String(nextUser.phone ?? phone))
       setAvatarFile(null)
@@ -437,8 +467,11 @@ export function SettingsView() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 truncate">{name || user?.name || 'User'}</p>
-                  <p className="text-xs text-slate-500 truncate">{email || user?.email || 'No email provided'}</p>
+                  <p className="text-sm font-bold text-slate-900 truncate">
+                    {formatFullName(firstName, middleName, lastName, suffix, name || user?.name || 'User')}
+                  </p>
+                  <p className="text-xs text-slate-400 font-medium">Live Preview (Middle Initial)</p>
+                  <p className="text-xs text-slate-500 truncate mt-0.5">{email || user?.email || 'No email provided'}</p>
                   <Button
                     type="button"
                     variant="outline"
@@ -452,7 +485,7 @@ export function SettingsView() {
               </div>
 
               <div className="space-y-1.5">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <label htmlFor="first-name" className="text-xs font-semibold text-slate-700">First Name</label>
                     <Input id="first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="First name" />
@@ -464,6 +497,10 @@ export function SettingsView() {
                   <div>
                     <label htmlFor="last-name" className="text-xs font-semibold text-slate-700">Last Name</label>
                     <Input id="last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Last name" />
+                  </div>
+                  <div>
+                    <label htmlFor="suffix" className="text-xs font-semibold text-slate-700">Suffix <span className="font-normal text-slate-400">(Optional)</span></label>
+                    <Input id="suffix" value={suffix} onChange={(e) => setSuffix(e.target.value)} className="mt-1 h-10 text-sm" placeholder="e.g. Jr., Sr., III" />
                   </div>
                 </div>
               </div>
