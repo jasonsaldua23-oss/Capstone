@@ -1687,8 +1687,12 @@ def _serialize_order(
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
     normalized_order_status = str(data.get("status") or "").strip().upper()
+    request_status_value = str(data.get("requestStatus") or "").strip().upper()
     stage_value = str(data.get("purchaseOrderStage") or "").strip().upper()
-    if not stage_value or (stage_value == PurchaseOrderStage.APPROVED and normalized_order_status != OrderStatus.CONFIRMED):
+    # Only approved purchase requests may expose a derived Purchase Order stage.
+    if request_status_value == PurchaseRequestStatus.APPROVED and (
+        not stage_value or (stage_value == PurchaseOrderStage.APPROVED and normalized_order_status != OrderStatus.CONFIRMED)
+    ):
         stage_by_status = {
             OrderStatus.CONFIRMED: PurchaseOrderStage.APPROVED,
             OrderStatus.PREPARING: PurchaseOrderStage.PROCESSING,
@@ -1821,7 +1825,8 @@ def _serialize_order(
             },
         }
 
-    is_approved_order = str(data.get("requestStatus") or "").strip().upper() == PurchaseRequestStatus.APPROVED or str(order.status or "").strip().upper() not in {OrderStatus.PENDING}
+    # A workflow status alone must never promote an unapproved request into a PO.
+    is_approved_order = request_status_value == PurchaseRequestStatus.APPROVED
     po_num = str(getattr(order, "purchase_order_number", "") or "").strip() or None
     pr_num = str(getattr(order, "purchase_request_number", "") or "").strip() or str(order.order_number or "").strip()
 
@@ -6842,6 +6847,14 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         if staff_role != RoleType.WAREHOUSE_STAFF:
             return _err("Only warehouse staff can approve purchase requests", 403)
 
+    # Pending requests must go through approval before any PO fulfillment stage.
+    if is_pending_request and next_status not in {
+        OrderStatus.CONFIRMED,
+        OrderStatus.REJECTED,
+        OrderStatus.CANCELLED,
+    }:
+        return _err("Purchase request must be approved before processing", 400)
+
     if is_pending_request and next_status == OrderStatus.REJECTED and not rejection_reason:
         return _err("A rejection reason is required", 400)
 
@@ -6875,6 +6888,24 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 o.approved_by_name = actor_name
                 o.approved_at = now
                 update_fields.extend(["request_status", "purchase_order_stage", "approved_by_user_id", "approved_by_name", "approved_at"])
+            elif is_pending_request and next_status == OrderStatus.REJECTED:
+                # Keep rejected requests as PR records without creating a PO stage.
+                o.request_status = PurchaseRequestStatus.REJECTED
+                o.purchase_order_stage = None
+                o.rejected_by_user_id = actor_id
+                o.rejected_by_name = actor_name
+                o.rejection_reason = rejection_reason
+                o.rejected_at = now
+                update_fields.extend(["request_status", "purchase_order_stage", "rejected_by_user_id", "rejected_by_name", "rejection_reason", "rejected_at"])
+            elif is_pending_request and next_status == OrderStatus.CANCELLED:
+                # Keep cancelled requests as PR records without creating a PO stage.
+                o.request_status = PurchaseRequestStatus.CANCELLED
+                o.purchase_order_stage = None
+                o.cancelled_by_user_id = actor_id
+                o.cancelled_by_name = actor_name
+                o.cancellation_reason = rejection_reason or "Cancelled by warehouse staff"
+                o.cancelled_at = now
+                update_fields.extend(["request_status", "purchase_order_stage", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason", "cancelled_at"])
             elif next_status == OrderStatus.PREPARING:
                 o.purchase_order_stage = PurchaseOrderStage.PROCESSING
                 update_fields.append("purchase_order_stage")
@@ -6884,27 +6915,24 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             elif next_status == OrderStatus.DELIVERED:
                 o.purchase_order_stage = PurchaseOrderStage.DELIVERED
                 update_fields.append("purchase_order_stage")
-            elif next_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+            elif next_status == OrderStatus.CANCELLED:
                 o.purchase_order_stage = PurchaseOrderStage.CANCELLED
-                update_fields.append("purchase_order_stage")
-            elif is_pending_request and next_status == OrderStatus.REJECTED:
-                o.request_status = PurchaseRequestStatus.REJECTED
+                o.cancelled_by_user_id = actor_id
+                o.cancelled_by_name = actor_name
+                o.cancellation_reason = rejection_reason or "Cancelled by warehouse staff"
+                o.cancelled_at = now
+                update_fields.extend(["purchase_order_stage", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason", "cancelled_at"])
+            elif next_status == OrderStatus.REJECTED:
+                o.purchase_order_stage = PurchaseOrderStage.CANCELLED
                 o.rejected_by_user_id = actor_id
                 o.rejected_by_name = actor_name
                 o.rejection_reason = rejection_reason
                 o.rejected_at = now
-                update_fields.extend(["request_status", "rejected_by_user_id", "rejected_by_name", "rejection_reason", "rejected_at"])
-            elif is_pending_request and next_status == OrderStatus.CANCELLED:
-                o.request_status = PurchaseRequestStatus.CANCELLED
-                o.cancelled_by_user_id = actor_id
-                o.cancelled_by_name = actor_name
-                o.cancellation_reason = rejection_reason
-                o.cancelled_at = now
-                update_fields.extend(["request_status", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason", "cancelled_at"])
+                update_fields.extend(["purchase_order_stage", "rejected_by_user_id", "rejected_by_name", "rejection_reason", "rejected_at"])
 
             if rejection_reason:
                 existing_notes = str(getattr(o, "notes", "") or "").strip()
-                note_line = f"Order Rejected: {rejection_reason}"
+                note_line = f"Order Note: {rejection_reason}"
                 o.notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
                 update_fields.append("notes")
             o.save(update_fields=list(dict.fromkeys(update_fields)))

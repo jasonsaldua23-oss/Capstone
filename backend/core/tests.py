@@ -369,6 +369,21 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertEqual(self.order.approved_by_name, self.staff.name)
         self.assertIsNotNone(self.order.approved_at)
 
+    def test_pending_request_cannot_skip_approval_and_start_processing(self) -> None:
+        response = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data='{"status":"PREPARING"}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.request_status, "PENDING_APPROVAL")
+        self.assertEqual(self.order.status, OrderStatus.PENDING)
+        self.assertFalse(bool(self.order.purchase_order_number))
+        self.assertFalse(bool(self.order.purchase_order_stage))
+
     def test_reject_pending_request_requires_reason_and_does_not_create_purchase_order(self) -> None:
         missing_reason = self.client.patch(
             f"/api/orders/{self.order.id}/status",

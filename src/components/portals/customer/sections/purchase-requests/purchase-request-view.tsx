@@ -285,8 +285,8 @@ export function CustomerPurchaseRequestView(props: any) {
             const displayId = rawId.startsWith('PR-') ? rawId : (rawId.startsWith('PO-') ? `PR-${rawId.slice(3)}` : (rawId || 'PR'))
             const submittedDt = formatDateTime(o.createdAt)
             const orderItems = Array.isArray(o.items) ? o.items : []
-            const isPending = status === 'PENDING_APPROVAL'
-            const cancellable = isPending && isOrderCancellable(o.status, o.paymentStatus)
+            const isPending = status === 'PENDING_APPROVAL' || String(o.status || '').toUpperCase() === 'PENDING'
+            const cancellable = isPending
 
             return (
               <div

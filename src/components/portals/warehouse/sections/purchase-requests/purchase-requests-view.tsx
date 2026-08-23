@@ -172,7 +172,8 @@ export function WarehousePurchaseRequestsView({
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
                         <td className="px-4 py-3 font-semibold text-slate-900">
-                          {requestStatus === 'APPROVED' ? order.orderNumber : (order.purchaseRequestNumber || order.orderNumber)}
+                          {/* Keep the original PR identity in PR history even after a PO is created. */}
+                          {order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber}
                         </td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                         <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>

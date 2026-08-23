@@ -491,7 +491,13 @@ export function CustomerPortal() {
       if (!response?.ok || data?.success === false) {
         throw new Error(data?.error || 'Failed to fetch orders')
       }
-      setOrders(Array.isArray(data?.orders) ? data.orders : [])
+      const freshOrders = Array.isArray(data?.orders) ? data.orders : []
+      setOrders(freshOrders)
+      setSelectedOrder((prev: any) => {
+        if (!prev) return null
+        const fresh = freshOrders.find((o: any) => o.id === prev.id)
+        return fresh ? { ...prev, ...fresh } : prev
+      })
     } catch (error: any) {
       console.warn('Failed to load orders:', error)
     } finally {
@@ -616,6 +622,8 @@ export function CustomerPortal() {
         if (includeMeta) {
           await fetchOrderMeta()
         }
+      } catch (error: any) {
+        console.warn('Failed to load orders:', error)
       } finally {
         isRefreshingOrdersRef.current = false
       }
@@ -624,7 +632,12 @@ export function CustomerPortal() {
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes || []
       const shouldRefreshTrack = activeView === 'track' && !isSelectedTrackingOrderDelivered
-      const shouldRefreshOrdersView = activeView === 'orders' || activeView === 'purchase-requests'
+      const shouldRefreshOrdersView = [
+        'orders',
+        'purchase-requests',
+        'purchase-request-detail',
+        'order-detail',
+      ].includes(activeView)
       if (
         (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('replacements')) &&
         (shouldRefreshOrdersView || shouldRefreshTrack)
@@ -637,7 +650,10 @@ export function CustomerPortal() {
     })
 
     const onFocus = () => {
-      if (activeView === 'orders' || activeView === 'purchase-requests' || (activeView === 'track' && !isSelectedTrackingOrderDelivered)) {
+      if (
+        ['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail'].includes(activeView) ||
+        (activeView === 'track' && !isSelectedTrackingOrderDelivered)
+      ) {
         refreshOrders(true)
       }
     }
@@ -645,17 +661,28 @@ export function CustomerPortal() {
     const onVisibilityChange = () => {
       if (
         document.visibilityState === 'visible' &&
-        (activeView === 'orders' || activeView === 'purchase-requests' || (activeView === 'track' && !isSelectedTrackingOrderDelivered))
+        (['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail'].includes(activeView) ||
+          (activeView === 'track' && !isSelectedTrackingOrderDelivered))
       ) {
         refreshOrders(true)
       }
     }
+
+    const pollInterval = setInterval(() => {
+      if (
+        document.visibilityState === 'visible' &&
+        ['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail', 'track'].includes(activeView)
+      ) {
+        void refreshOrders(true)
+      }
+    }, 4000)
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       unsubscribe()
+      clearInterval(pollInterval)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
@@ -689,10 +716,6 @@ export function CustomerPortal() {
       description?: string
     }>,
   ) => {
-    if (!orderId) throw new Error('Order reference is missing')
-    if (!Number.isFinite(numberDamagedItems) || numberDamagedItems <= 0) {
-      throw new Error('Number of damaged items must be greater than zero')
-    }
     if (!damageType.trim()) throw new Error('Reason / type of damage is required')
     if (!files.length) throw new Error('At least one evidence file is required')
     const uploaded: string[] = []

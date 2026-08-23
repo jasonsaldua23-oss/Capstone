@@ -135,11 +135,16 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
     return Boolean(order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
   }
 
-  // Purchase requests remain separate until an approved purchase order exists.
-  const isPurchaseRequestOrder = (order: any): boolean => {
+  // A PO exists only after warehouse approval created its PO number and stage.
+  const isApprovedPurchaseOrder = (order: any): boolean => {
     const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
     const purchaseOrderStage = order?.purchaseOrderStage || order?.purchase_order_stage
-    return requestStatus === 'PENDING_APPROVAL' || Boolean(!purchaseOrderStage)
+    const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
+    return requestStatus === 'APPROVED' && Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
+  }
+
+  const isPurchaseRequestOrder = (order: any): boolean => {
+    return !isApprovedPurchaseOrder(order)
   }
 
   useEffect(() => {
@@ -153,7 +158,11 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
         const parsed = JSON.parse(raw)
         const cached = Array.isArray(parsed) ? parsed : []
         if (cached.length > 0 && isMounted) {
-          setOrders(cached)
+          // Deduplicate cached rows by order ID before they reach either PR or PO tables.
+          const uniqueCached = Array.from(
+            new Map(cached.filter((row: any) => row?.id).map((row: any) => [String(row.id), row])).values()
+          )
+          setOrders(uniqueCached)
           latestOrderUpdatedAtRef.current = getMaxUpdatedAt(cached)
         }
       } catch {
@@ -239,9 +248,10 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
           if (fallback.ok && isMounted) {
             const fallbackOrders = getCollection<any>(fallback.data, ['orders'])
             if (fallbackOrders.length > 0) {
-              setOrders(fallbackOrders)
-              latestOrderUpdatedAtRef.current = getMaxUpdatedAt(fallbackOrders)
-              saveCachedOrders(fallbackOrders)
+              const uniqueFallbackOrders = mergeOrders([], fallbackOrders)
+              setOrders(uniqueFallbackOrders)
+              latestOrderUpdatedAtRef.current = getMaxUpdatedAt(uniqueFallbackOrders)
+              saveCachedOrders(uniqueFallbackOrders)
               return
             }
           }
@@ -257,7 +267,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
         }
 
         if (isMounted) {
-          const fullOrders = getCollection<any>(result.data, ['orders'])
+          // Full paginated responses can overlap while records are updated; merge by ID once.
+          const fullOrders = mergeOrders([], getCollection<any>(result.data, ['orders']))
           setOrders(fullOrders)
           latestOrderUpdatedAtRef.current = getMaxUpdatedAt(fullOrders)
           saveCachedOrders(fullOrders)
@@ -562,9 +573,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
 
     return orders.filter((order) => {
       if (isReplacementOrder(order)) return false
-      // Keep requests hidden from Purchase Orders and completed orders hidden from Purchase Requests.
+      // Never show an order in the PO view until warehouse approval created the PO metadata.
       if (mode === 'requests' && !isPurchaseRequestOrder(order)) return false
-      if (mode === 'orders' && isPurchaseRequestOrder(order)) return false
+      if (mode === 'orders' && !isApprovedPurchaseOrder(order)) return false
 
       const search = orderSearchQuery.trim().toLowerCase()
       if (search) {
@@ -927,7 +938,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                           ? order.items.map((item: any) => String(item?.productName || item?.product?.name || 'Product')).join(', ')
                           : 'No products'
                         const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
-                        const reqId = requestStatus === 'APPROVED' ? order.orderNumber : (order.purchaseRequestNumber || order.orderNumber)
+                        // Keep the original PR identity in PR history even after a PO is created.
+                        const reqId = order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber
 
                         return (
                           <tr key={order.id} className="border-t border-slate-200 align-top text-sm hover:bg-slate-50/70 transition-colors">

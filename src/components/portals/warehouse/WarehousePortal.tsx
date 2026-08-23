@@ -2414,7 +2414,8 @@ export function WarehousePortal() {
         lightweightDetails: options?.lightweightDetails,
       })
 
-      const list = getCollection<WarehouseOrderItem>(result.data, ['orders'])
+      // Normalize overlapping paginated results so each order appears only once in PR and PO views.
+      const list = mergeWarehouseOrders([], getCollection<WarehouseOrderItem>(result.data, ['orders']))
       setOrders(list)
       if (!options?.summaryOnly) orderDetailsLoadedRef.current = true
       latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(list)

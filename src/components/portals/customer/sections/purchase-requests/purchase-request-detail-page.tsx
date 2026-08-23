@@ -99,7 +99,7 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
   const cancellable = isPending && isOrderCancellable(order.status, order.paymentStatus)
 
   return (
-    <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f8fafc] pb-8 md:mx-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white">
+    <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f8fafc] pb-20 md:mx-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:pb-8">
       {/* ── Back Navigation Header ── */}
       <div className="border-b border-slate-200 px-3 py-3 md:px-5">
         <button
@@ -217,9 +217,9 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
             Requested Items ({items.length} item{items.length === 1 ? '' : 's'})
           </div>
 
-          <div className="grid grid-cols-[minmax(0,1fr)_56px_86px_98px] border-b border-slate-200 px-4 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid-cols-[minmax(0,1fr)_80px_110px_120px] md:px-5 md:text-xs">
+          <div className="grid grid-cols-[1fr_40px_70px_80px] border-b border-slate-200 px-4 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid-cols-[1fr_60px_90px_100px] md:px-5 md:text-xs">
             <span>Product</span>
-            <span className="text-right">Qty</span>
+            <span className="text-center">Qty</span>
             <span className="text-right">Unit Price</span>
             <span className="text-right">Subtotal</span>
           </div>
@@ -228,16 +228,16 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
             {items.map((item: any, idx: number) => (
               <div
                 key={item?.id || idx}
-                className="grid grid-cols-[minmax(0,1fr)_56px_86px_98px] items-center px-4 py-3 text-xs md:grid-cols-[minmax(0,1fr)_80px_110px_120px] md:px-5 md:text-sm"
+                className="grid grid-cols-[1fr_40px_70px_80px] items-center gap-1 px-4 py-3 text-xs md:grid-cols-[1fr_60px_90px_100px] md:px-5 md:text-sm"
               >
-                <div className="flex items-center gap-3 pr-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <img
                     src={getProductImage(item?.product?.imageUrl)}
                     alt={item?.product?.name || 'Product'}
                     className="h-9 w-9 shrink-0 rounded-lg border border-slate-200 bg-slate-50 object-cover md:h-11 md:w-11"
                   />
-                  <div className="min-w-0">
-                    <p className="font-medium text-slate-800 break-words leading-snug">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-slate-800 leading-snug">
                       {getItemDisplayNameWithSize(item)}
                     </p>
                     {item?.itemType === 'MIXED_CASE' && (
@@ -257,7 +257,7 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
                   </div>
                 </div>
 
-                <span className="text-right font-medium text-slate-700">
+                <span className="text-center font-medium text-slate-700">
                   {item.quantity}
                 </span>
 
@@ -305,39 +305,6 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
             <p className="mt-1 text-xs text-slate-600 whitespace-pre-wrap md:text-sm">{orderNotes}</p>
           </div>
         )}
-
-        {/* ── Action Buttons ── */}
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          {status === 'APPROVED' && (
-            <Button
-              className="h-10 rounded-lg bg-emerald-600 text-xs font-medium text-white hover:bg-emerald-500 md:text-sm"
-              onClick={() => {
-                setSelectedOrder?.(order)
-                setActiveView?.('orders')
-              }}
-            >
-              View Purchase Order →
-            </Button>
-          )}
-
-          {cancellable && (
-            <Button
-              variant="outline"
-              className="h-10 rounded-lg border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 md:text-sm"
-              onClick={() => void cancelOrder?.(order.id)}
-            >
-              Cancel Request
-            </Button>
-          )}
-
-          <Button
-            variant="outline"
-            className="h-10 rounded-lg border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-50 md:text-sm"
-            onClick={onBack}
-          >
-            Back
-          </Button>
-        </div>
       </div>
     </section>
   )

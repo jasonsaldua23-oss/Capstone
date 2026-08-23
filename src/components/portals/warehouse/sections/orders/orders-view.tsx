@@ -38,6 +38,14 @@ function getOrderStage(order: any): string {
   return explicit || 'APPROVED'
 }
 
+function isApprovedPurchaseOrder(order: any): boolean {
+  const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
+  const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
+  const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
+  // Approval must create all PO workflow metadata before this record can enter the PO view.
+  return requestStatus === 'APPROVED' && Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
+}
+
 function isMixedCaseItem(item: any) {
   return String(item?.itemType || item?.item_type || '').toUpperCase() === 'MIXED_CASE'
 }
@@ -88,6 +96,7 @@ export function WarehouseOrdersView({
     return Array.from(
       new Set(
         purchaseOrders
+          .filter(isApprovedPurchaseOrder)
           .map((order) => String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim())
           .filter(Boolean)
       )
@@ -99,6 +108,7 @@ export function WarehouseOrdersView({
     const min = Number(minAmount)
     const max = Number(maxAmount)
     return purchaseOrders.filter((order) => {
+      if (!isApprovedPurchaseOrder(order)) return false
       const purchaseOrderStage = getOrderStage(order)
       const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
       const amount = Number(order?.totalAmount || 0)
