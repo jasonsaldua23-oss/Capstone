@@ -43,6 +43,9 @@ let negrosBoundaryCache: NegrosBoundary | null = null;
 let negrosBoundaryPromise: Promise<NegrosBoundary | null> | null = null;
 let serviceBoundaryCache: ServiceBoundary | null = null;
 let serviceBoundaryPromise: Promise<ServiceBoundary | null> | null = null;
+// Keeps the latest successful road geometry available if the map remounts while
+// the external routing service is temporarily unavailable.
+const roadSnappedRouteCache = new Map<string, [number, number][]>();
 
 function getFeatureName(feature: any) {
   const props = feature?.properties || {};
@@ -965,7 +968,9 @@ export default function LiveTrackingMap({
   );
 
   const [smoothedLocations, setSmoothedLocations] = useState<DriverLocation[]>(rawSafeLocations);
-  const [snappedRoutePointsById, setSnappedRoutePointsById] = useState<Record<string, [number, number][]>>({});
+  const [snappedRoutePointsById, setSnappedRoutePointsById] = useState<Record<string, [number, number][]>>(
+    () => Object.fromEntries(roadSnappedRouteCache.entries())
+  );
   const [currentZoom, setCurrentZoom] = useState(zoom);
   const [negrosBoundary, setNegrosBoundary] = useState<NegrosBoundary | null>(null);
   const [serviceBoundary, setServiceBoundary] = useState<ServiceBoundary | null>(null);
@@ -1102,6 +1107,9 @@ export default function LiveTrackingMap({
       }
 
       // Preserve the last successful road geometry during transient OSRM errors.
+      Object.entries(nextSnappedLines).forEach(([lineId, points]) => {
+        roadSnappedRouteCache.set(lineId, points);
+      });
       setSnappedRoutePointsById((previous) => ({ ...previous, ...nextSnappedLines }));
     };
 
@@ -1118,7 +1126,7 @@ export default function LiveTrackingMap({
       safeRouteLines.flatMap((line) => {
         if (!line.snapToRoad) return [line];
         const snappedPoints = snappedRoutePointsById[line.id];
-        // Fix: never render raw waypoint-to-waypoint segments for road routes.
+        // Only render verified road geometry; never draw a shortcut across buildings.
         if (!snappedPoints || snappedPoints.length < 2) return [];
         return [{ ...line, points: snappedPoints }];
       }),

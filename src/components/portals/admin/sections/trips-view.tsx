@@ -53,7 +53,7 @@ const AddressMapPicker = dynamic(
 )
 
 export function TripsView() {
-    const [selectedTrip, setSelectedTrip] = useState<any | null>(null)
+  const [selectedTrip, setSelectedTrip] = useState<any | null>(null)
   const [tripToDelete, setTripToDelete] = useState<any | null>(null)
   const [deleteTripOpen, setDeleteTripOpen] = useState(false)
   const [isDeletingTrip, setIsDeletingTrip] = useState(false)
@@ -80,15 +80,13 @@ export function TripsView() {
   const [isLoading, setIsLoading] = useState(true)
   const savedRoutesGetUnsupportedRef = useRef(false)
 
-  // Auto-fill popup when opened
+  // Auto-fill default warehouse and date when dialog opens (no automatic fetch).
   useEffect(() => {
     if (createRouteOpen && warehouses.length > 0) {
       const effectiveWarehouseId = routeWarehouseId || warehouses[0].id
       const effectiveDate = routeDate || getDefaultRouteDate()
       if (!routeWarehouseId) setRouteWarehouseId(effectiveWarehouseId)
       if (!routeDate) setRouteDate(effectiveDate)
-      // Always refresh whenever the route dialog is opened.
-      void createRoutePlan(true, effectiveDate, effectiveWarehouseId)
     }
   }, [createRouteOpen, warehouses])
 
@@ -905,13 +903,7 @@ export function TripsView() {
                   type="date"
                   value={routeDate}
                   min={new Date().toISOString().split('T')[0]}
-                  onChange={(e) => {
-                    const nextDate = e.target.value
-                    setRouteDate(nextDate)
-                    if (createRouteOpen && nextDate && routeWarehouseId) {
-                      void createRoutePlan(true, nextDate, routeWarehouseId)
-                    }
-                  }}
+                  onChange={(e) => setRouteDate(e.target.value)}
                   className="mt-1 h-9 text-sm"
                 />
               </div>

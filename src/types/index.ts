@@ -39,6 +39,7 @@ export interface AuthUser {
   avatar?: string | null
   role: string
   type: 'staff' | 'customer'
+  rememberMe?: boolean
   sessionTimeoutMinutes?: number
   depositBalance?: number
   bottleBalances?: CustomerBottleBalance[]

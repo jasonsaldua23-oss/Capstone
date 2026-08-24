@@ -4287,7 +4287,9 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     # Inactivity is enforced client-side via session timer; short absolute JWT lifetimes
     # cause active users to get unexpected 401s mid-session.
     token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
-    token = create_token(payload, token_exp_hours)
+    # Preserve the signed remember-me choice so restored sessions can reliably
+    # skip inactivity logout for the full (and only the full) 30-day lifetime.
+    token = create_token({**payload, "rememberMe": remember_me}, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
     if bool(getattr(user, "login_alerts_enabled", True)):
@@ -4338,7 +4340,8 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     payload = _user_payload(user)
     # Keep auth token lifetime independent from UI inactivity timeout.
     token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
-    token = create_token(payload, token_exp_hours)
+    # Preserve the original remember-me choice through the completed 2FA login.
+    token = create_token({**payload, "rememberMe": remember_me}, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
     if bool(getattr(user, "login_alerts_enabled", True)):
@@ -4373,7 +4376,10 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
     if not customer.is_active or not verify_password(password, customer.password):
         return _err("Invalid email or password", 401)
     payload = _customer_payload(customer)
-    token = create_token(payload, REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS)
+    token = create_token(
+        {**payload, "rememberMe": remember_me},
+        REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
+    )
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
     return resp
@@ -4463,7 +4469,10 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                 created = False
 
         payload = _customer_payload(customer)
-        token = create_token(payload, REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS)
+        token = create_token(
+            {**payload, "rememberMe": remember_me},
+            REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
+        )
         resp = _ok(
             {
                 "success": True,
@@ -4570,12 +4579,18 @@ def auth_me(request: HttpRequest) -> JsonResponse:
         user = User.objects.filter(id=p.get("userId"), is_active=True).first()
         if not user:
             return _err("Unauthorized", 401)
-        return _ok({"success": True, "user": _user_payload(user)})
+        user_payload = _user_payload(user)
+        # Return the signed session choice so every staff portal applies the
+        # same inactivity policy after a page reload.
+        user_payload["rememberMe"] = bool(p.get("rememberMe", False))
+        return _ok({"success": True, "user": user_payload})
     if p.get("type") == "customer":
         customer = Customer.objects.filter(id=p.get("userId"), is_active=True).first()
         if not customer:
             return _err("Unauthorized", 401)
-        return _ok({"success": True, "user": _customer_payload(customer)})
+        customer_payload = _customer_payload(customer)
+        customer_payload["rememberMe"] = bool(p.get("rememberMe", False))
+        return _ok({"success": True, "user": customer_payload})
     return _ok({"success": True, "user": p})
 
 
@@ -7110,7 +7125,11 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         if include_tracking and serialized_rows:
             trip_ids = [row.get("id") for row in serialized_rows if row.get("id")]
             latest_logs_qs = (
-                LocationLog.objects.filter(trip_id__in=trip_ids)
+                # Only expose a location when its owner matches the trip's driver account.
+                LocationLog.objects.filter(
+                    trip_id__in=trip_ids,
+                    driver_id=F("trip__driver_id"),
+                )
                 .order_by("trip_id", "-recorded_at", "-id")
             )
 
@@ -7764,7 +7783,8 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
     # Preserve the driver's last reliable fix even if it was recorded between trip links.
     latest_driver_log = LocationLog.objects.filter(driver=d).order_by("-recorded_at", "-id").first()
     if trip_ids:
-        logs = LocationLog.objects.filter(trip_id__in=trip_ids).order_by("trip_id", "-recorded_at")
+        # Keep every returned fix scoped to the authenticated driver's account.
+        logs = LocationLog.objects.filter(driver=d, trip_id__in=trip_ids).order_by("trip_id", "-recorded_at")
         for log in logs:
             if not log.trip_id:
                 continue
@@ -8284,7 +8304,11 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
 
     latest_log_by_trip: dict[str, LocationLog] = {}
     if trip_ids:
-        logs = LocationLog.objects.filter(trip_id__in=list(trip_ids)).order_by("trip_id", "-recorded_at")
+        # Ignore malformed legacy rows whose owner does not match the assigned trip driver.
+        logs = LocationLog.objects.filter(
+            trip_id__in=list(trip_ids),
+            driver_id=F("trip__driver_id"),
+        ).order_by("trip_id", "-recorded_at")
         for log in logs:
             if not log.trip_id:
                 continue
@@ -8358,7 +8382,9 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
             and destination_lng is not None
         ):
             remaining_distance_km = _haversine_km(float(driver_lat), float(driver_lng), float(destination_lat), float(destination_lng))
-            speed_kph = 24.0
+            # Prefer actual GPS speed (m/s → km/h) when available, fall back to 24 km/h.
+            raw_driver_speed = _to_float_or_none(getattr(latest_log, "speed", None)) if latest_log else None
+            speed_kph = (raw_driver_speed * 3.6) if raw_driver_speed is not None and raw_driver_speed > 0 else 24.0
             speed_kph = min(max(float(speed_kph), 10.0), 70.0)
             computed_eta = int(math.ceil((remaining_distance_km / speed_kph) * 60)) if remaining_distance_km > 0 else 1
             eta_minutes = max(1, computed_eta)
@@ -8418,6 +8444,9 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         return _err("Location accuracy is too low for live tracking", 400)
     heading = _to_float_or_none(body.get("heading"))
     altitude = _to_float_or_none(body.get("altitude"))
+    raw_speed = _to_float_or_none(body.get("speed"))
+    # Geolocation reports speed in m/s; clamp to reasonable driving range.
+    gps_speed = raw_speed if raw_speed is not None and 0 <= raw_speed <= 50 else None
     requested_trip_id = str(body.get("tripId") or "").strip()
     active_statuses = {"IN_PROGRESS", "IN_TRANSIT", "OUT_FOR_DELIVERY"}
     active_trip = Trip.objects.filter(driver_id=d.id, status__in=list(active_statuses)).order_by("-updated_at").first()
@@ -8451,6 +8480,7 @@ def driver_location(request: HttpRequest) -> JsonResponse:
             log.heading = heading
             log.altitude = altitude
             log.accuracy = accuracy
+            log.speed = gps_speed
             log.battery = body.get("battery")
             log.recorded_at = now
             log.save(
@@ -8461,6 +8491,7 @@ def driver_location(request: HttpRequest) -> JsonResponse:
                     "heading",
                     "altitude",
                     "accuracy",
+                    "speed",
                     "battery",
                     "recorded_at",
                 ]
@@ -8474,6 +8505,7 @@ def driver_location(request: HttpRequest) -> JsonResponse:
                 heading=heading,
                 altitude=altitude,
                 accuracy=accuracy,
+                speed=gps_speed,
                 battery=body.get("battery"),
                 recorded_at=now,
             )

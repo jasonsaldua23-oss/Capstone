@@ -1203,7 +1203,6 @@ export function WarehousePortal() {
       const effectiveDate = routeDate || getDefaultRouteDate()
       if (!routeWarehouseId) setRouteWarehouseId(effectiveWarehouseId)
       if (!routeDate) setRouteDate(effectiveDate)
-      void createRoutePlan(true, effectiveDate, effectiveWarehouseId)
     }
   }, [createRouteOpen, warehouses, editingTripState, routeWarehouseId, routeDate])
 
@@ -4993,13 +4992,7 @@ export function WarehousePortal() {
                   value={routeDate}
                   min={getLocalTodayDayKey()}
                   disabled={Boolean(editingTripState)}
-                  onChange={(e) => {
-                    const nextDate = e.target.value
-                    setRouteDate(nextDate)
-                    if (createRouteOpen && nextDate && routeWarehouseId) {
-                      void createRoutePlan(true, nextDate, routeWarehouseId)
-                    }
-                  }}
+                  onChange={(e) => setRouteDate(e.target.value)}
                   className="mt-1 h-9 text-sm"
                 />
               </div>

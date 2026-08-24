@@ -1275,11 +1275,13 @@ export function TripDetailView({
         if (cancelled) return
         const lat = Number(position.coords.latitude)
         const lng = Number(position.coords.longitude)
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const acc = Number(position.coords.accuracy)
+        // Reject inaccurate cell-tower fixes (> 150 m) for the preview marker.
+        if (Number.isFinite(lat) && Number.isFinite(lng) && (!Number.isFinite(acc) || acc <= 150)) {
           setPreviewDriverLocation({
             lat,
             lng,
-            accuracy: Number.isFinite(Number(position.coords.accuracy)) ? Number(position.coords.accuracy) : null,
+            accuracy: Number.isFinite(acc) ? acc : null,
             heading: Number.isFinite(Number(position.coords.heading)) ? Number(position.coords.heading) : null,
             speed: Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null,
             recordedAt: Number(position.timestamp || Date.now()),
@@ -1925,7 +1927,9 @@ export function TripDetailView({
         (position) => {
           const lat = Number(position.coords.latitude)
           const lng = Number(position.coords.longitude)
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const acc = Number(position.coords.accuracy)
+          // Reject inaccurate cell-tower fixes (> 150 m) for the recenter action.
+          if (Number.isFinite(lat) && Number.isFinite(lng) && (!Number.isFinite(acc) || acc <= 150)) {
             resolve({ lat, lng })
             return
           }

@@ -236,7 +236,7 @@ export default function Home() {
 
     // Keep-me-logged-in sessions are governed by the JWT's exact 30-day expiry.
     // Do not shorten them with the normal staff inactivity timeout.
-    if (hasPersistentTabAuthToken()) {
+    if (user.rememberMe === true || hasPersistentTabAuthToken()) {
       if (sessionTimerRef.current) {
         window.clearTimeout(sessionTimerRef.current)
         sessionTimerRef.current = null

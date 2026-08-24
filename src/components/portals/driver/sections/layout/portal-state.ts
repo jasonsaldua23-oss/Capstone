@@ -496,14 +496,6 @@ export function useDriverPortalState() {
       navigator.geolocation.getCurrentPosition(resolve, reject, options)
     })
 
-  const readCurrentPositionSafe = async (options?: PositionOptions) => {
-    try {
-      return await readCurrentPosition(options)
-    } catch {
-      return null
-    }
-  }
-
   const gpsFromPosition = (position: GeolocationPosition): DriverGpsLocation | null => {
     const lat = Number(position.coords.latitude)
     const lng = Number(position.coords.longitude)
@@ -640,14 +632,26 @@ export function useDriverPortalState() {
 
   // Attempts two high-accuracy position reads and picks the best sample.
   const getAccurateCurrentPosition = async () => {
-    const first = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 2000, timeout: 9000 })
+    let lastError: unknown = null
+    const readAccuratePosition = async () => {
+      try {
+        return await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 2000, timeout: 9000 })
+      } catch (error) {
+        // Fix: retain the browser error code so timeout and permission recovery still run.
+        lastError = error
+        return null
+      }
+    }
+
+    const first = await readAccuratePosition()
     let best = first ? gpsFromPosition(first) : null
     if (best && Number(best.accuracy ?? Number.POSITIVE_INFINITY) <= DRIVER_GPS_GOOD_ACCURACY_METERS) {
       return best
     }
 
-    const second = await readCurrentPositionSafe({ enableHighAccuracy: true, maximumAge: 2000, timeout: 9000 })
+    const second = await readAccuratePosition()
     const next = second ? gpsFromPosition(second) : null
+    if (!best && !next && lastError) throw lastError
     if (!best) return next
     if (next && Number(next.accuracy ?? Number.POSITIVE_INFINITY) < Number(best.accuracy ?? Number.POSITIVE_INFINITY)) {
       best = next

@@ -582,6 +582,7 @@ class LocationLog(models.Model):
     heading = models.FloatField(blank=True, null=True)
     altitude = models.FloatField(blank=True, null=True)
     accuracy = models.FloatField(blank=True, null=True)
+    speed = models.FloatField(blank=True, null=True, help_text="GPS speed in m/s")
     battery = models.IntegerField(blank=True, null=True)
     recorded_at = models.DateTimeField(default=timezone.now)
 

@@ -338,6 +338,49 @@ class DriverLocationAccuracyContractTests(TestCase):
         self.assertEqual(latest.longitude, 122.9509)
         self.assertEqual(latest.accuracy, 15)
 
+    def test_each_driver_account_keeps_its_own_latest_location(self) -> None:
+        other_driver = User.objects.create(
+            email="other.location.driver@example.com",
+            password="hashed",
+            name="Other Location Driver",
+            role="DRIVER",
+            is_active=True,
+        )
+        other_token = create_token(
+            {
+                "userId": other_driver.id,
+                "email": other_driver.email,
+                "name": other_driver.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+
+        first_response = self.client.post(
+            "/api/driver/location",
+            # A supplied driverId must never override the authenticated account owner.
+            data={"driverId": other_driver.id, "latitude": 10.6765, "longitude": 122.9509, "accuracy": 15},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        second_response = self.client.post(
+            "/api/driver/location",
+            data={"latitude": 10.7000, "longitude": 123.0000, "accuracy": 20},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {other_token}",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(LocationLog.objects.filter(driver=self.driver).count(), 1)
+        self.assertEqual(LocationLog.objects.filter(driver=other_driver).count(), 1)
+        self.assertEqual(LocationLog.objects.get(driver=self.driver).latitude, 10.6765)
+        self.assertEqual(LocationLog.objects.get(driver=other_driver).latitude, 10.7000)
+        self.assertNotEqual(
+            first_response.json()["locationLogId"],
+            second_response.json()["locationLogId"],
+        )
+
 
 class PurchaseRequestWorkflowTests(TestCase):
     def setUp(self) -> None:
