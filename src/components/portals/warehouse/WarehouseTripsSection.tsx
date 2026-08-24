@@ -753,7 +753,13 @@ export function WarehouseTripsSection({
                     Drop Point Details
                   </p>
                   {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
-                    <div className="space-y-4">
+                    <div
+                      className={`space-y-4 ${
+                        selectedTrip.dropPoints.length > 3
+                          ? 'max-h-[452px] overflow-y-auto overscroll-contain pr-2'
+                          : ''
+                      }`}
+                    >
                     {selectedTrip.dropPoints.map((point: any, index) => {
                       const normalizedPointStatus = normalizeDropPointStatus(point.status)
                       const statusLabel = normalizedPointStatus.replace(/_/g, ' ') || 'PENDING'

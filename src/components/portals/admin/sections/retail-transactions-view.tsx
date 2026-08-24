@@ -77,6 +77,22 @@ const formatPeso = (val: unknown) =>
     maximumFractionDigits: 2,
   }).format(Number(val || 0))
 
+const getProductDisplayName = (item: any) => {
+  const baseName = String(item?.productName || item?.name || 'Product').trim()
+  const rawSizes = Array.isArray(item?.sizes)
+    ? item.sizes
+    : Array.isArray(item?.product?.sizes)
+      ? item.product.sizes
+      : []
+  const validSizes = rawSizes.map((s: any) => String(s || '').trim()).filter(Boolean)
+  const sizeString = validSizes.join(', ') || String(item?.size || item?.sizeLabel || '').trim()
+
+  if (sizeString && !baseName.toLowerCase().includes(sizeString.toLowerCase())) {
+    return `${baseName} (${sizeString})`
+  }
+  return baseName
+}
+
 export function RetailTransactionsView() {
   const [sales, setSales] = useState<RetailSale[]>([])
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string; code: string }>>([])
@@ -124,15 +140,19 @@ export function RetailTransactionsView() {
   }, [fetchSales])
 
   const filteredSales = useMemo(() => {
-    return sales.filter((sale) => {
+    return sales.filter((sale: any) => {
       const q = searchQuery.trim().toLowerCase()
+      const custName = sale.customerName || sale.walkInName || sale.customer?.name || ''
+      const custPhone = sale.walkInContact || sale.customerPhone || sale.customer?.contactNumber || sale.customer?.phone || ''
+      const itemsText = Array.isArray(sale.items)
+        ? sale.items.map((i: any) => `${getProductDisplayName(i)} ${i.productSku || ''}`).join(' ')
+        : ''
       const matchesSearch =
         !q ||
-        (sale.transactionNumber && sale.transactionNumber.toLowerCase().includes(q)) ||
-        (sale.customerName && sale.customerName.toLowerCase().includes(q)) ||
-        (sale.walkInName && sale.walkInName.toLowerCase().includes(q)) ||
-        (sale.walkInContact && sale.walkInContact.toLowerCase().includes(q)) ||
-        (sale.warehouseName && sale.warehouseName.toLowerCase().includes(q))
+        (sale.transactionNumber && String(sale.transactionNumber).toLowerCase().includes(q)) ||
+        custName.toLowerCase().includes(q) ||
+        custPhone.toLowerCase().includes(q) ||
+        itemsText.toLowerCase().includes(q)
 
       return matchesSearch
     })
@@ -140,7 +160,7 @@ export function RetailTransactionsView() {
 
   // Summary Metrics
   const totalRevenue = useMemo(() => {
-    return sales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
+    return sales.reduce((sum, s: any) => sum + Number(s.totalAmount ?? s.grandTotal ?? 0), 0)
   }, [sales])
 
   return (
@@ -184,7 +204,6 @@ export function RetailTransactionsView() {
             </div>
           </CardContent>
         </Card>
-
       </div>
 
       {/* Main Table Card */}
@@ -203,7 +222,7 @@ export function RetailTransactionsView() {
               <div className="relative min-w-[200px]">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                 <Input
-                  placeholder="Search receipt, customer..."
+                  placeholder="Search receipt, customer, item..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-8 h-9 text-xs bg-slate-50 border-slate-200"
@@ -223,7 +242,6 @@ export function RetailTransactionsView() {
                   </option>
                 ))}
               </select>
-
             </div>
           </div>
         </CardHeader>
@@ -231,7 +249,7 @@ export function RetailTransactionsView() {
         <CardContent className="p-0">
           {loading ? (
             <div className="p-8">
-              <PortalTableSkeleton rows={6} columns={7} className="border-0 shadow-none" />
+              <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
             </div>
           ) : filteredSales.length === 0 ? (
             <div className="p-12 text-center space-y-2">
@@ -240,7 +258,7 @@ export function RetailTransactionsView() {
               </div>
               <p className="font-medium text-slate-700">No retail transactions found</p>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Walk-in counter sales made at warehouse POS registers will appear here in real time.
+                Walk-in counter sales made at warehouse retail counters will appear here in real time.
               </p>
             </div>
           ) : (
@@ -250,25 +268,45 @@ export function RetailTransactionsView() {
                   <tr>
                     <th className="px-4 py-3">Receipt / Trans #</th>
                     <th className="px-4 py-3">Date &amp; Time</th>
-                    <th className="px-4 py-3">Warehouse</th>
                     <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3 text-center">Items</th>
+                    <th className="px-4 py-3">Items</th>
                     <th className="px-4 py-3 text-right">Total Amount</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredSales.map((sale) => {
-                    const itemCount = Array.isArray(sale.items) ? sale.items.length : 0
+                  {filteredSales.map((sale: any) => {
+                    const rawDate = sale.createdAt || sale.date
+                    const dateObj = rawDate ? new Date(rawDate) : null
+                    const isValidDate = dateObj && !isNaN(dateObj.getTime())
+                    const formattedDate = isValidDate
+                      ? dateObj.toLocaleString(undefined, {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : '—'
+
                     const customerDisplay =
-                      sale.customerType === 'EXISTING'
-                        ? sale.customerName || 'Registered Customer'
-                        : sale.walkInName || 'Walk-in Customer'
-                    const contactDisplay = sale.walkInContact || sale.customerPhone || ''
+                      sale.customerName ||
+                      sale.walkInName ||
+                      sale.customer?.name ||
+                      (sale.customerType === 'EXISTING' ? 'Registered Customer' : 'Walk-in Customer')
+                    const contactDisplay =
+                      sale.walkInContact ||
+                      sale.customerPhone ||
+                      sale.customer?.contactNumber ||
+                      sale.customer?.phone ||
+                      ''
+
+                    const saleAmount = sale.totalAmount ?? sale.grandTotal ?? 0
+                    const items = Array.isArray(sale.items) ? sale.items : []
 
                     return (
                       <tr key={sale.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-4 py-3 font-semibold text-slate-900">
+                        <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Receipt className="h-3.5 w-3.5 text-sky-600" />
                             {sale.transactionNumber || sale.id}
@@ -277,19 +315,7 @@ export function RetailTransactionsView() {
                         <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                            {new Date(sale.createdAt).toLocaleString(undefined, {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs font-medium text-slate-700">
-                          <div className="flex items-center gap-1.5">
-                            <Building2 className="h-3.5 w-3.5 text-slate-400" />
-                            {sale.warehouseName || sale.warehouseCode || 'Main Warehouse'}
+                            {formattedDate}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -301,13 +327,39 @@ export function RetailTransactionsView() {
                             </div>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3 text-center text-xs font-medium text-slate-700">
-                          {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                        <td className="px-4 py-3">
+                          {items.length > 0 ? (
+                            <div className="space-y-1 min-w-[200px] max-w-[340px]">
+                              {items.map((item: any, idx: number) => {
+                                const modeLabel = item.mode === 'MIXED_CASE' ? 'Mixed Case' : (item.mode === 'LOOSE' ? 'Loose' : 'Case')
+                                const displayName = getProductDisplayName(item)
+                                return (
+                                  <div key={item.id || idx} className="text-xs leading-snug">
+                                    <span className="font-semibold text-slate-900">{displayName}</span>
+                                    <span className="text-slate-500 ml-1.5 font-normal">
+                                      ×{item.quantity} ({modeLabel})
+                                    </span>
+                                    {item.components && item.components.length > 0 ? (
+                                      <div className="text-[11px] text-slate-500 pl-2 border-l border-slate-200 mt-0.5 space-y-0.5">
+                                        {item.components.map((comp: any, cIdx: number) => (
+                                          <div key={comp.id || cIdx}>
+                                            {getProductDisplayName(comp)} ×{comp.quantityBaseUnits || comp.caseCount || ''}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">No items</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">
-                          {formatPeso(sale.totalAmount)}
+                          {formatPeso(saleAmount)}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
                           <Button
                             size="sm"
                             variant="ghost"
@@ -332,127 +384,161 @@ export function RetailTransactionsView() {
       <Dialog open={Boolean(selectedReceipt)} onOpenChange={(open) => !open && setSelectedReceipt(null)}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           {selectedReceipt ? (
-            <div className="space-y-4">
-              <DialogHeader className="border-b pb-3">
-                <div className="flex items-center justify-between">
+            (() => {
+              const receiptDate = (selectedReceipt as any).createdAt || (selectedReceipt as any).date
+              const receiptDateObj = receiptDate ? new Date(receiptDate) : null
+              const receiptDateFormatted = receiptDateObj && !isNaN(receiptDateObj.getTime())
+                ? receiptDateObj.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                : '—'
+
+              const receiptCustomerName =
+                (selectedReceipt as any).customerName ||
+                (selectedReceipt as any).walkInName ||
+                (selectedReceipt as any).customer?.name ||
+                ((selectedReceipt as any).customerType === 'EXISTING' ? 'Registered Customer' : 'Walk-in Customer')
+
+              const receiptContact =
+                (selectedReceipt as any).walkInContact ||
+                (selectedReceipt as any).customerPhone ||
+                (selectedReceipt as any).customer?.contactNumber ||
+                (selectedReceipt as any).customer?.phone ||
+                ''
+
+              const receiptSubtotal = (selectedReceipt as any).subtotal ?? (selectedReceipt as any).productTotal ?? 0
+              const receiptTotal = (selectedReceipt as any).totalAmount ?? (selectedReceipt as any).grandTotal ?? 0
+              const receiptDeposit = (selectedReceipt as any).depositTotal ?? (selectedReceipt as any).deposit ?? 0
+
+              return (
+                <div className="space-y-4">
+                  <DialogHeader className="border-b pb-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                          <Receipt className="h-5 w-5 text-sky-600" />
+                          Receipt #{selectedReceipt.transactionNumber}
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                          {receiptDateFormatted}
+                          {selectedReceipt.warehouseName ? ` • ${selectedReceipt.warehouseName}` : ''}
+                        </DialogDescription>
+                      </div>
+                    </div>
+                  </DialogHeader>
+
+                  {/* Customer summary */}
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-slate-400 uppercase tracking-wider block">Customer</span>
+                      <span className="font-medium text-slate-800">{receiptCustomerName}</span>
+                      {receiptContact ? (
+                        <span className="text-slate-500 block">{receiptContact}</span>
+                      ) : null}
+                    </div>
+                    <div>
+                      <span className="text-slate-400 uppercase tracking-wider block">Fulfillment</span>
+                      <span className="font-medium text-slate-800">Immediate Release</span>
+                      {selectedReceipt.walkInNotes ? (
+                        <span className="text-slate-500 block italic">"{selectedReceipt.walkInNotes}"</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Items list */}
                   <div>
-                    <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                      <Receipt className="h-5 w-5 text-sky-600" />
-                      Receipt #{selectedReceipt.transactionNumber}
-                    </DialogTitle>
-                    <DialogDescription className="text-xs text-slate-500 mt-0.5">
-                      {new Date(selectedReceipt.createdAt).toLocaleString(undefined, {
-                        dateStyle: 'medium',
-                        timeStyle: 'short',
-                      })}{' '}
-                      • {selectedReceipt.warehouseName || 'Warehouse'}
-                    </DialogDescription>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Purchased Items</h4>
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Item / Mode</th>
+                            <th className="px-3 py-2 text-center">Qty</th>
+                            <th className="px-3 py-2 text-right">Price</th>
+                            <th className="px-3 py-2 text-right">Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {selectedReceipt.items?.map((item: any, idx: number) => {
+                            const itemPrice = item.unitPrice ?? 0
+                            const itemSubtotal = item.subtotal ?? item.productSubtotal ?? 0
+                            const displayName = getProductDisplayName(item)
+                            return (
+                              <tr key={item.id || idx}>
+                                <td className="px-3 py-2">
+                                  <div className="font-medium text-slate-900">{displayName}</div>
+                                  <div className="text-[11px] text-slate-400">
+                                    Mode: {item.mode}
+                                    {item.emptyBottlesProvided ? ` • Returned: ${item.emptyBottlesProvided} empties` : ''}
+                                  </div>
+                                  {item.components && item.components.length > 0 ? (
+                                    <div className="mt-1 pl-2 border-l border-slate-200 text-[11px] text-slate-500 space-y-0.5">
+                                      {item.components.map((comp: any, cIdx: number) => (
+                                        <div key={comp.id || cIdx}>
+                                          {getProductDisplayName(comp)} ({comp.quantityBaseUnits || ''} units)
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="px-3 py-2 text-center font-medium text-slate-700">{item.quantity}</td>
+                                <td className="px-3 py-2 text-right text-slate-600">{formatPeso(itemPrice)}</td>
+                                <td className="px-3 py-2 text-right font-medium text-slate-900">
+                                  {formatPeso(itemSubtotal)}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-              </DialogHeader>
 
-              {/* Customer summary */}
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs grid grid-cols-2 gap-2">
-                <div>
-                  <span className="text-slate-400 uppercase tracking-wider block">Customer</span>
-                  <span className="font-medium text-slate-800">
-                    {selectedReceipt.customerType === 'EXISTING'
-                      ? selectedReceipt.customerName
-                      : selectedReceipt.walkInName || 'Walk-in Customer'}
-                  </span>
-                  {selectedReceipt.walkInContact ? (
-                    <span className="text-slate-500 block">{selectedReceipt.walkInContact}</span>
-                  ) : null}
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase tracking-wider block">Fulfillment</span>
-                  <span className="font-medium text-slate-800">Immediate Release</span>
-                  {selectedReceipt.walkInNotes ? (
-                    <span className="text-slate-500 block italic">"{selectedReceipt.walkInNotes}"</span>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* Items list */}
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Purchased Items</h4>
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Item / Mode</th>
-                        <th className="px-3 py-2 text-center">Qty</th>
-                        <th className="px-3 py-2 text-right">Price</th>
-                        <th className="px-3 py-2 text-right">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {selectedReceipt.items?.map((item, idx) => (
-                        <tr key={item.id || idx}>
-                          <td className="px-3 py-2">
-                            <div className="font-medium text-slate-900">{item.productName}</div>
-                            <div className="text-[11px] text-slate-400">
-                              Mode: {item.mode}
-                              {item.emptyBottlesProvided ? ` • Returned: ${item.emptyBottlesProvided} empties` : ''}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-center font-medium text-slate-700">{item.quantity}</td>
-                          <td className="px-3 py-2 text-right text-slate-600">{formatPeso(item.unitPrice)}</td>
-                          <td className="px-3 py-2 text-right font-medium text-slate-900">
-                            {formatPeso(item.subtotal)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Totals & Breakdown */}
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5">
-                <div className="flex justify-between text-slate-600">
-                  <span>Subtotal:</span>
-                  <span>{formatPeso(selectedReceipt.subtotal)}</span>
-                </div>
-                {Number(selectedReceipt.depositTotal || 0) > 0 && (
-                  <div className="flex justify-between text-slate-600">
-                    <span>Container Deposits:</span>
-                    <span>+{formatPeso(selectedReceipt.depositTotal)}</span>
+                  {/* Totals & Breakdown */}
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Subtotal:</span>
+                      <span>{formatPeso(receiptSubtotal)}</span>
+                    </div>
+                    {Number(receiptDeposit) > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>Container Deposits:</span>
+                        <span>+{formatPeso(receiptDeposit)}</span>
+                      </div>
+                    )}
+                    {Number((selectedReceipt as any).depositCreditTotal || 0) > 0 && (
+                      <div className="flex justify-between text-emerald-700 font-medium">
+                        <span>Empty Bottle Credit Applied:</span>
+                        <span>-{formatPeso((selectedReceipt as any).depositCreditTotal)}</span>
+                      </div>
+                    )}
+                    {Number((selectedReceipt as any).taxAmount || 0) > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>VAT / Tax:</span>
+                        <span>{formatPeso((selectedReceipt as any).taxAmount)}</span>
+                      </div>
+                    )}
+                    <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm font-bold text-slate-900">
+                      <span>Total Amount:</span>
+                      <span className="text-sky-700">{formatPeso(receiptTotal)}</span>
+                    </div>
                   </div>
-                )}
-                {Number(selectedReceipt.depositCreditTotal || 0) > 0 && (
-                  <div className="flex justify-between text-emerald-700 font-medium">
-                    <span>Empty Bottle Credit Applied:</span>
-                    <span>-{formatPeso(selectedReceipt.depositCreditTotal)}</span>
-                  </div>
-                )}
-                {Number(selectedReceipt.taxAmount || 0) > 0 && (
-                  <div className="flex justify-between text-slate-600">
-                    <span>VAT / Tax:</span>
-                    <span>{formatPeso(selectedReceipt.taxAmount)}</span>
-                  </div>
-                )}
-                <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm font-bold text-slate-900">
-                  <span>Total Amount:</span>
-                  <span className="text-sky-700">{formatPeso(selectedReceipt.totalAmount)}</span>
-                </div>
-              </div>
 
-              <DialogFooter className="border-t pt-3 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.print()}
-                  className="gap-1.5 border-slate-200"
-                >
-                  <Printer className="h-4 w-4" />
-                  Print Receipt
-                </Button>
-                <Button size="sm" onClick={() => setSelectedReceipt(null)} className="bg-sky-600 text-white hover:bg-sky-700">
-                  Close
-                </Button>
-              </DialogFooter>
-            </div>
+                  <DialogFooter className="border-t pt-3 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.print()}
+                      className="gap-1.5 border-slate-200"
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print Receipt
+                    </Button>
+                    <Button size="sm" onClick={() => setSelectedReceipt(null)} className="bg-sky-600 text-white hover:bg-sky-700">
+                      Close
+                    </Button>
+                  </DialogFooter>
+                </div>
+              )
+            })()
           ) : null}
         </DialogContent>
       </Dialog>

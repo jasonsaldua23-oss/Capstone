@@ -113,21 +113,26 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   const getItemSizeLabel = (item: any): string => {
     const fromProductSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes.filter(Boolean) : []
     if (fromProductSizes.length > 0) return fromProductSizes.map((v: any) => String(v).trim()).filter(Boolean).join(' ')
-    const fromUnit = String(item?.product?.unit || item?.productUnit || '').trim()
-    return fromUnit
+    const explicitSize = String(item?.sizeLabel || item?.productSize || item?.product?.sizeLabel || '').trim()
+    if (explicitSize) return explicitSize
+    const unit = String(item?.product?.unit || item?.productUnit || '').trim()
+    return /\d\s*(ml|l|liter|litre|oz|cl|g|kg)\b/i.test(unit) ? unit : ''
+  }
+
+  const formatProductNameWithSize = (item: any): string => {
+    const name = String(item?.product?.name || item?.productName || 'Product').trim()
+    const size = getItemSizeLabel(item)
+    // Product sizes are appended once with plain spacing; parentheses are intentionally removed.
+    const cleanName = name.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+    const cleanSize = size.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+    return cleanSize && !cleanName.toLowerCase().includes(cleanSize.toLowerCase())
+      ? `${cleanName} ${cleanSize}`
+      : cleanName
   }
 
   const formatOrderItemPreview = (item: any): string => {
-    const name = String(item?.product?.name || item?.productName || 'Product').trim()
-    const size = getItemSizeLabel(item)
     const qty = Number(item?.quantity || 0)
-    const normalizedSize = size.trim()
-    const sizeSuffix = !normalizedSize
-      ? ''
-      : /[()]/.test(normalizedSize)
-        ? ` ${normalizedSize}`
-        : ` (${normalizedSize})`
-    return `${name}${sizeSuffix} x${qty}`
+    return `${formatProductNameWithSize(item)} x${qty}`
   }
 
   const isReplacementOrder = (order: any): boolean => {
@@ -929,7 +934,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                         <th className="px-4 py-3 font-semibold">Request ID</th>
                         <th className="px-4 py-3 font-semibold">Customer Name</th>
                         <th className="px-4 py-3 font-semibold">Products</th>
-                        <th className="px-4 py-3 font-semibold">Total Quantity</th>
+                        <th className="px-4 py-3 font-semibold">Quantity Ordered</th>
                         <th className="px-4 py-3 font-semibold">Total Amount</th>
                         <th className="px-4 py-3 font-semibold">Date Requested</th>
                         <th className="px-4 py-3 font-semibold">Request Status</th>
@@ -939,12 +944,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                     <tbody>
                       {filteredRequests.map((order: any) => {
                         const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
-                        const totalQuantity = Array.isArray(order?.items)
-                          ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
-                          : 0
-                        const productLabel = Array.isArray(order?.items) && order.items.length > 0
-                          ? order.items.map((item: any) => String(item?.productName || item?.product?.name || 'Product')).join(', ')
-                          : 'No products'
+                        const orderItems = Array.isArray(order?.items) ? order.items : []
                         const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
                         // Keep the original PR identity in PR history even after a PO is created.
                         const reqId = order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber
@@ -953,8 +953,25 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                           <tr key={order.id} className="border-t border-slate-200 align-top text-sm hover:bg-slate-50/70 transition-colors">
                             <td className="px-4 py-3 font-semibold text-slate-900">{reqId}</td>
                             <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
-                            <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>
-                            <td className="px-4 py-3">{totalQuantity}</td>
+                            <td className="max-w-[280px] px-4 py-3 text-slate-600">
+                              {/* Each product stays on the same line as its matching quantity in the next column. */}
+                              <div className="space-y-1">
+                                {orderItems.length > 0
+                                  ? orderItems.map((item: any, index: number) => (
+                                      <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                    ))
+                                  : <p>No products</p>}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="space-y-1">
+                                {orderItems.length > 0
+                                  ? orderItems.map((item: any, index: number) => (
+                                      <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                    ))
+                                  : <p>0</p>}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                             <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
                             <td className="px-4 py-3">
@@ -1139,7 +1156,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
             </CardHeader>
             <CardContent className="p-0">
               {isLoading ? (
-                <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
+                <PortalTableSkeleton rows={6} columns={9} className="border-0 shadow-none" />
               ) : orders.length === 0 ? (
                 <div className="text-center py-12">
                   <p className="text-gray-500">No purchase orders found</p>
@@ -1150,11 +1167,14 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="min-w-[1100px] w-full">
                     <thead className="bg-gray-50 border-b">
                       <tr>
                         <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">TRANSACTION ID</th>
                         <th className="text-left p-4 font-semibold text-gray-800">CUSTOMER</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">PRODUCTS</th>
+                        <th className="text-left p-4 font-semibold text-gray-800">QUANTITY ORDERED</th>
                         <th className="text-left p-4 font-semibold text-gray-800">DELIVERY DATE</th>
                         <th className="text-left p-4 font-semibold text-gray-800">VALUE</th>
                         <th className="text-left p-4 font-semibold text-gray-800">STATUS</th>
@@ -1162,16 +1182,47 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                       </tr>
                     </thead>
                     <tbody>
-                      {paginatedOrders.map((order: any) => (
-                        <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
+                      {paginatedOrders.map((order: any) => {
+                        const orderItems = Array.isArray(order?.items) ? order.items : []
+                        const transactionIds = Array.isArray(order?.inventoryTransactionIds)
+                          ? order.inventoryTransactionIds.filter((id: unknown) => String(id || '').trim())
+                          : String(order?.inventoryTransactionId || '').trim()
+                            ? [order.inventoryTransactionId]
+                            : []
+                        return (
+                          <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
                           <td className="p-4">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-gray-900">{order.orderNumber}</span>
                             </div>
                           </td>
+                          <td className="p-4 text-gray-600">
+                            {transactionIds.length > 0
+                              ? transactionIds.map((id: unknown) => <p key={String(id)}>{String(id)}</p>)
+                              : '----'}
+                          </td>
                           <td className="p-4">
                             <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
                             <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
+                          </td>
+                          <td className="max-w-[280px] p-4 text-gray-600">
+                            {/* Keep each product aligned with its individual ordered quantity. */}
+                            <div className="space-y-1">
+                              {orderItems.length > 0
+                                ? orderItems.map((item: any, index: number) => (
+                                    <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                  ))
+                                : <p>No products</p>}
+                            </div>
+                          </td>
+                          <td className="p-4 text-gray-700">
+                            <div className="space-y-1">
+                              {orderItems.length > 0
+                                ? orderItems.map((item: any, index: number) => (
+                                    <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                  ))
+                                : <p>0</p>}
+                            </div>
                           </td>
                           <td className="p-4 text-gray-600">
                             {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
@@ -1196,8 +1247,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                               </Button>
                             </div>
                           </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                   <div className="flex items-center justify-between border-t px-4 py-3">
@@ -1378,9 +1430,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                           </div>
                           <div className="min-w-0 pt-0.5">
                             <p className="text-sm text-slate-800 sm:text-[1.02rem]">
-                              {item.product?.name || 'Product'}
-                              {getItemSizeLabel(item) ? ` ${getItemSizeLabel(item)}` : ''}
-                              {' '}x{item.quantity}
+                              {formatProductNameWithSize(item)} x{item.quantity}
                             </p>
                             {String(item?.product?.category?.name || item?.product?.category || '').trim() ? (
                               <p className="mt-0.5 text-xs text-slate-500">

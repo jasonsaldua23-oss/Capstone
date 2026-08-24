@@ -20,6 +20,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
 from django.db.models import F, Max, Prefetch, Q, Sum
 from django.conf import settings
+from django.core import signing
 from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -1734,7 +1735,8 @@ def _serialize_order(
         derived_stage = stage_by_status.get(normalized_order_status)
         if derived_stage:
             data["purchaseOrderStage"] = derived_stage
-    data["customer"] = _serialize_model(order.customer, exclude={"password"})
+    # Retail and counter-sale orders may intentionally have no linked customer.
+    data["customer"] = _serialize_model(order.customer, exclude={"password"}) if order.customer else None
     warehouse = None
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
     if warehouse_id:
@@ -1750,8 +1752,8 @@ def _serialize_order(
     data["timeline"] = _serialize_model(timeline) if timeline else None
 
     # Keep backward-compatible top-level shipping/timeline fields expected by portal UIs.
-    shipping_latitude = order.shipping_latitude if order.shipping_latitude is not None else order.customer.latitude
-    shipping_longitude = order.shipping_longitude if order.shipping_longitude is not None else order.customer.longitude
+    shipping_latitude = order.shipping_latitude if order.shipping_latitude is not None else getattr(order.customer, "latitude", None)
+    shipping_longitude = order.shipping_longitude if order.shipping_longitude is not None else getattr(order.customer, "longitude", None)
     data["shippingName"] = order.shipping_name
     data["shippingPhone"] = order.shipping_phone
     data["shippingAddress"] = _strip_default_country_suffix(order.shipping_address)
@@ -1862,6 +1864,29 @@ def _serialize_order(
     data["purchaseRequestNumber"] = pr_num or order.order_number
     data["purchaseOrderNumber"] = po_num if is_approved_order else None
     data["orderNumber"] = (po_num if (is_approved_order and po_num) else (pr_num or order.order_number))
+
+    # Added: expose only the real inventory OUT transaction IDs after this order was delivered.
+    is_delivered = normalized_order_status == OrderStatus.DELIVERED or bool(getattr(timeline, "delivered_at", None))
+    delivery_transaction_ids: list[str] = []
+    if is_delivered:
+        order_item_ids = [
+            str(row.get("id") or "").strip()
+            for row in data.get("items", [])
+            if str(row.get("id") or "").strip()
+        ]
+        if not order_item_ids:
+            order_item_ids = [str(item_id) for item_id in order.items.values_list("id", flat=True)]
+        if order_item_ids:
+            delivery_transaction_ids = [
+                str(transaction_id)
+                for transaction_id in InventoryTransaction.objects.filter(
+                    type="OUT",
+                    reference_type="order_item",
+                    reference_id__in=order_item_ids,
+                ).order_by("created_at", "id").values_list("id", flat=True)
+            ]
+    data["inventoryTransactionIds"] = delivery_transaction_ids
+    data["inventoryTransactionId"] = delivery_transaction_ids[0] if delivery_transaction_ids else None
     return data
 
 
@@ -6505,7 +6530,10 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         s = str(request.GET.get("search", "")).strip()
         if s:
             where &= Q(order_number__icontains=s) | Q(customer__name__icontains=s)
-        orders_qs = Order.objects.select_related("customer", "timeline").filter(where)
+        # POS receipts belong to the retail transaction history, not the regular order workflow.
+        orders_qs = Order.objects.select_related("customer", "timeline").filter(where).exclude(
+            sales_channel=SalesChannel.RETAIL_POS
+        )
         if include_items != "none":
             orders_qs = orders_qs.prefetch_related("items__product")
         order_by_field = "-updated_at" if sort in {"updated", "updated_at"} else "-created_at"
@@ -9118,13 +9146,13 @@ RETAIL_QUOTE_MAX_AGE_SECONDS = 600
 
 
 def _require_retail_warehouse(request: HttpRequest) -> tuple[dict[str, Any] | None, Warehouse | None, JsonResponse | None]:
-    """Restrict Retail / POS to active warehouse staff and administrators."""
+    """Restrict Retail sales to active warehouse staff and administrators."""
     payload, error = _require_staff(request)
     if error:
         return None, None, error
     role = str(payload.get("role") or "").strip().upper()
     if role not in (RoleType.WAREHOUSE_STAFF, RoleType.ADMIN, RoleType.SUPER_ADMIN):
-        return None, None, _err("Retail / POS is available only to warehouse staff and administrators", 403)
+        return None, None, _err("Retail is available only to warehouse staff and administrators", 403)
     staff_id = str(payload.get("userId") or "").strip()
     if role in (RoleType.ADMIN, RoleType.SUPER_ADMIN):
         requested_id = str(request.GET.get("warehouseId") or "").strip()
@@ -9382,11 +9410,13 @@ def retail_sale_cancel(request: HttpRequest, sale_id: str) -> JsonResponse:
     staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
     if staff is None:
         return _err("Staff account is unavailable", 403)
+    body = _json_body(request)
     try:
         sale = cancel_retail_sale(
             order=sale,
-            performed_by=staff.name or staff.email or "Warehouse Staff",
-            reason=str(_json_body(request).get("reason") or "").strip() or None,
+            staff=staff,
+            reason=str(body.get("reason") or "").strip(),
+            empties_restored_to_customer=bool(body.get("emptiesRestoredToCustomer")),
         )
     except ValueError as exc:
         return _retail_error(exc)

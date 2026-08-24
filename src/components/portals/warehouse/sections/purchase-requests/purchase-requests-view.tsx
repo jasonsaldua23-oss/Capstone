@@ -26,6 +26,25 @@ function formatRequestStatus(value: string) {
   return String(value || 'PENDING_APPROVAL').replace(/_/g, ' ')
 }
 
+function formatProductNameWithSize(item: any): string {
+  const name = String(item?.productName || item?.product?.name || 'Product').trim()
+  const productSizes = Array.isArray(item?.product?.sizes)
+    ? item.product.sizes.map((size: unknown) => String(size || '').trim()).filter(Boolean).join(' ')
+    : ''
+  const explicitSize = String(
+    item?.sizeLabel || item?.productSize || item?.product?.sizeLabel || productSizes || ''
+  ).trim()
+  const unit = String(item?.productUnit || item?.product?.unit || '').trim()
+  const size = explicitSize || (/\d\s*(ml|l|liter|litre|oz|cl|g|kg)\b/i.test(unit) ? unit : '')
+
+  // Product sizes are appended once with plain spacing; parentheses are intentionally removed.
+  const cleanName = name.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  const cleanSize = size.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  return cleanSize && !cleanName.toLowerCase().includes(cleanSize.toLowerCase())
+    ? `${cleanName} ${cleanSize}`
+    : cleanName
+}
+
 export function WarehousePurchaseRequestsView({
   loadingOrders,
   purchaseRequests,
@@ -138,7 +157,7 @@ export function WarehousePurchaseRequestsView({
           </div>
 
           {loadingOrders ? (
-            <PortalTableSkeleton rows={5} columns={9} className="border-0 shadow-none" />
+            <PortalTableSkeleton rows={5} columns={8} className="border-0 shadow-none" />
           ) : filteredRequests.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
               <p className="text-base font-semibold text-slate-700">No purchase requests found.</p>
@@ -152,7 +171,7 @@ export function WarehousePurchaseRequestsView({
                     <th className="px-4 py-3 font-semibold">Request ID</th>
                     <th className="px-4 py-3 font-semibold">Customer Name</th>
                     <th className="px-4 py-3 font-semibold">Products</th>
-                    <th className="px-4 py-3 font-semibold">Total Quantity</th>
+                    <th className="px-4 py-3 font-semibold">Quantity Ordered</th>
                     <th className="px-4 py-3 font-semibold">Total Amount</th>
                     <th className="px-4 py-3 font-semibold">Date Requested</th>
                     <th className="px-4 py-3 font-semibold">Request Status</th>
@@ -162,12 +181,7 @@ export function WarehousePurchaseRequestsView({
                 <tbody>
                   {filteredRequests.map((order) => {
                     const requestStatus = String(order?.requestStatus || 'PENDING_APPROVAL').toUpperCase()
-                    const totalQuantity = Array.isArray(order?.items)
-                      ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
-                      : 0
-                    const productLabel = Array.isArray(order?.items) && order.items.length > 0
-                      ? order.items.map((item: any) => String(item?.productName || item?.product?.name || 'Product')).join(', ')
-                      : 'No products'
+                    const orderItems = Array.isArray(order?.items) ? order.items : []
                     const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
@@ -176,8 +190,25 @@ export function WarehousePurchaseRequestsView({
                           {order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber}
                         </td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
-                        <td className="px-4 py-3 max-w-[280px] text-slate-600">{productLabel}</td>
-                        <td className="px-4 py-3">{totalQuantity}</td>
+                        <td className="max-w-[280px] px-4 py-3 text-slate-600">
+                          {/* Each line aligns with the same-position quantity in the next column. */}
+                          <div className="space-y-1">
+                            {orderItems.length > 0
+                              ? orderItems.map((item: any, index: number) => (
+                                  <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                ))
+                              : <p>No products</p>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1">
+                            {orderItems.length > 0
+                              ? orderItems.map((item: any, index: number) => (
+                                  <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                ))
+                              : <p>0</p>}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                         <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3">

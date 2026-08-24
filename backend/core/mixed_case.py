@@ -493,7 +493,6 @@ def _reserve_product_units(
         case_capacity_snapshot=order_item.case_capacity,
         case_count_snapshot=order_item.quantity,
         notes=f"{allocation_policy} reserve for order {order_item.order.order_number}",
-        performed_by=performed_by,
     )
     return reservations
 
@@ -679,7 +678,6 @@ def _consume_reservation(reservation: InventoryReservation, performed_by: str | 
         case_capacity_snapshot=reservation.order_item.case_capacity,
         case_count_snapshot=reservation.order_item.quantity,
         notes=f"{reservation.allocation_policy} {'retail sale' if is_retail_sale else 'delivery allocation for order'} {reservation.order_item.order.order_number}",
-        performed_by=performed_by,
     )
 
 
@@ -737,7 +735,6 @@ def release_order_reservations(order: Order, performed_by: str | None) -> None:
             case_capacity_snapshot=reservation.order_item.case_capacity,
             case_count_snapshot=reservation.order_item.quantity,
             notes="Reserved quantity released on cancellation",
-            performed_by=performed_by,
         )
 
 

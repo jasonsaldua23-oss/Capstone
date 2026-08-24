@@ -1463,7 +1463,6 @@ export function TripDetailView({
       .filter(Boolean)
       .sort((a: any, b: any) => Number(a?.recordedAt || 0) - Number(b?.recordedAt || 0)) as any[]
   })()
-  const latestTripLogLocation = tripLocationHistory[tripLocationHistory.length - 1] || null
   const latestTripLocationAny = (() => {
     const src = (trip as any)?.latestLocation
     if (!src) return null
@@ -1479,12 +1478,9 @@ export function TripDetailView({
       recordedAt: src?.recordedAt || src?.recorded_at || src?.createdAt || src?.created_at || null,
     }
   })()
-  const latestDetectedDriverLocation = [latestTripLocationAny, latestTripLogLocation]
-    .filter(Boolean)
-    .sort((a: any, b: any) => Number(toRecordedAtMs(b?.recordedAt) || 0) - Number(toRecordedAtMs(a?.recordedAt) || 0))[0] || null
-
-  // Use fresh device GPS first, then retain the driver's latest saved GPS reading.
-  // Never substitute the warehouse coordinates for the driver's position.
+  // Use fresh device GPS first, then only the account-scoped latest location
+  // returned by the driver API. Trip waypoints and warehouse coordinates must
+  // never become a fallback driver position.
   const effectiveDriverLocation = (currentLocation && isValidDeviceCoordinate(Number(currentLocation.lat), Number(currentLocation.lng))
     && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
     ? currentLocation
@@ -1493,7 +1489,8 @@ export function TripDetailView({
       && isFreshRecordedAt(previewDriverLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
       ? previewDriverLocation
       : null) ||
-    latestDetectedDriverLocation
+    latestTripLocationAny ||
+    null
 
   useEffect(() => {
     if (
@@ -1677,10 +1674,10 @@ export function TripDetailView({
     }
   })()
 
-  const etaStartPoint =
-    driverLocationMarker
-      ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
-      : warehouseRouteStart
+  // Do not calculate driver ETA from the warehouse when this account has no location.
+  const etaStartPoint = driverLocationMarker
+    ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
+    : null
   let etaAnchor = etaStartPoint
   let pendingPhaseIndex = 0
   const dropPointMapLocations = mappableDropPoints.map((point) => {

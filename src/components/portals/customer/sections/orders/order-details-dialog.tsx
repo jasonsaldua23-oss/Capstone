@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { isRescheduledOrder } from './order-status'
+import { formatOrderedQuantityWithContainer } from './order-item-display'
 
 const DAMAGE_REASON_OPTIONS = ['Broken seal', 'Cracked bottle', 'Leaking', 'Expired', 'Crushed case', 'Other']
 const MAX_EVIDENCE_PHOTOS = 2
@@ -444,7 +445,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                         ) : null}
                       </div>
                     </div>
-                    <span className="text-right text-slate-700">{item.quantity}</span>
+                    <span className="text-right text-slate-700">{formatOrderedQuantityWithContainer(item, false)}</span>
                     <span className="text-right text-slate-700">{formatPeso(item.unitPrice || 0)}</span>
                     <span className="text-right font-medium text-slate-900">{formatPeso((item.unitPrice || 0) * (item.quantity || 0))}</span>
                   </div>

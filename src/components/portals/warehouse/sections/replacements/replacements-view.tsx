@@ -9,6 +9,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseReplacementsViewProps } from '../shared/types'
 
+const formatPeso = (value: number) => new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: 'PHP',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+}).format(Number(value || 0))
+
 export function WarehouseReplacementsView({
   replacementSummary,
   loadingReplacements,
@@ -663,6 +670,69 @@ export function WarehouseReplacementsView({
             )
             const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
             const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+            const sourceLines =
+              Array.isArray(selectedReplacement?.replacementLines) && selectedReplacement.replacementLines.length
+                ? selectedReplacement.replacementLines
+                : Array.isArray(selectedReplacement?.replacementItems) && selectedReplacement.replacementItems.length
+                  ? selectedReplacement.replacementItems
+                  : Array.isArray(meta?.replacementLines) && meta.replacementLines.length
+                    ? meta.replacementLines
+                    : Array.isArray(meta?.replacementItems) && meta.replacementItems.length
+                      ? meta.replacementItems
+                      : []
+            const orderItems = (Array.isArray(selectedReplacement?.order?.items) ? selectedReplacement.order.items : []) as any[]
+            // Added: mirror Admin's loss calculation using the replacement's original billed price.
+            const replacementLineLoss = replacementLines.map((line, index) => {
+              const sourceLine = sourceLines[index] || {}
+              const matchedOrderItem = orderItems.find((orderItem: any) => {
+                const sourceOrderItemId = String(sourceLine?.orderItemId ?? sourceLine?.originalOrderItemId ?? '').trim()
+                const orderItemId = String(orderItem?.id ?? '').trim()
+                if (sourceOrderItemId && orderItemId && sourceOrderItemId === orderItemId) return true
+
+                const sourceProductId = String(
+                  sourceLine?.productId ??
+                  sourceLine?.originalProductId ??
+                  sourceLine?.replacementProductId ??
+                  ''
+                ).trim()
+                const orderItemProductId = String(orderItem?.product?.id ?? orderItem?.productId ?? '').trim()
+                if (sourceProductId && orderItemProductId && sourceProductId === orderItemProductId) return true
+
+                const sourceName = String(line?.originalProductName ?? line?.replacementProductName ?? '').trim().toLowerCase()
+                const orderItemName = String(orderItem?.product?.name ?? orderItem?.name ?? '').trim().toLowerCase()
+                return Boolean(sourceName && orderItemName && sourceName === orderItemName)
+              })
+              const unitPrice = Number(
+                sourceLine?.unitPrice ??
+                sourceLine?.price ??
+                sourceLine?.sellingPrice ??
+                sourceLine?.replacementUnitPrice ??
+                sourceLine?.originalUnitPrice ??
+                matchedOrderItem?.unitPrice ??
+                matchedOrderItem?.price ??
+                matchedOrderItem?.product?.price ??
+                0
+              )
+              const quantityPerCase = Math.max(1, Number(
+                sourceLine?.quantityPerCase ??
+                matchedOrderItem?.product?.quantityPerCase ??
+                matchedOrderItem?.product?.quantityPerUnit ??
+                1
+              ))
+              const effectiveUnit = String(
+                sourceLine?.productUnit ??
+                sourceLine?.replacementProductUnit ??
+                sourceLine?.originalProductUnit ??
+                matchedOrderItem?.product?.unit ??
+                matchedOrderItem?.unit ??
+                ''
+              ).trim().toLowerCase()
+              const basePrice = Number.isFinite(unitPrice) ? unitPrice : 0
+              const replacedQuantity = Math.max(Number(line?.quantityReplaced || 0), 0)
+              const billedQuantity = effectiveUnit.includes('bottle') ? replacedQuantity : replacedQuantity / quantityPerCase
+              return billedQuantity > 0 ? billedQuantity * basePrice : 0
+            })
+            const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
             const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
             const hasOutstandingReplacementQty =
               totalQtyToReplace > 0 && totalQtyReplaced < totalQtyToReplace
@@ -715,12 +785,14 @@ export function WarehouseReplacementsView({
                           <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
-                          <th className="px-3 py-2 text-left font-medium">Returned to Warehouse</th>
+                          <th className="px-3 py-2 text-left font-medium">Loss</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {replacementLines.map((line, index) => (
-                          <tr key={`${line.replacementLineId || line.id || line.originalProductName}-${index}`} className="border-t first:border-t-0">
+                        {replacementLines.map((line, index) => {
+                          const lineLoss = replacementLineLoss[index] || 0
+                          return (
+                            <tr key={`${line.replacementLineId || line.id || line.originalProductName}-${index}`} className="border-t first:border-t-0">
                             <td className="px-3 py-2">
                               <p className="font-semibold text-slate-900">{line.originalProductName}</p>
                               {String((line as any).originalProductCategory || '').trim() ? (
@@ -735,9 +807,14 @@ export function WarehouseReplacementsView({
                             </td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{getModalQtyDisplay(selectedReplacement, meta, line, 'toReplace')}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900">{getModalQtyDisplay(selectedReplacement, meta, line, 'replaced')}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{Number(line.returnedBaseUnits || 0)} {line.baseUnitLabel || 'unit'}(s)</td>
-                          </tr>
-                        ))}
+                            <td className="px-3 py-2 font-semibold text-red-600">{lineLoss > 0 ? `- ${formatPeso(lineLoss)}` : '--'}</td>
+                            </tr>
+                          )
+                        })}
+                        <tr className="border-t bg-slate-50">
+                          <td className="px-3 py-2 font-semibold text-slate-700" colSpan={4}>Total Loss</td>
+                          <td className="px-3 py-2 font-bold text-red-600">{totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : '--'}</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>

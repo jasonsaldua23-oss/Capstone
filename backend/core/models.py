@@ -119,7 +119,7 @@ class InventoryQuantityUnit(models.TextChoices):
 
 class SalesChannel(models.TextChoices):
     ONLINE = "ONLINE", "Online"
-    RETAIL_POS = "RETAIL_POS", "Retail / POS"
+    RETAIL_POS = "RETAIL_POS", "Retail"
 
 
 class RetailFulfillmentType(models.TextChoices):

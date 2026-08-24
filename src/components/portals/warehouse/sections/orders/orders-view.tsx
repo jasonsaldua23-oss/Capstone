@@ -50,16 +50,29 @@ function isMixedCaseItem(item: any) {
   return String(item?.itemType || item?.item_type || '').toUpperCase() === 'MIXED_CASE'
 }
 
+function formatProductNameWithSize(item: any): string {
+  const name = String(item?.productName || item?.product?.name || 'Product').trim()
+  const productSizes = Array.isArray(item?.product?.sizes)
+    ? item.product.sizes.map((size: unknown) => String(size || '').trim()).filter(Boolean).join(' ')
+    : ''
+  const explicitSize = String(
+    item?.sizeLabel || item?.productSize || item?.product?.sizeLabel || productSizes || ''
+  ).trim()
+  const unit = String(item?.productUnit || item?.product?.unit || '').trim()
+  const size = explicitSize || (/\d\s*(ml|l|liter|litre|oz|cl|g|kg)\b/i.test(unit) ? unit : '')
+
+  // Product sizes are appended once with plain spacing; parentheses are intentionally removed.
+  const cleanName = name.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  const cleanSize = size.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  return cleanSize && !cleanName.toLowerCase().includes(cleanSize.toLowerCase())
+    ? `${cleanName} ${cleanSize}`
+    : cleanName
+}
+
 function formatOrderItemContents(item: any) {
   if (!isMixedCaseItem(item)) {
-    const name = String(item?.productName || item?.product?.name || 'Product')
     const qty = Number(item?.quantity || 0)
-    const size = Array.isArray(item?.product?.sizes) && item.product.sizes.length > 0
-      ? ` (${item.product.sizes.join(', ')})`
-      : item?.product?.sizeLabel
-        ? ` (${item.product.sizeLabel})`
-        : ''
-    return `${name}${size} x${qty}`
+    return `${formatProductNameWithSize(item)} x${qty}`
   }
 
   const caseCount = Number(item?.quantity || 1)
@@ -207,7 +220,7 @@ export function WarehouseOrdersView({
           </div>
 
           {loadingOrders ? (
-            <PortalTableSkeleton rows={5} columns={9} className="border-0 shadow-none" />
+            <PortalTableSkeleton rows={5} columns={8} className="border-0 shadow-none" />
           ) : filteredOrders.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
               <p className="text-base font-semibold text-slate-700">No purchase orders found.</p>
@@ -219,10 +232,10 @@ export function WarehouseOrdersView({
                 <thead className="bg-slate-50 text-left text-sm text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Purchase Order ID</th>
-                    <th className="px-4 py-3 font-semibold">Request ID</th>
+                    <th className="px-4 py-3 font-semibold">Transaction ID</th>
                     <th className="px-4 py-3 font-semibold">Customer Name</th>
                     <th className="px-4 py-3 font-semibold">Products</th>
-                    <th className="px-4 py-3 font-semibold">Total Quantity</th>
+                    <th className="px-4 py-3 font-semibold">Quantity Ordered</th>
                     <th className="px-4 py-3 font-semibold">Total Amount</th>
                     <th className="px-4 py-3 font-semibold">Order Status</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
@@ -231,19 +244,40 @@ export function WarehouseOrdersView({
                 <tbody>
                   {filteredOrders.map((order) => {
                     const stage = getOrderStage(order)
-                    const totalQuantity = Array.isArray(order?.items)
-                      ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
-                      : 0
-                    const productLabel = Array.isArray(order?.items) && order.items.length > 0
-                      ? order.items.map((item: any) => formatOrderItemContents(item)).join(', ')
-                      : 'No products'
+                    const orderItems = Array.isArray(order?.items) ? order.items : []
+                    const transactionIds = Array.isArray(order?.inventoryTransactionIds)
+                      ? order.inventoryTransactionIds.filter((id: unknown) => String(id || '').trim())
+                      : String(order?.inventoryTransactionId || '').trim()
+                        ? [order.inventoryTransactionId]
+                        : []
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
                         <td className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}</td>
-                        <td className="px-4 py-3 text-slate-600">{order.purchaseRequestNumber || 'N/A'}</td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {transactionIds.length > 0
+                            ? transactionIds.map((id: unknown) => <p key={String(id)}>{String(id)}</p>)
+                            : '----'}
+                        </td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
-                        <td className="px-4 py-3 max-w-[260px] text-slate-600">{productLabel}</td>
-                        <td className="px-4 py-3">{totalQuantity}</td>
+                        <td className="max-w-[260px] px-4 py-3 text-slate-600">
+                          {/* Each product stays on the same line as its matching quantity in the next column. */}
+                          <div className="space-y-1">
+                            {orderItems.length > 0
+                              ? orderItems.map((item: any, index: number) => (
+                                  <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                ))
+                              : <p>No products</p>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1">
+                            {orderItems.length > 0
+                              ? orderItems.map((item: any, index: number) => (
+                                  <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                ))
+                              : <p>0</p>}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                         <td className="px-4 py-3">
                           <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>

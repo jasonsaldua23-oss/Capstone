@@ -4,6 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -81,6 +91,14 @@ const getProductPrimarySize = (p?: RetailProduct | null) => {
   return p.sizes[0]
 }
 
+// Receipt records carry product sizes as an array so the sold variant remains visible.
+const getReceiptItemSize = (item: any) => {
+  const sizes = Array.isArray(item?.sizes)
+    ? item.sizes.map((size: any) => String(size || '').trim()).filter(Boolean)
+    : []
+  return sizes.join(', ') || String(item?.sizeLabel || item?.size || '').trim()
+}
+
 async function authFetch(url: string, init?: RequestInit) {
   const token = getTabAuthToken()
   const headers = new Headers(init?.headers || {})
@@ -114,6 +132,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [receipt, setReceipt] = useState<RetailSale | null>(null)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [walkInFirstName, setWalkInFirstName] = useState('')
   const [walkInLastName, setWalkInLastName] = useState('')
   const [walkInMiddleName, setWalkInMiddleName] = useState('')
@@ -124,6 +143,36 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [mixedProductA, setMixedProductA] = useState('')
   const [mixedProductB, setMixedProductB] = useState('')
   const [mixedQuantityA, setMixedQuantityA] = useState(6)
+
+  const printReceipt = () => {
+    const receiptElement = document.getElementById('retail-pos-print-receipt')
+    if (!receiptElement) return
+
+    // Print a direct body child so the Radix dialog's fixed centering cannot clip the receipt.
+    document.getElementById('retail-pos-print-copy')?.remove()
+    const printCopy = receiptElement.cloneNode(true) as HTMLElement
+    printCopy.id = 'retail-pos-print-copy'
+    printCopy.className = ''
+    printCopy.setAttribute('aria-hidden', 'true')
+    printCopy.style.display = 'none'
+    printCopy.style.setProperty('position', 'static', 'important')
+    printCopy.style.setProperty('inset', 'auto', 'important')
+    printCopy.style.setProperty('translate', 'none', 'important')
+    printCopy.style.setProperty('transform', 'none', 'important')
+    printCopy.style.setProperty('scale', 'none', 'important')
+    printCopy.style.setProperty('animation', 'none', 'important')
+    printCopy.style.setProperty('width', '100%', 'important')
+    printCopy.style.setProperty('max-width', 'none', 'important')
+    printCopy.style.setProperty('max-height', 'none', 'important')
+    printCopy.style.setProperty('overflow', 'visible', 'important')
+    printCopy.style.setProperty('box-sizing', 'border-box', 'important')
+    document.body.appendChild(printCopy)
+
+    const cleanup = () => printCopy.remove()
+    window.addEventListener('afterprint', cleanup, { once: true })
+    // Give Chromium a full layout cycle before it snapshots the temporary print document.
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()))
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -399,7 +448,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Retail / POS</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Retail</h1>
             <Badge variant="outline" className="border-sky-200 bg-sky-50 font-semibold text-sky-700">
               Counter Sales
             </Badge>
@@ -1148,8 +1197,19 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       </div>
 
       {/* Official Receipt & Transaction Detail Dialog */}
-      <Dialog open={Boolean(receipt)} onOpenChange={(open) => !open && setReceipt(null)}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-3xl p-6">
+      <Dialog
+        open={Boolean(receipt)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCancelConfirmOpen(false)
+            setReceipt(null)
+          }
+        }}
+      >
+        <DialogContent
+          id="retail-pos-print-receipt"
+          className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-3xl p-6"
+        >
           <DialogHeader className="border-b border-slate-100 pb-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
@@ -1196,7 +1256,9 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     <div key={item.id} className="p-3 bg-white">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="font-bold text-slate-900">{item.productName}</p>
+                          <p className="font-bold text-slate-900">
+                            {item.productName}{getReceiptItemSize(item) ? ` (${getReceiptItemSize(item)})` : ''}
+                          </p>
                           <p className="text-[11px] text-slate-500">
                             {item.packagingType} · {item.mode.replace(/_/g, ' ')} · Qty: {item.quantity}
                           </p>
@@ -1206,7 +1268,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
                       {item.components?.map((component: any) => (
                         <p key={component.id} className="mt-1 text-[11px] text-slate-600 pl-2 border-l-2 border-slate-200">
-                          {component.productName}: {component.quantityBaseUnits} {component.looseUnit}s
+                          {component.productName}{getReceiptItemSize(component) ? ` (${getReceiptItemSize(component)})` : ''}: {component.quantityBaseUnits} {component.looseUnit}s
                         </p>
                       ))}
                     </div>
@@ -1237,7 +1299,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
               {/* Management Controls for Open Transaction */}
               {receipt.transactionStatus !== 'CANCELLED' ? (
-                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="receipt-no-print space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <p className="font-bold text-slate-800">Manage Transaction</p>
 
                   <Button
@@ -1245,18 +1307,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     variant="destructive"
                     className="w-full h-9 rounded-xl text-xs font-semibold"
                     disabled={submitting}
-                    onClick={() => {
-                      const hasEmpties = Number(receipt.emptyBottlesProvided || 0) > 0
-                      const prompt = hasEmpties
-                        ? 'Confirm the accepted empties were physically returned to the customer or corrected, then cancel this transaction?'
-                        : 'Cancel this retail transaction and reverse its inventory effects?'
-                      if (window.confirm(prompt)) {
-                        void mutateReceipt('cancel', 'POST', {
-                          reason: 'Cancelled by warehouse staff',
-                          emptiesRestoredToCustomer: hasEmpties,
-                        })
-                      }
-                    }}
+                    onClick={() => setCancelConfirmOpen(true)}
                   >
                     Cancel Transaction
                   </Button>
@@ -1264,12 +1315,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               ) : null}
 
               {/* Print Receipt Button */}
-              <div className="pt-2">
+              <div className="receipt-no-print pt-2">
                 <Button
                   type="button"
                   variant="outline"
                   className="w-full h-10 rounded-xl border-slate-200 text-slate-800 hover:bg-slate-100 font-semibold"
-                  onClick={() => window.print()}
+                  onClick={printReceipt}
                 >
                   <Printer className="mr-2 h-4 w-4" />
                   Print Official Receipt
@@ -1279,6 +1330,88 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent className="max-w-md rounded-2xl p-6">
+          <AlertDialogHeader className="gap-3 text-left">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-100 text-red-600">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <AlertDialogTitle className="text-lg font-bold text-slate-900">
+              Cancel retail transaction?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-sm leading-6 text-slate-600">
+              <span className="block">
+                Transaction <strong className="text-slate-900">{receipt?.transactionNumber}</strong> will be cancelled and its inventory movements will be reversed.
+              </span>
+              {Number(receipt?.emptyBottlesProvided || 0) > 0 ? (
+                <span className="block font-medium text-amber-700">
+                  Confirm that all accepted empty bottles were returned to the customer or physically corrected before continuing.
+                </span>
+              ) : null}
+              <span className="block">This action cannot be undone.</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-2 gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={submitting} className="rounded-xl">
+              Keep Transaction
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={submitting}
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              onClick={() => {
+                const hasEmpties = Number(receipt?.emptyBottlesProvided || 0) > 0
+                void mutateReceipt('cancel', 'POST', {
+                  reason: 'Cancelled by warehouse staff',
+                  emptiesRestoredToCustomer: hasEmpties,
+                })
+              }}
+            >
+              {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Cancel Transaction
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Print only the receipt dialog; portal content and transaction controls stay on screen only. */}
+      <style jsx global>{`
+        @media print {
+          @page {
+            margin: 0;
+          }
+
+          body > * {
+            display: none !important;
+          }
+
+          body > #retail-pos-print-copy {
+            display: grid !important;
+          }
+
+          #retail-pos-print-copy {
+            position: static !important;
+            inset: auto !important;
+            width: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 12mm !important;
+            overflow: visible !important;
+            translate: none !important;
+            transform: none !important;
+            animation: none !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+
+          #retail-pos-print-copy [data-slot='dialog-close'],
+          #retail-pos-print-copy .receipt-no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

@@ -566,7 +566,8 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
 
 def _next_retail_number() -> str:
     year = timezone.now().year
-    prefix = f"POS-{year}-"
+    # New retail receipts use the dedicated RCP prefix; existing POS receipts remain unchanged.
+    prefix = f"RCP-{year}-"
     sequence = Order.objects.filter(retail_transaction_number__startswith=prefix).count() + 1
     candidate = f"{prefix}{sequence:04d}"
     while Order.objects.filter(Q(retail_transaction_number=candidate) | Q(order_number=candidate)).exists():
@@ -726,7 +727,7 @@ def _record_retail_deposits_and_returns(order: Order, performed_by: str) -> Bott
         status=BottleReturn.ReturnStatus.ACCEPTED,
         received_by=performed_by,
         received_at=timezone.now(),
-        notes="Empty bottles accepted during Retail / POS checkout",
+        notes="Empty bottles accepted during Retail checkout",
     )
     BottleReturnLine.objects.bulk_create(
         [
@@ -832,7 +833,7 @@ def create_retail_sale(
             deposit_refunded=0,
             net_deposit=line["deposit"],
             deposit_total=line["deposit"],
-            notes="Retail / POS sale",
+            notes="Retail sale",
         )
         for component in line.get("components", []):
             component_packaging = component["packaging"]
@@ -874,27 +875,41 @@ def create_retail_sale(
 def serialize_retail_sale(order: Order) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     for item in order.items.all().order_by("created_at", "id"):
-        components = [
-            {
-                "id": component.id,
-                "productId": component.product_id,
-                "productName": component.product_name,
-                "productSku": component.product_sku,
-                "category": component.product_category,
-                "packagingType": component.packaging_type_snapshot,
-                "looseUnit": component.base_unit_label,
-                "quantityPerCase": component.quantity_per_case,
-                "caseCount": component.case_count,
-                "quantityBaseUnits": component.total_base_units,
-                "unitPrice": _money_text(component.unit_price),
-                "productSubtotal": _money_text(component.component_subtotal),
-                "emptyBottlesProvided": component.empty_covered_quantity,
-                "depositPerUnit": _money_text(component.deposit_per_unit),
-                "deposit": _money_text(component.deposit_total),
-                "imageUrl": component.product.image_url if component.product else None,
-            }
-            for component in item.mixed_case_components.all().order_by("created_at", "id")
-        ]
+        item_sizes = []
+        if item.product and isinstance(item.product.sizes, list) and item.product.sizes:
+            item_sizes = [str(s).strip() for s in item.product.sizes if str(s).strip()]
+        elif item.product and item.product.packaging_profile and item.product.packaging_profile.container_size:
+            item_sizes = [str(item.product.packaging_profile.container_size).strip()]
+
+        components = []
+        for component in item.mixed_case_components.all().order_by("created_at", "id"):
+            comp_sizes = []
+            if component.product and isinstance(component.product.sizes, list) and component.product.sizes:
+                comp_sizes = [str(s).strip() for s in component.product.sizes if str(s).strip()]
+            elif component.product and component.product.packaging_profile and component.product.packaging_profile.container_size:
+                comp_sizes = [str(component.product.packaging_profile.container_size).strip()]
+
+            components.append(
+                {
+                    "id": component.id,
+                    "productId": component.product_id,
+                    "productName": component.product_name,
+                    "productSku": component.product_sku,
+                    "category": component.product_category,
+                    "packagingType": component.packaging_type_snapshot,
+                    "looseUnit": component.base_unit_label,
+                    "quantityPerCase": component.quantity_per_case,
+                    "caseCount": component.case_count,
+                    "quantityBaseUnits": component.total_base_units,
+                    "unitPrice": _money_text(component.unit_price),
+                    "productSubtotal": _money_text(component.component_subtotal),
+                    "emptyBottlesProvided": component.empty_covered_quantity,
+                    "depositPerUnit": _money_text(component.deposit_per_unit),
+                    "deposit": _money_text(component.deposit_total),
+                    "imageUrl": component.product.image_url if component.product else None,
+                    "sizes": comp_sizes,
+                }
+            )
         items.append(
             {
                 "id": item.id,
@@ -913,6 +928,7 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
                 "depositPerUnit": _money_text(item.deposit_per_unit),
                 "deposit": _money_text(item.deposit_total),
                 "imageUrl": item.product.image_url if item.product else None,
+                "sizes": item_sizes,
                 "components": components,
             }
         )
@@ -927,24 +943,38 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
         for row in order.bottle_returns.all().order_by("created_at", "id")
     ]
     customer_name = order.customer.name if order.customer else (order.walk_in_name or "Walk-in Customer")
+    warehouse = Warehouse.objects.filter(id=order.warehouse_id).first() if order.warehouse_id else None
+    warehouse_name = warehouse.name if warehouse else None
+    warehouse_code = warehouse.code if warehouse else None
     return {
         "id": order.id,
         "transactionNumber": order.retail_transaction_number or order.order_number,
         "orderNumber": order.order_number,
         "date": order.created_at.isoformat(),
+        "createdAt": order.created_at.isoformat(),
         "customer": (
             {"type": "EXISTING", "id": order.customer_id, "name": customer_name, "contactNumber": order.customer.phone}
             if order.customer
             else {"type": "WALK_IN", "id": None, "name": customer_name, "contactNumber": order.walk_in_contact}
         ),
+        "customerType": "EXISTING" if order.customer else "WALK_IN",
+        "customerName": customer_name,
+        "walkInName": order.walk_in_name,
+        "walkInContact": order.walk_in_contact,
         "walkInNotes": order.walk_in_notes,
+        "customerPhone": order.customer.phone if order.customer else order.walk_in_contact,
         "warehouseId": order.warehouse_id,
+        "warehouseName": warehouse_name,
+        "warehouseCode": warehouse_code,
         "staff": {"id": order.created_by_user_id, "name": order.created_by_name},
         "items": items,
         "productTotal": _money_text(order.subtotal),
+        "subtotal": _money_text(order.subtotal),
         "emptyBottlesProvided": sum(item.empty_covered_quantity for item in order.items.all()),
         "deposit": _money_text(money(order.total_amount) - money(order.subtotal)),
+        "depositTotal": _money_text(money(order.total_amount) - money(order.subtotal)),
         "grandTotal": _money_text(order.total_amount),
+        "totalAmount": _money_text(order.total_amount),
         "amountPaid": _money_text(order.amount_paid),
         "remainingBalance": _money_text(order.remaining_balance),
         "paymentStatus": order.payment_status,
@@ -1044,7 +1074,6 @@ def _restock_consumed_retail_inventory(order: Order, performed_by: str) -> None:
             case_capacity_snapshot=reservation.order_item.case_capacity,
             case_count_snapshot=reservation.order_item.quantity,
             notes=f"Retail sale cancellation restock for {order.retail_transaction_number}",
-            performed_by=performed_by,
         )
 
 

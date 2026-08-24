@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { isRescheduledOrder } from './order-status'
-import { formatLooseQuantity, getLooseUnitFromRecord } from '@/lib/beverage-category-specs'
+import { formatOrderedQuantityWithContainer } from './order-item-display'
 
 const PAGE_SIZE = 10
 
@@ -156,9 +156,7 @@ export function CustomerOrdersView(props: any) {
     return getReplacementStatusLabel(record?.status)
   }
   const formatQuantityWithUnit = (item: any): string => {
-    const qty = Number(item?.quantity || 0)
-    if (item?.itemType === 'MIXED_CASE') return `x${qty} mixed case${qty === 1 ? '' : 's'}`
-    return `x${formatLooseQuantity(qty, getLooseUnitFromRecord(item))}`
+    return formatOrderedQuantityWithContainer(item)
   }
   const getItemDisplayNameWithSize = (item: any): string => {
     if (item?.itemType === 'MIXED_CASE') {

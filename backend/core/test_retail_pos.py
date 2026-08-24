@@ -141,6 +141,7 @@ class RetailPosApiTests(TestCase):
             retail_unit_price=Decimal("30.00"),
             case_price=Decimal("300.00"),
             category="Carbonated (Glass)",
+            sizes=["330ml"],
             quantity_per_unit=12,
             packaging_profile=self.profile,
             packaging_type="RETURNABLE",
@@ -199,6 +200,8 @@ class RetailPosApiTests(TestCase):
         self.assertEqual(created.status_code, 201, created.content)
         self.assertEqual(repeated.status_code, 200, repeated.content)
         self.assertEqual(created.json()["sale"]["id"], repeated.json()["sale"]["id"])
+        self.assertRegex(created.json()["sale"]["transactionNumber"], r"^RCP-\d{4}-\d{4}$")
+        self.assertEqual(created.json()["sale"]["items"][0]["sizes"], ["330ml"])
         self.assertEqual(Order.objects.filter(sales_channel="RETAIL_POS").count(), 1)
         self.assertEqual(
             InventoryTransaction.objects.filter(reference_type="retail_sale", type="OUT").count(),

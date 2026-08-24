@@ -697,6 +697,76 @@ class CustomerOrdersApiContractTests(TestCase):
         self.assertIn("logistics", order_row)
         self.assertIn("timeline", order_row)
 
+    def test_order_payload_exposes_inventory_transaction_ids_only_after_delivery(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Delivery Transaction Warehouse",
+            code="WH-DELIVERY-TX",
+            address="Warehouse Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
+        product = Product.objects.create(
+            sku="SKU-DELIVERY-TX",
+            name="Delivery Transaction Product",
+            unit="case",
+            price=100,
+        )
+        delivered_order = Order.objects.create(
+            order_number="ORD-DELIVERY-TX",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=100,
+            total_amount=100,
+            warehouse_id=warehouse.id,
+        )
+        delivered_item = OrderItem.objects.create(
+            order=delivered_order,
+            product=product,
+            product_name=product.name,
+            quantity=1,
+            unit_price=100,
+            total_price=100,
+        )
+        OrderTimeline.objects.create(order=delivered_order, delivered_at=timezone.now())
+        delivery_transaction = InventoryTransaction.objects.create(
+            warehouse=warehouse,
+            product=product,
+            type="OUT",
+            quantity=1,
+            reference_type="order_item",
+            reference_id=delivered_item.id,
+        )
+
+        pending_order = Order.objects.create(
+            order_number="ORD-NOT-DELIVERED-TX",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=100,
+            warehouse_id=warehouse.id,
+        )
+        OrderItem.objects.create(
+            order=pending_order,
+            product=product,
+            product_name=product.name,
+            quantity=1,
+            unit_price=100,
+            total_price=100,
+        )
+
+        response = self.client.get(
+            "/api/customer/orders",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        orders_by_id = {row["id"]: row for row in response.json()["orders"]}
+        self.assertEqual(orders_by_id[delivered_order.id]["inventoryTransactionIds"], [delivery_transaction.id])
+        self.assertEqual(orders_by_id[delivered_order.id]["inventoryTransactionId"], delivery_transaction.id)
+        self.assertEqual(orders_by_id[pending_order.id]["inventoryTransactionIds"], [])
+        self.assertIsNone(orders_by_id[pending_order.id]["inventoryTransactionId"])
+
     def test_customer_orders_rejects_non_customer_tokens(self) -> None:
         response = self.client.get(
             "/api/customer/orders",
@@ -946,6 +1016,31 @@ class DriverTripsApiContractTests(TestCase):
         self.assertEqual(row["latestLocation"]["latitude"], latest_log.latitude)
         self.assertEqual(row["latestLocation"]["longitude"], latest_log.longitude)
         self.assertEqual(row["latestLocation"]["accuracy"], latest_log.accuracy)
+
+    def test_driver_trip_never_falls_back_to_another_driver_location(self) -> None:
+        trip = Trip.objects.create(
+            trip_number="TRP-DRIVER-NO-LOCATION-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.PLANNED,
+        )
+        LocationLog.objects.create(
+            driver=self.other_driver,
+            trip=None,
+            latitude=10.9999,
+            longitude=122.9999,
+            accuracy=12,
+        )
+
+        response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["trips"] if item["id"] == trip.id)
+        # No own saved GPS means unavailable; another account is never a fallback.
+        self.assertIsNone(row["latestLocation"])
 
 
 class CustomerOrdersPostApiContractTests(TestCase):
