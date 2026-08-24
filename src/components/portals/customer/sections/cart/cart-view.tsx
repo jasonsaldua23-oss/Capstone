@@ -271,6 +271,18 @@ export function CustomerCartView(props: CustomerCartViewProps) {
 
                   if (!isReturnable || !hasDeposit || !isGlass) return null
 
+                  const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
+                  const containersPerCase = Math.max(1, Number(item.containersPerCase || 1))
+                  // Case products display full case balances and case credits;
+                  // bottle counts are reserved for genuinely loose products.
+                  const availableEmptyQuantity = isCase
+                    ? Math.floor(Number(item.availableEmptyBottles || 0) / containersPerCase)
+                    : Number(item.availableEmptyBottles || 0)
+                  const appliedEmptyQuantity = isCase
+                    ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase)
+                    : Number(item.emptyReturnedQuantity || 0)
+                  const emptyUnitLabel = isCase ? 'case' : 'loose bottle'
+
                   return (
                     <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 p-2.5 text-xs space-y-1.5">
                       <div className="flex items-center justify-between font-medium">
@@ -279,14 +291,14 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                           {item.looseUnit || item.containerTypeName || 'Glass Bottle'} Returnable
                         </span>
                         <span className="text-[11px] text-slate-500">
-                          Available Empties: <strong className="text-slate-900">{item.availableEmptyBottles || 0}</strong>
+                          Available Empties: <strong className="text-slate-900">{availableEmptyQuantity} {emptyUnitLabel}{availableEmptyQuantity !== 1 ? 's' : ''}</strong>
                         </span>
                       </div>
                       <div className="flex items-center justify-between border-t border-slate-200/60 pt-1.5 text-[11px] text-slate-600">
-                        <span>Deposit per case: <strong className="text-emerald-700">{formatPeso(item.caseDepositAmount || item.depositAmount || 0)}</strong></span>
+                        <span>Deposit per {isCase ? 'case' : 'bottle'}: <strong className="text-emerald-700">{formatPeso(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)}</strong></span>
                         <span className={`font-medium ${(item.emptyReturnedQuantity || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
                           {(item.emptyReturnedQuantity || 0) > 0
-                            ? `${item.emptyReturnedQuantity} empties applied`
+                            ? `${appliedEmptyQuantity} ${emptyUnitLabel}${appliedEmptyQuantity !== 1 ? 's' : ''} applied`
                             : 'New deposit will apply'}
                         </span>
                       </div>

@@ -139,6 +139,8 @@ export function CustomerProfileView({
 }: CustomerProfileViewProps) {
   const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'security-settings' | 'notifications' | 'real-notifications'>(initialSubView ?? 'menu')
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingSecurity, setIsEditingSecurity] = useState(false)
 
   // Empty Bottles Recording State
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false)
@@ -713,25 +715,24 @@ export function CustomerProfileView({
           <p className="mt-2 text-base font-bold text-slate-900">
             {formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName || 'Your Name')}
           </p>
-          <p className="text-xs font-medium text-slate-400">Live Preview (Middle Initial)</p>
         </div>
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
-              <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
-              <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" />
+              <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
-              <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" />
+              <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+              <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="customer-profile-suffix" className="text-sm font-semibold text-slate-700">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
-              <Input id="customer-profile-suffix" value={profileSuffix} onChange={(e) => setProfileSuffix?.(e.target.value)} placeholder="e.g. Jr., Sr., III" className="h-11 rounded-xl border-slate-200" />
+              <Input id="customer-profile-suffix" value={profileSuffix} onChange={(e) => setProfileSuffix?.(e.target.value)} placeholder="e.g. Jr., Sr., III" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
             </div>
           </div>
           <div className="space-y-2">
@@ -743,6 +744,7 @@ export function CustomerProfileView({
               onChange={(e) => setProfileEmail(e.target.value)}
               placeholder="Enter your email"
               className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-emerald-500 focus-visible:ring-emerald-200"
+              disabled={!isEditingProfile}
             />
           </div>
           <div className="space-y-2">
@@ -759,6 +761,7 @@ export function CustomerProfileView({
               className={`h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-emerald-500 focus-visible:ring-emerald-200 ${
                 phoneError ? 'border-red-300 focus-visible:border-red-500 focus-visible:ring-red-200' : ''
               }`}
+              disabled={!isEditingProfile}
             />
             {phoneError && <p className="text-xs text-red-600 font-medium">{phoneError}</p>}
           </div>
@@ -782,7 +785,13 @@ export function CustomerProfileView({
         <div className="px-4 pt-2">
           <Button
             type="button"
-            onClick={handleSaveProfile}
+            onClick={() => {
+              if (isEditingProfile) {
+                handleSaveProfile()
+              } else {
+                setIsEditingProfile(true)
+              }
+            }}
             disabled={isSavingProfile || !canSaveProfile}
             className="w-full h-12 bg-[#14532d] text-white rounded-xl font-semibold hover:bg-[#0f3f22] transition-colors shadow-[0_4px_12px_rgba(20,83,45,0.12)]"
           >
@@ -791,8 +800,10 @@ export function CustomerProfileView({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Saving Changes...
               </>
-            ) : (
+            ) : isEditingProfile ? (
               'Save Changes'
+            ) : (
+              'Edit Profile'
             )}
           </Button>
         </div>
@@ -881,11 +892,11 @@ export function CustomerProfileView({
               type="button"
               role="switch"
               aria-checked={twoFactorEnabled}
-              disabled={isSavingSecurity}
+              disabled={isSavingSecurity || !isEditingSecurity}
               onClick={() => void saveSecuritySetting('twoFactorEnabled', !twoFactorEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 twoFactorEnabled ? 'bg-[#14532d]' : 'bg-slate-200'
-              }`}
+              } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${twoFactorEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
@@ -900,11 +911,11 @@ export function CustomerProfileView({
               type="button"
               role="switch"
               aria-checked={loginAlertsEnabled}
-              disabled={isSavingSecurity}
+              disabled={isSavingSecurity || !isEditingSecurity}
               onClick={() => void saveSecuritySetting('loginAlertsEnabled', !loginAlertsEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 loginAlertsEnabled ? 'bg-[#14532d]' : 'bg-slate-200'
-              }`}
+              } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${loginAlertsEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
@@ -919,6 +930,7 @@ export function CustomerProfileView({
               type="button"
               role="switch"
               aria-checked={rememberDeviceEnabled}
+              disabled={!isEditingSecurity}
               onClick={() => {
                 const next = !rememberDeviceEnabled
                 setRememberDeviceEnabled(next)
@@ -927,11 +939,21 @@ export function CustomerProfileView({
               }}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 rememberDeviceEnabled ? 'bg-[#14532d]' : 'bg-slate-200'
-              }`}
+              } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${rememberDeviceEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
+        </div>
+        <div className="px-4 pt-2">
+          <Button
+            type="button"
+            onClick={() => setIsEditingSecurity(false)}
+            disabled={!isEditingSecurity}
+            className="w-full h-12 bg-[#14532d] text-white rounded-xl font-semibold hover:bg-[#0f3f22] transition-colors shadow-[0_4px_12px_rgba(20,83,45,0.12)]"
+          >
+            {isEditingSecurity ? 'Save Security Settings' : 'Edit Security Settings'}
+          </Button>
         </div>
       </div>
     )
@@ -1175,7 +1197,7 @@ export function CustomerProfileView({
         <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
           <div className="border-b border-slate-100 px-4 py-3.5 flex items-center justify-between">
             <div>
-              <h3 className="text-[15px] font-bold text-slate-900">Empty Bottles On Record</h3>
+              <h3 className="text-[15px] font-bold text-slate-900">Empty Containers On Record</h3>
               <p className="mt-0.5 text-xs text-slate-500">Available empty containers applied automatically at checkout.</p>
             </div>
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -1185,7 +1207,20 @@ export function CustomerProfileView({
 
           {bottleBalances.length > 0 ? (
             <div className="divide-y divide-slate-100">
-              {bottleBalances.map((balance: any) => (
+              {bottleBalances.map((balance: any) => {
+                const containersPerCase = Math.max(1, Math.floor(Number(balance.containersPerCase || 1)))
+                const bottlesOutstanding = Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)))
+                const casesOutstanding = Number.isFinite(Number(balance.casesOutstanding))
+                  ? Math.max(0, Math.floor(Number(balance.casesOutstanding)))
+                  : Math.floor(bottlesOutstanding / containersPerCase)
+                const looseBottles = Number.isFinite(Number(balance.looseBottlesOutstanding))
+                  ? Math.max(0, Math.floor(Number(balance.looseBottlesOutstanding)))
+                  : bottlesOutstanding % containersPerCase
+                const hasFullCases = casesOutstanding > 0
+                const depositAmount = hasFullCases ? balance.caseDepositAmount : balance.depositAmount
+                const depositUnit = hasFullCases ? 'case' : 'bottle'
+
+                return (
                 <div key={balance.containerTypeId} className="flex items-center justify-between gap-4 px-4 py-3.5">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-800">
@@ -1193,16 +1228,25 @@ export function CustomerProfileView({
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500">
                       {balance.productName && balance.containerTypeName ? `${balance.containerTypeName} • ` : ''}
-                      Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span>
+                      Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(depositAmount)}/{depositUnit}</span>
+                      {hasFullCases && looseBottles > 0 ? (
+                        <span> · Loose: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span></span>
+                      ) : null}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-lg font-bold text-slate-900">{Number(balance.bottlesOutstanding) || 0}</p>
-                    <p className="text-xs text-slate-500">empty bottle{Number(balance.bottlesOutstanding) !== 1 ? 's' : ''}</p>
+                    <p className="text-lg font-bold text-slate-900">{hasFullCases ? casesOutstanding : looseBottles}</p>
+                    <p className="text-xs text-slate-500">
+                      {hasFullCases ? `empty case${casesOutstanding !== 1 ? 's' : ''}` : `loose bottle${looseBottles !== 1 ? 's' : ''}`}
+                    </p>
+                    {hasFullCases && looseBottles > 0 ? (
+                      <p className="text-[11px] text-slate-500">+ {looseBottles} loose bottle{looseBottles !== 1 ? 's' : ''}</p>
+                    ) : null}
                     <p className="mt-0.5 text-xs font-semibold text-emerald-700">{formatDeposit(balance.depositBalance)} credit</p>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div className="px-4 py-8 text-center">

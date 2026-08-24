@@ -1754,13 +1754,22 @@ def _user_payload(user: User) -> dict[str, Any]:
 def _customer_payload(customer: Customer) -> dict[str, Any]:
     balances = []
     for b in customer.bottle_balances.select_related("container_type").all():
-        associated_products = list(
+        associated_packagings = list(
             ProductPackaging.objects.filter(container_type=b.container_type, is_active=True)
             .select_related("product")
-            .values_list("product__name", flat=True)
-            .distinct()
+            .order_by("-is_primary", "created_at")
         )
-        prod_names = [p for p in associated_products if p]
+        prod_names = list(dict.fromkeys(
+            packaging.product.name
+            for packaging in associated_packagings
+            if packaging.product and packaging.product.name
+        ))
+        primary_packaging = associated_packagings[0] if associated_packagings else None
+        containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
+        cases_outstanding, loose_bottles_outstanding = divmod(
+            max(0, int(b.bottles_outstanding or 0)),
+            containers_per_case,
+        )
         balances.append({
             "containerTypeId": b.container_type_id,
             "containerTypeName": b.container_type.name,
@@ -1768,6 +1777,12 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
             "productNames": prod_names,
             "bottlesOutstanding": b.bottles_outstanding,
             "depositAmount": float(b.container_type.deposit_amount),
+            # Full multiples are presented and valued as cases; only the
+            # remainder is a loose-bottle balance.
+            "containersPerCase": containers_per_case,
+            "casesOutstanding": cases_outstanding,
+            "looseBottlesOutstanding": loose_bottles_outstanding,
+            "caseDepositAmount": float(primary_packaging.case_deposit_amount or 0) if primary_packaging else 0.0,
             "depositBalance": float(b.deposit_balance),
             "bottlesReturnedTotal": b.bottles_returned_total,
             "bottlesSoldTotal": b.bottles_sold_total,

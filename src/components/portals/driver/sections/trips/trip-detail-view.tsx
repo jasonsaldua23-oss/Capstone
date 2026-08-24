@@ -121,11 +121,9 @@ export function TripDetailView({
   const [is3DPerspective, setIs3DPerspective] = useState(false)
   const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true)
   const [previewDriverLocation, setPreviewDriverLocation] = useState<DriverGpsLocation | null>(null)
-  const [animatedDriverLocation, setAnimatedDriverLocation] = useState<DriverGpsLocation | null>(null)
   // Refs for camera stream lifecycle and gesture handling.
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
-  const driverMarkerAnimationFrameRef = useRef<number | null>(null)
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
@@ -1566,82 +1564,6 @@ export function TripDetailView({
     trip.id,
   ])
 
-  useEffect(() => {
-    if (!effectiveDriverLocation) return
-
-    const target: DriverGpsLocation = {
-      ...effectiveDriverLocation,
-      lat: Number(effectiveDriverLocation.lat),
-      lng: Number(effectiveDriverLocation.lng),
-      recordedAt: toRecordedAtMs(effectiveDriverLocation.recordedAt) ?? Date.now(),
-    }
-
-    setAnimatedDriverLocation((previous) => {
-      if (!previous) return target
-      const latDiff = Math.abs(Number(previous.lat) - target.lat)
-      const lngDiff = Math.abs(Number(previous.lng) - target.lng)
-      if (latDiff < 0.0000008 && lngDiff < 0.0000008) {
-        return {
-          ...target,
-          accuracy: target.accuracy ?? previous.accuracy ?? null,
-          heading: target.heading ?? previous.heading ?? null,
-          speed: target.speed ?? previous.speed ?? null,
-        }
-      }
-      return previous
-    })
-
-    if (driverMarkerAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(driverMarkerAnimationFrameRef.current)
-      driverMarkerAnimationFrameRef.current = null
-    }
-
-    const start = animatedDriverLocation || target
-    const startLat = Number(start.lat)
-    const startLng = Number(start.lng)
-    const endLat = Number(target.lat)
-    const endLng = Number(target.lng)
-    const deltaLat = endLat - startLat
-    const deltaLng = endLng - startLng
-    const distanceHint = Math.sqrt(deltaLat * deltaLat + deltaLng * deltaLng)
-    const durationMs = Math.min(1400, Math.max(320, distanceHint * 3_200_000))
-    const startedAt = performance.now()
-
-    const tick = (now: number) => {
-      const elapsed = now - startedAt
-      const progress = Math.max(0, Math.min(1, elapsed / durationMs))
-      const eased = 1 - Math.pow(1 - progress, 3)
-      setAnimatedDriverLocation({
-        lat: startLat + deltaLat * eased,
-        lng: startLng + deltaLng * eased,
-        accuracy: target.accuracy ?? null,
-        heading: target.heading ?? null,
-        speed: target.speed ?? null,
-        recordedAt: toRecordedAtMs(target.recordedAt) ?? Date.now(),
-      })
-      if (progress < 1) {
-        driverMarkerAnimationFrameRef.current = requestAnimationFrame(tick)
-      } else {
-        driverMarkerAnimationFrameRef.current = null
-      }
-    }
-
-    driverMarkerAnimationFrameRef.current = requestAnimationFrame(tick)
-
-    return () => {
-      if (driverMarkerAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(driverMarkerAnimationFrameRef.current)
-        driverMarkerAnimationFrameRef.current = null
-      }
-    }
-  }, [
-    effectiveDriverLocation?.lat,
-    effectiveDriverLocation?.lng,
-    effectiveDriverLocation?.accuracy,
-    effectiveDriverLocation?.heading,
-    effectiveDriverLocation?.speed,
-    effectiveDriverLocation?.recordedAt,
-  ])
   const driverMarkerHeading =
     typeof effectiveDriverLocation?.heading === 'number' &&
     Number.isFinite(effectiveDriverLocation.heading) &&

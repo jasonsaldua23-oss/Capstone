@@ -176,14 +176,23 @@ export function CustomerCheckoutView({
                         ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase) * Number(item.caseDepositAmount || 0)
                         : Number(item.emptyReturnedQuantity || 0) * Number(item.depositAmount || 0)
                       const newDeposit = Math.max(0, grossDeposit - depositCredit)
+                      // Case purchases display full cases and case credits;
+                      // bottle wording is reserved for genuinely loose items.
+                      const availableEmptyQuantity = isCase
+                        ? Math.floor(Number(item.availableEmptyBottles || 0) / containersPerCase)
+                        : Number(item.availableEmptyBottles || 0)
+                      const appliedEmptyQuantity = isCase
+                        ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase)
+                        : Number(item.emptyReturnedQuantity || 0)
+                      const emptyUnitLabel = isCase ? 'case' : 'loose bottle'
                       return (
                         <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
                           <p className="font-medium text-slate-700">
-                            {item.looseUnit || item.containerTypeName || 'Glass Bottle'} — Empty Containers: {item.availableEmptyBottles || 0} — Deposit Balance: {formatPeso(item.availableDepositBalance || 0)}
+                            {item.looseUnit || item.containerTypeName || 'Glass Bottle'} — Empty Containers: {availableEmptyQuantity} {emptyUnitLabel}{availableEmptyQuantity !== 1 ? 's' : ''} — Deposit Balance: {formatPeso(item.availableDepositBalance || 0)}
                           </p>
                           <p className={(item.emptyReturnedQuantity || 0) > 0 ? 'mt-1 text-emerald-700' : 'mt-1 text-amber-700'}>
                             {(item.emptyReturnedQuantity || 0) > 0
-                              ? `${item.emptyReturnedQuantity} existing empties will be used.`
+                              ? `${appliedEmptyQuantity} existing ${emptyUnitLabel}${appliedEmptyQuantity !== 1 ? 's' : ''} will be used.`
                               : 'No existing empties are available.'}
                           </p>
                           {newDeposit > 0 ? <p className="mt-0.5 text-slate-600">New deposit charged: +{formatPeso(newDeposit)}</p> : null}

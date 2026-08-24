@@ -5,7 +5,13 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import MapLibreNavigationMap from './MapLibreNavigationMap';
-import type { NavigationViewportInsets } from '@/lib/map-navigation';
+import {
+  bearingBetweenMapPoints,
+  pointAtRouteDistance,
+  projectPointOntoRoute,
+  splitRouteAtDistance,
+  type NavigationViewportInsets,
+} from '@/lib/map-navigation';
 
 const MapContainerUnsafe = MapContainer as any;
 const TileLayerUnsafe = TileLayer as any;
@@ -343,6 +349,7 @@ export type DriverLocation = {
   markerEta?: string;
   markerEtaPhase?: 'completed' | 'next' | 'upcoming';
   accuracyMeters?: number;
+  routeProgressMeters?: number;
   popupCustomerName?: string;
   popupAddress?: string;
   popupOrderItems?: DriverLocationPopupItem[];
@@ -402,7 +409,10 @@ const TRUCK_ICON_BASE_HEADING = 45;
 const TRUCK_ROTATION_QUANTIZATION_DEG = 1;
 const NAV_CAMERA_LOOKAHEAD_METERS = 95;
 const NAV_CAMERA_ANIMATION_SECONDS = 0.35;
-const TRUCK_SMOOTHING_DURATION_MS = 300;
+const TRUCK_DEFAULT_SMOOTHING_DURATION_MS = 1000;
+const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
+const TRUCK_MAX_SMOOTHING_DURATION_MS = 4500;
+const TRUCK_STATIONARY_THRESHOLD_METERS = 4;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 
@@ -975,6 +985,8 @@ export default function LiveTrackingMap({
   const [negrosBoundary, setNegrosBoundary] = useState<NegrosBoundary | null>(null);
   const [serviceBoundary, setServiceBoundary] = useState<ServiceBoundary | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const lastTruckTargetAtRef = useRef<number | null>(null);
+  const acceptedRouteProgressRef = useRef<{ routeKey: string; distanceMeters: number } | null>(null);
 
   useEffect(() => {
     if (!restrictToNegrosOccidental) {
@@ -1140,6 +1152,26 @@ export default function LiveTrackingMap({
       : null;
   }, [renderedRouteLines]);
 
+  const navigationRouteGeometry = useMemo(() => {
+    const completed = renderedRouteLines.find((line) => line.id.endsWith('-route-completed'));
+    const upcoming = renderedRouteLines.find((line) => line.id.endsWith('-route-upcoming'));
+    if (!completed && !upcoming) return [] as [number, number][];
+
+    // The completed and upcoming lines share the truck junction. Joining them
+    // produces one authoritative road geometry for projection and animation.
+    return dedupeConsecutivePoints([
+      ...(completed?.points || []),
+      ...(upcoming?.points || []),
+    ]);
+  }, [renderedRouteLines]);
+  const navigationRouteKey = useMemo(
+    () => renderedRouteLines
+      .filter((line) => line.id.endsWith('-route-completed') || line.id.endsWith('-route-upcoming'))
+      .map((line) => line.id)
+      .join('|'),
+    [renderedRouteLines]
+  );
+
   const routeOriginPoint = useMemo<[number, number] | null>(() => {
     const routePolylines = renderedRouteLines
       .map((line) => ({
@@ -1265,11 +1297,52 @@ export default function LiveTrackingMap({
       animationFrameRef.current = null;
     }
 
+    const receivedAt = performance.now();
+    const observedUpdateInterval = lastTruckTargetAtRef.current === null
+      ? TRUCK_DEFAULT_SMOOTHING_DURATION_MS
+      : receivedAt - lastTruckTargetAtRef.current;
+    lastTruckTargetAtRef.current = receivedAt;
+    const animationDurationMs = navigationPerspective
+      ? Math.max(
+          TRUCK_MIN_SMOOTHING_DURATION_MS,
+          Math.min(TRUCK_MAX_SMOOTHING_DURATION_MS, observedUpdateInterval * 0.9)
+        )
+      : TRUCK_DEFAULT_SMOOTHING_DURATION_MS;
+
+    const stabilizedTargets = snappedLocations.map((location) => {
+      if (location.markerType !== 'truck' || !navigationPerspective || navigationRouteGeometry.length < 2) {
+        return location;
+      }
+
+      const projected = projectPointOntoRoute([location.lat, location.lng], navigationRouteGeometry);
+      if (!projected) return location;
+
+      const previousProgress = acceptedRouteProgressRef.current;
+      let acceptedDistance = projected.distanceAlongMeters;
+      if (previousProgress?.routeKey === navigationRouteKey) {
+        // GPS noise must not move the truck or completed line backward. Changes
+        // below four metres are also treated as stationary jitter.
+        acceptedDistance = projected.distanceAlongMeters <= previousProgress.distanceMeters + TRUCK_STATIONARY_THRESHOLD_METERS
+          ? previousProgress.distanceMeters
+          : projected.distanceAlongMeters;
+      }
+      acceptedRouteProgressRef.current = { routeKey: navigationRouteKey, distanceMeters: acceptedDistance };
+      const roadPoint = pointAtRouteDistance(navigationRouteGeometry, acceptedDistance);
+      return roadPoint
+        ? { ...location, lat: roadPoint[0], lng: roadPoint[1], routeProgressMeters: acceptedDistance }
+        : location;
+    });
+
     setSmoothedLocations((previousLocations) => {
       const previousById = new Map(previousLocations.map((loc) => [loc.id, loc]));
-      const hasAnimatedTruck = snappedLocations.some((loc) => {
+      const hasAnimatedTruck = stabilizedTargets.some((loc) => {
         if (loc.markerType !== 'truck') return false;
         const previous = previousById.get(loc.id);
+        if (previous && navigationPerspective) {
+          // Ignore stationary heading/position noise; a real navigation move
+          // must clear the same four-metre threshold used for route progress.
+          return approximateDistanceMeters([previous.lat, previous.lng], [loc.lat, loc.lng]) >= TRUCK_STATIONARY_THRESHOLD_METERS;
+        }
         return (
           previous &&
           (Math.abs(previous.lat - loc.lat) > 1e-9 ||
@@ -1281,16 +1354,34 @@ export default function LiveTrackingMap({
       });
 
       if (!hasAnimatedTruck) {
-        return snappedLocations;
+        return stabilizedTargets.map((targetLocation) => {
+          if (targetLocation.markerType !== 'truck') return targetLocation;
+          const previous = previousById.get(targetLocation.id);
+          const hasAcceptedRoadPosition = typeof previous?.routeProgressMeters === 'number';
+          return previous
+            ? {
+                ...targetLocation,
+                // On first route load, adopt the projected road point once;
+                // subsequent sub-threshold GPS fixes retain the prior position.
+                lat: hasAcceptedRoadPosition ? previous.lat : targetLocation.lat,
+                lng: hasAcceptedRoadPosition ? previous.lng : targetLocation.lng,
+                markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
+                routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
+              }
+            : targetLocation;
+        });
       }
 
       const startTime = performance.now();
 
       const animate = (now: number) => {
-        const progress = Math.min(1, (now - startTime) / TRUCK_SMOOTHING_DURATION_MS);
+        const progress = Math.min(1, (now - startTime) / animationDurationMs);
+        // Smoothstep keeps velocity continuous at both ends while using almost
+        // the entire GPS interval, so multi-second updates still look continuous.
+        const easedProgress = progress * progress * (3 - 2 * progress);
 
         setSmoothedLocations(() =>
-          snappedLocations.map((targetLoc) => {
+          stabilizedTargets.map((targetLoc) => {
             if (targetLoc.markerType !== 'truck') {
               return targetLoc;
             }
@@ -1300,24 +1391,47 @@ export default function LiveTrackingMap({
               return targetLoc;
             }
 
+            const movementMeters = approximateDistanceMeters(
+              [previous.lat, previous.lng],
+              [targetLoc.lat, targetLoc.lng]
+            );
+            // Bearing comes from the previous accepted position to the new one;
+            // route heading remains the fallback when movement is too small.
+            const movementHeading = movementMeters >= TRUCK_STATIONARY_THRESHOLD_METERS
+              ? bearingBetweenMapPoints([previous.lat, previous.lng], [targetLoc.lat, targetLoc.lng])
+              : null;
             const startHeading =
               typeof previous.markerHeading === 'number' && Number.isFinite(previous.markerHeading)
                 ? previous.markerHeading
                 : typeof targetLoc.markerHeading === 'number' && Number.isFinite(targetLoc.markerHeading)
                   ? targetLoc.markerHeading
                   : undefined;
-            const endHeading =
+            const endHeading = movementHeading ?? (
               typeof targetLoc.markerHeading === 'number' && Number.isFinite(targetLoc.markerHeading)
                 ? targetLoc.markerHeading
-                : startHeading;
+                : startHeading
+            );
+            const startRouteProgress = previous.routeProgressMeters;
+            const endRouteProgress = targetLoc.routeProgressMeters;
+            const animatedRouteProgress =
+              typeof startRouteProgress === 'number' && typeof endRouteProgress === 'number'
+                ? lerp(startRouteProgress, endRouteProgress, easedProgress)
+                : endRouteProgress;
+            const animatedRoadPoint =
+              navigationPerspective && typeof animatedRouteProgress === 'number'
+                ? pointAtRouteDistance(navigationRouteGeometry, animatedRouteProgress)
+                : null;
 
             return {
               ...targetLoc,
-              lat: lerp(previous.lat, targetLoc.lat, progress),
-              lng: lerp(previous.lng, targetLoc.lng, progress),
+              // In navigation mode interpolate distance along the routed road,
+              // never a straight chord between two GPS fixes.
+              lat: animatedRoadPoint?.[0] ?? lerp(previous.lat, targetLoc.lat, easedProgress),
+              lng: animatedRoadPoint?.[1] ?? lerp(previous.lng, targetLoc.lng, easedProgress),
+              routeProgressMeters: animatedRouteProgress,
               markerHeading:
                 typeof startHeading === 'number' && typeof endHeading === 'number'
-                  ? lerpAngle(startHeading, endHeading, progress)
+                  ? lerpAngle(startHeading, endHeading, easedProgress)
                   : endHeading,
             };
           })
@@ -1340,10 +1454,44 @@ export default function LiveTrackingMap({
         animationFrameRef.current = null;
       }
     };
-  }, [snappedLocations]);
+  }, [navigationPerspective, navigationRouteGeometry, navigationRouteKey, snappedLocations]);
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = navigationPerspective && singleTruck.length === 1 ? singleTruck[0] : null;
+  const navigationDisplayRouteLines = useMemo(() => {
+    if (!navigationPerspective || navigationRouteGeometry.length < 2 || !navTruck) return renderedRouteLines;
+
+    const projected = typeof navTruck.routeProgressMeters === 'number'
+      ? navTruck.routeProgressMeters
+      : projectPointOntoRoute([navTruck.lat, navTruck.lng], navigationRouteGeometry)?.distanceAlongMeters;
+    if (typeof projected !== 'number') return renderedRouteLines;
+
+    // Gray and active route sections are split at the exact same interpolated
+    // road position used by the truck, so progress grows continuously with it.
+    const split = splitRouteAtDistance(navigationRouteGeometry, projected);
+    const completedTemplate = renderedRouteLines.find((line) => line.id.endsWith('-route-completed'));
+    const upcomingTemplate = renderedRouteLines.find((line) => line.id.endsWith('-route-upcoming'));
+    const unrelatedLines = renderedRouteLines.filter(
+      (line) => !line.id.endsWith('-route-completed') && !line.id.endsWith('-route-upcoming')
+    );
+    const completedLine: LiveRouteLine = {
+      ...(completedTemplate || upcomingTemplate!),
+      id: completedTemplate?.id || `${upcomingTemplate?.id || 'navigation-route'}-completed`,
+      points: split.completed,
+      color: '#6b7280',
+    };
+    const upcomingLine: LiveRouteLine = {
+      ...(upcomingTemplate || completedTemplate!),
+      id: upcomingTemplate?.id || `${completedTemplate?.id || 'navigation-route'}-upcoming`,
+      points: split.remaining,
+      color: '#2563eb',
+    };
+    return [
+      ...unrelatedLines,
+      ...(completedLine.points.length > 1 ? [completedLine] : []),
+      ...(upcomingLine.points.length > 1 ? [upcomingLine] : []),
+    ];
+  }, [navTruck, navigationPerspective, navigationRouteGeometry, renderedRouteLines]);
   const strictBounds = restrictToNegrosOccidental
     ? serviceBoundary
       ? L.latLngBounds([serviceBoundary.bbox[1], serviceBoundary.bbox[0]], [serviceBoundary.bbox[3], serviceBoundary.bbox[2]])
@@ -1366,10 +1514,10 @@ export default function LiveTrackingMap({
   if (navigationPerspective) {
     return (
       <MapLibreNavigationMap
-        locations={snappedLocations}
+        locations={smoothedLocations}
         center={resolvedCenter}
         zoom={zoom}
-        routeLines={renderedRouteLines}
+        routeLines={navigationDisplayRouteLines}
         is3DPerspective={is3DPerspective}
         recenterSignal={recenterSignal}
         zoomInSignal={zoomInSignal}

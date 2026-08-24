@@ -70,20 +70,34 @@ def get_or_create_bottle_balance(
 def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
     """Get all bottle balances for a customer, serialized."""
     balances = CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type")
-    return [
-        {
-            "containerTypeId": b.container_type_id,
-            "containerTypeName": b.container_type.name,
-            "containerTypeCode": b.container_type.code,
-            "bottlesOutstanding": b.bottles_outstanding,
-            "bottlesReturnedTotal": b.bottles_returned_total,
-            "bottlesSoldTotal": b.bottles_sold_total,
-            "depositAmount": float(b.container_type.deposit_amount),
-            "depositBalance": float(b.deposit_balance),
-            "lastReturnAt": b.last_return_at.isoformat() if b.last_return_at else None,
-        }
-        for b in balances
-    ]
+    serialized = []
+    for balance in balances:
+        packaging = (
+            ProductPackaging.objects.filter(container_type=balance.container_type, is_active=True)
+            .order_by("-is_primary", "created_at")
+            .first()
+        )
+        containers_per_case = max(1, int(packaging.containers_per_case or 1)) if packaging else 1
+        cases_outstanding, loose_bottles_outstanding = divmod(
+            max(0, int(balance.bottles_outstanding or 0)),
+            containers_per_case,
+        )
+        serialized.append({
+            "containerTypeId": balance.container_type_id,
+            "containerTypeName": balance.container_type.name,
+            "containerTypeCode": balance.container_type.code,
+            "bottlesOutstanding": balance.bottles_outstanding,
+            "containersPerCase": containers_per_case,
+            "casesOutstanding": cases_outstanding,
+            "looseBottlesOutstanding": loose_bottles_outstanding,
+            "bottlesReturnedTotal": balance.bottles_returned_total,
+            "bottlesSoldTotal": balance.bottles_sold_total,
+            "depositAmount": float(balance.container_type.deposit_amount),
+            "caseDepositAmount": float(packaging.case_deposit_amount or 0) if packaging else 0.0,
+            "depositBalance": float(balance.deposit_balance),
+            "lastReturnAt": balance.last_return_at.isoformat() if balance.last_return_at else None,
+        })
+    return serialized
 
 
 def get_deposit_ledger_transactions(

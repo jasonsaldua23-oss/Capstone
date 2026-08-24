@@ -1,0 +1,859 @@
+id,title,description,preconditions,postconditions,tags,priority,severity,type,behavior,automation,status,is_flaky,layer,steps_type,steps_actions,steps_result,steps_data,milestone_id,milestone,suite_id,suite_parent_id,suite,suite_without_cases,parameters,is_muted
+,,,,,,,,,,,,,,,,,,,,1,,Use Case 1: Authentication,1,,
+,,,,,,,,,,,,,,,,,,,,2,,Use Case 2: Profile Management,1,,
+,,,,,,,,,,,,,,,,,,,,3,,Use Case 3: Master Data Management,1,,
+,,,,,,,,,,,,,,,,,,,,4,,Use Case 4: Inventory Management,1,,
+,,,,,,,,,,,,,,,,,,,,5,,Use Case 5: Order Fulfillment & Processing,1,,
+,,,,,,,,,,,,,,,,,,,,6,,Use Case 6: Transportation Management,1,,
+,,,,,,,,,,,,,,,,,,,,7,,Use Case 7: Replacement Handling Management,1,,
+,,,,,,,,,,,,,,,,,,,,8,,Use Case 8: Feedback Management,1,,
+,,,,,,,,,,,,,,,,,,,,9,,Use Case 9: Report Generation,1,,
+1,TC-01: Admin / Owner Login with Valid Credentials,Verify that the Owner/Admin can successfully log into the LMS_CFM system with valid credentials and is redirected to the Admin Portal dashboard.,The system is running and accessible. Active Owner/Admin account exists in the database.,"User session is established, JWT tokens stored, and user is on the Admin Dashboard (/admin).","auth,login,admin,smoke",critical,blocker,smoke,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to the application login page (/login/admin or /login).
+2. Enter registered Owner/Admin email/username and password.
+3. Click the 'Sign In' button.
+4. Observe the redirection and dashboard interface.
+","1. Login interface is displayed with role selection, email, and password fields.
+2. Input fields accept credentials without errors.
+3. System validates credentials, generates authenticated session, and returns 200 OK.
+4. User is redirected to Admin Portal with access to master data, trips, inventory, replacements, feedback, and reports.
+","1. URL: http://localhost:3000/login/admin
+2. Email: admin@coldfoodmovement.com, Password: AdminSecurePassword2026!
+3. Action: Click 'Sign In'
+4. Expected Route: /admin
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+2,"TC-02: Role-Based Redirection for Warehouse Staff, Driver, and Client Portals","Verify that users with different roles (Warehouse Staff, Driver, Client) are redirected to their respective role-specific portals upon successful authentication.","Active accounts for Warehouse Staff, Driver, and verified Client exist in the system.",Each user role lands on their dedicated portal with proper permission scoping.,"auth,roles,rbac,navigation",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Log in using Warehouse Staff credentials.
+2. Verify redirection to the Warehouse Portal.
+3. Log out and log in using Driver credentials.
+4. Verify redirection to the Driver Portal.
+5. Log out and log in using Client/Customer credentials.
+6. Verify redirection to the Customer Portal.
+","1. Warehouse Staff credentials successfully verified; user redirected to /warehouse with inventory and trip dispatch tools.
+2. Warehouse session active with warehouse-specific navigation items visible.
+3. Driver credentials verified; user redirected to /driver with assigned trips, navigation map, and load checklist.
+4. Driver session active with mobile-optimized driver interface.
+5. Client credentials verified; user redirected to /customer with product catalog, order history, tracking, and feedback.
+6. Client portal rendered with verified customer profile and cart status.
+","1. Staff Email: warehouse@lms.local, Pass: Warehouse123!
+2. Route: /warehouse
+3. Driver Email: driver.juan@lms.local, Pass: DriverPass123!
+4. Route: /driver
+5. Client Email: store.bistro@client.ph, Pass: ClientPass123!
+6. Route: /customer
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+3,TC-03: Login Failure with Invalid Credentials or Unregistered Account,Verify that the system denies access and displays an appropriate error message when invalid credentials or nonexistent accounts are used.,The system is running and accessible.,User remains unauthenticated on the login page; no session token is issued.,"auth,negative,security,login",high,major,security,negative,to-be-automated,actual,no,e2e,classic,"1. Navigate to the login page.
+2. Enter an unregistered email address and arbitrary password.
+3. Click the 'Sign In' button and observe system response.
+4. Enter a valid registered email with an incorrect password.
+5. Click the 'Sign In' button and observe error notification.
+","1. Login screen is displayed.
+2. Input fields accept entered data.
+3. System returns authentication error message: 'Invalid email or password'. No session is created.
+4. Valid email with incorrect password entered.
+5. System rejects login attempt with clear error feedback, preserving security against user enumeration.
+","1. URL: /login
+2. Email: fakeuser@unknown.com, Password: WrongPassword123!
+3. Click: Sign In
+4. Email: admin@coldfoodmovement.com, Password: IncorrectPassword!
+5. Click: Sign In
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+4,TC-04: Client Registration Submission and OTP / Confirmation Generation,Verify that a new Client can fill in the registration form and the system creates a pending account and sends an OTP/email confirmation.,The system is running. Client does not have an existing account.,A pending Client record is created in the database and an OTP verification code is generated.,"auth,registration,client,otp",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to the Client registration page (/login/customer or register tab).
+2. Fill in business name, contact person, phone number, email, delivery address, and password.
+3. Click the 'Register' / 'Sign Up' button.
+4. Verify system response and appearance of OTP/email confirmation modal.
+","1. Registration form renders with all required business and contact fields.
+2. Form fields accept valid input without client-side errors.
+3. System creates pending user and customer record in database with status 'pending_verification'.
+4. OTP code is generated/dispatched, and the UI transitions to the OTP entry screen.
+","1. URL: /login/customer (Sign Up tab)
+2. Business: 'Bacolod Fresh Mart', Contact: 'Maria Santos', Phone: '09171234567', Email: 'maria.santos@bacolodmart.ph', Address: 'Lacson St, Bacolod City', Password: 'ClientPassword2026!'
+3. Click: 'Register'
+4. OTP Modal: 'Please enter the 6-digit confirmation code sent to your email/phone.'
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+5,TC-05: Client Account Activation via Valid OTP Confirmation Code,Verify that entering the correct OTP confirmation code successfully verifies the Client account and enables full login access.,Pending Client registration exists with a valid unexpired OTP generated.,"Client account status is updated to 'verified' / 'active', allowing instant sign-in.","auth,registration,otp,activation",critical,blocker,functional,positive,to-be-automated,actual,no,e2e,classic,"1. On the OTP confirmation screen, enter the 6-digit OTP code received.
+2. Click 'Verify Code' or 'Confirm Account'.
+3. Observe system verification response and automatic redirect to the Customer Portal.
+","1. OTP input fields receive the 6-digit code.
+2. System validates OTP against backend cache/database record within expiration window.
+3. Account status updated to active; success alert displayed: 'Account verified successfully!'. User is authenticated into Customer Portal.
+","1. OTP Code: 582914
+2. Click: 'Verify Code'
+3. Target Route: /customer
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+6,TC-06: Client Registration Failure on Expired or Incorrect OTP Code,Verify that submitting an invalid or expired OTP code prevents account activation and prompts for resend.,Pending Client registration exists; invalid OTP or expired code used.,Client account remains in pending state; no access granted.,"auth,registration,negative,otp",high,major,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. On the OTP confirmation modal, enter an incorrect 6-digit code (e.g., 000000).
+2. Click 'Verify Code' and check error message.
+3. Click 'Resend Code' button to request a fresh OTP.
+4. Observe timer cooldown and notification of newly dispatched OTP.
+","1. Incorrect code entered into inputs.
+2. System displays error: 'Invalid verification code. Please check and try again.' Account remains unverified.
+3. Resend request processed; rate-limiting timer (60s) starts.
+4. New OTP generated and sent; toast notification confirms new OTP dispatch.
+","1. Invalid OTP: 000000
+2. Action: Verify
+3. Action: Click 'Resend OTP'
+4. Expected: New OTP generated
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+7,TC-07: Owner Creates and Manages Staff / Driver Credentials,Verify that the Owner can create new user credentials for Warehouse Staff and Drivers and modify existing employee account credentials.,Owner is logged in with administrative privileges. Staff/Driver management section accessible.,New staff/driver user record created with hashed password and designated system role.,"auth,admin,credentials,staff,driver",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Owner navigates to Admin Portal > User Management / Staff & Drivers section.
+2. Click 'Add New Employee / Driver'.
+3. Enter full name, email, contact number, role (Warehouse Staff or Driver), and temporary password.
+4. Click 'Save Credentials'.
+5. Verify that the new user appears in the active employee table and can log in.
+","1. Staff management interface displays current roster of employees.
+2. Create employee modal opens with required credential inputs.
+3. System validates email uniqueness and password complexity.
+4. Record saved to database; success message 'Employee credentials created successfully' shown.
+5. Newly created user is listed with designated role and can authenticate on login page.
+","1. Nav: /admin/users
+2. Click: Add New Employee
+3. Data: Name: 'Carlos Mendoza', Email: 'carlos.driver@lms.local', Role: 'Driver', Phone: '09189876543', Temp Password: 'DriverInit2026!'
+4. Click: Save Credentials
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+8,TC-08: Credential Validation on Duplicate Email or Weak Password,Verify that the system rejects employee or user creation when using an existing registered email or a password that does not meet complexity standards.,Owner is logged into Admin Portal; at least one user with email 'carlos.driver@lms.local' exists.,System blocks duplicate entry and weak password submission; database remains unchanged.,"auth,validation,negative,security",high,normal,security,negative,to-be-automated,actual,no,e2e,classic,"1. Open the 'Add Employee' modal in Admin Portal.
+2. Enter an already existing email address.
+3. Enter a short/weak password (e.g., '123').
+4. Click 'Save Credentials' and inspect field-level validations.
+","1. Modal is displayed.
+2. Duplicate email entered.
+3. Weak password entered.
+4. Validation errors triggered: 'A user with this email already exists' and 'Password must be at least 8 characters with letters and numbers'. Form submission blocked.
+","1. Email: carlos.driver@lms.local (Duplicate)
+2. Password: 123 (Too short)
+3. Click: Save
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+9,TC-09: Client Self-Service Password Reset via OTP / Email Verification,"Verify that a Client who forgot their password can request a reset code, verify their identity via OTP, and define a new password.",Registered Client account exists. Forgot password feature accessible on login page.,Client password hash is updated in database; user can log in with new password.,"auth,password-reset,otp,client",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Click 'Forgot Password?' link on Client login page.
+2. Enter registered Client email address and click 'Send Reset OTP'.
+3. Enter received 6-digit reset code.
+4. Enter new password and password confirmation, then click 'Update Password'.
+5. Log in with the updated password.
+","1. Forgot password dialog appears.
+2. System verifies registered email and sends OTP reset token.
+3. OTP code verified by backend.
+4. System validates password match and updates credentials with hash; displays 'Password reset successfully'.
+5. User successfully authenticates with the new password.
+","1. Email: maria.santos@bacolodmart.ph
+2. OTP Code: 941028
+3. New Password: NewClientSecurePass2026!
+4. Confirm: NewClientSecurePass2026!
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+10,TC-10: Owner Force Password Reset / Update for Staff or Driver Account,Verify that the Owner can directly reset or change the password for any staff or driver account from the Admin management portal.,Owner is logged into Admin Portal. Staff/driver accounts exist in the system.,Selected employee's password is reset and updated in the database.,"auth,admin,password-reset,staff",medium,normal,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > User Management.
+2. Select target Driver/Staff member and click 'Reset Password' action.
+3. Enter new temporary password and confirm.
+4. Click 'Save Password Change'.
+5. Test logging in with the staff account using the newly assigned password.
+","1. User management list displayed.
+2. Password reset prompt opens for selected user.
+3. Inputs receive valid password string.
+4. Password successfully updated; audit log records credential modification by Owner.
+5. Staff member logs in successfully with new credentials.
+","1. Target User: Carlos Mendoza (Driver)
+2. New Password: TempDriverPass2026#
+3. Click: Save Password Change
+",1,LMS_CFM v1.0 Release,1,,Use Case 1: Authentication,,,no
+11,TC-11: Manage and Update Employee Profile (Owner / Warehouse Staff / Driver),"Verify that an employee (Owner, Warehouse Staff, Driver) can view and update their personal profile details (first name, last name, phone number, avatar image).",Employee is authenticated and on their respective portal.,Employee profile record is updated in the database and reflected in the user interface header and profile page.,"profile,employee,avatar,update",high,normal,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to the Profile Settings page.
+2. Inspect existing pre-populated profile information.
+3. Update phone number and upload a new profile avatar photo.
+4. Click 'Save Profile Changes'.
+5. Refresh the page and verify persistence.
+","1. Profile page renders current user details, contact info, and profile avatar correctly.
+2. All current fields match database record.
+3. New avatar preview displays in real-time with crop modal support.
+4. System validates and saves updated fields; displays toast 'Profile updated successfully'.
+5. Updated phone number and new avatar persist across page reloads and portal header.
+","1. Nav: Profile Settings
+2. Phone: 09198765432
+3. Avatar: driver_avatar.jpg
+4. Click: Save Profile Changes
+",1,LMS_CFM v1.0 Release,2,,Use Case 2: Profile Management,,,no
+12,TC-12: Employee Profile Validation on Invalid Phone or Email Format,"Verify that invalid input formats (e.g., non-numeric phone number, invalid email structure) are rejected during employee profile updates.",Employee is logged in and on the profile edit form.,Profile update is blocked; invalid fields are highlighted with descriptive error text.,"profile,negative,validation",medium,minor,functional,negative,to-be-automated,actual,no,e2e,classic,"1. On profile edit screen, enter an invalid phone string (e.g., 'ABC12345').
+2. Enter an invalid email syntax (e.g., 'user@.com').
+3. Click 'Save Profile Changes'.
+4. Observe field validation errors.
+","1. Profile edit form active.
+2. Invalid phone format entered.
+3. Invalid email format entered.
+4. System blocks submission with error messages: 'Please enter a valid Philippine mobile number (09XXXXXXXXX)' and 'Invalid email address'.
+","1. Phone: ABC12345
+2. Email: user@.com
+3. Click: Save
+",1,LMS_CFM v1.0 Release,2,,Use Case 2: Profile Management,,,no
+13,TC-13: Driver License Details and Document Image Upload,"Verify that a Driver can submit their driver's license number, license expiration date, restriction codes, and upload a clear license image document.",Driver is logged into Driver Portal; profile/documents section is accessible.,License details and uploaded document file are saved to the Driver record and accessible to Owner for compliance verification.,"profile,driver,license,upload,compliance",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Driver Portal > License & Document Management.
+2. Enter License Number, Expiration Date, and License Restriction Code.
+3. Upload scanned image/photo of driver's license (JPEG/PNG/PDF).
+4. Click 'Submit License Details'.
+5. Verify confirmation alert and document preview thumbnail.
+","1. License upload section displayed.
+2. License metadata entered accurately into form fields.
+3. Image file selected and validated against size/format constraints.
+4. System uploads document to media storage, links URL to Driver profile, and displays 'License details submitted successfully'.
+5. Document preview thumbnail displays image with status 'Verified' / 'Active'.
+","1. Nav: /driver/profile/license
+2. License No: 'N02-18-987654', Expiration: '2028-11-15', Restrictions: '1, 2, 3 (Light/Heavy Commercial)'
+3. File: driver_license_card.png (1.2 MB)
+4. Click: Submit License Details
+",1,LMS_CFM v1.0 Release,2,,Use Case 2: Profile Management,,,no
+14,TC-14: Driver License Upload Rejection for Unsupported File Format or Past Expiry,"Verify that the system rejects unsupported file extensions (e.g. .exe, .txt) or files exceeding size limits, and flags expired licenses.",Driver is on license upload page.,File upload is rejected; system displays clear error guidance without saving invalid data.,"profile,driver,negative,upload,boundary",medium,normal,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Attempt to upload an unsupported file type (e.g., document.exe or script.sh).
+2. Observe upload validation error.
+3. Enter an expired license date (e.g., 2020-01-01) and attempt submission.
+","1. Unsupported file selected.
+2. System rejects file immediately with message: 'Unsupported file format. Please upload JPG, PNG, or PDF files under 5MB.'
+3. System flags date field: 'License expiration date cannot be in the past.'
+","1. File: malicious_file.exe
+2. Expiration Date: 2020-01-01
+3. Click: Submit
+",1,LMS_CFM v1.0 Release,2,,Use Case 2: Profile Management,,,no
+15,TC-15: Manage and Update Client Profile with GPS Map Pin and Delivery Address,"Verify that a Client can manage business profile information, contact number, delivery address details, and update exact map coordinates via AddressMapPicker.",Client is logged into Customer Portal. Customer profile exists.,Customer profile record updated with latest contact details and exact latitude/longitude coordinates for delivery drop points.,"profile,client,address,gps,map",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Customer Portal > Account Settings / Delivery Profile.
+2. Update business name, contact person, and phone number.
+3. Use interactive map picker to adjust the delivery drop pin to exact storefront location.
+4. Click 'Save Profile & Delivery Address'.
+5. Verify updated address string and latitude/longitude coordinates.
+","1. Profile edit page loads with current store profile and interactive Leaflet/MapLibre map.
+2. Fields accept updated text.
+3. Pin moves accurately on map; latitude and longitude fields auto-populate in real-time.
+4. System saves Customer model record; displays confirmation toast: 'Delivery profile and map location updated successfully'.
+5. Saved GPS coordinates persist and are used for future trip route calculations.
+","1. Nav: /customer/profile
+2. Business Name: 'Bacolod Bistro & Chill', Contact: 'Roberto Lim', Phone: '09201112233'
+3. Map Coordinates: Lat 10.6765, Lng 122.9510 (Lacson St, Bacolod City)
+4. Click: Save Profile & Delivery Address
+",1,LMS_CFM v1.0 Release,2,,Use Case 2: Profile Management,,,no
+16,TC-16: Client Profile Address Map Pin Location Accuracy Validation,Verify that the interactive map picker prevents setting coordinates outside the serviceable logistics delivery zone or missing delivery landmarks.,Client is editing delivery address on Customer Portal.,System warns client if coordinates are outside designated delivery perimeter or missing necessary building/landmark details.,"profile,client,map,validation,boundary",medium,normal,boundary,positive,to-be-automated,actual,no,e2e,classic,"1. Open map picker and move pin to a location far outside delivery coverage area (e.g., middle of the sea or out-of-province).
+2. Leave street landmark details blank.
+3. Attempt to save profile.
+","1. Map pin moved outside service area.
+2. System displays advisory: 'Selected pin is outside standard delivery coverage. Please verify your exact address.'
+3. System highlights required landmark field: 'Please provide nearest landmark or delivery instructions'.
+","1. Coordinates: Lat 0.000, Lng 0.000 (Off-grid)
+2. Landmark: [Empty]
+3. Click: Save
+",1,LMS_CFM v1.0 Release,2,,Use Case 2: Profile Management,,,no
+17,"TC-17: Create and Update Warehouse Data (Location, Capacity, Cold Storage Specs)","Verify that the Owner can register a new warehouse facility, specify total storage capacity, cold-chain temperature zones, operating hours, and update warehouse details.",Owner is logged into Admin Portal with master data access.,New Warehouse record is created in database and appears in warehouse management list.,"master-data,warehouse,cold-storage,admin",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Master Data > Warehouse Management.
+2. Click 'Add New Warehouse'.
+3. Fill in Warehouse Name, Code, Address, Capacity (cases), Cold Room Temperature Range (-2°C to 4°C), and Contact Supervisor.
+4. Click 'Save Warehouse'.
+5. Verify warehouse listing and edit an existing warehouse detail.
+","1. Warehouse management interface loads existing facilities.
+2. Add Warehouse modal opens with all required capacity and environmental fields.
+3. System validates uniqueness of Warehouse Code and valid numeric ranges.
+4. Warehouse saved successfully; notification 'Warehouse facility created' shown.
+5. Updated details reflect immediately in warehouse list and inventory allocation options.
+","1. Nav: /admin/warehouses
+2. Name: 'Central Cold Hub Bacolod', Code: 'WH-BCD-01', Address: 'Bredco Port Area, Bacolod City', Capacity: 15000, Temp: '-2°C to 4°C', Supervisor: 'Eduardo Gomez'
+3. Click: Save Warehouse
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+18,TC-18: Warehouse Creation Validation on Duplicate Code or Zero Capacity,Verify that the system blocks warehouse creation if the warehouse code already exists or capacity is set to zero or negative values.,Owner is on Add Warehouse form. Warehouse 'WH-BCD-01' already exists in database.,Form submission is blocked; error alerts highlight conflicting code and invalid capacity.,"master-data,warehouse,negative,validation",medium,normal,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Enter existing code 'WH-BCD-01'.
+2. Enter capacity '-500'.
+3. Click 'Save Warehouse'.
+4. Verify field-level error messages.
+","1. Duplicate code entered.
+2. Negative capacity entered.
+3. System blocks save operation with errors: 'Warehouse code must be unique' and 'Capacity must be greater than 0'.
+4. No duplicate database record is created.
+","1. Code: WH-BCD-01 (Duplicate)
+2. Capacity: -500 (Invalid)
+3. Click: Save
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+19,"TC-19: Register and Update Delivery Vehicle Records (Plate No, Refrigeration Specs, Capacity)","Verify that the Owner can register fleet vehicles with plate number, make/model, cold-storage unit type, maximum case capacity, payload weight limit, and maintenance status.",Owner is logged into Admin Portal. Master data vehicle section accessible.,Vehicle record created in database with status 'Available' and linked refrigeration attributes.,"master-data,fleet,vehicle,cold-chain,admin",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Master Data > Vehicle Management.
+2. Click 'Add New Vehicle'.
+3. Enter Plate Number, Model (e.g. Isuzu Elf Chiller Truck), Max Case Capacity, Max Weight (kg), Chiller Unit Model, and Insurance details.
+4. Click 'Register Vehicle'.
+5. Verify that the new vehicle is listed under Fleet Inventory.
+","1. Vehicle management table displayed with current fleet status.
+2. Add Vehicle modal displayed with specifications form.
+3. Form validates required fields and positive capacity values.
+4. System saves Vehicle record; shows toast 'Vehicle registered successfully'.
+5. New vehicle appears in the active fleet list ready for trip assignments.
+","1. Nav: /admin/vehicles
+2. Plate: 'ABC-1234', Model: 'Isuzu NPR Reefer Van', Capacity: 450, MaxWeight: 3500, Chiller: 'Carrier Neos 100 (-5C)', Status: 'Available'
+3. Click: Register Vehicle
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+20,TC-20: Vehicle Registration Validation on Duplicate Plate Number,Verify that the system enforces plate number uniqueness and rejects registration of duplicate vehicle license plates.,Owner is on Add Vehicle form. Vehicle with plate 'ABC-1234' exists.,System rejects duplicate plate registration with descriptive error.,"master-data,vehicle,negative,validation",medium,normal,functional,negative,to-be-automated,actual,no,e2e,classic,"1. Enter existing plate number 'ABC-1234'.
+2. Fill other valid vehicle details.
+3. Click 'Register Vehicle'.
+4. Inspect error feedback.
+","1. Duplicate plate entered.
+2. Form filled.
+3. System catches integrity violation and returns: 'A vehicle with plate number ABC-1234 already exists.'
+4. No duplicate vehicle row created.
+","1. Plate Number: ABC-1234
+2. Click: Register Vehicle
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+21,TC-21: Assign and Manage Driver-to-Vehicle Allocation,Verify that the Owner can assign an active certified Driver to an available fleet Vehicle and update or reassign vehicle allocations.,Active Driver and available Vehicle exist in the system.,Driver-vehicle mapping is recorded and updated in the system.,"master-data,driver,vehicle,assignment,admin",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Master Data > Driver-Vehicle Assignments.
+2. Select an available Driver from dropdown.
+3. Select an available Vehicle from dropdown.
+4. Set Assignment Date and Shift (e.g. Morning Shift).
+5. Click 'Assign Vehicle'.
+6. Verify assignment confirmation and status badge update to 'Assigned'.
+","1. Assignment management view displays current active pairings.
+2. Driver dropdown shows only available/unassigned active drivers.
+3. Vehicle dropdown shows only available vehicles with valid inspection.
+4. System validates pairing availability.
+5. Record saved; confirmation 'Driver Juan assigned to Vehicle ABC-1234' displayed; vehicle and driver status updated.
+","1. Nav: /admin/assignments
+2. Driver: Juan Perez (License: Valid)
+3. Vehicle: ABC-1234 (Isuzu Reefer)
+4. Shift: Morning Logistics Shift
+5. Click: Assign Vehicle
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+22,TC-22: Prevent Conflict on Driver or Vehicle Double Assignment,Verify that the system prevents assigning a driver or vehicle that is already active on another ongoing trip or conflicting assignment shift.,Driver Juan is already assigned to active Vehicle ABC-1234 on Trip #101.,System disallows duplicate assignment and displays availability warning.,"master-data,driver,vehicle,negative,concurrency",high,major,functional,negative,to-be-automated,actual,no,e2e,classic,"1. Attempt to assign Driver Juan to a second vehicle (XYZ-9876) during the same active shift.
+2. Observe system dropdown filtering and submission validation.
+3. Attempt to force submission via API/form.
+","1. Assignment modal opened.
+2. Already assigned driver is filtered out of available selector or flagged with '(Currently Active on Trip #101)'.
+3. System blocks conflicting assignment: 'Driver is currently assigned to active trip and cannot be reassigned until trip completion.'
+","1. Driver: Juan Perez (Active on Trip #101)
+2. Target Vehicle: XYZ-9876
+3. Click: Assign
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+23,TC-23: Add and Update Beverage Product Catalog Records & Packaging Profiles,"Verify that the Owner can create beverage products with SKU, variety, packaging type (e.g. 24x330ml returnable glass bottle case), deposit rates, price per case, and temperature requirements.",Owner is logged into Admin Portal with product management privileges.,Product record and packaging profile created in database and made available in customer ordering catalog.,"master-data,products,catalog,pricing,deposit,admin",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Master Data > Product Management.
+2. Click 'Add New Product'.
+3. Enter Product Name (e.g., San Miguel Pale Pilsen 330ml RGB), SKU, Category (Beer/Beverage), Unit Size, Bottles Per Case (24), Case Price (₱1,250.00), Bottle Deposit (₱120.00/case), and Shell Deposit (₱80.00).
+4. Upload product photo.
+5. Click 'Save Product'.
+6. Verify product appears in product list with active status.
+","1. Product catalog list displayed with search and category filters.
+2. Add Product modal opened with packaging and deposit configuration fields.
+3. System validates price > 0, valid integer units per case, and deposit rate calculation.
+4. Product image uploaded and optimized.
+5. Product record saved; toast 'Product San Miguel Pale Pilsen 330ml created successfully' displayed.
+6. Product is now available for inventory stock-in and customer order catalog.
+","1. Nav: /admin/products
+2. Name: 'San Miguel Pale Pilsen 330ml Glass Case', SKU: 'BEV-SMP-330-RGB24', Category: 'Beverages', BottlesPerCase: 24, CasePrice: 1250.00, BottleDeposit: 120.00, ShellDeposit: 80.00, TempReq: 'Cold 2-8°C'
+3. Image: sm_pale_pilsen.png
+4. Click: Save Product
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+24,TC-24: Product Record Validation on Negative Price or Missing Packaging Specifications,Verify that product creation is blocked when unit price is negative/zero or required packaging profile (units per case) is omitted.,Owner is on Add Product form in Admin Portal.,Form submission blocked with clear validation indicators.,"master-data,products,negative,validation",medium,normal,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Enter Product Name but leave Case Price as 0 or negative value (₱-100).
+2. Leave Bottles per Case empty.
+3. Click 'Save Product'.
+4. Observe validation errors.
+","1. Invalid inputs provided.
+2. Field validation triggers immediately.
+3. System blocks save: 'Price must be greater than zero' and 'Packaging units per case is required'.
+4. No database record created.
+","1. Price: -100
+2. Bottles per Case: [Blank]
+3. Click: Save Product
+",1,LMS_CFM v1.0 Release,3,,Use Case 3: Master Data Management,,,no
+25,"TC-25: Receive and Categorize Stock Batch (Batch Number, Expiry, Variety, Case Count)","Verify that Warehouse Staff can log received stock shipments, enter batch numbers, manufacturing/expiry dates, warehouse location, variety, unit size, and case quantities.",Warehouse Staff is logged into Warehouse Portal. Product records exist.,"New StockBatch record created, inventory quantities updated, and batch logged with categorization tags.","inventory,stock-batch,receiving,warehouse",critical,blocker,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Warehouse Portal > Inventory > 'Receive Stock Batch'.
+2. Select target product (e.g. San Miguel Pale Pilsen 330ml RGB).
+3. Enter Batch Number (e.g. BATCH-202608-01), Production Date, and Expiration Date.
+4. Enter Received Quantity (e.g. 500 cases), Storage Bay / Cold Room Location (e.g. ColdBay-A1).
+5. Select warehouse classification (Standard / Assorted / Promotion).
+6. Click 'Confirm Batch Receiving'.
+","1. Stock receiving form displays product selector and batch metadata inputs.
+2. Product details auto-populate packaging specs (24 bottles/case).
+3. System validates non-expired date and valid positive integer quantity.
+4. Location and category options verified.
+5. Stock batch saved with unique barcode/batch ID; Inventory record quantity_on_hand increased by 500 cases.
+6. Success notification 'Stock batch BATCH-202608-01 received: 500 cases added to ColdBay-A1' displayed.
+","1. Nav: /warehouse/inventory/receive
+2. Product: San Miguel Pale Pilsen 330ml (SKU: BEV-SMP-330-RGB24)
+3. Batch: 'BATCH-202608-01', Mfg: '2026-08-01', Exp: '2027-08-01'
+4. Qty: 500 cases, Location: ColdBay-A1, Category: Standard Stock
+5. Click: Confirm Batch Receiving
+",1,LMS_CFM v1.0 Release,4,,Use Case 4: Inventory Management,,,no
+26,TC-26: Stock Batch Receiving Validation on Expired Expiration Date or Zero Quantity,Verify that the system rejects stock batch entries with expiration dates in the past or invalid quantities.,Warehouse Staff is on Stock Receiving page.,Batch receiving rejected; error messages prevent invalid inventory ingestion.,"inventory,stock-batch,negative,validation",high,normal,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Select product and enter an expiration date that is already passed (e.g., 2025-01-01).
+2. Enter Quantity: 0 or -10.
+3. Click 'Confirm Batch Receiving'.
+4. Observe validation errors.
+","1. Form filled with invalid date and quantity.
+2. System highlights invalid fields.
+3. Error messages displayed: 'Expiration date must be at least 30 days in the future for receiving' and 'Received quantity must be a positive integer'.
+4. Inventory levels remain unchanged.
+","1. Exp Date: 2025-01-01 (Past)
+2. Quantity: 0
+3. Click: Confirm Batch Receiving
+",1,LMS_CFM v1.0 Release,4,,Use Case 4: Inventory Management,,,no
+27,"TC-27: Update Inventory Quantities (On-Hand, Available, Damaged / Quarantine)","Verify that Warehouse Staff can adjust inventory quantities based on physical cycle counts, segregating damaged/broken bottles into quarantine status.",Warehouse Staff is logged in. Existing stock batches exist in warehouse.,"Inventory on-hand and available quantities updated in real-time, damaged stock moved to quarantine balance.","inventory,adjustment,quarantine,damage,warehouse",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Warehouse Portal > Inventory > 'Inventory Adjustments'.
+2. Select Warehouse and Product (e.g., Central Cold Hub - San Miguel Pale Pilsen).
+3. Enter Adjustment Reason (e.g., 'Breakage during warehouse handling').
+4. Specify Damaged Case Count (e.g., 5 cases) and New Physical Count.
+5. Click 'Submit Adjustment'.
+6. Verify updated inventory totals on inventory dashboard.
+","1. Inventory adjustments view loads current on_hand, allocated, and damaged tallies.
+2. Product stock summary retrieved from backend.
+3. Reason and count inputs accepted.
+4. System calculates new balances: On-hand adjusted, Damaged incremented by 5 cases, Available reduced accordingly.
+5. Inventory transaction created; confirmation 'Inventory adjusted successfully' shown.
+","1. Nav: /warehouse/inventory/adjustments
+2. Product: San Miguel Pale Pilsen 330ml
+3. Reason: 'Handling Breakage', Damaged: 5 cases, Adjusted Total On-Hand: 495 cases
+4. Click: Submit Adjustment
+",1,LMS_CFM v1.0 Release,4,,Use Case 4: Inventory Management,,,no
+28,"TC-28: Record Inventory Transactions Audit Trail (Stock In, Stock Out, Transfer, Adjustment)","Verify that every stock movement automatically generates an immutable InventoryTransaction record with timestamp, user actor, batch ID, and quantity delta.","Inventory operations (Receiving, Order Fulfillment, Adjustment) have taken place.",Audit trail in InventoryTransaction table accurately reflects all stock movements.,"inventory,transactions,audit,compliance",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Warehouse Portal / Admin Portal > Inventory > 'Transaction Logs'.
+2. Filter transactions by Date Range and Transaction Type ('STOCK_IN', 'STOCK_OUT', 'DAMAGE_ADJUSTMENT').
+3. Select a transaction entry to view detailed metadata (User, Batch, Reason, Timestamp).
+4. Verify that calculated delta matches inventory changes.
+","1. Transaction log table displays all historical stock events in reverse chronological order.
+2. Filters apply dynamically without page reload.
+3. Transaction detail modal shows precise user identity, batch number, previous quantity, new quantity, and timestamp.
+4. Audit log values match database records with 100% integrity.
+","1. Nav: /warehouse/inventory/transactions
+2. Filter: Type = 'STOCK_IN', Date: Today
+3. Inspect Record: TX-20260824-001 (500 cases added by WarehouseStaff)
+4. Status: Verified
+",1,LMS_CFM v1.0 Release,4,,Use Case 4: Inventory Management,,,no
+29,TC-29: Monitor Stock Availability Matrix and Low-Stock Alert Notifications,Verify that the system monitors current available stock against configured reorder thresholds and displays visual alert badges / triggers low-stock notifications.,Product reorder threshold is set to 50 cases. Inventory level falls to 40 cases.,Low-stock alert banner is visible on Warehouse and Admin dashboards.,"inventory,monitoring,alerts,reorder",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin / Warehouse Portal > Stock Monitoring overview.
+2. Inspect the stock availability matrix for all SKUs.
+3. Locate SKU with stock below reorder point (e.g. 40 / 50 cases).
+4. Verify visual 'Low Stock' badge (amber/red indicator).
+5. Check Notification Center for automated low-stock reorder alert.
+","1. Stock overview loads with color-coded stock health indicators.
+2. Real-time stock counts categorized into On-Hand, Allocated, and Available.
+3. Low stock item clearly highlighted with 'Low Stock Alert - 40 cases remaining (Threshold: 50)' badge.
+4. Automated notification entry found in bell icon popup with action link to restock.
+","1. Nav: /warehouse/inventory/monitoring
+2. Product: Red Horse Beer 500ml
+3. Available: 40 cases (Threshold: 50 cases)
+4. Alert Badge: 'LOW_STOCK_WARNING'
+",1,LMS_CFM v1.0 Release,4,,Use Case 4: Inventory Management,,,no
+30,TC-30: Prevent Negative Inventory Stock Balances during Warehouse Deductions,Verify that the system blocks manual stock deductions or dispatch operations that would result in negative available inventory.,Product available stock is 20 cases.,System rejects manual deduction greater than 20 cases and maintains non-negative balance.,"inventory,negative,integrity,boundary",critical,critical,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Open Inventory Adjustment modal for product with 20 available cases.
+2. Attempt to deduct 30 cases (reducing stock to -10).
+3. Click 'Submit Adjustment'.
+4. Verify system error prevention.
+","1. Modal displays available stock: 20 cases.
+2. Deduction value: 30 cases entered.
+3. System blocks transaction: 'Cannot deduct 30 cases. Maximum available stock is 20 cases.'
+4. Database constraint and application logic prevent negative inventory balance.
+","1. Available Stock: 20 cases
+2. Requested Deduction: 30 cases
+3. Click: Submit Adjustment
+",1,LMS_CFM v1.0 Release,4,,Use Case 4: Inventory Management,,,no
+31,"TC-31: Client Places Order Successfully (Catalog Browsing, Cart, and Checkout)","Verify that a verified Client can browse product catalog, add beverage cases to cart, review pricing and deposit breakdown, and place an order successfully.",Client is logged in with active verified account. Products have available stock.,"Order and OrderItem records created with status 'CONFIRMED' / 'PENDING_PREPARATION', inventory reserved.","orders,checkout,cart,client,smoke",critical,blocker,smoke,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Customer Portal > Product Catalog (/customer/shop).
+2. Select products (e.g., 10 cases of San Miguel Pale Pilsen 330ml, 5 cases of Red Horse 500ml).
+3. Click 'Add to Cart' and open the Cart drawer / checkout page.
+4. Select preferred delivery date, review order subtotal, bottle deposit fees, and tax.
+5. Click 'Place Order' / 'Confirm Purchase'.
+6. Verify order confirmation screen and receipt generation with Order Reference ID.
+","1. Product catalog renders with real-time pricing and stock status badges.
+2. Items added to cart; cart badge updates counter.
+3. Cart drawer displays line item subtotal, packaging deposit line (₱200/case), and grand total.
+4. Delivery address and notes pre-filled from customer profile.
+5. System verifies stock availability, creates Order record, generates OrderTimeline entry, and decrements available inventory.
+6. Order confirmation page displayed with unique Order ID (e.g., ORD-20260824-0012) and downloadable summary.
+","1. Nav: /customer/shop
+2. Item 1: San Miguel Pale Pilsen (Qty: 10 cases @ ₱1,250 = ₱12,500 + ₱2,000 deposit)
+3. Item 2: Red Horse 500ml (Qty: 5 cases @ ₱1,400 = ₱7,000 + ₱1,000 deposit)
+4. Delivery Date: Tomorrow (2026-08-25)
+5. Grand Total: ₱22,500.00
+6. Click: Place Order
+",1,LMS_CFM v1.0 Release,5,,Use Case 5: Order Fulfillment & Processing,,,no
+32,"TC-32: Mixed Case Composition, Bottle Deposit Calculation, and Inventory Reservation",Verify that the Client can build a customized Mixed Case (assorted beverage varieties per case) and that the system properly reserves individual component inventory and calculates correct bottle deposits.,Client is on the Mixed Case Builder section. Individual beverage varieties are in stock.,"MixedCaseComponent records saved, component inventories reserved, and deposits calculated accurately.","orders,mixed-case,deposit,inventory-reservation,client",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Customer Portal > 'Custom Mixed Case Builder'.
+2. Configure a 24-bottle mixed case (e.g. 12 bottles Pale Pilsen + 6 bottles San Mig Light + 6 bottles Super Dry).
+3. Verify total bottle counter reaches 24/24.
+4. Add 2 Mixed Cases to cart.
+5. Verify cart summary shows mixed case breakdown and packaging deposit.
+6. Proceed to checkout and place order.
+","1. Mixed case builder tool initializes with bottle slot selector.
+2. User increments variety counts; live counter tracks sum towards 24 bottles.
+3. Add to Cart activates only when exactly 24 bottles are allocated.
+4. Cart displays 'Custom Mixed Case (24 bottles)' with sub-items list.
+5. System checks stock for each individual variety in warehouse.
+6. Order placed; inventory reservations recorded for each flavor component without stock discrepancy.
+","1. Nav: /customer/mixed-case-builder
+2. Case 1: 12x Pale Pilsen, 6x San Mig Light, 6x Super Dry (Total: 24/24)
+3. Quantity: 2 Mixed Cases
+4. Deposit: ₱200/case (₱400 total deposit)
+5. Click: Add to Cart -> Place Order
+",1,LMS_CFM v1.0 Release,5,,Use Case 5: Order Fulfillment & Processing,,,no
+33,TC-33: Order Placement Blocked / Rejected Due to Insufficient Stock Availability,"Verify that the system detects insufficient stock when a Client requests more cases than available in the warehouse, preventing checkout and displaying out-of-stock warning.",Client has 100 cases in cart; warehouse only has 20 available cases.,Order submission is blocked; system notifies client of stock shortage and suggests adjusting quantity.,"orders,insufficient-stock,validation,negative",critical,blocker,functional,negative,to-be-automated,actual,no,e2e,classic,"1. Client selects an item with low stock (20 cases available).
+2. Client inputs quantity: 50 cases and proceeds to checkout.
+3. Click 'Place Order'.
+4. Observe system stock validation response.
+","1. Item added with requested quantity.
+2. Checkout screen displays warning indicator.
+3. System performs real-time stock check against inventory table.
+4. Checkout button disabled or returns error: 'Insufficient stock. Only 20 cases of this item are currently available. Please adjust your order quantity.'
+5. No order is created; inventory remains unaffected.
+","1. Product: San Miguel Pale Pilsen
+2. Available Stock: 20 cases
+3. Requested: 50 cases
+4. Click: Place Order
+",1,LMS_CFM v1.0 Release,5,,Use Case 5: Order Fulfillment & Processing,,,no
+34,TC-34: Stock Allocation Race Condition Prevention under Concurrent Client Orders,Verify that concurrent checkout requests from multiple clients competing for the last remaining stock do not cause overselling (database row locking / transaction isolation).,Stock available is 10 cases. Client A and Client B both attempt to order 10 cases simultaneously.,One client successfully secures order; second client receives out-of-stock notice. Inventory never goes negative.,"orders,concurrency,race-condition,integrity",high,critical,functional,negative,to-be-automated,actual,no,api,classic,"1. Set product stock to 10 cases.
+2. Simultaneously submit Order Placement API calls for Client A (10 cases) and Client B (10 cases).
+3. Observe backend response codes and transaction isolation.
+4. Check final inventory level in database.
+","1. Initial inventory: available = 10.
+2. Both API requests arrive concurrently.
+3. First transaction obtains database row lock, confirms order, and decrements stock to 0.
+4. Second transaction evaluates stock = 0, rolls back cleanly, and returns 400 Bad Request ('Stock depleted').
+5. Final inventory = 0 (never negative).
+","1. API: POST /api/orders/create/
+2. Client A Payload: {product_id: 1, qty: 10}
+3. Client B Payload: {product_id: 1, qty: 10}
+4. Expected: Client A -> 201 Created; Client B -> 400 Out of Stock
+",1,LMS_CFM v1.0 Release,5,,Use Case 5: Order Fulfillment & Processing,,,no
+35,TC-35: Warehouse Staff Views Confirmed Orders and Generates Item Picking Checklist,"Verify that Warehouse Staff can view all confirmed client orders in real-time, inspect item details, and generate a warehouse picking and packing checklist.",Warehouse Staff is logged into Warehouse Portal. Confirmed client orders exist.,Confirmed orders displayed in order staging queue; picking list item quantities verified.,"orders,warehouse,picking,staging",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Warehouse Portal > Orders Fulfillment > 'Confirmed Orders'.
+2. Filter orders by status 'CONFIRMED' or 'AWAITING_PREPARATION'.
+3. Click on an order to view full order details, client name, delivery address, and line items.
+4. Click 'Generate Picking List' / 'Print Pack Sheet'.
+5. Verify itemized SKU, case count, batch allocation, and cold-room bay location.
+","1. Orders queue displays pending confirmed orders sorted by scheduled delivery date.
+2. Order row shows client name, case count, order value, and current status.
+3. Order detail drawer opens with exact item breakdown.
+4. System compiles picking list aggregating all cases and storage bay locations.
+5. Picking sheet generated cleanly for warehouse floor staff.
+","1. Nav: /warehouse/orders
+2. Selected Order: ORD-20260824-0012 (Client: Bacolod Bistro, 15 cases)
+3. Click: Generate Picking List
+",1,LMS_CFM v1.0 Release,5,,Use Case 5: Order Fulfillment & Processing,,,no
+36,TC-36: Warehouse Staff Completes Order Staging and Marks Ready for Dispatch,Verify that Warehouse Staff can mark picked cases as staged in the loading dock and update order status to 'READY_FOR_DELIVERY'.,Confirmed order has been physically picked and packed by warehouse staff.,"Order status updated to 'READY_FOR_DELIVERY', making it eligible for trip consolidation.","orders,warehouse,staging,dispatch",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Open the picked order in Warehouse Portal.
+2. Verify packed items against checklist.
+3. Click 'Mark Order as Staged & Ready for Delivery'.
+4. Confirm staging dock assignment (e.g., Dock 2 - Cold Staging).
+5. Verify status transition in order timeline.
+","1. Order checklist review interface displayed.
+2. All checkboxes checked for picked cases.
+3. Staging prompt confirms dock location.
+4. System updates Order status to 'READY_FOR_DELIVERY' and adds OrderTimeline entry.
+5. Order appears in Delivery Trip creation queue.
+","1. Order: ORD-20260824-0012
+2. Staging Dock: Dock 2 (Cold Staging)
+3. Click: Mark as Staged & Ready
+",1,LMS_CFM v1.0 Release,5,,Use Case 5: Order Fulfillment & Processing,,,no
+37,"TC-37: Create Delivery Trip and Assign Orders, Driver, and Refrigerated Vehicle","Verify that the Owner or Warehouse Staff can create a new delivery trip, group multiple customer drop points, and assign an available Driver and refrigerated Vehicle.","Warehouse Staff / Owner is logged in. Multiple staged orders, available drivers, and vehicles exist.",Trip and TripDropPoint records created with status 'SCHEDULED' / 'ASSIGNED'; assigned driver notified.,"transportation,trips,dispatch,fleet,driver",critical,blocker,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Warehouse / Admin Portal > Transportation > 'Create Delivery Trip'.
+2. Select target warehouse dispatch origin.
+3. Select multiple staged orders to include in route (e.g. Order #12, Order #15, Order #18).
+4. Select Driver (e.g. Juan Perez) and Refrigerated Vehicle (e.g. ABC-1234).
+5. Arrange drop point sequence / view route map preview.
+6. Click 'Create & Dispatch Trip'.
+","1. Trip creation wizard opens with available orders list.
+2. Origin warehouse selected.
+3. Orders selected; system calculates total case payload (e.g., 180 cases) against vehicle capacity (450 cases).
+4. Driver and vehicle availability verified without scheduling conflicts.
+5. Map preview displays optimized route connecting all drop points.
+6. Trip created with unique Trip ID (e.g., TRIP-20260824-01); TripDropPoint rows generated; notification sent to Driver portal.
+","1. Nav: /warehouse/trips/create
+2. Orders: [ORD-0012 (15 cases), ORD-0015 (40 cases), ORD-0018 (25 cases)]
+3. Driver: Juan Perez, Vehicle: ABC-1234 (Isuzu Reefer)
+4. Drop Points: 3 stops (Bacolod Central -> Mandalagan -> Lacson)
+5. Click: Create & Dispatch Trip
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+38,TC-38: Trip Creation Validation against Vehicle Weight / Volume Capacity Limit,Verify that the system warns or blocks trip creation if total case quantity or weight of selected orders exceeds the assigned vehicle's maximum payload.,Selected vehicle has a maximum capacity of 100 cases.,System alerts user when selected orders total 150 cases and prevents overloaded dispatch.,"transportation,trips,capacity,boundary,negative",high,major,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. In Trip Creation modal, select small van with max capacity of 100 cases.
+2. Select customer orders totaling 150 cases.
+3. Attempt to proceed with trip creation.
+4. Observe capacity overload warning.
+","1. Vehicle selected (Capacity: 100 cases).
+2. Orders totaling 150 cases selected.
+3. Payload indicator turns RED with warning: 'Capacity exceeded! Selected load is 150/100 cases (150%). Please remove orders or assign a larger vehicle.'
+4. Create Trip button disabled until load is within limits.
+","1. Vehicle Capacity: 100 cases
+2. Selected Orders: 150 cases
+3. Expected: Overload Warning
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+39,TC-39: Driver Confirms Loaded Items and Cold Chain Checklist Before Departure,"Verify that the assigned Driver can inspect assigned trip orders, complete the physical loading verification checklist, check chiller temperature, and confirm loaded status.",Driver is logged into Driver Portal; trip assigned with status 'ASSIGNED'.,"Trip status transitions from 'ASSIGNED' to 'READY_FOR_DEPARTURE', pre-trip cold chain log recorded.","transportation,driver,loading,cold-chain,dispatch",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Driver opens Driver Portal > Active Trips > Select Assigned Trip.
+2. Inspect itemized load manifest (case counts per customer order).
+3. Check off each verified loaded batch.
+4. Enter chiller unit starting temperature (e.g. 3.5°C).
+5. Click 'Confirm Loaded & Ready'.
+","1. Assigned trip card displayed with 'Pending Load Confirmation' badge.
+2. Manifest lists all client packages and beverage cases.
+3. Checkboxes interactive and responsive.
+4. Temperature reading validated within cold-chain specification (below 4°C).
+5. System records load confirmation timestamp and updates Trip status to 'READY_FOR_DEPARTURE'.
+","1. Nav: /driver/trips/active
+2. Trip ID: TRIP-20260824-01
+3. Load Check: 100% verified (80 cases)
+4. Chiller Temp: 3.5°C
+5. Click: Confirm Loaded & Ready
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+40,"TC-40: Driver Starts Trip, Enables Live GPS Location Logging, and Updates Status to In-Transit","Verify that the Driver can start the trip, triggering browser/device geolocation tracking, creating LocationLog entries, and transitioning Trip status to 'IN_TRANSIT'.",Driver is on confirmed trip. Device location permissions granted.,"Trip status set to 'IN_TRANSIT', continuous GPS coordinates streamed to backend LocationLog table.","transportation,driver,gps,live-tracking,in-transit",critical,blocker,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Driver clicks 'Start Trip & Navigation' button.
+2. Grant browser/device geolocation access when prompted.
+3. Observe map route display and active tracking status badge.
+4. Simulate movement/location updates and verify LocationLog backend records.
+","1. Start Trip action triggers location watchPosition service.
+2. Geolocation permission acknowledged; GPS coordinates acquired.
+3. Trip status updates to 'IN_TRANSIT'; live navigation map renders vehicle marker and drop point route.
+4. LocationLog entries created with latitude, longitude, speed, heading, and timestamp every 15-30 seconds.
+","1. Trip ID: TRIP-20260824-01
+2. Initial GPS: Lat 10.6712, Lng 122.9501
+3. Speed: 35 km/h
+4. Action: Start Trip
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+41,TC-41: GPS Location Logging Continuity and Handling Loss of Signal / Reconnection,"Verify that if the Driver temporarily loses mobile data connection during transit, location coordinates are queued locally and synchronized upon reconnection.",Driver is in transit on an active delivery trip.,No telemetry data lost; offline queue syncs successfully to backend when connection resumes.,"transportation,gps,offline,resilience,edge",medium,normal,functional,positive,to-be-automated,actual,no,e2e,classic,"1. With trip in transit, simulate network disconnection (offline mode in DevTools).
+2. Driver navigates and generates 5 simulated location updates while offline.
+3. Restore network connectivity.
+4. Verify that queued location points are dispatched to backend API (/api/trips/location/).
+","1. App detects offline state and switches to local queue mode with visual indicator 'Offline - Buffering GPS'.
+2. Coordinates stored in IndexedDB / local storage.
+3. Network connection restored; app triggers automatic flush.
+4. All 5 buffered location entries successfully saved in database with original timestamps.
+","1. Offline duration: 2 minutes (5 GPS points)
+2. Sync endpoint: POST /api/trips/sync-locations/
+3. Expected: 200 OK (5 records committed)
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+42,TC-42: Complete Drop Point Delivery with Proof of Delivery and Bottle Return Ledger Entry,"Verify that the Driver can arrive at a customer drop point, deliver ordered cases, record returned empty bottles/crates in the Bottle Return Ledger, capture customer signature/photo POD, and mark stop as DELIVERED.",Driver is at active Drop Point stop. Client is present to receive goods.,"TripDropPoint marked 'DELIVERED', Order status updated to 'DELIVERED', Customer deposit/bottle balance updated in ledger.","transportation,driver,delivery,pod,bottle-returns,smoke",critical,blocker,smoke,positive,to-be-automated,actual,no,e2e,classic,"1. Driver selects current Stop 1 on active trip.
+2. Click 'Arrived at Destination' and verify customer drop point details.
+3. Enter delivered cases count (e.g. 15 cases).
+4. Enter empty bottle/crate returns (e.g. 10 empty crates returned).
+5. Capture customer e-signature / upload photo proof of delivery.
+6. Click 'Complete Delivery Stop'.
+","1. Stop detail screen shows customer name, address, and expected items.
+2. Status updates to 'Arrived'.
+3. Delivered quantities confirmed.
+4. Bottle return module calculates deposit refund/credit (10 crates @ ₱200 = ₱2,000 credit) and updates CustomerBottleBalance ledger.
+5. Signature canvas captures signature data URL / photo uploaded.
+6. Stop marked 'DELIVERED'; Order marked 'DELIVERED'; Driver proceeds to next stop.
+","1. Drop Point: Bacolod Bistro (Order #12)
+2. Delivered: 15 cases
+3. Returned Bottles: 10 full crates (240 bottles)
+4. Signature: 'Roberto Lim (Received in good condition)'
+5. Click: Complete Delivery Stop
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+43,TC-43: Drop Point Delivery Exception Handling (Client Unavailable / Partial Delivery),"Verify that the Driver can flag a delivery exception if the client store is closed or refuses part of the shipment, logging return-to-warehouse items.","Driver is at drop point, but client is unavailable / store closed.",TripDropPoint marked 'FAILED_ATTEMPT' / 'PARTIAL_DELIVERY'; undelivered stock scheduled for warehouse return.,"transportation,driver,exception,undelivered,negative",high,major,functional,negative,to-be-automated,actual,no,e2e,classic,"1. On active stop, click 'Report Delivery Issue / Exception'.
+2. Select reason from dropdown (e.g., 'Customer Store Closed' / 'Customer Refused Delivery').
+3. Add notes and take a photo of closed storefront as proof.
+4. Click 'Submit Delivery Exception'.
+5. Verify trip progress updates and undelivered items marked for return.
+","1. Exception modal opens with standardized logistical failure reasons.
+2. Reason selected.
+3. Notes and photo proof attached.
+4. System marks drop point as 'FAILED_ATTEMPT', updates order status to 'DELIVERY_FAILED', and notifies Dispatcher.
+5. Driver prompted to proceed to next stop on route.
+","1. Reason: 'Store Closed / No Authorized Receiver'
+2. Notes: 'Arrived at 2:15 PM, storefront locked, phone unanswered.'
+3. Photo: closed_storefront.jpg
+4. Click: Submit Exception
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+44,TC-44: Client Live Delivery Tracking on Interactive Map with Real-Time ETA,"Verify that the Client can open the delivery tracking page on Customer Portal and observe the driver's live GPS location, route, and estimated time of arrival.",Client has an active order on an in-transit delivery trip.,"Interactive tracking map displays driver icon, vehicle movement, current stop sequence, and dynamic ETA.","transportation,client,tracking,live-map,eta",high,critical,usability,positive,to-be-automated,actual,no,e2e,classic,"1. Client navigates to Customer Portal > 'Track My Delivery' (/customer/orders/track).
+2. Select active order (e.g. Order #12 on Trip #01).
+3. Inspect interactive LiveTrackingMap.
+4. Verify driver vehicle marker position, drop stop sequence, and ETA updates.
+","1. Tracking page loads with order progress stepper (Ordered -> Packed -> Out for Delivery -> Delivered).
+2. Live map displays driver location pin with live coordinates from LocationLog.
+3. Route polyline displayed between warehouse, intermediate stops, and client pin.
+4. ETA counter (e.g. 'Estimated Arrival: 15 mins') updates dynamically as driver moves closer.
+","1. Nav: /customer/orders/track?id=ORD-0012
+2. Status: 'Out for Delivery'
+3. Driver: Juan Perez (Vehicle ABC-1234)
+4. ETA: 15 mins (2.4 km away)
+",1,LMS_CFM v1.0 Release,6,,Use Case 6: Transportation Management,,,no
+45,TC-45: Client Submits Defective / Damaged Product Replacement Claim with Photo Proof,"Verify that a Client can submit a replacement request for damaged or defective beverage bottles from a delivered order, specifying defect reason, quantity, and uploading photo evidence.",Client has a DELIVERED order. Defective product reporting window is open.,Replacement record created in database with status 'PENDING_VERIFICATION'.,"replacements,defects,claims,client,smoke",high,critical,smoke,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Customer Portal > Orders > Order History.
+2. Select delivered order and click 'Report Defective Product / Request Replacement'.
+3. Select defective product item and enter quantity of defective bottles/cases (e.g. 6 broken bottles).
+4. Select Defect Reason (e.g., 'Bottle Broken / Leakage during Transit', 'Flat / Loss of Carbonation').
+5. Upload clear photo evidence of defective items.
+6. Click 'Submit Replacement Claim'.
+","1. Order detail view shows replacement action button for eligible delivered orders.
+2. Replacement claim form displays items from that order.
+3. Defect details and quantities specified.
+4. Reason selected from dropdown.
+5. Photo evidence uploaded and verified.
+6. System creates Replacement record with unique ID (e.g., REP-20260824-001); status set to 'PENDING_VERIFICATION'; confirmation message shown to Client.
+","1. Nav: /customer/orders/ORD-0012
+2. Item: San Miguel Pale Pilsen 330ml
+3. Defect Qty: 6 bottles
+4. Reason: 'Broken Seal / Leaked in Crate'
+5. Photo: broken_bottles_evidence.jpg
+6. Click: Submit Replacement Claim
+",1,LMS_CFM v1.0 Release,7,,Use Case 7: Replacement Handling Management,,,no
+46,TC-46: Defective Product Claim Submission Validation (Missing Photo or Exceeded Return Window),Verify that replacement claims are rejected if required photographic proof is missing or if the claim is submitted after the allowable replacement SLA window.,Client is on replacement submission form. Delivered order is 30 days old (SLA limit: 3 days).,Submission blocked with appropriate policy warning.,"replacements,negative,validation,boundary",medium,normal,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Attempt to submit replacement claim without uploading required photo evidence.
+2. Observe validation error.
+3. Attempt to open replacement form on an order delivered outside allowable policy window (e.g., > 72 hours ago).
+","1. Form without image attempted.
+2. System blocks submit: 'Photo evidence is required for replacement verification.'
+3. For expired orders, system displays: 'Replacement request window for this order has expired (Policy: within 72 hours of delivery). Please contact support for special inquiries.'
+","1. Photo: [None]
+2. Order Date: 30 days ago
+3. Click: Submit Claim
+",1,LMS_CFM v1.0 Release,7,,Use Case 7: Replacement Handling Management,,,no
+47,TC-47: Owner / Warehouse Staff Reviews and Verifies / Approves Replacement Claim,"Verify that the Owner or Warehouse Staff can inspect pending replacement claims, review customer photo proof, and approve or reject the claim with comments.",Owner/Warehouse Staff logged in. Pending replacement claim exists.,"Replacement status updated to 'VERIFIED' / 'APPROVED', customer notified.","replacements,verification,approval,admin,warehouse",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin / Warehouse Portal > 'Replacement Management' (/admin/replacements).
+2. Filter claims by status 'PENDING_VERIFICATION'.
+3. Select claim (e.g. REP-20260824-001) to view submitted defect details and photo evidence in full resolution.
+4. Enter reviewer notes (e.g., 'Damage verified from transit photo. Approved for 6 replacement bottles').
+5. Click 'Approve & Verify Replacement'.
+","1. Replacement dashboard displays queue of submitted claims.
+2. Pending claim selected.
+3. Modal displays high-resolution photo evidence, customer order history, and claimed items.
+4. Reviewer enters approval remarks.
+5. System updates Replacement status to 'VERIFIED'; creates audit timestamp; triggers notification to Client and warehouse staging team.
+","1. Nav: /admin/replacements
+2. Claim ID: REP-20260824-001 (Client: Bacolod Bistro)
+3. Notes: 'Valid transit damage. Approved for 6 bottles replacement.'
+4. Click: Approve & Verify Replacement
+",1,LMS_CFM v1.0 Release,7,,Use Case 7: Replacement Handling Management,,,no
+48,TC-48: Owner and Warehouse Staff Monitor Replacement Dashboard and Quarantine Inventory,"Verify that the Owner and Warehouse Staff can monitor all replacement metrics (defect rate by product, replacement turnaround time, quarantine damaged inventory balance).","Multiple replacement cases in various states (Pending, Verified, Dispatched, Closed) exist in database.",Replacement summary analytics and quarantine inventory statistics accurately rendered.,"replacements,monitoring,dashboard,quarantine",medium,normal,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Replacement Management > Dashboard & Summary.
+2. Review overall replacement status breakdown charts.
+3. Inspect Quarantine Inventory balance table for damaged products awaiting manufacturer return/disposal.
+4. Filter by date range and defect category.
+","1. Replacement dashboard renders summary KPIs: Total Claims, Verified, In-Transit Redelivery, Closed.
+2. Charts display defect distribution by beverage brand/variety.
+3. Quarantine table shows exact count of damaged bottles isolated from sellable inventory.
+4. Filters update analytics cards dynamically.
+","1. Nav: /admin/replacements/dashboard
+2. Metrics: Total Claims: 12, Verified: 4, Redelivered: 7, Rejected: 1
+3. Quarantine Stock: 42 bottles (isolated)
+",1,LMS_CFM v1.0 Release,7,,Use Case 7: Replacement Handling Management,,,no
+49,TC-49: Warehouse Staff Allocates Replacement Stock and Assigns Driver for Redelivery,"Verify that Warehouse Staff can allocate replacement stock from spare inventory, generate a redelivery dispatch order, and assign a Driver for redelivery.",A replacement claim is in 'VERIFIED' status. Spare stock is available in warehouse.,"Replacement status updated to 'ASSIGNED_FOR_REDELIVERY', redelivery task assigned to driver.","replacements,redelivery,dispatch,warehouse,driver",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. In Warehouse Portal, open verified replacement claim REP-20260824-001.
+2. Click 'Schedule Redelivery / Assign Driver'.
+3. Select source warehouse bay for replacement items.
+4. Assign Driver (e.g. Juan Perez) or attach to upcoming scheduled trip.
+5. Click 'Confirm Redelivery Assignment'.
+","1. Verified claim details opened.
+2. Redelivery assignment modal loads.
+3. Warehouse inventory allocated for replacement bottles.
+4. Driver assigned; task scheduled in driver manifest.
+5. System updates Replacement status to 'ASSIGNED_FOR_REDELIVERY'; Driver receives task notification.
+","1. Claim: REP-20260824-001
+2. Allocated Stock: 6 bottles San Miguel Pale Pilsen from Bay-A1
+3. Assigned Driver: Juan Perez (Vehicle ABC-1234)
+4. Click: Confirm Redelivery Assignment
+",1,LMS_CFM v1.0 Release,7,,Use Case 7: Replacement Handling Management,,,no
+50,TC-50: Driver Completes Replacement Item Redelivery and Retrieves Damaged Unit,"Verify that the Driver delivers replacement items to the client, collects the damaged bottles, captures receiver signature, and marks replacement redelivery as COMPLETED.",Driver has assigned redelivery task on active trip manifest.,Replacement status updated to 'COMPLETED'; damaged units logged for return to warehouse quarantine.,"replacements,driver,redelivery,completion",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Driver opens assigned redelivery task in Driver Portal.
+2. Hand over replacement bottles to Client and collect physical damaged bottles.
+3. Obtain client signature acknowledging receipt of replacement.
+4. Click 'Complete Redelivery & Return Damaged Items'.
+","1. Driver portal displays replacement task instructions and client location.
+2. Handover performed.
+3. Customer signature captured on mobile screen.
+4. System updates Replacement status to 'COMPLETED'; records damaged items retrieval in driver return manifest.
+5. Client receives replacement completion notification.
+","1. Task: Redelivery for REP-20260824-001
+2. Replacement Delivered: 6 bottles
+3. Damaged Bottles Retrieved: 6 bottles
+4. Signature: 'Roberto Lim'
+5. Click: Complete Redelivery
+",1,LMS_CFM v1.0 Release,7,,Use Case 7: Replacement Handling Management,,,no
+51,TC-51: Client Submits Star Rating and Detailed Feedback on Completed Order & Delivery,"Verify that a Client can submit a 1-5 star rating, delivery performance feedback, and product quality comments after an order has been delivered.",Client is logged into Customer Portal. A DELIVERED order exists without previous feedback.,Feedback record created in database with status 'PENDING_REVIEW' and linked to Order and Customer.,"feedback,ratings,csat,client,smoke",high,critical,smoke,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Customer Portal > Orders > Completed Orders.
+2. Click 'Rate & Review Order' on delivered order.
+3. Select Star Rating (e.g. 5 Stars) for Overall Satisfaction, Delivery Speed, and Product Quality.
+4. Enter detailed review comments.
+5. Click 'Submit Feedback'.
+","1. Feedback modal / form opens with interactive star rating components.
+2. Star rating selections highlight accurately (1 to 5).
+3. Comment textarea accepts feedback text.
+4. System validates rating submission, saves Feedback model record linked to Order ID.
+5. Confirmation alert 'Thank you for your feedback!' displayed; order card updates with 'Feedback Submitted' badge.
+","1. Nav: /customer/orders/ORD-0012/feedback
+2. Rating: 5 Stars
+3. Category Ratings: Speed: 5/5, Product Quality: 5/5, Driver Courtesy: 5/5
+4. Comment: 'Delivery arrived right on time and beverages were perfectly chilled. Excellent service!'
+5. Click: Submit Feedback
+",1,LMS_CFM v1.0 Release,8,,Use Case 8: Feedback Management,,,no
+52,TC-52: Feedback Submission Validation on Missing Star Rating or Duplicate Submission,Verify that the system requires a star rating before submitting feedback and prevents multiple duplicate feedback entries for the same delivered order.,Client is on feedback form. Order has already been reviewed once.,System rejects submission without rating or disallows duplicate feedback entry.,"feedback,negative,validation",medium,minor,functional,negative,to-be-automated,actual,no,e2e,classic,"1. Open feedback form and leave star rating unselected (0 stars).
+2. Click 'Submit Feedback'.
+3. Observe validation error.
+4. Attempt to submit feedback a second time on an order that already has an existing review.
+","1. Form open without star rating.
+2. System blocks submission with message: 'Please select a star rating between 1 and 5 stars.'
+3. System prevents duplicate submission: 'Feedback has already been submitted for this order.'
+","1. Rating: 0 stars
+2. Duplicate Order ID: ORD-0012
+3. Click: Submit
+",1,LMS_CFM v1.0 Release,8,,Use Case 8: Feedback Management,,,no
+53,"TC-53: Owner Reviews Customer Feedback, Filters by Rating, and Submits Management Response","Verify that the Owner can access the Feedback Management module, filter reviews by star rating, read comments, compose an official management response, and update feedback status to 'REVIEWED'.",Owner is logged into Admin Portal. Client feedback records exist.,Owner response saved in database; Feedback status updated to 'REVIEWED'; notification dispatched to client.,"feedback,admin,response,review,csat",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Feedback Management (/admin/feedback).
+2. Filter feedback list by rating (e.g., 1-2 stars for complaints, 4-5 stars for positive reviews).
+3. Select a feedback entry to review.
+4. Click 'Respond to Client'.
+5. Enter management reply message and resolution notes.
+6. Click 'Post Response'.
+","1. Feedback management dashboard loads with CSAT score summary, average rating (e.g. 4.8 / 5.0), and feedback list.
+2. Filtering displays selected rating tier.
+3. Feedback detail panel displays customer name, order number, trip info, driver name, and comment.
+4. Response input area opens.
+5. System saves response text and timestamp, updates status to 'REVIEWED', and sends email/in-app alert to customer.
+","1. Nav: /admin/feedback
+2. Selected Feedback: FB-20260824-005 (Rating: 5 Stars, Client: Bacolod Bistro)
+3. Response: 'Thank you for your wonderful feedback, Bacolod Bistro! We are glad our cold-chain delivery met your high standards.'
+4. Click: Post Response
+",1,LMS_CFM v1.0 Release,8,,Use Case 8: Feedback Management,,,no
+54,TC-54: Client Views Feedback History and Official Response from Management,Verify that the Client can view their submitted feedback history along with official replies and acknowledgments from management.,Client is logged into Customer Portal. Owner has responded to client feedback.,Client can view the feedback card showing their original review alongside management's response.,"feedback,client,history,transparency,usability",medium,normal,usability,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Customer Portal > 'My Feedback & Reviews' (/customer/feedback/history).
+2. Locate previously reviewed order.
+3. Inspect feedback card for 'Management Response' badge and response message.
+","1. Feedback history list renders all submitted reviews.
+2. Reviewed order card displays star rating, submitted date, and status 'Response Received'.
+3. Official Owner response block is cleanly styled below client review with responder name and date.
+","1. Nav: /customer/feedback/history
+2. Order: ORD-0012
+3. Inspect: Management Response from Admin
+4. Status: Displayed
+",1,LMS_CFM v1.0 Release,8,,Use Case 8: Feedback Management,,,no
+55,"TC-55: Generate Order & Sales Report by Date Range, Client, and Fulfillment Status","Verify that the Owner can generate comprehensive order and sales reports filtered by date range, customer account, and order status (Confirmed, Delivered, Cancelled).",Owner is logged into Admin Portal. Order records exist across multiple dates.,"System compiles and displays order volume, gross sales revenue, packaging deposit totals, and status distribution.","reports,orders,sales,analytics,admin",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Reports > 'Order & Sales Reports' (/admin/reports/orders).
+2. Select Date Range (e.g., 'This Month' / '2026-08-01 to 2026-08-24').
+3. Select Filter: Status = 'DELIVERED', Client = 'All Clients'.
+4. Click 'Generate Report'.
+5. Review generated summary KPI cards and data table.
+","1. Reports module interface loads with report category selectors.
+2. Date picker and dropdown filters accept criteria.
+3. System queries database order records matching filters.
+4. Report renders KPI cards: Total Orders, Total Cases Delivered, Gross Revenue, Bottle Deposits Collected.
+5. Detailed order breakdown table displayed with sortable columns.
+","1. Nav: /admin/reports/orders
+2. Date Range: 2026-08-01 to 2026-08-24
+3. Status: DELIVERED
+4. Click: Generate Report
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no
+56,"TC-56: Generate Transportation & Fleet Delivery Performance Report (Trips, Turnaround, Delays)","Verify that the Owner can generate transportation and fleet performance reports analyzing completed trips, driver on-time delivery rates, average trip duration, and vehicle utilization.","Owner is logged in. Trip, driver, vehicle, and drop point records exist.","Transportation report generated with trip completion metrics, fuel/distance logs, and driver performance scores.","reports,transportation,fleet,trips,performance,admin",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Reports > 'Transportation & Fleet Reports'.
+2. Select Date Range and Driver / Vehicle filter (or 'All Fleet').
+3. Click 'Generate Transportation Report'.
+4. Inspect metrics: Total Trips Completed, Total Drop Points, On-Time Delivery Rate (%), Average Delivery Duration.
+","1. Transportation report filter form displayed.
+2. Criteria entered.
+3. System aggregates data from Trip, TripDropPoint, and LocationLog tables.
+4. Report displays fleet utilization chart, on-time percentage (e.g. 96.5%), and trip-by-trip breakdown table with driver ratings.
+","1. Nav: /admin/reports/transportation
+2. Date Range: Last 30 Days
+3. Fleet Filter: All Vehicles
+4. Click: Generate Transportation Report
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no
+57,"TC-57: Generate Warehouse & Inventory Movement Report (Batch Age, Stock In/Out, Damage Discrepancy)","Verify that the Owner can generate warehouse inventory reports tracking stock movements (Stock-In vs Stock-Out), batch expiration aging, inventory turnover, and damaged stock write-offs.",Owner is logged in. Warehouse inventory and transaction records exist.,"Inventory report generated with stock movement audit, batch aging matrix, and damage scrap analysis.","reports,warehouse,inventory,turnover,batch-aging,admin",high,critical,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Reports > 'Inventory & Warehouse Reports'.
+2. Select Warehouse facility and Date Range.
+3. Select Movement Type ('All Movements', 'Receiving', 'Fulfillment', 'Damage Quarantine').
+4. Click 'Generate Inventory Report'.
+5. Inspect batch aging distribution and stock variance table.
+","1. Inventory report builder opened.
+2. Parameters selected.
+3. System calculates stock in/out flows, remaining batch shelf life, and quarantine totals.
+4. Report renders interactive stock movement graph and itemized batch turnover tables.
+","1. Nav: /admin/reports/inventory
+2. Warehouse: Central Cold Hub Bacolod
+3. Date Range: Current Quarter
+4. Click: Generate Inventory Report
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no
+58,TC-58: Generate Replacement & Defect Analysis Report by Reason and Product SKU,"Verify that the Owner can generate replacement reports analyzing defect rates by product SKU, defect reasons (e.g., breakage vs carbonation issue), and average replacement cycle time.",Owner is logged in. Replacement records exist in system.,Replacement report generated with defect Pareto analysis and supplier/handling quality insights.,"reports,replacements,defects,quality-control,admin",medium,normal,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Reports > 'Replacement & Defect Reports'.
+2. Select Date Range and Product Category.
+3. Click 'Generate Replacement Report'.
+4. Inspect charts: Defect Rate per 1,000 Cases Delivered, Defect Reasons Breakdown, Total Replacement Cost.
+","1. Replacement report builder interface loads.
+2. Criteria selected.
+3. System processes Replacement and ReplacementLine database tables.
+4. Report renders visual defect breakdown pie chart, identifying leading causes of product breakage or cold-chain breaches.
+","1. Nav: /admin/reports/replacements
+2. Date Range: Year to Date (2026)
+3. Category: All Beverages
+4. Click: Generate Replacement Report
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no
+59,TC-59: Generate Client Feedback & CSAT Rating Report with Satisfaction Trends,"Verify that the Owner can generate customer satisfaction (CSAT) reports tracking average ratings over time, feedback volume, driver courtesy scores, and response rate metrics.",Owner is logged in. Feedback records exist across historical orders.,"Feedback report generated with CSAT score timeline, sentiment distribution, and response time KPIs.","reports,feedback,csat,customer-satisfaction,admin",medium,normal,functional,positive,to-be-automated,actual,no,e2e,classic,"1. Navigate to Admin Portal > Reports > 'Feedback & CSAT Reports'.
+2. Select Date Range and rating thresholds.
+3. Click 'Generate CSAT Report'.
+4. Inspect Net Promoter / CSAT trend lines and driver rating rankings.
+","1. Feedback report interface loaded.
+2. Criteria submitted.
+3. System aggregates feedback ratings, average response times, and sentiment distribution.
+4. Report renders average rating graph (e.g. 4.85 / 5.0) and lists top feedback highlights.
+","1. Nav: /admin/reports/feedback
+2. Date Range: Last 60 Days
+3. Click: Generate CSAT Report
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no
+60,TC-60: Apply Multi-Criteria Filters and Export Reports to CSV and PDF Formats,Verify that the Owner can apply multi-criteria filtering on any generated report and export the sanitized dataset cleanly to downloadable CSV and formatted PDF files.,Owner has generated an active report on screen.,System exports file in CSV and PDF formats with matching filtered data and valid headers.,"reports,export,csv,pdf,admin",high,major,functional,positive,to-be-automated,actual,no,e2e,classic,"1. On generated report page, apply secondary filter (e.g. Filter by Specific Client 'Bacolod Bistro').
+2. Verify table updates to show only filtered rows.
+3. Click 'Export as CSV'.
+4. Verify downloaded CSV file integrity and data formatting.
+5. Click 'Export as PDF / Print'.
+6. Verify generated PDF report layout with header branding and summary tables.
+","1. Report table refreshes instantly based on secondary filter.
+2. Filtered dataset reflects exact matching records.
+3. Browser initiates download of .csv file (e.g. 'Order_Report_2026-08.csv') containing sanitized, uncorrupted CSV data.
+4. PDF print dialog opens with styled layout, CHMSU Capstone header, timestamp, and formatted tables.
+","1. Filter: Client = 'Bacolod Bistro'
+2. Action: Click 'Export as CSV'
+3. Action: Click 'Export as PDF'
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no
+61,TC-61: Export Report Handling on Empty Dataset or Invalid Date Range Filter,Verify that the system gracefully handles report generation and export requests when date range is inverted (start date > end date) or when no records match the criteria.,Owner is on Report Generation page.,System displays 'No records found matching criteria' and prevents broken export generation.,"reports,negative,boundary,validation",low,minor,boundary,negative,to-be-automated,actual,no,e2e,classic,"1. Enter an inverted date range where Start Date (2026-12-31) is after End Date (2026-01-01).
+2. Attempt to click 'Generate Report'.
+3. Set date range to future date with 0 records and attempt export.
+","1. Inverted date range entered.
+2. System blocks query with error: 'Start date cannot be greater than End date.'
+3. For empty dataset, report displays empty-state illustration: 'No records found for the selected period' and export button is disabled.
+","1. Start Date: 2026-12-31, End Date: 2026-01-01
+2. Click: Generate Report
+",1,LMS_CFM v1.0 Release,9,,Use Case 9: Report Generation,,,no

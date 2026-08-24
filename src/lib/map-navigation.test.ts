@@ -4,8 +4,11 @@ import {
   bearingBetweenMapPoints,
   calculateNavigationViewportInsets,
   calculateTruckScreenRotation,
+  pointAtRouteDistance,
+  projectPointOntoRoute,
   resolveNavigationHeading,
   shortestMapAngleDelta,
+  splitRouteAtDistance,
 } from './map-navigation.ts';
 
 test('route bearings follow the four cardinal directions', () => {
@@ -45,4 +48,25 @@ test('route heading takes precedence and GPS remains a safe fallback', () => {
   assert.equal(resolveNavigationHeading(90, 270), 90);
   assert.equal(resolveNavigationHeading(null, 270), 270);
   assert.equal(resolveNavigationHeading(Number.NaN, -1), null);
+});
+
+test('GPS is projected onto route geometry and measured from the route start', () => {
+  const route: [number, number][] = [[10, 123], [10, 123.001], [10.001, 123.001]];
+  const projected = projectPointOntoRoute([10.0005, 123.0012], route);
+
+  assert.ok(projected);
+  assert.ok(Math.abs(projected.point[0] - 10.0005) < 1e-9);
+  assert.ok(Math.abs(projected.point[1] - 123.001) < 1e-9);
+  assert.ok(projected.distanceAlongMeters > 100);
+});
+
+test('completed and remaining route sections meet at the exact projected point', () => {
+  const route: [number, number][] = [[10, 123], [10, 123.001], [10.001, 123.001]];
+  const projected = projectPointOntoRoute([10.0005, 123.0012], route);
+  assert.ok(projected);
+
+  const split = splitRouteAtDistance(route, projected.distanceAlongMeters);
+  assert.deepEqual(split.completed.at(-1), projected.point);
+  assert.deepEqual(split.remaining[0], projected.point);
+  assert.deepEqual(pointAtRouteDistance(route, projected.distanceAlongMeters), projected.point);
 });

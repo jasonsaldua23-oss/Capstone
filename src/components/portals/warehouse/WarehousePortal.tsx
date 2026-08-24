@@ -702,6 +702,8 @@ export function WarehousePortal() {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(true)
   const [isSavingSecuritySettings, setIsSavingSecuritySettings] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingSecurity, setIsEditingSecurity] = useState(false)
   const hasNewPassword = newPassword.length > 0
   const passwordRequirements = [
     { id: 'length', label: 'At least 8 characters', met: newPassword.length >= 8 },
@@ -4724,7 +4726,6 @@ export function WarehousePortal() {
                         <p className="text-sm font-semibold text-slate-900">
                           {formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName || user?.name || 'User')}
                         </p>
-                        <p className="text-xs text-slate-400 font-medium">Live Preview (Middle Initial)</p>
                         <p className="text-sm text-slate-500 mt-0.5">{profileEmail || user?.email || 'No email provided'}</p>
                         <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={() => profileAvatarInputRef.current?.click()}>
                           {profileAvatarFile ? 'Change Selected Avatar' : 'Change Avatar'}
@@ -4732,27 +4733,27 @@ export function WarehousePortal() {
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
-                          <Label htmlFor="warehouse-profile-first-name">First Name</Label>
-                          <Input id="warehouse-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} />
+                          <Label htmlFor="warehouse-profile-first-name" className="text-xs font-semibold text-slate-600">First Name</Label>
+                          <Input id="warehouse-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} disabled={!isEditingProfile} />
                         </div>
                         <div>
-                          <Label htmlFor="warehouse-profile-middle-name">Middle Name</Label>
-                          <Input id="warehouse-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} />
+                          <Label htmlFor="warehouse-profile-last-name" className="text-xs font-semibold text-slate-600">Last Name</Label>
+                          <Input id="warehouse-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} disabled={!isEditingProfile} />
                         </div>
                         <div>
-                          <Label htmlFor="warehouse-profile-last-name">Last Name</Label>
-                          <Input id="warehouse-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} />
+                          <Label htmlFor="warehouse-profile-middle-name" className="text-xs font-semibold text-slate-600">Middle Name</Label>
+                          <Input id="warehouse-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} disabled={!isEditingProfile} />
                         </div>
                         <div>
-                          <Label htmlFor="warehouse-profile-suffix">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
-                          <Input id="warehouse-profile-suffix" value={profileSuffix} onChange={(e) => setProfileSuffix(e.target.value)} placeholder="e.g. Jr., Sr., III" />
+                          <Label htmlFor="warehouse-profile-suffix" className="text-xs font-semibold text-slate-600">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
+                          <Input id="warehouse-profile-suffix" value={profileSuffix} onChange={(e) => setProfileSuffix(e.target.value)} placeholder="e.g. Jr., Sr., III" disabled={!isEditingProfile} />
                         </div>
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="warehouse-profile-email">Email</Label>
+                      <Label htmlFor="warehouse-profile-email" className="text-xs font-semibold text-slate-700">Email</Label>
                       <Input
                         id="warehouse-profile-email"
                         type="email"
@@ -4764,11 +4765,12 @@ export function WarehousePortal() {
                           setProfileOtpToken('')
                           setProfileOtp('')
                         }}
+                        disabled={!isEditingProfile}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="warehouse-profile-phone">Phone</Label>
-                      <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} />
+                      <Label htmlFor="warehouse-profile-phone" className="text-xs font-semibold text-slate-700">Phone</Label>
+                      <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} disabled={!isEditingProfile} />
                     </div>
                     {isProfileEmailChanged ? (
                       <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 space-y-3">
@@ -4804,9 +4806,15 @@ export function WarehousePortal() {
                         )}
                       </div>
                     ) : null}
-                    <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void saveProfileSettings()} disabled={isSavingProfile}>
+                    <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => {
+                      if (isEditingProfile) {
+                        void saveProfileSettings()
+                      } else {
+                        setIsEditingProfile(true)
+                      }
+                    }} disabled={isSavingProfile}>
                       {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Save Changes
+                      {isSavingProfile ? 'Saving...' : isEditingProfile ? 'Save Changes' : 'Edit Profile'}
                     </Button>
                   </CardContent>
                 </Card>
@@ -4826,6 +4834,7 @@ export function WarehousePortal() {
                         type="button"
                         className={twoFactorEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
                         onClick={() => setTwoFactorEnabled((prev) => !prev)}
+                        disabled={!isEditingSecurity}
                       >
                         {twoFactorEnabled ? 'Enabled' : 'Disabled'}
                       </Button>
@@ -4840,14 +4849,21 @@ export function WarehousePortal() {
                         type="button"
                         className={loginAlertsEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
                         onClick={() => setLoginAlertsEnabled((prev) => !prev)}
+                        disabled={!isEditingSecurity}
                       >
                         {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
                       </Button>
                     </div>
 
-                    <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => void saveSecuritySettings()} disabled={isSavingSecuritySettings}>
+                    <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => {
+                      if (isEditingSecurity) {
+                        void saveSecuritySettings()
+                      } else {
+                        setIsEditingSecurity(true)
+                      }
+                    }} disabled={isSavingSecuritySettings}>
                       {isSavingSecuritySettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Save Security Settings
+                      {isSavingSecuritySettings ? 'Saving...' : isEditingSecurity ? 'Save Security Settings' : 'Edit Security Settings'}
                     </Button>
                   </CardContent>
                 </Card>

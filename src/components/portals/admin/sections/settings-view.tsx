@@ -81,6 +81,8 @@ export function SettingsView() {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(true)
   const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState('30')
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingSecurity, setIsEditingSecurity] = useState(false)
 
   const hasNewPassword = newPassword.length > 0
   const passwordRequirements = useMemo(
@@ -470,7 +472,6 @@ export function SettingsView() {
                   <p className="text-sm font-bold text-slate-900 truncate">
                     {formatFullName(firstName, middleName, lastName, suffix, name || user?.name || 'User')}
                   </p>
-                  <p className="text-xs text-slate-400 font-medium">Live Preview (Middle Initial)</p>
                   <p className="text-xs text-slate-500 truncate mt-0.5">{email || user?.email || 'No email provided'}</p>
                   <Button
                     type="button"
@@ -485,22 +486,22 @@ export function SettingsView() {
               </div>
 
               <div className="space-y-1.5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="first-name" className="text-xs font-semibold text-slate-700">First Name</label>
-                    <Input id="first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="First name" />
+                    <label htmlFor="first-name" className="text-xs font-semibold text-slate-600">First Name</label>
+                    <Input id="first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="First name" disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-700">Middle Name</label>
-                    <Input id="middle-name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Middle name" />
+                    <label htmlFor="last-name" className="text-xs font-semibold text-slate-600">Last Name</label>
+                    <Input id="last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Last name" disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <label htmlFor="last-name" className="text-xs font-semibold text-slate-700">Last Name</label>
-                    <Input id="last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Last name" />
+                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-600">Middle Name</label>
+                    <Input id="middle-name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Middle name" disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <label htmlFor="suffix" className="text-xs font-semibold text-slate-700">Suffix <span className="font-normal text-slate-400">(Optional)</span></label>
-                    <Input id="suffix" value={suffix} onChange={(e) => setSuffix(e.target.value)} className="mt-1 h-10 text-sm" placeholder="e.g. Jr., Sr., III" />
+                    <label htmlFor="suffix" className="text-xs font-semibold text-slate-600">Suffix <span className="font-normal text-slate-400">(Optional)</span></label>
+                    <Input id="suffix" value={suffix} onChange={(e) => setSuffix(e.target.value)} className="mt-1 h-10 text-sm" placeholder="e.g. Jr., Sr., III" disabled={!isEditingProfile} />
                   </div>
                 </div>
               </div>
@@ -521,6 +522,7 @@ export function SettingsView() {
                   }}
                   className="h-10 text-sm"
                   placeholder="name@company.com"
+                  disabled={!isEditingProfile}
                 />
               </div>
 
@@ -534,6 +536,7 @@ export function SettingsView() {
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="09XX XXX XXXX"
                   className="h-10 text-sm"
+                  disabled={!isEditingProfile}
                 />
               </div>
 
@@ -566,11 +569,17 @@ export function SettingsView() {
 
               <Button
                 className="w-full bg-blue-600 text-white hover:bg-blue-700 h-10 font-semibold shadow-xs"
-                onClick={handleProfileSave}
+                onClick={() => {
+                  if (isEditingProfile) {
+                    handleProfileSave()
+                  } else {
+                    setIsEditingProfile(true)
+                  }
+                }}
                 disabled={isSavingProfile}
               >
                 {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {isSavingProfile ? 'Saving...' : 'Save Profile Changes'}
+                {isSavingProfile ? 'Saving...' : isEditingProfile ? 'Save Profile Changes' : 'Edit Profile'}
               </Button>
             </CardContent>
           </Card>
@@ -594,9 +603,10 @@ export function SettingsView() {
                 <button
                   type="button"
                   onClick={() => setTwoFactorEnabled((prev) => !prev)}
+                  disabled={!isEditingSecurity}
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                     twoFactorEnabled ? 'bg-blue-600' : 'bg-slate-300'
-                  }`}
+                  } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
                   aria-checked={twoFactorEnabled}
                 >
@@ -621,9 +631,10 @@ export function SettingsView() {
                 <button
                   type="button"
                   onClick={() => setLoginAlertsEnabled((prev) => !prev)}
+                  disabled={!isEditingSecurity}
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                     loginAlertsEnabled ? 'bg-blue-600' : 'bg-slate-300'
-                  }`}
+                  } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
                   aria-checked={loginAlertsEnabled}
                 >
@@ -646,6 +657,7 @@ export function SettingsView() {
                   value={sessionTimeoutMinutes}
                   onChange={(e) => setSessionTimeoutMinutes(e.target.value)}
                   className="h-10 text-sm"
+                  disabled={!isEditingSecurity}
                 />
                 <p className="text-[11px] text-slate-400">Minimum 5 minutes of inactivity before automatic logout.</p>
               </div>
@@ -653,11 +665,17 @@ export function SettingsView() {
               <Button
                 type="button"
                 className="w-full bg-blue-600 text-white hover:bg-blue-700 h-10 font-semibold shadow-xs"
-                onClick={handleSaveSecuritySettings}
+                onClick={() => {
+                  if (isEditingSecurity) {
+                    handleSaveSecuritySettings()
+                  } else {
+                    setIsEditingSecurity(true)
+                  }
+                }}
                 disabled={isSavingSecuritySettings}
               >
                 {isSavingSecuritySettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {isSavingSecuritySettings ? 'Saving...' : 'Save Security Settings'}
+                {isSavingSecuritySettings ? 'Saving...' : isEditingSecurity ? 'Save Security Settings' : 'Edit Security Settings'}
               </Button>
             </CardContent>
           </Card>

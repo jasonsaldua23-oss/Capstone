@@ -113,6 +113,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(Boolean((user as any)?.twoFactorEnabled ?? (user as any)?.two_factor_enabled))
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(Boolean((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true))
   const [isSavingSecurity, setIsSavingSecurity] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingSecurity, setIsEditingSecurity] = useState(false)
   const [rememberDeviceEnabled, setRememberDeviceEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('driver_remember_device_enabled')
@@ -798,26 +800,25 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           <p className="text-base font-bold text-slate-900">
             {formatFullName(draft.firstName, draft.middleName, draft.lastName, draft.suffix, form.name || 'Driver Name')}
           </p>
-          <p className="text-xs font-medium text-slate-400">Live Preview (Middle Initial)</p>
         </div>
 
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="driver-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
-              <Input id="driver-first-name" value={draft.firstName} onChange={(e) => onChange('firstName', e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
-              <Input id="driver-middle-name" value={draft.middleName} onChange={(e) => onChange('middleName', e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+              <Input id="driver-first-name" value={draft.firstName} onChange={(e) => onChange('firstName', e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="driver-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
-              <Input id="driver-last-name" value={draft.lastName} onChange={(e) => onChange('lastName', e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+              <Input id="driver-last-name" value={draft.lastName} onChange={(e) => onChange('lastName', e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+              <Input id="driver-middle-name" value={draft.middleName} onChange={(e) => onChange('middleName', e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="driver-suffix" className="text-sm font-semibold text-slate-700">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
-              <Input id="driver-suffix" value={draft.suffix} onChange={(e) => onChange('suffix', e.target.value)} placeholder="e.g. Jr., Sr., III" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" />
+              <Input id="driver-suffix" value={draft.suffix} onChange={(e) => onChange('suffix', e.target.value)} placeholder="e.g. Jr., Sr., III" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
           </div>
 
@@ -835,6 +836,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                   ? 'border-red-300 focus-visible:border-red-500 focus-visible:ring-red-200'
                   : ''
               }`}
+              disabled={!isEditingProfile}
             />
             {draft.phone && !isValidPhilippinePhone(draft.phone) ? (
               <p className="text-xs text-red-600 font-medium">Please enter a valid Philippine mobile number.</p>
@@ -858,7 +860,13 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         <div className="px-4 pt-2">
           <Button
             type="button"
-            onClick={() => void onSave('profile')}
+            onClick={() => {
+              if (isEditingProfile) {
+                void onSave('profile')
+              } else {
+                setIsEditingProfile(true)
+              }
+            }}
             disabled={isSaving || !draft.firstName.trim() || !draft.lastName.trim()}
             className="w-full h-12 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c] transition-colors shadow-[0_4px_12px_rgba(13,97,173,0.12)]"
           >
@@ -867,8 +875,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Saving Changes...
               </>
-            ) : (
+            ) : isEditingProfile ? (
               'Save Changes'
+            ) : (
+              'Edit Profile'
             )}
           </Button>
         </div>
@@ -1033,11 +1043,11 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               type="button"
               role="switch"
               aria-checked={twoFactorEnabled}
-              disabled={isSavingSecurity}
+              disabled={isSavingSecurity || !isEditingSecurity}
               onClick={() => void saveSecuritySetting('twoFactorEnabled', !twoFactorEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 twoFactorEnabled ? 'bg-[#0d61ad]' : 'bg-slate-200'
-              }`}
+              } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${twoFactorEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
@@ -1052,11 +1062,11 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               type="button"
               role="switch"
               aria-checked={loginAlertsEnabled}
-              disabled={isSavingSecurity}
+              disabled={isSavingSecurity || !isEditingSecurity}
               onClick={() => void saveSecuritySetting('loginAlertsEnabled', !loginAlertsEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 loginAlertsEnabled ? 'bg-[#0d61ad]' : 'bg-slate-200'
-              }`}
+              } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${loginAlertsEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
@@ -1071,6 +1081,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               type="button"
               role="switch"
               aria-checked={rememberDeviceEnabled}
+              disabled={!isEditingSecurity}
               onClick={() => {
                 const next = !rememberDeviceEnabled
                 setRememberDeviceEnabled(next)
@@ -1079,11 +1090,21 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               }}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                 rememberDeviceEnabled ? 'bg-[#0d61ad]' : 'bg-slate-200'
-              }`}
+              } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${rememberDeviceEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
+        </div>
+        <div className="px-4 pt-2">
+          <Button
+            type="button"
+            onClick={() => setIsEditingSecurity(false)}
+            disabled={!isEditingSecurity}
+            className="w-full h-12 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c] transition-colors shadow-[0_4px_12px_rgba(13,97,173,0.12)]"
+          >
+            {isEditingSecurity ? 'Save Security Settings' : 'Edit Security Settings'}
+          </Button>
         </div>
       </div>
     )
