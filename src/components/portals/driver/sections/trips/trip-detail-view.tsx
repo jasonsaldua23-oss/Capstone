@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 
 import { formatDistance, getManeuverLabel, NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -3154,9 +3155,7 @@ export function TripDetailView({
                       <div key={`detail-po-item-${index}`} className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
                         <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
                         {item?.itemType === 'MIXED_CASE' ? (
-                          <div className="text-sky-700">
-                            {(item.components || []).map((component: any) => <p key={component.id || component.productId}>{component.productName}: {component.quantityPerCase}/case</p>)}
-                          </div>
+                          <MixedCaseComponents item={item} showImages={false} compact />
                         ) : null}
                         <p>Quantity: {Number(item?.quantity || 0)}</p>
                         <p>Price: {formatCurrency(Number(item?.price || item?.unitPrice || 0))}</p>

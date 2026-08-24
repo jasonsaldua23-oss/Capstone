@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1341,7 +1342,7 @@ export function TransportationView() {
                   <div className="space-y-2 text-sm">
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
                       <div key={`dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
-                        <p className="font-semibold text-slate-900">{item?.product?.name || 'Item'}</p>
+                        <p className="font-semibold text-slate-900">{item?.itemType === 'MIXED_CASE' ? `Mixed Case ${item?.caseCapacity || 0} Bottles` : item?.product?.name || 'Item'}</p>
                         <p className="mt-0.5 text-xs text-slate-500">
                           Size: {(() => {
                             const product = item?.product || {}
@@ -1352,6 +1353,7 @@ export function TransportationView() {
                             return fromSizes || fromField || 'N/A'
                           })()}
                         </p>
+                        {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
                         <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                       </div>
                     ))}

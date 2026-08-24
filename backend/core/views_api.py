@@ -51,9 +51,11 @@ from .models import (
     Inventory,
     InventoryTransaction,
     LocationLog,
+    MixedCaseComponent,
     Notification,
     Order,
     OrderItem,
+    OrderItemType,
     PurchaseOrderStage,
     PurchaseRequestStatus,
     OrderStatus,
@@ -84,6 +86,7 @@ from .retail_pos import (
     update_retail_payment,
     update_retail_pickup_status,
 )
+from .mixed_case import normalize_checkout_items, reserve_order_item, serialize_mixed_component
 
 
 logger = logging.getLogger(__name__)
@@ -478,6 +481,7 @@ def _create_order_from_checkout_payload(
 
     order = Order.objects.create(
         order_number=pr_number,
+        request_id=str(body.get("requestId") or "").strip() or None,
         # Customer submissions start as Purchase Requests without a PO number until approved.
         purchase_order_number=None,
         purchase_request_number=pr_number,
@@ -504,7 +508,84 @@ def _create_order_from_checkout_payload(
 
     allocation_policy = _resolve_allocation_policy(body)
     warehouses_used_for_reservation: set[str] = set()
+    mixed_case_net_deposit = 0.0
     for item in normalized_items:
+        if str(item.get("itemType") or "").strip().upper() == OrderItemType.MIXED_CASE:
+            order_item = OrderItem.objects.create(
+                order=order,
+                product=None,
+                product_name="Mixed Case",
+                product_sku="MIXED-CASE",
+                product_unit=PRODUCT_UNIT_MIXED_CASE,
+                item_type=OrderItemType.MIXED_CASE,
+                case_capacity=_int(item.get("caseCapacity"), 0),
+                quantity=_int(item.get("quantity"), 0),
+                unit_price=float(item.get("unitPrice") or 0),
+                total_price=float(item.get("totalPrice") or 0),
+                product_subtotal=item.get("totalPrice") or 0,
+                notes=item.get("notes"),
+            )
+            item_deposit = 0.0
+            for component in item.get("components") or []:
+                product = component.get("product")
+                if product is None:
+                    raise ValueError("Mixed Case component product is unavailable")
+                packaging = (
+                    ProductPackaging.objects.filter(product=product, is_active=True)
+                    .select_related("container_type")
+                    .order_by("-is_primary", "created_at")
+                    .first()
+                )
+                deposit_per_unit = float(packaging.deposit_amount or 0) if packaging and packaging.is_returnable else 0.0
+                total_base_units = max(0, _int(component.get("totalBaseUnits"), 0))
+                empty_covered = min(
+                    total_base_units,
+                    max(0, _int(component.get("emptyReturnedQuantity"), 0)),
+                )
+                component_deposit = max(0.0, (total_base_units - empty_covered) * deposit_per_unit)
+                item_deposit += component_deposit
+                MixedCaseComponent.objects.create(
+                    order_item=order_item,
+                    product=product,
+                    product_name=product.name,
+                    product_sku=product.sku,
+                    base_unit_label=component.get("baseUnitLabel") or "bottle",
+                    quantity_per_case=_int(component.get("quantityPerCase"), 0),
+                    case_count=_int(component.get("caseCount"), 0),
+                    total_base_units=total_base_units,
+                    unit_price=component.get("unitPrice") or 0,
+                    component_subtotal=component.get("componentSubtotal") or 0,
+                    product_category=product.category,
+                    packaging_type_snapshot=("RETURNABLE" if packaging and packaging.is_returnable else "NON_RETURNABLE"),
+                    container_type_id=(packaging.container_type_id if packaging else None),
+                    container_type_name=(packaging.container_type.name if packaging else None),
+                    deposit_per_unit=deposit_per_unit,
+                    deposit_total=component_deposit,
+                    empty_covered_quantity=empty_covered,
+                )
+            order_item.is_returnable_item = item_deposit > 0
+            order_item.full_quantity = max(0, _int(item.get("caseCapacity"), 0) * _int(item.get("quantity"), 0))
+            order_item.empty_returned_quantity = sum(
+                max(0, _int(component.get("emptyReturnedQuantity"), 0))
+                for component in (item.get("components") or [])
+            )
+            order_item.deposit_charged = item_deposit
+            order_item.net_deposit = item_deposit
+            order_item.deposit_total = item_deposit
+            order_item.save(update_fields=[
+                "is_returnable_item",
+                "full_quantity",
+                "empty_returned_quantity",
+                "deposit_charged",
+                "net_deposit",
+                "deposit_total",
+            ])
+            reserve_order_item(order_item, allocation_policy, performed_by)
+            if str(order.warehouse_id or "").strip():
+                warehouses_used_for_reservation.add(str(order.warehouse_id).strip())
+            mixed_case_net_deposit += item_deposit
+            continue
+
         pid = str(item.get("productId") or "").strip()
         prod = Product.objects.filter(id=pid).first()
         if not prod:
@@ -568,7 +649,8 @@ def _create_order_from_checkout_payload(
 
     order.subtotal = subtotal
     order.tax = tax
-    order.total_amount = total_amount
+    # Mixed-case deposits are server-priced from the component packaging records.
+    order.total_amount = total_amount + mixed_case_net_deposit
     order.shipping_name = body.get("shippingName") or customer.name
     order.shipping_phone = body.get("shippingPhone") or customer.phone or ""
     order.shipping_address = _strip_default_country_suffix(body.get("shippingAddress") or customer.address or "")
@@ -2775,6 +2857,15 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "category": None,
             }
         )
+    # Mixed-case contents must remain available to every portal after the order is reloaded.
+    row["components"] = (
+        [
+            serialize_mixed_component(component)
+            for component in item.mixed_case_components.all().order_by("created_at", "id")
+        ]
+        if str(getattr(item, "item_type", "") or "").strip().upper() == "MIXED_CASE"
+        else []
+    )
     return row
 
 
@@ -2910,7 +3001,16 @@ def _select_best_warehouse_for_order_items(
     shipping_longitude: Any,
 ) -> str | None:
     requested_by_product: dict[str, int] = {}
+    mixed_component_requests: list[tuple[str, int]] = []
     for item in items:
+        if str(item.get("itemType") or "").strip().upper() == OrderItemType.MIXED_CASE:
+            case_count = max(0, _int(item.get("quantity", item.get("caseCount")), 0))
+            for component in item.get("components") or []:
+                product_id = str((component or {}).get("productId") or "").strip()
+                bottle_quantity = max(0, _int((component or {}).get("quantity"), 0)) * case_count
+                if product_id and bottle_quantity > 0:
+                    mixed_component_requests.append((product_id, bottle_quantity))
+            continue
         product_id = str(item.get("productId") or "").strip()
         if not product_id:
             continue
@@ -2918,6 +3018,17 @@ def _select_best_warehouse_for_order_items(
         if qty <= 0:
             continue
         requested_by_product[product_id] = requested_by_product.get(product_id, 0) + qty
+
+    if mixed_component_requests:
+        product_ids = {product_id for product_id, _ in mixed_component_requests}
+        case_sizes = {
+            str(product_id): max(1, _int(quantity_per_unit, 1))
+            for product_id, quantity_per_unit in Product.objects.filter(id__in=product_ids).values_list("id", "quantity_per_unit")
+        }
+        # Warehouse availability is stored in cases; round component bottles up to their source-case requirement.
+        for product_id, bottle_quantity in mixed_component_requests:
+            required_cases = int(math.ceil(bottle_quantity / max(1, case_sizes.get(product_id, 1))))
+            requested_by_product[product_id] = requested_by_product.get(product_id, 0) + required_cases
 
     if not requested_by_product:
         return None
@@ -6596,6 +6707,16 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             customer = Customer.objects.get(id=customer_id)
         except Customer.DoesNotExist:
             return _err("Customer not found", 404)
+        request_id = str(body.get("requestId") or "").strip()
+        if request_id:
+            existing_order = (
+                Order.objects.select_related("customer", "timeline")
+                .prefetch_related("items__product", "items__mixed_case_components__product")
+                .filter(customer=customer, request_id=request_id)
+                .first()
+            )
+            if existing_order:
+                return _ok({"success": True, "duplicate": True, "order": _serialize_order(existing_order)})
         items = body.get("items") or []
         if not isinstance(items, list) or not items:
             return _err("items are required")
@@ -6622,7 +6743,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         if address_error:
             return _err(address_error, 400)
         try:
-            normalized_items, subtotal = _normalize_order_items_for_checkout(items)
+            # Mixed cases do not have a parent productId; use the component-aware server normalizer.
+            normalized_items, normalized_subtotal = normalize_checkout_items(items)
+            subtotal = float(normalized_subtotal)
             total_cases = sum(max(0, _int(item.get("quantity"), 0)) for item in normalized_items)
             discount_breakdown = _build_discount_breakdown_for_customer(
                 customer=customer,
@@ -6666,7 +6789,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 reference_type="order",
                 reference_id=order.id,
             )
-        return _ok({"success": True, "order": _serialize_order(order)}, 201)
+        return _ok({"success": True, "duplicate": False, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
     if err:
         return err

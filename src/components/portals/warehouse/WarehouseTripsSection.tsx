@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
 
 type TripDropPointItem = {
@@ -1036,6 +1037,7 @@ export function WarehouseTripsSection({
                         <p className="mt-0.5 text-xs text-slate-500">
                           {item?.itemType === 'MIXED_CASE' ? 'Contents' : 'Size'}: {getOrderItemSize(item)}
                         </p>
+                        {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
                         <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                         {isMultiWarehouseOrder && (
                           <p className={`mt-0.5 text-xs font-medium ${isAssignedToTrip ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -1124,6 +1126,7 @@ export function WarehouseTripsSection({
                           <p className="text-slate-600">
                             {item?.itemType === 'MIXED_CASE' ? 'Contents' : 'Size'}: {getOrderItemSize(item)}
                           </p>
+                          {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
                           <p className="text-slate-600">Order Qty: {orderQty}</p>
                           <p className="text-slate-700">Already Allocated (this warehouse): {allocatedQty}</p>
                           <p className="text-slate-700">Assigned to this trip: {assignedToTripQty}</p>

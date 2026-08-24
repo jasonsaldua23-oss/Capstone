@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -958,7 +959,11 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                               <div className="space-y-1">
                                 {orderItems.length > 0
                                   ? orderItems.map((item: any, index: number) => (
-                                      <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                      <div key={`${order.id}-product-${item?.id || index}`}>
+                                        <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
+                                        {/* Keep table rows text-only; product photos belong in View Details. */}
+                                        {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
+                                      </div>
                                     ))
                                   : <p>No products</p>}
                               </div>
@@ -1210,7 +1215,11 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                             <div className="space-y-1">
                               {orderItems.length > 0
                                 ? orderItems.map((item: any, index: number) => (
-                                    <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                    <div key={`${order.id}-product-${item?.id || index}`}>
+                                      <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
+                                      {/* Keep table rows text-only; product photos belong in View Details. */}
+                                      {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
+                                    </div>
                                   ))
                                 : <p>No products</p>}
                             </div>
@@ -1430,8 +1439,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                           </div>
                           <div className="min-w-0 pt-0.5">
                             <p className="text-sm text-slate-800 sm:text-[1.02rem]">
-                              {formatProductNameWithSize(item)} x{item.quantity}
+                              {item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)} x{item.quantity}
                             </p>
+                            {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
                             {String(item?.product?.category?.name || item?.product?.category || '').trim() ? (
                               <p className="mt-0.5 text-xs text-slate-500">
                                 {String(item?.product?.category?.name || item?.product?.category || '').trim()}

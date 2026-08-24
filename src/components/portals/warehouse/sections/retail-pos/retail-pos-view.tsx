@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -1130,9 +1131,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                     key={component.productId}
                                     className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60"
                                   >
-                                    <span className="text-[11px] text-slate-600 truncate">
-                                      {componentProduct?.name}: {component.quantityBaseUnits} bottles
-                                    </span>
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <img
+                                        src={componentProduct?.imageUrl || '/ann-anns-logo.png'}
+                                        alt={componentProduct?.name || 'Mixed-case product'}
+                                        className="h-8 w-8 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
+                                      />
+                                      <span className="text-[11px] text-slate-600">
+                                        {componentProduct?.name} {getProductPrimarySize(componentProduct)}: {component.quantityBaseUnits} bottles
+                                      </span>
+                                    </div>
                                     {componentProduct?.depositEligible ? (
                                       <Input
                                         type="number"
@@ -1266,11 +1274,14 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         <p className="font-bold text-slate-900">{peso(item.productSubtotal)}</p>
                       </div>
 
+                      {item.components?.length ? <MixedCaseComponents item={item} compact /> : null}
+                      <div className="hidden">
                       {item.components?.map((component: any) => (
                         <p key={component.id} className="mt-1 text-[11px] text-slate-600 pl-2 border-l-2 border-slate-200">
                           {component.productName}{getReceiptItemSize(component) ? ` (${getReceiptItemSize(component)})` : ''}: {component.quantityBaseUnits} {component.looseUnit}s
                         </p>
                       ))}
+                      </div>
                     </div>
                   ))}
                 </div>

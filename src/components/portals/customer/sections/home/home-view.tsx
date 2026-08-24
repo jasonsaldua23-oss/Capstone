@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalProductGridSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Layers3, Loader2, Package, Search, ShoppingCart } from 'lucide-react'
 
 type CustomerHomeViewProps = {
@@ -297,15 +298,21 @@ export function CustomerHomeView({
               cart.slice(0, 8).map((item) => (
                 <div key={item.productId} className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">{item.name}</p>
+                    <p className="truncate text-sm font-medium text-slate-900">
+                      {item.itemType === 'MIXED_CASE'
+                        ? 'Mixed Case'
+                        : item.name}
+                    </p>
                     <p className="text-xs text-slate-500">
                       {item.quantity} x {formatPeso(item.unitPrice || 0)}
                     </p>
-                    <p className="text-xs text-slate-500">Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}</p>
+                    {item.itemType !== 'MIXED_CASE' ? (
+                      <p className="text-xs text-slate-500">Size: {String(item.sizeLabel || item.unit || '').trim() || 'case'}</p>
+                    ) : null}
                     {item.itemType === 'MIXED_CASE' ? (
-                      <p className="mt-1 line-clamp-2 text-xs text-sky-700">
-                        {(item.components || []).map((component: any) => `${component.productName}: ${component.quantityPerCase}`).join(' · ')}
-                      </p>
+                      <div>
+                        <MixedCaseComponents item={item} compact />
+                      </div>
                     ) : null}
                   </div>
                   <p className="text-sm font-semibold text-slate-900">

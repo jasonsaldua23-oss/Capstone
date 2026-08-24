@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, CalendarDays, ClipboardList, Download, MapPin, Package, Phone, Store, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 
 const RECEIPT_BUSINESS_NAME = "Ann Ann's Beverages Trading"
 
@@ -213,21 +214,8 @@ export function CustomerReceiptDialog(props: any) {
                           <div data-receipt-product-cell className="min-w-0 border-r border-slate-200 px-2 py-2 sm:px-3">
                             <p className="font-medium text-[#1f2937]">{item.itemType === 'MIXED_CASE' ? `Mixed Case — ${item.caseCapacity || 0} units` : `${item.product?.name || 'Item'} ${getProductMeta(item).size !== '-' ? getProductMeta(item).size : ''}`}</p>
                             {item.itemType === 'MIXED_CASE' ? (
-                              <div className="mt-1 space-y-0.5 text-[10px] leading-snug text-sky-700">
-                                {(item.components || []).map((component: any, index: number) => {
-                                  const perCase = Math.max(0, Number(component.quantityPerCase || 0))
-                                  const caseCount = Math.max(0, Number(component.caseCount ?? item.quantity ?? 0))
-                                  const totalBaseUnits = Math.max(0, Number(component.totalBaseUnits ?? perCase * caseCount))
-                                  const unitPrice = Number(component.unitPrice || 0)
-                                  const subtotal = Number(component.componentSubtotal ?? totalBaseUnits * unitPrice)
-                                  const label = String(component.baseUnitLabel || 'unit').trim() || 'unit'
-                                  return (
-                                    <p key={component.id || component.productId || index}>
-                                      <span className="font-semibold">{component.productName || 'Product'}:</span>{' '}
-                                      {perCase} {label}(s)/case × {caseCount} = {totalBaseUnits} {label}(s) · {formatPeso(unitPrice)}/{label} · {formatPeso(subtotal)}
-                                    </p>
-                                  )
-                                })}
+                              <div>
+                                <MixedCaseComponents item={item} compact />
                               </div>
                             ) : null}
                             {getProductMeta(item).category !== '-' ? (

@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
 
 type CustomerCheckoutViewProps = {
   setActiveView: (view: any) => void
@@ -133,7 +135,9 @@ export function CustomerCheckoutView({
                       return (
                         <>
                           <p className="truncate text-sm font-medium text-slate-800">
-                            {item.name} {sizeLabel}
+                            {item.itemType === 'MIXED_CASE'
+                              ? 'Mixed Case'
+                              : `${item.name} ${sizeLabel}`}
                           </p>
                           {categoryLabel ? (
                             <p className="text-xs text-slate-500">{categoryLabel}</p>
@@ -142,6 +146,19 @@ export function CustomerCheckoutView({
                       )
                     })()}
                     {(() => {
+                      if (item.itemType === 'MIXED_CASE') {
+                        const deposit = getMixedCaseDepositAmounts(item)
+                        const netDeposit = Math.max(0, deposit.charged - deposit.refunded)
+                        if (deposit.charged <= 0) return null
+                        return (
+                          <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
+                            {deposit.refunded > 0 ? (
+                              <p className="text-emerald-700">Empty-container credit applied: {formatPeso(deposit.refunded)}</p>
+                            ) : null}
+                            <p className="mt-0.5 text-slate-600">New deposit charged: +{formatPeso(netDeposit)}</p>
+                          </div>
+                        )
+                      }
                       const isReturnable = item.packagingType === 'RETURNABLE' && !item.depositExempt
                       const hasDeposit = Number(item.caseDepositAmount || item.depositAmount || 0) > 0
                       const isGlass =
@@ -152,7 +169,7 @@ export function CustomerCheckoutView({
 
                       if (!isReturnable || !hasDeposit || !isGlass) return null
 
-                      const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
+                      const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
                       const containersPerCase = Math.max(1, Number(item.containersPerCase || 1))
                       const grossDeposit = item.quantity * Number(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)
                       const depositCredit = isCase
@@ -175,13 +192,10 @@ export function CustomerCheckoutView({
                     })()}
                     {item.itemType === 'MIXED_CASE' ? (
                       <div className="mt-2 rounded-lg bg-sky-50 p-2 text-xs text-sky-800">
-                        <p className="font-semibold">{item.caseCapacity} units per case</p>
-                        {(item.components || []).map((component: any) => (
-                          <div key={component.productId} className="flex justify-between gap-3">
-                            <span>{component.productName}</span>
-                            <span>{component.quantityPerCase}/case · {formatPeso(component.componentSubtotal)}</span>
-                          </div>
-                        ))}
+                        <p className="font-semibold">
+                          Quantity: {Math.max(1, Number(item.quantity || 1))}
+                        </p>
+                        <MixedCaseComponents item={item} compact />
                       </div>
                     ) : null}
                   </div>

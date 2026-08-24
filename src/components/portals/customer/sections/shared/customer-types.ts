@@ -50,6 +50,7 @@ export interface MixedCaseComponent {
   unitPrice: number
   componentSubtotal: number
   baseUnitLabel: string
+  emptyReturnedQuantity?: number
   product?: Product | null
 }
 

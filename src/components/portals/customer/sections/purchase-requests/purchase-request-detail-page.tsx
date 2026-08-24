@@ -14,15 +14,12 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
-import { formatLooseQuantity, getLooseUnitFromRecord } from '@/lib/beverage-category-specs'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { getStatusConfig, normalizePRStatus } from './purchase-request-view'
 
 function getItemDisplayNameWithSize(item: any): string {
   if (item?.itemType === 'MIXED_CASE') {
-    const components = (item?.components || [])
-      .map((component: any) => `${component.productName} ${component.quantityPerCase}/case`)
-      .join(', ')
-    return `Mixed Case (${item.caseCapacity || 0} units)${components ? ` — ${components}` : ''}`
+    return 'Mixed Case'
   }
   const baseName = String(item?.product?.name || item?.productName || 'Product').trim()
   const product = item?.product || {}
@@ -82,6 +79,10 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
           sum + Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)),
         0
       )
+  )
+  const orderDeposit = items.reduce(
+    (sum: number, item: any) => sum + Math.max(0, Number(item?.netDeposit ?? item?.depositTotal ?? item?.depositCharged ?? 0)),
+    0
   )
   const orderDiscount = Number(order?.discountDetails?.totalDiscount || order?.discount || 0)
   const orderTotal = Number(order?.totalAmount || 0)
@@ -241,13 +242,7 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
                       {getItemDisplayNameWithSize(item)}
                     </p>
                     {item?.itemType === 'MIXED_CASE' && (
-                      <div className="mt-0.5 space-y-0.5 text-[9px] text-sky-700 md:text-[10px]">
-                        {(item.components || []).map((c: any) => (
-                          <p key={c.id || c.productId}>
-                            {c.productName}: {c.quantityPerCase}/case ({c.totalBaseUnits} total)
-                          </p>
-                        ))}
-                      </div>
+                      <MixedCaseComponents item={item} compact />
                     )}
                     {String(item?.product?.category?.name || item?.product?.category || '').trim() && (
                       <p className="text-[10px] text-slate-400 md:text-xs">
@@ -279,6 +274,12 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
                 <span>Subtotal</span>
                 <span>{formatPeso(orderSubtotal)}</span>
               </div>
+              {orderDeposit > 0 ? (
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Returnable-container deposit</span>
+                  <span>+{formatPeso(orderDeposit)}</span>
+                </div>
+              ) : null}
               {orderDiscount > 0 && (
                 <div className="flex items-center justify-between text-[#2b4f83]">
                   <span>

@@ -28,6 +28,16 @@ const getAllowedCapacities = (product: Product) => {
   return Number.isInteger(capacity) && capacity > 0 ? [capacity] : []
 }
 
+// Mixed cases can combine different products only when their bottle sizes match.
+const getProductSizeLabel = (product: Product): string => {
+  const sizes = Array.isArray(product.sizes)
+    ? product.sizes.map((size) => String(size || '').trim()).filter(Boolean)
+    : []
+  return String(product.sizeLabel || product.size || sizes.join(', ')).replace(/[()]/g, '').trim()
+}
+
+const getProductSizeKey = (product: Product): string => getProductSizeLabel(product).toLowerCase() || 'size-not-set'
+
 export const getProductBaseUnitPrice = (product: Product): number => {
   const explicit = Number(product.baseUnitPrice)
   if (product.baseUnitPrice != null && Number.isFinite(explicit) && explicit > 0) {
@@ -84,14 +94,19 @@ export function MixedCaseBuilderDialog({
       const categorySpec = getBeverageCategorySpec(product.category)
       const orderFormat = String((product as any)?.unit || '').trim().toLowerCase()
       // Mixed Case is only available for full cases of carbonated glass bottles.
-      if ((product as any)?.isActive === false || categorySpec?.category !== 'Carbonated (Glass)' || orderFormat !== 'case' || getAvailableBaseUnits(product) <= 0) return
-      const rows = map.get(categorySpec.compatibilityKey) || []
+      if ((product as any)?.isActive === false || categorySpec?.category !== 'Carbonated (Glass)' || orderFormat !== 'case' || !getProductSizeLabel(product) || getAvailableBaseUnits(product) <= 0) return
+      const groupKey = `${categorySpec.compatibilityKey}:${getProductSizeKey(product)}`
+      const rows = map.get(groupKey) || []
       rows.push(product)
-      map.set(categorySpec.compatibilityKey, rows)
+      map.set(groupKey, rows)
     })
     return Array.from(map.entries())
       .filter(([, rows]) => getSupportedCapacities(rows).length > 0)
-      .map(([key, rows]) => ({ key, products: rows }))
+      .map(([key, rows]) => ({
+        key,
+        products: rows,
+        sizeLabel: getProductSizeLabel(rows[0]) || 'Size not set',
+      }))
   }, [products])
 
   const [groupKey, setGroupKey] = useState('')
@@ -115,7 +130,8 @@ export function MixedCaseBuilderDialog({
     if (editingItem?.itemType === 'MIXED_CASE') {
       const firstProductId = editingItem.components?.[0]?.productId
       const firstProduct = products.find((product) => product.id === firstProductId)
-      setGroupKey(getBeverageCategorySpec(firstProduct?.category)?.compatibilityKey || groups[0]?.key || '')
+      const editingGroup = groups.find((group) => group.products.some((product) => product.id === firstProduct?.id))
+      setGroupKey(editingGroup?.key || groups[0]?.key || '')
       setCapacity(Number(editingItem.caseCapacity || 0))
       setCaseCount(Math.max(1, Number(editingItem.quantity || 1)))
       setQuantities(
@@ -240,16 +256,28 @@ export function MixedCaseBuilderDialog({
       onSave({
         productId: editingItem?.productId || makeCartKey(),
         itemType: 'MIXED_CASE',
-        name: `Mixed Case — ${capacity} units`,
+        name: 'Mixed Case',
         sku: 'MIXED-CASE',
         imageUrl: firstProduct?.imageUrl || null,
         unit: 'mixed case',
-        sizeLabel: `${capacity} units`,
+        sizeLabel: getProductSizeLabel(firstProduct || ({} as Product)),
         unitPrice: finalUnitPrice,
         quantity: Number(quote?.caseCount || caseCount),
         available: Math.max(1, maxCases),
         caseCapacity: capacity,
         components: mixedComponents,
+        // All eligible components share one bottle size/container, so the mixed case uses that deposit profile.
+        category: firstProduct?.category,
+        containerPackagingType: firstProduct?.containerPackagingType,
+        looseUnit: firstProduct?.looseUnit,
+        packagingCompatibilityKey: firstProduct?.packagingCompatibilityKey,
+        depositExempt: firstProduct?.depositExempt,
+        packagingType: firstProduct?.packagingType,
+        depositAmount: Number(firstProduct?.depositAmount || 0),
+        caseDepositAmount: Number(firstProduct?.caseDepositAmount || 0),
+        containersPerCase: capacity,
+        containerTypeId: firstProduct?.containerTypeId || null,
+        containerTypeName: firstProduct?.containerTypeName || null,
       })
       onOpenChange(false)
       toast.success(editingItem ? 'Mixed Case updated' : 'Mixed Case added to cart')
@@ -262,18 +290,33 @@ export function MixedCaseBuilderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto rounded-2xl">
+      <DialogContent className="max-h-[90dvh] max-w-2xl overflow-x-hidden overflow-y-auto rounded-2xl p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>{editingItem ? 'Edit Mixed Case' : 'Build a Mixed Case'}</DialogTitle>
         </DialogHeader>
 
         {groups.length === 0 ? (
           <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-            At least two in-stock products with the same packaging type and case capacity are required.
+            At least two in-stock products with the same bottle size, packaging type, and case capacity are required.
           </p>
         ) : (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Product size</span>
+                <select
+                  value={selectedGroup?.key || ''}
+                  onChange={(event) => {
+                    const nextGroup = groups.find((group) => group.key === event.target.value)
+                    setGroupKey(event.target.value)
+                    setCapacity(getSupportedCapacities(nextGroup?.products || [])[0] || 0)
+                    setQuantities({})
+                  }}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3"
+                >
+                  {groups.map((group) => <option key={group.key} value={group.key}>{group.sizeLabel}</option>)}
+                </select>
+              </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-slate-700">Case capacity</span>
                 <select
@@ -303,13 +346,21 @@ export function MixedCaseBuilderDialog({
                 const maxForCases = Math.floor(getAvailableBaseUnits(product) / Math.max(1, caseCount))
                 const maxAllowedForRow = Math.min(maxForCases, quantity + remaining)
                 return (
-                  <div key={product.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
+                  <div key={product.id} className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 p-3 sm:flex sm:gap-3">
+                    <img
+                      src={product.imageUrl || '/ann-anns-logo.png'}
+                      alt={product.name}
+                      className="h-10 w-10 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
+                    />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-slate-900">{product.name} {product.sizeLabel || product.size ? `— ${product.sizeLabel || product.size}` : ''}</p>
+                      <p className="truncate font-medium text-slate-900">
+                        {product.name}{getProductSizeLabel(product) ? ` ${getProductSizeLabel(product)}` : ''}
+                      </p>
                       <p className="text-xs text-slate-500">{formatPeso(getProductBaseUnitPrice(product))}/{label}</p>
+                      <p className="text-xs text-slate-500">{quantity} {quantity === 1 ? 'Bottle' : 'Bottles'} per case</p>
                       {quantity > 0 ? <p className="text-xs font-medium text-emerald-700">Subtotal/case: {formatPeso(getProductBaseUnitPrice(product) * quantity)}</p> : null}
                     </div>
-                    <div className="flex items-center rounded-lg border border-slate-200">
+                    <div className="col-span-2 grid w-full grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center rounded-lg border border-slate-200 sm:flex sm:w-auto">
                       <Button
                         type="button"
                         variant="ghost"
@@ -321,7 +372,7 @@ export function MixedCaseBuilderDialog({
                         {quantity <= 1 ? <Trash2 aria-hidden="true" className="h-4 w-4" /> : <Minus aria-hidden="true" className="h-4 w-4" />}
                       </Button>
                       <Input
-                        className="h-9 w-16 border-0 text-center shadow-none"
+                        className="h-9 min-w-0 border-0 text-center shadow-none sm:w-16"
                         type="number"
                         min={0}
                         max={maxAllowedForRow}
@@ -346,12 +397,12 @@ export function MixedCaseBuilderDialog({
               })}
             </div>
 
-            <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3">
+            <div className="flex flex-col items-stretch gap-3 rounded-xl bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs text-slate-500">Estimated Mixed Case total</p>
                 <p className="text-xl font-bold text-emerald-700">{formatPeso(estimatedPerCase * caseCount)}</p>
               </div>
-              <Button onClick={save} disabled={!complete || exceeds || isQuoting} className="bg-emerald-600 hover:bg-emerald-500">
+              <Button onClick={save} disabled={!complete || exceeds || isQuoting} className="w-full bg-emerald-600 hover:bg-emerald-500 sm:w-auto">
                 {isQuoting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {editingItem ? 'Save changes' : 'Add Mixed Case'}
               </Button>

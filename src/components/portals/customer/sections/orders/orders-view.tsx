@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
 
@@ -837,6 +838,7 @@ export function CustomerOrdersView(props: any) {
                                   ? `x${replacementRequestDisplay.qty} ${replacementRequestDisplay.label}${replacementRequestDisplay.qty > 1 ? 's' : ''}`
                                   : formatQuantityWithUnit(item)}
                               </p>
+                              {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
                             </div>
                           </div>
                         ))}

@@ -39,6 +39,7 @@ import { WarehouseEmptyBottlesView } from './sections/inventory/empty-bottles-vi
 import { WarehouseRetailPosView } from './sections/retail-pos/retail-pos-view'
 import { WarehouseInventoryTransactionsView } from './sections/inventory/transactions-view'
 import { WarehousePurchaseRequestsView } from './sections/purchase-requests/purchase-requests-view'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -5500,22 +5501,26 @@ export function WarehousePortal() {
                         Order Details
                       </p>
                       <div className="space-y-2">
-                        {orderItems.map((item: any) => (
+                        {orderItems.map((item: any) => {
+                          const isMixedCase = item?.itemType === 'MIXED_CASE'
+                          return (
                           <div key={item.id} className="flex items-start justify-between gap-3">
                             <div className="flex min-w-0 items-start gap-2.5">
-                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                              {!isMixedCase ? <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
                                 {item?.product?.imageUrl ? (
                                   <img src={String(item.product.imageUrl)} alt={String(item?.product?.name || 'Product')} className="h-full w-full object-contain" />
                                 ) : (
                                   <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
                                 )}
-                              </div>
+                              </div> : null}
                               <div className="min-w-0 pt-0.5">
                                 <p className="text-sm text-slate-800 sm:text-[1.02rem]">
-                                  {item.product?.name || 'Product'}
-                                  {getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
+                                  {isMixedCase ? 'Mixed Case' : item.product?.name || 'Product'}
+                                  {!isMixedCase && getOrderItemSizeLabel(item) ? ` ${getOrderItemSizeLabel(item)}` : ''}
                                   {' '}x{item.quantity}
                                 </p>
+                                {/* Mixed-case component photos are intentionally shown only in View Details. */}
+                                {isMixedCase ? <MixedCaseComponents item={item} compact /> : null}
                                 {String(item?.product?.category?.name || item?.product?.category || '').trim() ? (
                                   <p className="mt-0.5 text-xs text-slate-500">
                                     {String(item?.product?.category?.name || item?.product?.category || '').trim()}
@@ -5542,7 +5547,8 @@ export function WarehousePortal() {
                             </div>
                             <span className="pt-1 text-sm font-semibold text-slate-900 sm:text-[1.05rem]">{formatPeso((item.totalPrice ?? item.quantity * item.unitPrice) || 0)}</span>
                           </div>
-                        ))}
+                          )
+                        })}
                         <div className="h-px bg-slate-200" />
                         {isMultiWarehouse ? (
                           <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">

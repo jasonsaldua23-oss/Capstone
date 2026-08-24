@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom'
 import { ArrowLeft, CheckCircle, Minus, Pencil, Plus, Recycle, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
 
 type CustomerCartViewProps = {
   setActiveView: (view: any) => void
@@ -197,15 +199,18 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                   {/* Info & Price Column */}
                   <div className="min-w-0 flex-1 space-y-1">
                     <p className="line-clamp-1 text-sm font-bold text-slate-900 leading-snug">
-                      {item.name}
+                      {item.itemType === 'MIXED_CASE'
+                        ? 'Mixed Case'
+                        : item.name}
                     </p>
 
-                    <p className="text-[11px] text-slate-500 line-clamp-1">
+                    <p className={item.itemType === 'MIXED_CASE' ? 'hidden' : 'text-[11px] text-slate-500 line-clamp-1'}>
                       {String((item as any)?.category || '').trim() ? `${String((item as any).category).trim()} · ` : ''}
                       <span className="font-medium text-sky-700">
                         {String(item.sizeLabel || item.unit || '').trim() || 'case'}
                       </span>
                     </p>
+                    {item.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
 
                     {/* Price and Quantity Stepper Row */}
                     <div className="flex items-center justify-between pt-1.5">
@@ -240,6 +245,21 @@ export function CustomerCartView(props: CustomerCartViewProps) {
 
                 {/* Returnable Empty Bottles / Deposit Box (Glass Bottles Only) */}
                 {(() => {
+                  if (item.itemType === 'MIXED_CASE') {
+                    const deposit = getMixedCaseDepositAmounts(item)
+                    if (deposit.charged <= 0) return null
+                    return (
+                      <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 p-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+                            <Recycle className="h-3.5 w-3.5 text-emerald-600" />
+                            Mixed-case bottle deposit
+                          </span>
+                          <strong className="text-emerald-700">+{formatPeso(deposit.charged)}</strong>
+                        </div>
+                      </div>
+                    )
+                  }
                   const isReturnable = item.packagingType === 'RETURNABLE' && !item.depositExempt
                   const hasDeposit = Number(item.caseDepositAmount || item.depositAmount || 0) > 0
                   const isGlass =

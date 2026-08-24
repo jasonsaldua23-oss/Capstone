@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import {
   ArrowLeft,
@@ -322,6 +323,7 @@ export function HistoryView({
                             Mixed Case
                           </span>
                         ) : null}
+                        {item.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} showImages={false} compact /> : null}
                       </div>
 
                       {/* Quantity & Pricing */}

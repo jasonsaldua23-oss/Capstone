@@ -76,6 +76,14 @@ def base_unit_price(product: Product) -> Decimal:
     )
 
 
+def _product_size_key(product: Product) -> str:
+    """Normalize the product size used to keep mixed-case bottles physically compatible."""
+    sizes = getattr(product, "sizes", None)
+    if not isinstance(sizes, list):
+        return ""
+    return "|".join(str(size or "").strip().lower() for size in sizes if str(size or "").strip())
+
+
 def inventory_base_units(inventory: Inventory, product: Product | None = None) -> int:
     resolved_product = product or inventory.product
     return max(0, _int(inventory.quantity, 0)) * units_per_case(resolved_product) + max(
@@ -255,6 +263,7 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
             raise ValueError("Deleted, inactive, or Mixed Case-ineligible products cannot be added")
 
         compatibility_keys: set[str] = set()
+        component_size_keys: set[str] = set()
         normalized_components: list[dict[str, Any]] = []
         total_units_per_case = 0
         parent_unit_price = Decimal("0")
@@ -275,6 +284,7 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
                 )
             # Mixed-case compatibility follows the product category, never a manually typed profile key.
             compatibility_keys.add(category_details["compatibilityKey"])
+            component_size_keys.add(_product_size_key(product))
             total_units_per_case += quantity_per_case
             component_unit_price = base_unit_price(product)
             per_case_subtotal = _money(component_unit_price * quantity_per_case)
@@ -291,11 +301,14 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
                     "perCaseSubtotal": per_case_subtotal,
                     "componentSubtotal": component_subtotal,
                     "baseUnitLabel": category_details["looseUnit"],
+                    "emptyReturnedQuantity": max(0, _int(raw_component.get("emptyReturnedQuantity"), 0)),
                 }
             )
 
         if "" in compatibility_keys or len(compatibility_keys) != 1:
             raise ValueError("These products use different packaging types and cannot be combined in the same case.")
+        if "" in component_size_keys or len(component_size_keys) != 1:
+            raise ValueError("Mixed Case products must use the same bottle size.")
         if total_units_per_case != case_capacity:
             raise ValueError(
                 f"Mixed Case components must total exactly {case_capacity} units; received {total_units_per_case}"
@@ -314,6 +327,7 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
                 "totalPrice": parent_total,
                 "components": normalized_components,
                 "notes": item.get("notes"),
+                "emptyReturnedQuantity": max(0, _int(item.get("emptyReturnedQuantity"), 0)),
             }
         )
         subtotal += parent_total
@@ -751,6 +765,11 @@ def serialize_mixed_component(component: MixedCaseComponent) -> dict[str, Any]:
         "totalBaseUnits": component.total_base_units,
         "unitPrice": float(component.unit_price),
         "componentSubtotal": float(component.component_subtotal),
+        "containerTypeId": component.container_type_id,
+        "containerTypeName": component.container_type_name,
+        "depositPerUnit": float(component.deposit_per_unit),
+        "depositTotal": float(component.deposit_total),
+        "emptyCoveredQuantity": component.empty_covered_quantity,
         "product": (
             {
                 "id": product.id,

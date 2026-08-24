@@ -17,7 +17,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
-import { formatLooseQuantity, getLooseUnitFromRecord } from '@/lib/beverage-category-specs'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { formatOrderedQuantityWithContainer } from '../orders/order-item-display'
 
 const PAGE_SIZE = 10
 
@@ -82,10 +83,7 @@ export function getStatusConfig(status: PRStatus): {
 
 function getItemDisplayNameWithSize(item: any): string {
   if (item?.itemType === 'MIXED_CASE') {
-    const components = (item?.components || [])
-      .map((component: any) => `${component.productName} ${component.quantityPerCase}/case`)
-      .join(', ')
-    return `Mixed Case (${item.caseCapacity || 0} units)${components ? ` — ${components}` : ''}`
+    return 'Mixed Case'
   }
   const baseName = String(item?.product?.name || item?.productName || 'Product').trim()
   const product = item?.product || {}
@@ -99,9 +97,8 @@ function getItemDisplayNameWithSize(item: any): string {
 }
 
 function formatQuantityWithUnit(item: any): string {
-  const qty = Number(item?.quantity || 0)
-  if (item?.itemType === 'MIXED_CASE') return `x${qty} mixed case${qty === 1 ? '' : 's'}`
-  return `x${formatLooseQuantity(qty, getLooseUnitFromRecord(item))}`
+  // Purchase requests use the ordered container (Case, Pack, etc.), matching purchase orders.
+  return formatOrderedQuantityWithContainer(item)
 }
 
 function formatDateTime(rawDate: any): { date: string; time: string | null } {
@@ -285,6 +282,10 @@ export function CustomerPurchaseRequestView(props: any) {
             const displayId = rawId.startsWith('PR-') ? rawId : (rawId.startsWith('PO-') ? `PR-${rawId.slice(3)}` : (rawId || 'PR'))
             const submittedDt = formatDateTime(o.createdAt)
             const orderItems = Array.isArray(o.items) ? o.items : []
+            const depositTotal = orderItems.reduce(
+              (sum: number, item: any) => sum + Math.max(0, Number(item?.netDeposit ?? item?.depositTotal ?? item?.depositCharged ?? 0)),
+              0
+            )
             const isPending = status === 'PENDING_APPROVAL' || String(o.status || '').toUpperCase() === 'PENDING'
             const cancellable = isPending
 
@@ -357,6 +358,7 @@ export function CustomerPurchaseRequestView(props: any) {
                               <p className="text-xs text-slate-500">
                                 {formatQuantityWithUnit(item)}
                               </p>
+                              {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
                             </div>
                           </div>
                         ))}
@@ -368,6 +370,12 @@ export function CustomerPurchaseRequestView(props: any) {
 
                   {/* Col 3: Total Amount */}
                   <div>
+                    {depositTotal > 0 ? (
+                      <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-600">
+                        <span>Container deposit</span>
+                        <span className="font-semibold text-slate-800">+{formatPeso(depositTotal)}</span>
+                      </div>
+                    ) : null}
                     <p className="text-xs font-semibold text-slate-900">Estimated Total</p>
                     <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
                       {formatPeso(Number(o.totalAmount || 0))}

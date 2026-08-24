@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
 
@@ -423,11 +424,7 @@ export function CustomerOrderDetailPage(props: any) {
                           : `${item.product?.name || 'Item'} ${String(item.product?.sizeLabel || item.product?.size || '').trim()}`}
                       </p>
                       {item.itemType === 'MIXED_CASE' && (
-                        <div className="mt-0.5 space-y-0.5 text-[9px] text-sky-700 md:text-[10px]">
-                          {(item.components || []).map((c: any) => (
-                            <p key={c.id || c.productId}>{c.productName}: {c.quantityPerCase}/case ({c.totalBaseUnits} total)</p>
-                          ))}
-                        </div>
+                        <MixedCaseComponents item={item} compact />
                       )}
                       {String(item.product?.category?.name || item.product?.category || '').trim() && (
                         <p className="text-[9px] text-slate-500 md:text-[10px] break-words leading-snug">

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { safeFetchJson, getCollection } from './shared'
 
 type RetailSaleItem = {
@@ -340,13 +341,7 @@ export function RetailTransactionsView() {
                                       ×{item.quantity} ({modeLabel})
                                     </span>
                                     {item.components && item.components.length > 0 ? (
-                                      <div className="text-[11px] text-slate-500 pl-2 border-l border-slate-200 mt-0.5 space-y-0.5">
-                                        {item.components.map((comp: any, cIdx: number) => (
-                                          <div key={comp.id || cIdx}>
-                                            {getProductDisplayName(comp)} ×{comp.quantityBaseUnits || comp.caseCount || ''}
-                                          </div>
-                                        ))}
-                                      </div>
+                                      <MixedCaseComponents item={item} compact />
                                     ) : null}
                                   </div>
                                 )
@@ -470,13 +465,7 @@ export function RetailTransactionsView() {
                                     {item.emptyBottlesProvided ? ` • Returned: ${item.emptyBottlesProvided} empties` : ''}
                                   </div>
                                   {item.components && item.components.length > 0 ? (
-                                    <div className="mt-1 pl-2 border-l border-slate-200 text-[11px] text-slate-500 space-y-0.5">
-                                      {item.components.map((comp: any, cIdx: number) => (
-                                        <div key={comp.id || cIdx}>
-                                          {getProductDisplayName(comp)} ({comp.quantityBaseUnits || ''} units)
-                                        </div>
-                                      ))}
-                                    </div>
+                                    <MixedCaseComponents item={item} compact />
                                   ) : null}
                                 </td>
                                 <td className="px-3 py-2 text-center font-medium text-slate-700">{item.quantity}</td>

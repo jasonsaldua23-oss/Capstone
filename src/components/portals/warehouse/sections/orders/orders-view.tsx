@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import type { WarehouseOrdersViewProps } from '../shared/types'
 
 type OrderAction = 'processing' | 'assign' | 'delivered' | 'completed' | 'cancel'
@@ -264,7 +265,11 @@ export function WarehouseOrdersView({
                           <div className="space-y-1">
                             {orderItems.length > 0
                               ? orderItems.map((item: any, index: number) => (
-                                  <p key={`${order.id}-product-${item?.id || index}`}>{formatProductNameWithSize(item)}</p>
+                                  <div key={`${order.id}-product-${item?.id || index}`}>
+                                    <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
+                                    {/* Keep table rows text-only; product photos belong in View Details. */}
+                                    {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
+                                  </div>
                                 ))
                               : <p>No products</p>}
                           </div>

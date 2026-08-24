@@ -12,6 +12,7 @@ import { CustomerFeedbackView } from './sections/feedback/feedback-view'
 import { CustomerHomeView } from './sections/home/home-view'
 import { CustomerCartView } from './sections/cart/cart-view'
 import { MixedCaseBuilderDialog } from './sections/cart/mixed-case-builder-dialog'
+import { getMixedCaseComponentDepositProfile, getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
 import { CustomerCheckoutView } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
 import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
@@ -944,7 +945,7 @@ export function CustomerPortal() {
       : undefined
     const availableEmpties = Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0)))
     const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
-    const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
+    const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
     const emptyReturnedQuantity = isCase
       ? Math.min(quantity, Math.floor(availableEmpties / containersPerCase)) * containersPerCase
       : Math.min(quantity, availableEmpties)
@@ -1126,11 +1127,12 @@ export function CustomerPortal() {
   }
 
   const saveMixedCase = (item: CartItem) => {
+    const mixedCaseWithDeposit = applyAutomaticEmptyCredit(item, item.quantity)
     setCart((prev) => {
       const existing = prev.some((row) => row.productId === item.productId)
       return existing
-        ? prev.map((row) => (row.productId === item.productId ? item : row))
-        : [...prev, item]
+        ? prev.map((row) => (row.productId === item.productId ? mixedCaseWithDeposit : row))
+        : [...prev, mixedCaseWithDeposit]
     })
     setSelectedCartIds((prev) => {
       const next = new Set(prev)
@@ -1147,6 +1149,24 @@ export function CustomerPortal() {
       return cart
         .filter((item) => selectedCartIds.has(item.productId))
         .map((item) => {
+          if (item.itemType === 'MIXED_CASE') {
+            const components = (item.components || []).map((component) => {
+              const profile = getMixedCaseComponentDepositProfile(component)
+              if (!profile.isReturnable || !profile.containerTypeId) return component
+              if (!remainingByContainer.has(profile.containerTypeId)) {
+                const customerBalance = Array.isArray(user?.bottleBalances)
+                  ? user.bottleBalances.find((row) => String(row.containerTypeId) === profile.containerTypeId)
+                  : undefined
+                remainingByContainer.set(profile.containerTypeId, Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0))))
+              }
+              const remaining = remainingByContainer.get(profile.containerTypeId) || 0
+              const needed = Math.max(0, Number(component.quantityPerCase || 0)) * Math.max(0, Number(item.quantity || 0))
+              const emptiesUsed = Math.min(needed, remaining)
+              remainingByContainer.set(profile.containerTypeId, remaining - emptiesUsed)
+              return { ...component, emptyReturnedQuantity: emptiesUsed }
+            })
+            return { ...item, components }
+          }
           if (item.packagingType !== 'RETURNABLE' || item.depositExempt || !item.containerTypeId) return item
           const containerKey = String(item.containerTypeId)
           if (!remainingByContainer.has(containerKey)) {
@@ -1157,7 +1177,7 @@ export function CustomerPortal() {
           }
           const remaining = remainingByContainer.get(containerKey) || 0
           const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
-          const isCase = String(item.unit || '').trim().toLowerCase() === 'case'
+          const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
           const emptiesUsed = isCase
             ? Math.min(item.quantity, Math.floor(remaining / containersPerCase)) * containersPerCase
             : Math.min(item.quantity, remaining)
@@ -1173,8 +1193,9 @@ export function CustomerPortal() {
   )
   const selectedDepositCharged = useMemo(
     () => selectedCartItems.reduce((sum, i) => {
+      if (i.itemType === 'MIXED_CASE') return sum + getMixedCaseDepositAmounts(i).charged
       if (!isReturnableGlassItem(i)) return sum
-      const isCase = String(i.unit || '').trim().toLowerCase() === 'case'
+      const isCase = i.itemType === 'MIXED_CASE' || String(i.unit || '').trim().toLowerCase() === 'case'
       const deposit = isCase ? Number(i.caseDepositAmount || 0) : Number(i.depositAmount || 0)
       return sum + (i.quantity * deposit)
     }, 0),
@@ -1182,8 +1203,9 @@ export function CustomerPortal() {
   )
   const selectedDepositRefunded = useMemo(
     () => selectedCartItems.reduce((sum, i) => {
+      if (i.itemType === 'MIXED_CASE') return sum + getMixedCaseDepositAmounts(i).refunded
       if (!isReturnableGlassItem(i)) return sum
-      const isCase = String(i.unit || '').trim().toLowerCase() === 'case'
+      const isCase = i.itemType === 'MIXED_CASE' || String(i.unit || '').trim().toLowerCase() === 'case'
       if (isCase) {
         const coveredCases = Math.floor((i.emptyReturnedQuantity || 0) / Math.max(1, i.containersPerCase || 1))
         return sum + (coveredCases * Number(i.caseDepositAmount || 0))
@@ -1573,9 +1595,11 @@ export function CustomerPortal() {
               itemType: 'MIXED_CASE',
               caseCapacity: item.caseCapacity,
               quantity: item.quantity,
+              emptyReturnedQuantity: item.emptyReturnedQuantity || 0,
               components: (item.components || []).map((component) => ({
                 productId: component.productId,
                 quantity: component.quantityPerCase,
+                emptyReturnedQuantity: component.emptyReturnedQuantity || 0,
               })),
             }
             : {
