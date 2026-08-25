@@ -88,6 +88,7 @@ from .retail_pos import (
     update_retail_payment,
     update_retail_pickup_status,
 )
+from .pod_overlay import build_driver_full_name, burn_pod_overlay, parse_pod_overlay_metadata
 from .mixed_case import (
     consume_order_item_reservations,
     normalize_checkout_items,
@@ -6287,7 +6288,11 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             return _err("licensePlate and type are required")
         v = Vehicle.objects.create(
             license_plate=body["licensePlate"],
+            brand=str(body.get("brand") or "").strip(),
+            model=str(body.get("model") or "").strip(),
+            year=body.get("year"),
             type=body["type"],
+            classification=body.get("classification") or "LIGHT_DUTY",
             capacity=body.get("capacity"),
             status=body.get("status") or VehicleStatus.AVAILABLE,
             is_active=bool(body.get("isActive", True)),
@@ -6314,7 +6319,7 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         v = Vehicle.objects.get(id=vehicle_id)
     except Vehicle.DoesNotExist:
         return _err("Vehicle not found", 404)
-    mapping = [("licensePlate", "license_plate"), ("type", "type"), ("capacity", "capacity"), ("status", "status")]
+    mapping = [("licensePlate", "license_plate"), ("brand", "brand"), ("model", "model"), ("year", "year"), ("type", "type"), ("classification", "classification"), ("capacity", "capacity"), ("status", "status")]
     for key, attr in mapping:
         if key in body:
             setattr(v, attr, body.get(key))
@@ -9315,6 +9320,29 @@ def upload_pod_image(request: HttpRequest) -> JsonResponse:
         return err
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
+    try:
+        overlay = parse_pod_overlay_metadata(request.POST)
+    except ValueError as exc:
+        return _err(str(exc))
+    if overlay is not None:
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return _err("Image file is required")
+        if not str(file_obj.content_type or "").lower().startswith("image/"):
+            return _err("Only image files are allowed")
+        driver = User.objects.filter(id=str(p.get("userId") or "")).first()
+        if not driver:
+            return _err("Driver account not found", 404)
+        try:
+            # Added: native captures are stamped server-side with the authenticated driver's name.
+            stamped, extension = burn_pod_overlay(file_obj.read(), overlay, build_driver_full_name(driver))
+        except ValueError as exc:
+            return _err(str(exc))
+        media_root = Path(__file__).resolve().parents[1] / "media" / "uploads" / "pods"
+        media_root.mkdir(parents=True, exist_ok=True)
+        name = f"pod-{int(timezone.now().timestamp() * 1000)}{extension}"
+        (media_root / name).write_bytes(stamped)
+        return _ok({"success": True, "imageUrl": f"/uploads/pods/{name}"})
     return _handle_image_upload(request, "pods", "pod")
 
 

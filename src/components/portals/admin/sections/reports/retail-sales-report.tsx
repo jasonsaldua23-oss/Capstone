@@ -1,0 +1,563 @@
+'use client'
+
+import React, { useMemo, useState } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import {
+  Store,
+  TrendingUp,
+  TrendingDown,
+  Receipt,
+  DollarSign,
+  ShoppingCart,
+  Calendar,
+  Search,
+  ArrowUpDown,
+  ShoppingBag,
+  Building2,
+  Users,
+  Download,
+  Printer,
+  FileSpreadsheet,
+} from 'lucide-react'
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from 'recharts'
+import { formatPeso, formatDateTime, formatDayKey } from '../shared'
+import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+
+interface RetailSalesReportProps {
+  orders: any[]
+  retailSales?: any[]
+}
+
+type PeriodMode = 'weekly' | 'monthly' | 'yearly'
+
+export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesReportProps) {
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('weekly')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 15
+
+  // Consolidate retail transactions from orders (salesChannel is RETAIL or RETAIL_POS) + retailSales
+  const retailTransactions = useMemo(() => {
+    const list: any[] = []
+
+    orders
+      .filter((o) => {
+        const channel = String(o.salesChannel || '').toUpperCase()
+        return channel === 'RETAIL' || channel === 'RETAIL_POS'
+      })
+      .forEach((o) => {
+        const txNumber = o.retailTransactionNumber || o.orderNumber || `POS-${o.id?.slice(-6)}`
+        const customer = o.walkInName || o.customer?.name || o.shippingName || 'Walk-in Retail Customer'
+        const amount = Number(o.totalAmount || o.subtotal || 0)
+        const date = o.createdAt || new Date().toISOString()
+        const items = Array.isArray(o.items) ? o.items : []
+
+        list.push({
+          id: o.id,
+          txNumber,
+          customer,
+          amount,
+          date,
+          itemsCount: items.length,
+          items,
+          channel: String(o.salesChannel || 'RETAIL').toUpperCase(),
+          status: String(o.retailStatus || o.status || 'COMPLETED').toUpperCase(),
+        })
+      })
+
+    // Also include any retailSales records not already included
+    retailSales.forEach((rs) => {
+      const txNum = rs.transactionNumber || rs.id
+      const exists = list.some((item) => item.txNumber === txNum || item.id === rs.id)
+      if (!exists) {
+        list.push({
+          id: rs.id,
+          txNumber: txNum,
+          customer: rs.customerName || rs.walkInName || 'Walk-in Retail Customer',
+          amount: Number(rs.totalAmount || rs.subtotal || 0),
+          date: rs.createdAt || new Date().toISOString(),
+          itemsCount: Array.isArray(rs.items) ? rs.items.length : 0,
+          items: rs.items || [],
+          channel: 'RETAIL_POS',
+          status: String(rs.status || 'COMPLETED').toUpperCase(),
+        })
+      }
+    })
+
+    return list
+  }, [orders, retailSales])
+
+  // Split into Current vs Previous period based on mode
+  const { currentPeriodItems, prevPeriodItems, periodLabel, prevPeriodLabel } = useMemo(() => {
+    const now = new Date()
+    let currentStart = new Date(now)
+    let prevStart = new Date(now)
+    let prevEnd = new Date(now)
+    let label = ''
+    let prevLabel = ''
+
+    if (periodMode === 'weekly') {
+      currentStart.setDate(now.getDate() - 7)
+      prevStart.setDate(now.getDate() - 14)
+      prevEnd.setDate(now.getDate() - 7)
+      label = 'Past 7 Days'
+      prevLabel = 'Prior 7 Days'
+    } else if (periodMode === 'monthly') {
+      currentStart.setDate(now.getDate() - 30)
+      prevStart.setDate(now.getDate() - 60)
+      prevEnd.setDate(now.getDate() - 30)
+      label = 'Past 30 Days'
+      prevLabel = 'Prior 30 Days'
+    } else {
+      // yearly
+      currentStart.setDate(now.getDate() - 365)
+      prevStart.setDate(now.getDate() - 730)
+      prevEnd.setDate(now.getDate() - 365)
+      label = 'Past 12 Months'
+      prevLabel = 'Prior 12 Months'
+    }
+
+    const currentStartTime = currentStart.getTime()
+    const prevStartTime = prevStart.getTime()
+    const prevEndTime = prevEnd.getTime()
+
+    const currentPeriodItems = retailTransactions.filter((item) => {
+      const t = new Date(item.date).getTime()
+      return t >= currentStartTime
+    })
+
+    const prevPeriodItems = retailTransactions.filter((item) => {
+      const t = new Date(item.date).getTime()
+      return t >= prevStartTime && t < prevEndTime
+    })
+
+    return { currentPeriodItems, prevPeriodItems, periodLabel: label, prevPeriodLabel: prevLabel }
+  }, [retailTransactions, periodMode])
+
+  // Filtered current period list for table
+  const filteredCurrentItems = useMemo(() => {
+    let list = currentPeriodItems
+
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim()
+      list = list.filter(
+        (item) =>
+          item.txNumber.toLowerCase().includes(q) ||
+          item.customer.toLowerCase().includes(q)
+      )
+    }
+
+    list = [...list].sort((a, b) => {
+      const timeA = new Date(a.date).getTime()
+      const timeB = new Date(b.date).getTime()
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB
+    })
+
+    return list
+  }, [currentPeriodItems, searchTerm, sortOrder])
+
+  // Period Metrics & Growth Calculation
+  const metrics = useMemo(() => {
+    const currentSales = currentPeriodItems.reduce((sum, item) => sum + item.amount, 0)
+    const currentTxCount = currentPeriodItems.length
+    const currentAvgValue = currentTxCount > 0 ? currentSales / currentTxCount : 0
+
+    const prevSales = prevPeriodItems.reduce((sum, item) => sum + item.amount, 0)
+    const prevTxCount = prevPeriodItems.length
+
+    const salesGrowth = prevSales > 0 ? ((currentSales - prevSales) / prevSales) * 100 : currentSales > 0 ? 100 : 0
+    const txGrowth = prevTxCount > 0 ? ((currentTxCount - prevTxCount) / prevTxCount) * 100 : currentTxCount > 0 ? 100 : 0
+
+    return {
+      currentSales,
+      currentTxCount,
+      currentAvgValue,
+      prevSales,
+      prevTxCount,
+      salesGrowth,
+      txGrowth,
+    }
+  }, [currentPeriodItems, prevPeriodItems])
+
+  // Sales Trend Chart Data
+  const trendChartData = useMemo(() => {
+    const map: Record<string, { label: string; sales: number; count: number; dateSort: number }> = {}
+
+    currentPeriodItems.forEach((item) => {
+      const d = new Date(item.date)
+      let key = ''
+      let label = ''
+
+      if (periodMode === 'weekly') {
+        key = formatDayKey(d)
+        label = `${d.getMonth() + 1}/${d.getDate()}`
+      } else if (periodMode === 'monthly') {
+        key = formatDayKey(d)
+        label = `${d.getMonth() + 1}/${d.getDate()}`
+      } else {
+        // Group by Month for Yearly
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      }
+
+      if (!map[key]) {
+        map[key] = {
+          label,
+          sales: 0,
+          count: 0,
+          dateSort: d.getTime(),
+        }
+      }
+      map[key].sales += item.amount
+      map[key].count += 1
+    })
+
+    return Object.values(map).sort((a, b) => a.dateSort - b.dateSort)
+  }, [currentPeriodItems, periodMode])
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredCurrentItems.length / pageSize))
+  const paginatedItems = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filteredCurrentItems.slice(start, start + pageSize)
+  }, [filteredCurrentItems, currentPage])
+
+  const exportColumns: ExportColumn[] = [
+    { header: 'POS / Receipt ID', key: 'txNumber' },
+    { header: 'Customer', key: 'customer' },
+    { header: 'Items Count', key: 'itemsCount' },
+    { header: 'Status', key: 'status' },
+    { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
+    { header: 'Date & Time', accessor: (r) => formatDateTime(r.date) },
+  ]
+
+  const handleExportCsv = () => {
+    exportToCsv(`retail-sales-${periodMode}-${new Date().toISOString().slice(0, 10)}.csv`, exportColumns, filteredCurrentItems)
+  }
+
+  const handleExportPdf = () => {
+    exportReportPdf(
+      `retail-sales-${periodMode}-${new Date().toISOString().slice(0, 10)}.pdf`,
+      `Retail Sales Report (${periodLabel})`,
+      exportColumns,
+      filteredCurrentItems,
+      [
+        `Total Retail Sales: ${formatPeso(metrics.currentSales)} (${metrics.salesGrowth >= 0 ? `+${metrics.salesGrowth.toFixed(1)}%` : `${metrics.salesGrowth.toFixed(1)}%`} vs prior period)`,
+        `Transactions Count: ${metrics.currentTxCount} | Average Basket: ${formatPeso(metrics.currentAvgValue)}`,
+      ],
+      periodLabel
+    )
+  }
+
+  const handlePrint = () => {
+    printReportTable(
+      `Retail Sales Report (${periodLabel})`,
+      exportColumns,
+      filteredCurrentItems,
+      [
+        `Total Retail Sales: ${formatPeso(metrics.currentSales)} (${metrics.salesGrowth >= 0 ? `+${metrics.salesGrowth.toFixed(1)}%` : `${metrics.salesGrowth.toFixed(1)}%`} vs prior period)`,
+        `Transactions Count: ${metrics.currentTxCount} | Average Basket: ${formatPeso(metrics.currentAvgValue)}`,
+      ],
+      periodLabel
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header with Mode Switcher & Export */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Retail Sales Reports</h2>
+          <p className="text-sm text-slate-500">Retail POS performance, revenue velocity, period growth rates, and customer basket sizes.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Weekly / Monthly / Yearly Selector */}
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1">
+            <button
+              onClick={() => {
+                setPeriodMode('weekly')
+                setCurrentPage(1)
+              }}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                periodMode === 'weekly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Weekly
+            </button>
+            <button
+              onClick={() => {
+                setPeriodMode('monthly')
+                setCurrentPage(1)
+              }}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                periodMode === 'monthly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => {
+                setPeriodMode('yearly')
+                setCurrentPage(1)
+              }}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                periodMode === 'yearly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Yearly
+            </button>
+          </div>
+
+          {/* Export Buttons */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCsv}
+            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPdf}
+            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+          >
+            <Download className="h-3.5 w-3.5 text-blue-600" />
+            PDF
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrint}
+            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+          >
+            <Printer className="h-3.5 w-3.5 text-slate-600" />
+            Print
+          </Button>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Total Sales */}
+        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
+          <CardHeader className="p-4 pb-2">
+            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Total Retail Sales</CardDescription>
+            <CardTitle className="text-2xl font-bold text-emerald-700">{formatPeso(metrics.currentSales)}</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="flex items-center gap-1.5 text-xs">
+              {metrics.salesGrowth >= 0 ? (
+                <span className="flex items-center text-emerald-600 font-semibold">
+                  <TrendingUp className="mr-0.5 h-3.5 w-3.5" /> +{metrics.salesGrowth.toFixed(1)}%
+                </span>
+              ) : (
+                <span className="flex items-center text-rose-600 font-semibold">
+                  <TrendingDown className="mr-0.5 h-3.5 w-3.5" /> {metrics.salesGrowth.toFixed(1)}%
+                </span>
+              )}
+              <span className="text-slate-400">vs {prevPeriodLabel}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Total Transactions */}
+        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
+          <CardHeader className="p-4 pb-2">
+            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Transactions Count</CardDescription>
+            <CardTitle className="text-2xl font-bold text-slate-900">{metrics.currentTxCount}</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="flex items-center gap-1.5 text-xs">
+              {metrics.txGrowth >= 0 ? (
+                <span className="flex items-center text-blue-600 font-semibold">
+                  <TrendingUp className="mr-0.5 h-3.5 w-3.5" /> +{metrics.txGrowth.toFixed(1)}%
+                </span>
+              ) : (
+                <span className="flex items-center text-rose-600 font-semibold">
+                  <TrendingDown className="mr-0.5 h-3.5 w-3.5" /> {metrics.txGrowth.toFixed(1)}%
+                </span>
+              )}
+              <span className="text-slate-400">vs {prevPeriodLabel}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Average Transaction Value */}
+        <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
+          <CardHeader className="p-4 pb-2">
+            <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Average Basket Size</CardDescription>
+            <CardTitle className="text-2xl font-bold text-purple-700">{formatPeso(metrics.currentAvgValue)}</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 text-xs text-slate-500">Mean gross receipt value</CardContent>
+        </Card>
+
+        {/* Prior Period Benchmark */}
+        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <CardHeader className="p-4 pb-2">
+            <CardDescription className="text-xs uppercase font-medium tracking-wide text-slate-500">Prior Period Revenue</CardDescription>
+            <CardTitle className="text-2xl font-bold text-slate-700">{formatPeso(metrics.prevSales)}</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 text-xs text-slate-400">Baseline ({prevPeriodLabel})</CardContent>
+        </Card>
+      </div>
+
+      {/* Sales Trend Chart */}
+      {trendChartData.length > 0 && (
+        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="text-base font-semibold text-slate-800">
+              Retail Sales Velocity ({periodLabel})
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-500">Periodic revenue and transaction volume trends</CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="retailSalesGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#059669" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#059669" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(val) => `₱${(val / 1000).toFixed(0)}k`}
+                  />
+                  <Tooltip
+                    formatter={(value: any) => [formatPeso(Number(value)), 'Retail Sales']}
+                    contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Area type="monotone" dataKey="sales" stroke="#059669" strokeWidth={2.5} fillOpacity={1} fill="url(#retailSalesGrad)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filter & Search Bar */}
+      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search POS Transaction ID / Customer..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value)
+                setCurrentPage(1)
+              }}
+              className="pl-9 text-xs"
+            />
+          </div>
+
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+              className="gap-2 text-xs font-medium"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              {sortOrder === 'desc' ? 'Newest First' : 'Oldest First'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Transaction Table */}
+      <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-slate-200 bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider">
+              <tr>
+                <th className="p-3.5 pl-4">Receipt / POS ID</th>
+                <th className="p-3.5">Customer / Walk-In</th>
+                <th className="p-3.5 text-center">Items Count</th>
+                <th className="p-3.5">Status</th>
+                <th className="p-3.5 text-right">Sale Amount</th>
+                <th className="p-3.5 pr-4">Date & Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {paginatedItems.length > 0 ? (
+                paginatedItems.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-3.5 pl-4 font-semibold text-emerald-700">{row.txNumber}</td>
+                    <td className="p-3.5 font-medium text-slate-900">{row.customer}</td>
+                    <td className="p-3.5 text-center font-medium text-slate-700">{row.itemsCount}</td>
+                    <td className="p-3.5">
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
+                    </td>
+                    <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <Store className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                    No retail sales records found for this period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 bg-slate-50/50">
+            <span className="text-xs text-slate-500">
+              Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredCurrentItems.length)} of {filteredCurrentItems.length} records
+            </span>
+            <div className="flex gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="h-7 text-xs"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="h-7 text-xs"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}

@@ -36,6 +36,10 @@ export interface AuthUser {
   userId?: string
   email: string
   name: string
+  firstName?: string | null
+  middleName?: string | null
+  lastName?: string | null
+  suffix?: string | null
   avatar?: string | null
   role: string
   type: 'staff' | 'customer'

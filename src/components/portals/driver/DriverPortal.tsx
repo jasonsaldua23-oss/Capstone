@@ -181,6 +181,7 @@ export function DriverPortal() {
                   // Detailed operational workflow for one selected trip.
                   <TripDetailView
                     trip={selectedTrip}
+                    driverUser={user}
                     onBack={() => setSelectedTripId(null)}
                     locationPermission={locationPermission}
                     onStartTracking={startLocationTracking}

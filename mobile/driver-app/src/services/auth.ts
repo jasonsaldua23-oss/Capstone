@@ -293,13 +293,27 @@ export async function updateTripStop(tripId: string, dropPointId: string, input:
   return data.dropPoint;
 }
 
-export async function uploadPodImage(uri: string): Promise<string> {
+export interface PodCaptureMetadata {
+  capturedAt: string;
+  latitude: number;
+  longitude: number;
+  address: string;
+}
+
+export async function uploadPodImage(uri: string, metadata?: PodCaptureMetadata): Promise<string> {
   const token = await getToken();
   const form = new FormData();
   const extension = uri.split(".").pop()?.toLowerCase() || "jpg";
   const mimeType = extension === "png" ? "image/png" : "image/jpeg";
   // React Native FormData accepts a local file descriptor for native uploads.
   form.append("file", { uri, name: `pod-${Date.now()}.${extension}`, type: mimeType } as any);
+  // Added: the server burns this fresh device data into native camera captures.
+  if (metadata) {
+    form.append("capturedAt", metadata.capturedAt);
+    form.append("latitude", String(metadata.latitude));
+    form.append("longitude", String(metadata.longitude));
+    form.append("address", metadata.address);
+  }
   const data = await apiRequest<{ success: boolean; imageUrl?: string }>("/api/uploads/pod-image", {
     method: "POST",
     token,

@@ -26,7 +26,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Receipt, FileCheck, RotateCcw, Store, Trophy } from 'lucide-react'
+import {
+  PurchaseRequestsReport,
+  PurchaseOrdersReport,
+  TransactionsReport,
+  LogisticsReport,
+  ReplacementRecordsReport,
+  RetailSalesReport,
+  TopClientsReport,
+} from './reports'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, LabelList, PieChart, Pie } from 'recharts'
 import {
   toArray,
@@ -88,7 +97,7 @@ export function ReportsView() {
     | 'past_6_months'
     | 'past_1_year'
     | 'custom'
-  const [activeReportTab, setActiveReportTab] = useState('orders')
+  const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
   const [rangeDays, setRangeDays] = useState<'7' | '30' | '90'>('30')
   const [selectedWarehouse, setSelectedWarehouse] = useState('all')
   const [selectedDriver, setSelectedDriver] = useState('all')
@@ -112,6 +121,8 @@ export function ReportsView() {
   const [replacementsData, setReplacementsData] = useState<any[]>([])
   const [feedback, setFeedback] = useState<any[]>([])
   const [stockBatches, setStockBatches] = useState<any[]>([])
+  const [customers, setCustomers] = useState<any[]>([])
+  const [retailSales, setRetailSales] = useState<any[]>([])
   const reportBranding = {
     companyName: "Ann Ann's Beverages Trading",
   }
@@ -121,7 +132,7 @@ export function ReportsView() {
     async function fetchReportsPack() {
       setIsLoading(true)
       try {
-        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes, stockBatchesRes] = await Promise.all([
+        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes, stockBatchesRes, customersRes, retailSalesRes] = await Promise.all([
           fetchAllPaginatedCollection<any>('/api/orders', 'orders', undefined, {
             retries: 1,
             timeoutMs: 20000,
@@ -136,6 +147,8 @@ export function ReportsView() {
           safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
           safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
           safeFetchJson('/api/stock-batches?page=1&pageSize=2000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/customers?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
+          safeFetchJson('/api/retail/sales?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
         ])
 
         if (!isMounted) return
@@ -151,6 +164,8 @@ export function ReportsView() {
         setFeedback(feedbackRes.ok ? getCollection<any>(feedbackRes.data, ['feedback']) : [])
         // The stock batches endpoint returns `stockBatches`, not `batches`, so read the real collection key first.
         setStockBatches(stockBatchesRes.ok ? getCollection<any>(stockBatchesRes.data, ['stockBatches', 'batches']) : [])
+        setCustomers(customersRes.ok ? getCollection<any>(customersRes.data, ['customers', 'users']) : [])
+        setRetailSales(retailSalesRes.ok ? getCollection<any>(retailSalesRes.data, ['sales', 'retailSales']) : [])
       } catch (error) {
         console.error('Failed to load reports pack:', error)
         if (isMounted) {
@@ -163,6 +178,8 @@ export function ReportsView() {
           setReplacementsData([])
           setFeedback([])
           setStockBatches([])
+          setCustomers([])
+          setRetailSales([])
         }
       } finally {
         if (isMounted) {
@@ -2579,12 +2596,16 @@ export function ReportsView() {
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-5">
-              <TabsTrigger value="orders" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Orders</TabsTrigger>
-              <TabsTrigger value="transport" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Transport</TabsTrigger>
-              <TabsTrigger value="warehouse" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse/Inventory</TabsTrigger>
-              <TabsTrigger value="replacement" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Replacement</TabsTrigger>
-              <TabsTrigger value="feedback" className="h-11 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
+            <TabsList className="flex flex-wrap h-auto w-full gap-1.5 bg-transparent p-0">
+              <TabsTrigger value="purchase_requests" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileText className="h-4 w-4" />Purchase Requests</TabsTrigger>
+              <TabsTrigger value="purchase_orders" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><FileCheck className="h-4 w-4" />Purchase Orders</TabsTrigger>
+              <TabsTrigger value="transactions" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Receipt className="h-4 w-4" />Transaction Records</TabsTrigger>
+              <TabsTrigger value="logistics" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Truck className="h-4 w-4" />Logistics Records</TabsTrigger>
+              <TabsTrigger value="replacement_records" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><RotateCcw className="h-4 w-4" />Replacement Records</TabsTrigger>
+              <TabsTrigger value="retail_sales" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Store className="h-4 w-4" />Retail Sales</TabsTrigger>
+              <TabsTrigger value="top_clients" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Trophy className="h-4 w-4" />Top Clients</TabsTrigger>
+              <TabsTrigger value="warehouse" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse & Inventory</TabsTrigger>
+              <TabsTrigger value="feedback" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
             </TabsList>
           </div>
 
@@ -3573,6 +3594,34 @@ export function ReportsView() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="purchase_requests" className="space-y-4">
+            <PurchaseRequestsReport orders={orders} warehouses={warehouses} />
+          </TabsContent>
+
+          <TabsContent value="purchase_orders" className="space-y-4">
+            <PurchaseOrdersReport orders={orders} warehouses={warehouses} />
+          </TabsContent>
+
+          <TabsContent value="transactions" className="space-y-4">
+            <TransactionsReport orders={orders} retailSales={retailSales} />
+          </TabsContent>
+
+          <TabsContent value="logistics" className="space-y-4">
+            <LogisticsReport trips={trips} drivers={drivers} warehouses={warehouses} />
+          </TabsContent>
+
+          <TabsContent value="replacement_records" className="space-y-4">
+            <ReplacementRecordsReport replacements={replacementsData} orders={orders} />
+          </TabsContent>
+
+          <TabsContent value="retail_sales" className="space-y-4">
+            <RetailSalesReport orders={orders} retailSales={retailSales} />
+          </TabsContent>
+
+          <TabsContent value="top_clients" className="space-y-4">
+            <TopClientsReport orders={orders} customers={customers} />
           </TabsContent>
 
         </Tabs>

@@ -17,6 +17,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
+import { burnPodOverlay, formatPodOverlayLines, type PodOverlaySnapshot } from '@/lib/pod-camera-overlay'
+import type { AuthUser } from '@/types'
 import {
   calculateNavigationViewportInsets,
   type NavigationViewportInsets,
@@ -50,6 +52,7 @@ const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMa
 // Main driver trip detail screen: controls stop workflow, map state, and proof-of-delivery capture.
 export function TripDetailView({
   trip,
+  driverUser,
   onBack,
   locationPermission,
   onStartTracking,
@@ -59,6 +62,7 @@ export function TripDetailView({
   currentLocation,
 }: {
   trip: Trip
+  driverUser: AuthUser | null
   onBack: () => void
   locationPermission: 'granted' | 'denied' | 'prompt'
   onStartTracking: () => Promise<boolean>
@@ -79,6 +83,11 @@ export function TripDetailView({
   const [isCameraLoading, setIsCameraLoading] = useState(false)
   const [isCameraPermissionDialogOpen, setIsCameraPermissionDialogOpen] = useState(false)
   const [cameraPermissionHint, setCameraPermissionHint] = useState<string>('')
+  const [cameraNow, setCameraNow] = useState(() => new Date())
+  const [cameraGps, setCameraGps] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [cameraAddress, setCameraAddress] = useState('Resolving current address...')
+  const [isCameraAddressLoading, setIsCameraAddressLoading] = useState(true)
+  const [cameraLocationError, setCameraLocationError] = useState<string | null>(null)
 
   // Failed-delivery decision flow state.
   const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
@@ -126,6 +135,8 @@ export function TripDetailView({
   // Refs for camera stream lifecycle and gesture handling.
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
+  const cameraGpsRef = useRef<{ latitude: number; longitude: number } | null>(null)
+  const lastReverseGeocodeKeyRef = useRef('')
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
@@ -140,6 +151,20 @@ export function TripDetailView({
     [trip.dropPoints]
   )
   const terminalDropPointStatuses = TERMINAL_DROP_POINT_STATUSES
+  const driverFullName = useMemo(() => {
+    const profileName = [driverUser?.firstName, driverUser?.middleName, driverUser?.lastName, driverUser?.suffix]
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .join(' ')
+    return profileName || String(driverUser?.name || 'Driver').trim() || 'Driver'
+  }, [driverUser])
+  const cameraOverlaySnapshot: PodOverlaySnapshot | null = cameraGps ? {
+    capturedAt: cameraNow,
+    driverName: driverFullName,
+    address: cameraAddress,
+    latitude: cameraGps.latitude,
+    longitude: cameraGps.longitude,
+  } : null
   const effectiveCompletedDropPoints = Math.max(
     Number(trip.completedDropPoints || 0),
     sortedDropPoints.filter((point) => terminalDropPointStatuses.has(String(point.status || '').toUpperCase())).length
@@ -943,7 +968,6 @@ export function TripDetailView({
       setCapturedCameraPhoto(null)
       setCameraError(null)
       setCameraPermissionHint('')
-      setIsCameraOpen(false)
       void (async () => {
         try {
           const permission = await checkNativeCameraPermission()
@@ -951,26 +975,8 @@ export function TripDetailView({
             handleCameraPermissionDenied(permission.reason)
             return
           }
-          const cameraModule = await import('@capacitor/camera')
-          const photo = await cameraModule.Camera.getPhoto({
-            source: cameraModule.CameraSource.Camera,
-            resultType: cameraModule.CameraResultType.Uri,
-            quality: 90,
-            allowEditing: false,
-          })
-          const photoPath = String(photo?.webPath || photo?.path || '').trim()
-          if (!photoPath) throw new Error('Failed to capture photo')
-          const fileResponse = await fetch(photoPath)
-          const blob = await fileResponse.blob()
-          const mimeType = blob.type || 'image/jpeg'
-          const ext = mimeType.includes('png') ? 'png' : 'jpg'
-          const file = new File([blob], `pod-camera-${Date.now()}.${ext}`, { type: mimeType })
-          const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
-          if (!targetDropPointId) {
-            toast.error('Select a drop point first before capturing POD')
-            return
-          }
-          handlePodFileChange(targetDropPointId, file)
+          // Fix: keep the camera inside the portal so the live POD overlay stays visible.
+          setIsCameraOpen(true)
         } catch (error: any) {
           const message = String(error?.message || '')
           if (/cancelled|canceled|user cancelled|user canceled/i.test(message)) {
@@ -1032,6 +1038,12 @@ export function TripDetailView({
     setIsCameraOpen(false)
     setIsCameraLoading(false)
     setCapturedCameraPhoto(null)
+    setCameraGps(null)
+    cameraGpsRef.current = null
+    setCameraLocationError(null)
+    setCameraAddress('Resolving current address...')
+    setIsCameraAddressLoading(true)
+    lastReverseGeocodeKeyRef.current = ''
   }
 
   // Tries to deep-link users into OS/app settings to unblock camera permission.
@@ -1150,6 +1162,18 @@ export function TripDetailView({
       return
     }
 
+    const gps = cameraGpsRef.current
+    if (!gps) {
+      toast.error('Waiting for your current GPS location')
+      return
+    }
+    const snapshot: PodOverlaySnapshot = {
+      capturedAt: new Date(),
+      driverName: driverFullName,
+      address: cameraAddress,
+      latitude: gps.latitude,
+      longitude: gps.longitude,
+    }
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
@@ -1159,6 +1183,8 @@ export function TripDetailView({
       return
     }
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    // Added: the information shown in the preview becomes permanent image pixels.
+    burnPodOverlay(context, canvas.width, canvas.height, snapshot)
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
     setCapturedCameraPhoto(dataUrl)
   }
@@ -1197,7 +1223,7 @@ export function TripDetailView({
       setIsCameraLoading(true)
       setCameraError(null)
       try {
-        if (!window.isSecureContext) {
+        if (!window.isSecureContext && !isNativeCapacitorApp()) {
           handleCameraPermissionDenied(insecureCameraMessage)
           return
         }
@@ -1231,6 +1257,55 @@ export function TripDetailView({
       stopCameraStream()
     }
   }, [isCameraOpen])
+
+  useEffect(() => {
+    if (!isCameraOpen || capturedCameraPhoto) return
+    setCameraNow(new Date())
+    const clock = window.setInterval(() => setCameraNow(new Date()), 1000)
+    return () => window.clearInterval(clock)
+  }, [isCameraOpen, capturedCameraPhoto])
+
+  useEffect(() => {
+    if (!isCameraOpen || !navigator.geolocation) return
+    setCameraLocationError(null)
+    // Added: POD capture uses a dedicated, zero-cache GPS watch rather than a saved trip location.
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const next = { latitude: position.coords.latitude, longitude: position.coords.longitude }
+        cameraGpsRef.current = next
+        setCameraGps(next)
+      },
+      (error) => setCameraLocationError(error.message || 'Current GPS location is required.'),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
+    )
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [isCameraOpen])
+
+  useEffect(() => {
+    if (!isCameraOpen || !cameraGps) return
+    const key = `${cameraGps.latitude.toFixed(4)},${cameraGps.longitude.toFixed(4)}`
+    if (lastReverseGeocodeKeyRef.current === key) return
+    lastReverseGeocodeKeyRef.current = key
+    setIsCameraAddressLoading(true)
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(cameraGps.latitude)}&lon=${encodeURIComponent(cameraGps.longitude)}&addressdetails=1&countrycodes=ph&zoom=18`
+        const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
+        if (!response.ok) throw new Error('Address lookup failed')
+        const result = await response.json()
+        setCameraAddress(stripPhilippinesFromAddress(String(result?.display_name || '')) || 'Location address unavailable')
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') setCameraAddress('Location address unavailable')
+      } finally {
+        if (!controller.signal.aborted) setIsCameraAddressLoading(false)
+      }
+    }, 500)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [isCameraOpen, cameraGps])
 
   useEffect(() => {
     if (!isCameraOpen || capturedCameraPhoto) return
@@ -2443,7 +2518,8 @@ export function TripDetailView({
                                           <img
                                             src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                             alt="POD preview"
-                                            className="h-36 w-full rounded-md border border-slate-200 object-cover"
+                                            // Fix: contain the POD image so no captured edges or overlay text are cropped.
+                                            className="h-64 w-full rounded-md border border-slate-200 bg-slate-950 object-contain"
                                           />
                                         ) : null}
                                       </div>
@@ -2587,7 +2663,7 @@ export function TripDetailView({
                                     <img
                                       src={dropPoint.deliveryPhoto || podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                       alt="POD"
-                                      className="mt-1 h-24 w-full rounded border border-slate-200 object-cover"
+                                      className="mt-1 h-40 w-full rounded border border-slate-200 bg-slate-950 object-contain"
                                     />
                                   </div>
                                 ) : null}
@@ -2656,7 +2732,7 @@ export function TripDetailView({
                                 <img
                                   src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                   alt="POD preview"
-                                  className="h-28 w-full rounded-md border border-slate-200 object-cover md:h-36"
+                                  className="h-64 w-full rounded-md border border-slate-200 bg-slate-950 object-contain md:h-80"
                                 />
                               ) : null}
                             </div>
@@ -2723,7 +2799,7 @@ export function TripDetailView({
                 <img
                   src={capturedCameraPhoto}
                   alt="Captured POD"
-                  className="h-64 w-full rounded-xl border border-sky-100 object-cover shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
+                  className="max-h-[60dvh] w-full rounded-xl border border-sky-100 bg-black object-contain shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <Button variant="outline" className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={() => setCapturedCameraPhoto(null)}>
@@ -2736,12 +2812,32 @@ export function TripDetailView({
               </>
             ) : (
               <>
-                <div className="overflow-hidden rounded-xl border border-sky-100 bg-black shadow-[0_10px_24px_rgba(15,23,42,0.10)]">
-                  <video ref={videoRef} autoPlay playsInline muted className="h-64 w-full object-cover" />
+                <div
+                  className="relative w-full overflow-hidden rounded-xl border border-sky-100 bg-black shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
+                  // Fix: absolute camera content needs an explicit packaged-app height; aspect utilities may collapse in the WebView build.
+                  style={{ height: 'clamp(18rem, 56dvh, 32rem)' }}
+                >
+                  <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
+                  {cameraOverlaySnapshot ? (
+                    <div
+                      className="absolute bottom-[3%] left-[3%] max-w-[90%] rounded-lg bg-black/45 px-[clamp(0.55rem,2.5vw,0.9rem)] py-[clamp(0.45rem,2vw,0.75rem)] text-[clamp(0.68rem,2.8vw,0.9rem)] font-semibold leading-[1.35] text-white"
+                      style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95)' }}
+                      aria-live="polite"
+                    >
+                      {formatPodOverlayLines(cameraOverlaySnapshot).map((line, index) => (
+                        <p key={`${index}-${line}`} className="break-words">{line}</p>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="absolute bottom-[3%] left-[3%] max-w-[90%] rounded-lg bg-black/55 px-3 py-2 text-xs font-semibold text-white">
+                      Waiting for current GPS location...
+                    </div>
+                  )}
                 </div>
                 {isCameraLoading ? <p className="text-sm text-[#4d6785]">Opening camera...</p> : null}
                 {cameraError ? <p className="text-sm text-red-600">{cameraError}</p> : null}
-                <Button className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={captureFromCamera} disabled={isCameraLoading || Boolean(cameraError)}>
+                {cameraLocationError ? <p className="text-sm text-red-600">GPS: {cameraLocationError}</p> : null}
+                <Button className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={captureFromCamera} disabled={isCameraLoading || Boolean(cameraError) || !cameraGps || isCameraAddressLoading}>
                   Capture Photo
                 </Button>
               </>

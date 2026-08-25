@@ -62,7 +62,8 @@ export function TripsListView({
   }
 
   return (
-    <div className="p-4">
+    // The portal shell owns horizontal gutters so phone layouts do not receive double padding.
+    <div className="w-full min-w-0 py-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned Routes</p>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <h2 className="mt-0 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
@@ -96,16 +97,16 @@ export function TripsListView({
       ) : (
         <div className="space-y-3">
           {filteredDeliveryTrips.map((trip) => (
-            <Card key={trip.id} className="cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onSelectTrip(trip)}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-3">
+            <Card key={trip.id} className="min-w-0 cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onSelectTrip(trip)}>
+              <CardContent className="min-w-0 p-4 sm:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
+                    <p className="break-words text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="shrink-0 h-8 px-3 text-xs font-medium border-sky-200 text-sky-700 hover:bg-sky-50"
+                    className="h-9 shrink-0 border-sky-200 px-3 text-xs font-medium text-sky-700 hover:bg-sky-50 max-[360px]:w-full"
                     onClick={(event) => {
                       event.stopPropagation()
                       onSelectTrip(trip)
@@ -117,10 +118,10 @@ export function TripsListView({
                 <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} text-xs px-2 py-0.5 mt-2`}>
                   {trip.status.replace(/_/g, ' ')}
                 </Badge>
-                <div className="mt-3 space-y-1">
-                  <p className="text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
-                  <p className="text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
-                  <p className="text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                <div className="mt-3 min-w-0 space-y-1">
+                  <p className="break-words text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
+                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
+                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
                 </div>
               </CardContent>
             </Card>

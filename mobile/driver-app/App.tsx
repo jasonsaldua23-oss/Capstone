@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Camera, CameraView } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
@@ -42,6 +43,7 @@ import {
   verifyLoginOtp,
   verifyPasswordResetOtp,
   type DriverProfileUpdateInput,
+  type PodCaptureMetadata,
 } from "./src/services/auth";
 import { ApiError } from "./src/services/api";
 import { API_BASE_URL } from "./src/config/env";
@@ -101,6 +103,28 @@ const defaultSecurityPrefs: DriverSecurityPreferences = {
   loginAlerts: true,
   rememberDevice: true,
 };
+
+function formatPodDate(value: Date): string {
+  return value.toLocaleDateString("en-PH", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function formatPodTime(value: Date): string {
+  return value.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+function formatDriverFullName(profile: DriverProfile | null, user: AuthUser | null): string {
+  const fullName = [profile?.firstName, profile?.middleName, profile?.lastName, profile?.suffix]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return fullName || String(profile?.name || user?.name || "Driver").trim() || "Driver";
+}
+
+function formatReverseGeocodeAddress(place: Location.LocationGeocodedAddress | undefined): string {
+  if (!place) return "Location address unavailable";
+  const parts = [place.name, place.street, place.district, place.subregion, place.city, place.region, place.postalCode, place.country];
+  return [...new Set(parts.map((part) => String(part || "").trim()).filter(Boolean))].join(", ") || "Location address unavailable";
+}
 
 export default function App() {
   const { height: viewportHeight } = useWindowDimensions();
@@ -165,6 +189,17 @@ export default function App() {
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [returnedEmpties, setReturnedEmpties] = useState<Record<string, number>>({});
   const [podImageUri, setPodImageUri] = useState<string | null>(null);
+  const [podCaptureMetadata, setPodCaptureMetadata] = useState<PodCaptureMetadata | null>(null);
+  const [podCameraOpen, setPodCameraOpen] = useState(false);
+  const [podCameraNow, setPodCameraNow] = useState(() => new Date());
+  const [podCameraLocation, setPodCameraLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [podCameraAddress, setPodCameraAddress] = useState("Resolving current address...");
+  const [podCameraAddressResolving, setPodCameraAddressResolving] = useState(true);
+  const [podCameraError, setPodCameraError] = useState<string | null>(null);
+  const [podCameraCapturing, setPodCameraCapturing] = useState(false);
+  const podCameraRef = useRef<CameraView | null>(null);
+  const podCameraLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const podCameraGeocodeKeyRef = useRef("");
   const [failureReason, setFailureReason] = useState("");
   const [rescheduleWindow, setRescheduleWindow] = useState<"tomorrow" | "other_date" | "cancel">("tomorrow");
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -245,6 +280,45 @@ export default function App() {
       if (AppState.currentState === "active") stopForegroundTracking();
     };
   }, [user, trips.map((trip) => `${trip.id}:${trip.status}`).join("|")]);
+
+  useEffect(() => {
+    if (!podCameraOpen) return;
+    setPodCameraNow(new Date());
+    const timer = setInterval(() => setPodCameraNow(new Date()), 1_000);
+    let active = true;
+    let subscription: Location.LocationSubscription | null = null;
+    void (async () => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) throw new Error("Location permission is required for proof of delivery.");
+        subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Highest, timeInterval: 2_000, distanceInterval: 3 },
+          (position) => {
+            if (!active) return;
+            const next = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+            podCameraLocationRef.current = next;
+            setPodCameraLocation(next);
+            const key = `${next.latitude.toFixed(4)},${next.longitude.toFixed(4)}`;
+            if (podCameraGeocodeKeyRef.current === key) return;
+            podCameraGeocodeKeyRef.current = key;
+            setPodCameraAddressResolving(true);
+            // Added: reverse-geocode the current camera location when it materially changes.
+            void Location.reverseGeocodeAsync(next)
+              .then((places) => { if (active) setPodCameraAddress(formatReverseGeocodeAddress(places[0])); })
+              .catch(() => { if (active) setPodCameraAddress("Location address unavailable"); })
+              .finally(() => { if (active) setPodCameraAddressResolving(false); });
+          },
+        );
+      } catch (cameraLocationError) {
+        if (active) setPodCameraError(cameraLocationError instanceof Error ? cameraLocationError.message : "Unable to get current GPS location.");
+      }
+    })();
+    return () => {
+      active = false;
+      clearInterval(timer);
+      subscription?.remove();
+    };
+  }, [podCameraOpen]);
 
   function hydrateProfileForm(nextProfile: DriverProfile) {
     const fallbackNameParts = String(nextProfile.name || "").trim().split(/\s+/).filter(Boolean);
@@ -754,6 +828,7 @@ export default function App() {
     setDeliveryNotes(point.notes || "");
     setReturnedEmpties({});
     setPodImageUri(null);
+    setPodCaptureMetadata(null);
     setFailureReason("");
     setRescheduleWindow("tomorrow");
     setRescheduleDate("");
@@ -762,20 +837,66 @@ export default function App() {
   function closeStopAction() {
     setStopActionMode(null);
     setStopActionPoint(null);
+    setPodCameraOpen(false);
+  }
+
+  function closePodCamera() {
+    setPodCameraOpen(false);
+    // Fix: restore the delivery form after dismissing the full-screen native camera.
+    if (stopActionPoint) setStopActionMode("complete");
   }
 
   async function choosePodImage(source: "camera" | "library") {
-    const permission = source === "camera"
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission Required", `Allow ${source === "camera" ? "camera" : "photo library"} access to attach proof of delivery.`);
+    if (source === "camera") {
+      const permission = await Camera.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Allow camera access to attach proof of delivery.");
+        return;
+      }
+      setPodCameraNow(new Date());
+      setPodCameraLocation(null);
+      podCameraLocationRef.current = null;
+      setPodCameraAddress("Resolving current address...");
+      setPodCameraAddressResolving(true);
+      setPodCameraError(null);
+      podCameraGeocodeKeyRef.current = "";
+      // Avoid presenting a native camera modal on top of the delivery form modal.
+      setStopActionMode(null);
+      setPodCameraOpen(true);
       return;
     }
-    const result = source === "camera"
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.75 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.75 });
-    if (!result.canceled && result.assets[0]?.uri) setPodImageUri(result.assets[0].uri);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission Required", "Allow photo library access to attach proof of delivery.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.75 });
+    if (!result.canceled && result.assets[0]?.uri) {
+      setPodImageUri(result.assets[0].uri);
+      setPodCaptureMetadata(null);
+    }
+  }
+
+  async function capturePodCameraPhoto() {
+    const location = podCameraLocationRef.current;
+    if (!podCameraRef.current || !location) {
+      setPodCameraError("Waiting for a fresh GPS location before capture.");
+      return;
+    }
+    setPodCameraCapturing(true);
+    setPodCameraError(null);
+    try {
+      const capturedAt = new Date();
+      const photo = await podCameraRef.current.takePictureAsync({ quality: 0.9, exif: false, skipProcessing: false });
+      if (!photo?.uri) throw new Error("The camera did not return a photo.");
+      setPodImageUri(photo.uri);
+      setPodCaptureMetadata({ capturedAt: capturedAt.toISOString(), ...location, address: podCameraAddress });
+      closePodCamera();
+    } catch (captureError) {
+      setPodCameraError(captureError instanceof Error ? captureError.message : "Unable to capture proof photo.");
+    } finally {
+      setPodCameraCapturing(false);
+    }
   }
 
   async function handleCompleteStop() {
@@ -791,7 +912,7 @@ export default function App() {
     setStopActionLoading(true);
     setError(null);
     try {
-      const imageUrl = await uploadPodImage(podImageUri);
+      const imageUrl = await uploadPodImage(podImageUri, podCaptureMetadata || undefined);
       await executeStopUpdate(stopActionPoint, {
         status: "COMPLETED",
         recipientName: recipientName.trim() || "Customer",
@@ -1632,7 +1753,20 @@ export default function App() {
                 })}
               </View>
             ) : null}
-            {podImageUri ? <Image source={{ uri: podImageUri }} style={styles.podPreview} accessibilityLabel="Proof of delivery preview" /> : <Text style={styles.subtle}>A proof of delivery image is required.</Text>}
+            {podImageUri ? (
+              <View style={styles.podPreviewWrap}>
+                <Image source={{ uri: podImageUri }} style={styles.podPreview} accessibilityLabel="Proof of delivery preview" />
+                {podCaptureMetadata ? (
+                  <View style={styles.podPreviewOverlay} pointerEvents="none">
+                    <Text style={styles.podPreviewOverlayText}>{formatPodDate(new Date(podCaptureMetadata.capturedAt))}</Text>
+                    <Text style={styles.podPreviewOverlayText}>{formatPodTime(new Date(podCaptureMetadata.capturedAt))}</Text>
+                    <Text style={styles.podPreviewOverlayText}>{formatDriverFullName(profile, user)}</Text>
+                    <Text style={styles.podPreviewOverlayText} numberOfLines={2}>{podCaptureMetadata.address}</Text>
+                    <Text style={styles.podPreviewOverlayText}>GPS: {podCaptureMetadata.latitude.toFixed(6)}, {podCaptureMetadata.longitude.toFixed(6)}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : <Text style={styles.subtle}>A proof of delivery image is required.</Text>}
             <View style={styles.row}>
               <Pressable style={styles.secondaryButton} onPress={() => void choosePodImage("camera")}><Text style={styles.secondaryButtonText}>Take Photo</Text></Pressable>
               <Pressable style={styles.secondaryButton} onPress={() => void choosePodImage("library")}><Text style={styles.secondaryButtonText}>Choose Photo</Text></Pressable>
@@ -1642,6 +1776,44 @@ export default function App() {
               <Pressable style={styles.primaryButtonCompact} onPress={() => void handleCompleteStop()} disabled={stopActionLoading}><Text style={styles.primaryButtonText}>{stopActionLoading ? "Submitting…" : "Confirm Delivered"}</Text></Pressable>
             </View>
           </ModalShell>
+
+          <Modal visible={podCameraOpen} animationType="fade" onRequestClose={closePodCamera}>
+            <View style={styles.podCameraScreen}>
+              <CameraView ref={podCameraRef} style={styles.podCameraPreview} facing="back" active={podCameraOpen}>
+                <SafeAreaView style={styles.podCameraSafeArea}>
+                  <View style={styles.podCameraTopBar}>
+                    <Pressable style={styles.podCameraCloseButton} onPress={closePodCamera} accessibilityLabel="Close proof camera">
+                      <Ionicons name="close" size={25} color="#ffffff" />
+                    </Pressable>
+                    <Text style={styles.podCameraTitle}>Proof of Delivery</Text>
+                    <View style={styles.podCameraTopSpacer} />
+                  </View>
+                  <View style={styles.podCameraOverlayWrap} pointerEvents="none">
+                    <View style={styles.podCameraOverlay}>
+                      <Text style={styles.podCameraOverlayText}>{formatPodDate(podCameraNow)}</Text>
+                      <Text style={styles.podCameraOverlayText}>{formatPodTime(podCameraNow)}</Text>
+                      <Text style={styles.podCameraOverlayText}>{formatDriverFullName(profile, user)}</Text>
+                      <Text style={styles.podCameraOverlayText}>{podCameraAddress}</Text>
+                      <Text style={styles.podCameraOverlayText}>
+                        {podCameraLocation ? `GPS: ${podCameraLocation.latitude.toFixed(6)}, ${podCameraLocation.longitude.toFixed(6)}` : "Waiting for current GPS location..."}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.podCameraControls}>
+                    {!!podCameraError && <Text style={styles.podCameraError}>{podCameraError}</Text>}
+                    <Pressable
+                      style={[styles.podCameraShutter, (!podCameraLocation || podCameraAddressResolving || podCameraCapturing) && styles.podCameraShutterDisabled]}
+                      onPress={() => void capturePodCameraPhoto()}
+                      disabled={!podCameraLocation || podCameraAddressResolving || podCameraCapturing}
+                      accessibilityLabel="Capture proof of delivery photo"
+                    >
+                      {podCameraCapturing ? <ActivityIndicator color="#0f172a" /> : <View style={styles.podCameraShutterInner} />}
+                    </Pressable>
+                  </View>
+                </SafeAreaView>
+              </CameraView>
+            </View>
+          </Modal>
 
           <ModalShell
             visible={stopActionMode === "failed"}
@@ -2665,7 +2837,26 @@ const styles = StyleSheet.create({
   notificationHeader: { borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingTop: 14, gap: 10 },
   notificationCard: { padding: 12, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, gap: 5 },
   notificationUnread: { backgroundColor: "#eff6ff", borderColor: "#93c5fd" },
-  podPreview: { width: "100%", height: 220, borderRadius: 18, backgroundColor: "#e2e8f0" },
+  podPreviewWrap: { position: "relative", width: "100%", height: 220, borderRadius: 18, overflow: "hidden", backgroundColor: "#e2e8f0" },
+  podPreview: { width: "100%", height: "100%", backgroundColor: "#e2e8f0" },
+  podPreviewOverlay: { position: "absolute", left: 8, right: 18, bottom: 8, alignSelf: "flex-start", borderRadius: 8, backgroundColor: "rgba(0,0,0,0.48)", paddingHorizontal: 8, paddingVertical: 6 },
+  podPreviewOverlayText: { color: "#ffffff", fontSize: 9, lineHeight: 12, fontWeight: "600", textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  // Added: responsive full-screen POD camera with a lower-left information safe area.
+  podCameraScreen: { flex: 1, backgroundColor: "#000000" },
+  podCameraPreview: { flex: 1 },
+  podCameraSafeArea: { flex: 1, justifyContent: "space-between" },
+  podCameraTopBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8 },
+  podCameraCloseButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  podCameraTitle: { color: "#ffffff", fontSize: 18, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  podCameraTopSpacer: { width: 44 },
+  podCameraOverlayWrap: { position: "absolute", left: "3%", right: "7%", bottom: 128, alignItems: "flex-start" },
+  podCameraOverlay: { maxWidth: "100%", borderRadius: 12, backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: 12, paddingVertical: 10 },
+  podCameraOverlayText: { color: "#ffffff", fontSize: 14, lineHeight: 19, fontWeight: "600", textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  podCameraControls: { minHeight: 112, alignItems: "center", justifyContent: "center", paddingBottom: 14, gap: 8, backgroundColor: "rgba(0,0,0,0.22)" },
+  podCameraError: { color: "#fecaca", backgroundColor: "rgba(127,29,29,0.82)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, fontWeight: "700", maxWidth: "90%" },
+  podCameraShutter: { width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: "#ffffff", backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
+  podCameraShutterDisabled: { opacity: 0.5 },
+  podCameraShutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: "#ffffff" },
   returnableRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
   quantityButton: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
   quantityButtonText: { color: "#0f172a", fontSize: 20, fontWeight: "800" },
