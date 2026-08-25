@@ -713,6 +713,66 @@ def consume_order_reservations(order: Order, performed_by: str | None) -> None:
 
 
 @transaction.atomic
+def consume_order_item_reservations(order_item: OrderItem, performed_by: str | None) -> list[dict[str, Any]]:
+    reservations = list(
+        InventoryReservation.objects.select_for_update(of=("self",))
+        .select_related("inventory__warehouse", "inventory__product", "stock_batch", "mixed_case_component")
+        .filter(order_item=order_item, status=ReservationStatus.RESERVED)
+        .order_by("inventory_id", "stock_batch_id", "id")
+    )
+    allocations: list[dict[str, Any]] = []
+    for reservation in reservations:
+        _consume_reservation(reservation, performed_by)
+        batch_num = reservation.stock_batch.batch_number if reservation.stock_batch else "LOOSE_BOTTLES"
+        allocations.append({
+            "batchNumber": batch_num,
+            "quantity": reservation.quantity_base_units,
+            "warehouseId": reservation.inventory.warehouse_id if reservation.inventory else None,
+        })
+    return allocations
+
+
+@transaction.atomic
+def release_order_item_reservations(order_item: OrderItem, performed_by: str | None) -> None:
+    reservations = list(
+        InventoryReservation.objects.select_for_update(of=("self",))
+        .select_related("inventory__warehouse", "inventory__product", "order_item__order")
+        .filter(order_item=order_item, status=ReservationStatus.RESERVED)
+        .order_by("inventory_id", "stock_batch_id", "id")
+    )
+    for reservation in reservations:
+        inventory = Inventory.objects.select_for_update(of=("self",)).get(id=reservation.inventory_id)
+        quantity_units = max(0, _int(reservation.quantity_base_units, 0))
+        standard_cases = max(0, _int(reservation.standard_case_quantity, 0))
+        inventory.reserved_base_units = max(0, _int(inventory.reserved_base_units, 0) - quantity_units)
+        if standard_cases > 0:
+            inventory.reserved_quantity = max(0, _int(inventory.reserved_quantity, 0) - standard_cases)
+        inventory.save(update_fields=["reserved_base_units", "reserved_quantity", "updated_at"])
+        reservation.status = ReservationStatus.RELEASED
+        reservation.released_at = timezone.now()
+        reservation.save(update_fields=["status", "released_at"])
+        InventoryTransaction.objects.create(
+            warehouse=inventory.warehouse,
+            product=inventory.product,
+            type="UNRESERVE",
+            quantity=standard_cases if standard_cases > 0 else quantity_units,
+            quantity_unit=(
+                InventoryQuantityUnit.CASE if standard_cases > 0 else InventoryQuantityUnit.BASE_UNIT
+            ),
+            stock_unit_label=(
+                "Case" if standard_cases > 0 else require_category_spec(inventory.product.category)["looseUnit"]
+            ),
+            reference_type="order_item_reserve",
+            reference_id=reservation.order_item_id,
+            order_item_id=reservation.order_item_id,
+            mixed_case_component_id=reservation.mixed_case_component_id,
+            case_capacity_snapshot=reservation.order_item.case_capacity,
+            case_count_snapshot=reservation.order_item.quantity,
+            notes="Reserved quantity released on cancellation",
+        )
+
+
+@transaction.atomic
 def release_order_reservations(order: Order, performed_by: str | None) -> None:
     reservations = list(
         InventoryReservation.objects.select_for_update(of=("self",))

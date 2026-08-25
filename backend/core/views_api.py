@@ -49,6 +49,7 @@ from .models import (
     CustomerDepositLedger,
     Feedback,
     Inventory,
+    InventoryReservation,
     InventoryTransaction,
     LocationLog,
     MixedCaseComponent,
@@ -64,6 +65,7 @@ from .models import (
     ProductPackaging,
     Replacement,
     ReplacementStatus,
+    ReservationStatus,
     RoleType,
     SalesChannel,
     StockBatch,
@@ -86,7 +88,13 @@ from .retail_pos import (
     update_retail_payment,
     update_retail_pickup_status,
 )
-from .mixed_case import normalize_checkout_items, reserve_order_item, serialize_mixed_component
+from .mixed_case import (
+    consume_order_item_reservations,
+    normalize_checkout_items,
+    release_order_item_reservations,
+    reserve_order_item,
+    serialize_mixed_component,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -1881,7 +1889,9 @@ def _serialize_order(
 
     if include_items:
         items = []
-        for item in order.items.select_related("product").all():
+        prefetched_items = getattr(order, "_serialized_order_items", None)
+        order_items = prefetched_items if prefetched_items is not None else order.items.select_related("product").all()
+        for item in order_items:
             row = _serialize_order_item_with_spare_products(item, include_full_product=True)
             item_id = str(getattr(item, "id", "") or "").strip()
             if item_warehouse_allocations is not None and item_id:
@@ -2340,7 +2350,7 @@ def _assign_order_items_to_trip_for_warehouse(
     order_item_allocations = _build_order_item_warehouse_allocations_map(normalized_order_ids)
     order_item_trip_assignments = _build_order_item_trip_assignments_map(normalized_order_ids, trip_id=trip_id_value)
     order_items = list(
-        OrderItem.objects.select_related("product").filter(order_id__in=normalized_order_ids)
+        OrderItem.objects.select_related("product").prefetch_related("mixed_case_components__product").filter(order_id__in=normalized_order_ids)
     )
 
     rows_created = 0
@@ -2371,23 +2381,50 @@ def _assign_order_items_to_trip_for_warehouse(
         if pending_qty <= 0:
             continue
 
-        InventoryTransaction.objects.create(
-            warehouse_id=target_warehouse_id,
-            product=item.product,
-            type="ASSIGN",
-            quantity=pending_qty,
-            reference_type="order_item_trip_assign",
-            reference_id=item_id,
-            notes=json.dumps(
-                {
-                    "tripId": trip_id_value,
-                    "tripNumber": trip_number_value or None,
-                    "orderId": order_id,
-                },
-                separators=(",", ":"),
-            ),
-        )
-        rows_created += 1
+        if item.product_id:
+            InventoryTransaction.objects.create(
+                warehouse_id=target_warehouse_id,
+                product=item.product,
+                type="ASSIGN",
+                quantity=pending_qty,
+                reference_type="order_item_trip_assign",
+                reference_id=item_id,
+                order_item=item,
+                notes=json.dumps(
+                    {
+                        "tripId": trip_id_value,
+                        "tripNumber": trip_number_value or None,
+                        "orderId": order_id,
+                    },
+                    separators=(",", ":"),
+                ),
+            )
+            rows_created += 1
+        elif item.item_type == "MIXED_CASE":
+            components = item.mixed_case_components.select_related("product").all()
+            for comp in components:
+                if comp.product:
+                    comp_qty = comp.total_base_units if comp.total_base_units else (comp.quantity_per_case * item.quantity)
+                    InventoryTransaction.objects.create(
+                        warehouse_id=target_warehouse_id,
+                        product=comp.product,
+                        type="ASSIGN",
+                        quantity=comp_qty,
+                        reference_type="order_item_trip_assign",
+                        reference_id=item_id,
+                        mixed_case_component=comp,
+                        order_item=item,
+                        notes=json.dumps(
+                            {
+                                "tripId": trip_id_value,
+                                "tripNumber": trip_number_value or None,
+                                "orderId": order_id,
+                                "componentId": comp.id,
+                            },
+                            separators=(",", ":"),
+                        ),
+                    )
+                    rows_created += 1
 
     return rows_created
 
@@ -2873,14 +2910,16 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
             }
         )
     # Mixed-case contents must remain available to every portal after the order is reloaded.
-    row["components"] = (
-        [
-            serialize_mixed_component(component)
-            for component in item.mixed_case_components.all().order_by("created_at", "id")
-        ]
-        if str(getattr(item, "item_type", "") or "").strip().upper() == "MIXED_CASE"
-        else []
-    )
+    if str(getattr(item, "item_type", "") or "").strip().upper() == "MIXED_CASE":
+        prefetched_components = getattr(item, "_serialized_mixed_case_components", None)
+        components = (
+            prefetched_components
+            if prefetched_components is not None
+            else item.mixed_case_components.select_related("product").all().order_by("created_at", "id")
+        )
+        row["components"] = [serialize_mixed_component(component) for component in components]
+    else:
+        row["components"] = []
     return row
 
 
@@ -3190,8 +3229,24 @@ def _adjust_reserved_for_order_item(
 
 
 def _finalize_order_inventory_on_delivery(order: Order, performed_by: str | None) -> None:
-    items = list(order.items.select_related("product").all())
+    items = list(order.items.select_related("product").prefetch_related("mixed_case_components__product").all())
     for order_item in items:
+        # Check for component-level reservations (e.g. Mixed Case items)
+        item_reservations = InventoryReservation.objects.filter(order_item=order_item, status=ReservationStatus.RESERVED)
+        if item_reservations.exists() or order_item.item_type == OrderItemType.MIXED_CASE:
+            allocations = consume_order_item_reservations(order_item, performed_by)
+            policy = _extract_allocation_policy_from_notes(order_item.notes) or "FEFO"
+            if allocations:
+                allocation_note = f"Delivered allocation ({policy}): " + ", ".join(
+                    [f"{row['batchNumber']} x{row['quantity']}" for row in allocations]
+                )
+                order_item.notes = f"{order_item.notes or ''}\n{allocation_note}".strip()
+                order_item.save(update_fields=["notes"])
+            continue
+
+        if not order_item.product:
+            continue
+
         policy = _extract_allocation_policy_from_notes(order_item.notes)
         allocations = _allocate_inventory_for_order_item(
             product=order_item.product,
@@ -3218,6 +3273,10 @@ def _finalize_order_inventory_on_delivery(order: Order, performed_by: str | None
 def _release_order_reservations(order: Order, performed_by: str | None) -> None:
     items = list(order.items.select_related("product").all())
     for order_item in items:
+        item_reservations = InventoryReservation.objects.filter(order_item=order_item, status=ReservationStatus.RESERVED)
+        if item_reservations.exists() or order_item.item_type == OrderItemType.MIXED_CASE:
+            release_order_item_reservations(order_item, performed_by)
+            continue
         _adjust_reserved_for_order_item(
             order_item=order_item,
             operation="release",
@@ -3348,8 +3407,11 @@ def _allocate_inventory_for_order_item(
     allocation_policy: str,
     performed_by: str | None,
 ) -> list[dict[str, Any]]:
+    sku_label = getattr(product, "sku", None) or getattr(order_item, "product_sku", None) or getattr(order_item, "product_name", "UNKNOWN")
+    if not product:
+        raise ValueError(f"No product found for order item {sku_label}")
     if requested_qty <= 0:
-        raise ValueError(f"Quantity for product {product.sku} must be greater than zero")
+        raise ValueError(f"Quantity for product {sku_label} must be greater than zero")
 
     inventory_qs = Inventory.objects.select_related("warehouse").filter(product=product)
     if warehouse_id:
@@ -3357,7 +3419,7 @@ def _allocate_inventory_for_order_item(
 
     inventories = list(inventory_qs)
     if not inventories:
-        raise ValueError(f"No inventory found for product {product.sku}")
+        raise ValueError(f"No inventory found for product {sku_label}")
 
     effective_requested_qty = requested_qty
     replacement_notes = str(getattr(order_item, "notes", "") or "")
@@ -6661,7 +6723,18 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             sales_channel=SalesChannel.RETAIL_POS
         )
         if include_items != "none":
-            orders_qs = orders_qs.prefetch_related("items__product")
+            # Serializer-only attributes keep item and component hydration to two batched queries.
+            serialized_components = Prefetch(
+                "mixed_case_components",
+                queryset=MixedCaseComponent.objects.select_related("product").order_by("created_at", "id"),
+                to_attr="_serialized_mixed_case_components",
+            )
+            serialized_items = Prefetch(
+                "items",
+                queryset=OrderItem.objects.select_related("product").prefetch_related(serialized_components),
+                to_attr="_serialized_order_items",
+            )
+            orders_qs = orders_qs.prefetch_related(serialized_items)
         order_by_field = "-updated_at" if sort in {"updated", "updated_at"} else "-created_at"
         oqs = _real_orders(orders_qs).order_by(order_by_field)
         total = oqs.count() if include_orders else 0
@@ -8605,9 +8678,9 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         return _err("Invalid coordinates")
     accuracy = _to_float_or_none(body.get("accuracy"))
-    # Do not let a weak network/cell estimate overwrite the driver's last reliable GPS fix.
-    if accuracy is not None and (accuracy < 0 or accuracy > 100):
-        return _err("Location accuracy is too low for live tracking", 400)
+    # Clamp accuracy for reliable tracking without rejecting browser/Wi-Fi approximations
+    if accuracy is not None and accuracy < 0:
+        accuracy = None
     heading = _to_float_or_none(body.get("heading"))
     altitude = _to_float_or_none(body.get("altitude"))
     raw_speed = _to_float_or_none(body.get("speed"))
@@ -9109,12 +9182,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         order = Order.objects.prefetch_related("items").filter(id=dp.order_id).first()
         if order:
             user_id = str(p.get("userId") or "").strip() or None
-            for order_item in order.items.all():
-                _adjust_reserved_for_order_item(
-                    order_item=order_item,
-                    operation="release",
-                    performed_by=user_id,
-                )
+            _release_order_reservations(order, user_id)
 
     if next_status in {"FAILED", "SKIPPED", "CANCELLED"} and dp.order_id:
         order = Order.objects.select_related("timeline").filter(id=dp.order_id).first()

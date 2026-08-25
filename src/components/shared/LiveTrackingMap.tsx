@@ -413,6 +413,7 @@ const TRUCK_DEFAULT_SMOOTHING_DURATION_MS = 1000;
 const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
 const TRUCK_MAX_SMOOTHING_DURATION_MS = 4500;
 const TRUCK_STATIONARY_THRESHOLD_METERS = 4;
+const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 35;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 
@@ -977,7 +978,12 @@ export default function LiveTrackingMap({
     [routeLines]
   );
 
-  const [smoothedLocations, setSmoothedLocations] = useState<DriverLocation[]>(rawSafeLocations);
+  const [smoothedLocations, setSmoothedLocations] = useState<DriverLocation[]>(
+    // Navigation trucks are shown only after verified road geometry is available;
+    // briefly hiding the icon is safer than ever presenting a raw off-road fix.
+    navigationPerspective ? rawSafeLocations.filter((location) => location.markerType !== 'truck') : rawSafeLocations
+  );
+  const smoothedLocationsRef = useRef(smoothedLocations);
   const [snappedRoutePointsById, setSnappedRoutePointsById] = useState<Record<string, [number, number][]>>(
     () => Object.fromEntries(roadSnappedRouteCache.entries())
   );
@@ -1167,7 +1173,9 @@ export default function LiveTrackingMap({
   const navigationRouteKey = useMemo(
     () => renderedRouteLines
       .filter((line) => line.id.endsWith('-route-completed') || line.id.endsWith('-route-upcoming'))
-      .map((line) => line.id)
+      // Route-relative distances are valid only for the exact geometry on which
+      // they were measured. Include its coordinates so reroutes reset progress.
+      .map((line) => `${line.id}:${line.points.map((point) => `${point[0].toFixed(6)},${point[1].toFixed(6)}`).join('|')}`)
       .join('|'),
     [renderedRouteLines]
   );
@@ -1206,13 +1214,13 @@ export default function LiveTrackingMap({
     const preferredPolylines = routePolylines.filter((line) => line.priority === 0);
     const snapTargetPolylines = preferredPolylines.length > 0 ? preferredPolylines : routePolylines;
 
-    return safeLocations.map((loc) => {
-      if (loc.markerType !== 'truck' || snapTargetPolylines.length === 0) return loc;
+    return safeLocations.flatMap((loc) => {
+      if (loc.markerType !== 'truck') return [loc];
+      if (snapTargetPolylines.length === 0) return navigationPerspective ? [] : [loc];
 
-      // The upcoming route starts at the shared taken/upcoming road point. Use
-      // that exact point for the truck instead of independently choosing a
-      // different nearby segment of the route.
-      const authoritativeRoadPoint = preferredPolylines[0]?.points?.[0] || [loc.lat, loc.lng];
+      // Fix: every GPS fix is independently map-matched. Using the prior route
+      // junction here made the marker lag behind instead of following the driver.
+      const authoritativeRoadPoint: [number, number] = [loc.lat, loc.lng];
 
       let bestSnap: SnappedPointOnRoute | null = null;
       let bestPolyline: [number, number][] | null = null;
@@ -1247,7 +1255,7 @@ export default function LiveTrackingMap({
       }
 
       if (!bestSnap || !bestPolyline) {
-        return loc;
+        return navigationPerspective ? [] : [loc];
       }
 
       // Prefer a short local lookahead so orientation follows each turn on the active route.
@@ -1261,25 +1269,25 @@ export default function LiveTrackingMap({
           ? normalizeAngle(bestSnap.heading)
           : null;
       const routeHeading = calculateBearingAlongRoute(bestSnap, bestPolyline, TRUCK_ROUTE_LOOKAHEAD_METERS);
-      // Fix: the taken path's arrival bearing is authoritative for the truck.
-      // This guarantees that completed geometry enters from behind the icon.
+      // The local forward road tangent follows turns immediately. The completed
+      // arrival bearing and device heading remain fallbacks for sparse geometry.
       const headingCandidate =
-        typeof completedRouteHeading === 'number' && Number.isFinite(completedRouteHeading)
-          ? normalizeAngle(completedRouteHeading)
-          : typeof localForwardHeading === 'number' && Number.isFinite(localForwardHeading)
+        typeof localForwardHeading === 'number' && Number.isFinite(localForwardHeading)
           ? normalizeAngle(localForwardHeading)
           : typeof routeHeading === 'number' && Number.isFinite(routeHeading)
             ? normalizeAngle(routeHeading)
-            : typeof segmentHeading === 'number'
-              ? segmentHeading
-              : typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading)
-                ? normalizeAngle(loc.markerHeading)
-                : undefined;
+            : typeof completedRouteHeading === 'number' && Number.isFinite(completedRouteHeading)
+              ? normalizeAngle(completedRouteHeading)
+              : typeof segmentHeading === 'number'
+                ? segmentHeading
+                : typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading)
+                  ? normalizeAngle(loc.markerHeading)
+                  : undefined;
       // The ordered upcoming route is authoritative. GPS heading is already the
       // final fallback in headingCandidate when no usable forward tangent exists.
       const snappedHeading = headingCandidate;
 
-      return {
+      return [{
         ...loc,
         // Preserve raw GPS separately while the visible truck stays on the road.
         actualLat: loc.lat,
@@ -1287,9 +1295,9 @@ export default function LiveTrackingMap({
         lat: bestSnap.point[0],
         lng: bestSnap.point[1],
         markerHeading: snappedHeading,
-      };
+      }];
     });
-  }, [completedRouteHeading, safeLocations, renderedRouteLines]);
+  }, [completedRouteHeading, navigationPerspective, safeLocations, renderedRouteLines]);
 
   useEffect(() => {
     if (animationFrameRef.current !== null) {
@@ -1309,6 +1317,10 @@ export default function LiveTrackingMap({
         )
       : TRUCK_DEFAULT_SMOOTHING_DURATION_MS;
 
+    const previousAcceptedProgress = acceptedRouteProgressRef.current;
+    const routeGeometryChanged = Boolean(
+      previousAcceptedProgress && previousAcceptedProgress.routeKey !== navigationRouteKey
+    );
     const stabilizedTargets = snappedLocations.map((location) => {
       if (location.markerType !== 'truck' || !navigationPerspective || navigationRouteGeometry.length < 2) {
         return location;
@@ -1325,6 +1337,24 @@ export default function LiveTrackingMap({
         acceptedDistance = projected.distanceAlongMeters <= previousProgress.distanceMeters + TRUCK_STATIONARY_THRESHOLD_METERS
           ? previousProgress.distanceMeters
           : projected.distanceAlongMeters;
+      } else if (routeGeometryChanged) {
+        const previousVisibleLocation = smoothedLocationsRef.current.find(
+          (candidate) => candidate.id === location.id && candidate.markerType === 'truck'
+        );
+        const previousVisibleProgress = previousVisibleLocation
+          ? projectPointOntoRoute(
+              [previousVisibleLocation.lat, previousVisibleLocation.lng],
+              navigationRouteGeometry
+            )
+          : null;
+        if (
+          previousVisibleProgress &&
+          previousVisibleProgress.distanceFromRouteMeters <= TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS
+        ) {
+          // Fix: refreshed OSRM geometry must not retract the already-grey path.
+          // Continue from the visible truck's position on the replacement route.
+          acceptedDistance = Math.max(acceptedDistance, previousVisibleProgress.distanceAlongMeters);
+        }
       }
       acceptedRouteProgressRef.current = { routeKey: navigationRouteKey, distanceMeters: acceptedDistance };
       const roadPoint = pointAtRouteDistance(navigationRouteGeometry, acceptedDistance);
@@ -1354,10 +1384,10 @@ export default function LiveTrackingMap({
       });
 
       if (!hasAnimatedTruck) {
-        return stabilizedTargets.map((targetLocation) => {
+        const nextLocations = stabilizedTargets.map((targetLocation) => {
           if (targetLocation.markerType !== 'truck') return targetLocation;
           const previous = previousById.get(targetLocation.id);
-          const hasAcceptedRoadPosition = typeof previous?.routeProgressMeters === 'number';
+          const hasAcceptedRoadPosition = !routeGeometryChanged && typeof previous?.routeProgressMeters === 'number';
           return previous
             ? {
                 ...targetLocation,
@@ -1366,10 +1396,16 @@ export default function LiveTrackingMap({
                 lat: hasAcceptedRoadPosition ? previous.lat : targetLocation.lat,
                 lng: hasAcceptedRoadPosition ? previous.lng : targetLocation.lng,
                 markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
-                routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
+                // A replacement route uses a new distance scale; never attach
+                // the old scale to the newly projected truck coordinate.
+                routeProgressMeters: hasAcceptedRoadPosition
+                  ? previous.routeProgressMeters
+                  : targetLocation.routeProgressMeters,
               }
             : targetLocation;
         });
+        smoothedLocationsRef.current = nextLocations;
+        return nextLocations;
       }
 
       const startTime = performance.now();
@@ -1380,8 +1416,8 @@ export default function LiveTrackingMap({
         // the entire GPS interval, so multi-second updates still look continuous.
         const easedProgress = progress * progress * (3 - 2 * progress);
 
-        setSmoothedLocations(() =>
-          stabilizedTargets.map((targetLoc) => {
+        setSmoothedLocations(() => {
+          const nextLocations = stabilizedTargets.map((targetLoc) => {
             if (targetLoc.markerType !== 'truck') {
               return targetLoc;
             }
@@ -1395,8 +1431,8 @@ export default function LiveTrackingMap({
               [previous.lat, previous.lng],
               [targetLoc.lat, targetLoc.lng]
             );
-            // Bearing comes from the previous accepted position to the new one;
-            // route heading remains the fallback when movement is too small.
+            // Movement bearing is useful only when routed geometry has no tangent.
+            // Prefer the road-derived target heading so the icon stays lane-aligned.
             const movementHeading = movementMeters >= TRUCK_STATIONARY_THRESHOLD_METERS
               ? bearingBetweenMapPoints([previous.lat, previous.lng], [targetLoc.lat, targetLoc.lng])
               : null;
@@ -1406,12 +1442,15 @@ export default function LiveTrackingMap({
                 : typeof targetLoc.markerHeading === 'number' && Number.isFinite(targetLoc.markerHeading)
                   ? targetLoc.markerHeading
                   : undefined;
-            const endHeading = movementHeading ?? (
+            const endHeading =
               typeof targetLoc.markerHeading === 'number' && Number.isFinite(targetLoc.markerHeading)
                 ? targetLoc.markerHeading
-                : startHeading
-            );
-            const startRouteProgress = previous.routeProgressMeters;
+                : movementHeading ?? startHeading;
+            // A prior frame may belong to replaced route geometry. Reproject its
+            // visible coordinate onto the current road before interpolating.
+            const startRouteProgress = navigationPerspective
+              ? projectPointOntoRoute([previous.lat, previous.lng], navigationRouteGeometry)?.distanceAlongMeters
+              : previous.routeProgressMeters;
             const endRouteProgress = targetLoc.routeProgressMeters;
             const animatedRouteProgress =
               typeof startRouteProgress === 'number' && typeof endRouteProgress === 'number'
@@ -1434,8 +1473,12 @@ export default function LiveTrackingMap({
                   ? lerpAngle(startHeading, endHeading, easedProgress)
                   : endHeading,
             };
-          })
-        );
+          });
+          // Keep reroute continuity synchronized with the exact interpolated
+          // frame that also drives the grey/active route split.
+          smoothedLocationsRef.current = nextLocations;
+          return nextLocations;
+        });
 
         if (progress < 1) {
           animationFrameRef.current = window.requestAnimationFrame(animate);

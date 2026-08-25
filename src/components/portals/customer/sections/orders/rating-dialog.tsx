@@ -120,7 +120,7 @@ export function CustomerRatingDialog(props: any) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback (Optional)</Label>
+              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback</Label>
               <div className="grid grid-cols-1 gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2.5">
                 {visibleFeedbackOptions.map((option) => {
                   const checked = selectedFeedbackOptions.includes(option)

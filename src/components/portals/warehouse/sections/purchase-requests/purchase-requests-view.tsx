@@ -192,13 +192,11 @@ export function WarehousePurchaseRequestsView({
                         </td>
                         <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                         <td className="max-w-[280px] px-4 py-3 text-slate-600">
-                          {/* Each line aligns with the same-position quantity in the next column. */}
                           <div className="space-y-1">
                             {orderItems.length > 0
                               ? orderItems.map((item: any, index: number) => (
-                                  <div key={`${order.id}-product-${item?.id || index}`}>
+                                  <div key={`${order.id}-product-${item?.id || index}`} className="min-h-12">
                                     <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
-                                    {/* Keep table rows text-only; product photos belong in View Details. */}
                                     {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
                                   </div>
                                 ))
@@ -207,9 +205,15 @@ export function WarehousePurchaseRequestsView({
                         </td>
                         <td className="px-4 py-3">
                           <div className="space-y-1">
+                            {/* Match each request product slot so wrapped names keep quantities aligned. */}
                             {orderItems.length > 0
                               ? orderItems.map((item: any, index: number) => (
-                                  <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                  <div key={`${order.id}-quantity-${item?.id || index}`} className={`min-h-12 ${item?.itemType === 'MIXED_CASE' ? 'pt-0.5' : ''}`}>
+                                    <p>{Number(item?.quantity || 0)}</p>
+                                    {item?.itemType === 'MIXED_CASE' && Array.isArray(item?.components) ? item.components.map((_: any, ci: number) => (
+                                      <p key={ci} className="text-[11px] text-slate-400">&nbsp;</p>
+                                    )) : null}
+                                  </div>
                                 ))
                               : <p>0</p>}
                           </div>

@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -44,17 +44,31 @@ def decode_token(token: str) -> dict[str, Any] | None:
 def extract_token(request: HttpRequest) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.lower().startswith("bearer "):
-        return auth_header[7:].strip() or None
+        token = auth_header[7:].strip()
+        if token:
+            return token
 
     # Role-scoped cookie fallback allows concurrent customer + staff sessions.
     path = str(getattr(request, "path", "") or "")
-    preferred_cookie = CUSTOMER_TOKEN_NAME if path.startswith("/api/customer/") else STAFF_TOKEN_NAME
-    cookie_token = request.COOKIES.get(preferred_cookie)
-    if cookie_token:
-        return cookie_token
+    if path.startswith("/api/customer/"):
+        candidate_cookie_names = [CUSTOMER_TOKEN_NAME, STAFF_TOKEN_NAME, TOKEN_NAME]
+    elif path.startswith(("/api/staff/", "/api/warehouse/", "/api/driver/", "/api/admin/")):
+        candidate_cookie_names = [STAFF_TOKEN_NAME, CUSTOMER_TOKEN_NAME, TOKEN_NAME]
+    else:
+        # Shared endpoints (e.g. /api/auth/me, /api/replacements, /api/feedback, /api/notifications, /api/customers/, /api/mixed-cases/, /api/uploads/):
+        # Check both customer and staff cookie tokens
+        candidate_cookie_names = [CUSTOMER_TOKEN_NAME, STAFF_TOKEN_NAME, TOKEN_NAME]
 
-    # Backward compatibility fallback for older shared cookie.
-    legacy_cookie = request.COOKIES.get(TOKEN_NAME)
-    if legacy_cookie:
-        return legacy_cookie
+    # Find the first candidate cookie that decodes to a valid session
+    for cookie_name in candidate_cookie_names:
+        raw_cookie = request.COOKIES.get(cookie_name)
+        if raw_cookie and decode_token(raw_cookie) is not None:
+            return raw_cookie
+
+    # Fallback to the first existing cookie even if expired/invalid
+    for cookie_name in candidate_cookie_names:
+        raw_cookie = request.COOKIES.get(cookie_name)
+        if raw_cookie:
+            return raw_cookie
+
     return None

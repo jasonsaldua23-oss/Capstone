@@ -2210,11 +2210,11 @@ export function WarehousePortal() {
     setLoadingInventory(true)
     try {
       const normalizedWarehouseId = String(warehouseId || '').trim()
-      const query = new URLSearchParams()
+      const query = new URLSearchParams({ pageSize: '1000' })
       if (normalizedWarehouseId) {
         query.set('warehouseId', normalizedWarehouseId)
       }
-      const inventoryUrl = query.toString() ? `/api/inventory?${query.toString()}` : '/api/inventory'
+      const inventoryUrl = `/api/inventory?${query.toString()}`
       const result = await safeFetchJson(inventoryUrl, { cache: 'no-store' })
       if (!result.ok) {
         return
@@ -2769,10 +2769,21 @@ export function WarehousePortal() {
 
     setEditingTripId(trip.id)
     try {
+      // Only send assignment fields for an intentional driver change; empty keys trigger backend validation.
+      const payload: Record<string, unknown> = {
+        addOrderIds,
+        removeDropPointIds,
+        assignWarehouseLegs,
+        assignWarehouseId,
+      }
+      if (driverId && vehicleId) {
+        payload.driverId = driverId
+        payload.vehicleId = vehicleId
+      }
       const response = await fetch(`/api/trips/${trip.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addOrderIds, removeDropPointIds, assignWarehouseLegs, assignWarehouseId, driverId, vehicleId }),
+        body: JSON.stringify(payload),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -5203,8 +5214,13 @@ export function WarehousePortal() {
                         ))
                   }
                 >
-                  {creatingTripFromRoute ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {editingTripState ? 'Save Trip Changes' : 'Create Trip'}
+                  {/* Show immediate progress feedback for both trip creation and trip-detail saves. */}
+                  {creatingTripFromRoute || (editingTripState && editingTripId === editingTripState.tripId)
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : null}
+                  {editingTripState
+                    ? editingTripId === editingTripState.tripId ? 'Saving Trip Changes...' : 'Save Trip Changes'
+                    : 'Create Trip'}
                 </Button>
               </div>
             </div>
@@ -5524,7 +5540,20 @@ export function WarehousePortal() {
                             <div className="flex min-w-0 items-start gap-2.5">
                               {!isMixedCase ? <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
                                 {item?.product?.imageUrl ? (
-                                  <img src={String(item.product.imageUrl)} alt={String(item?.product?.name || 'Product')} className="h-full w-full object-contain" />
+                                  <img
+                                    src={String(item.product.imageUrl)}
+                                    alt={String(item?.product?.name || 'Product')}
+                                    className="h-full w-full object-contain"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none'
+                                      if (e.currentTarget.parentElement) {
+                                        const fallback = document.createElement('div')
+                                        fallback.className = 'grid h-full w-full place-items-center text-[10px] text-slate-400'
+                                        fallback.textContent = 'No image'
+                                        e.currentTarget.parentElement.appendChild(fallback)
+                                      }
+                                    }}
+                                  />
                                 ) : (
                                   <div className="grid h-full w-full place-items-center text-[10px] text-slate-400">No image</div>
                                 )}

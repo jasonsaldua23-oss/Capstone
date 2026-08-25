@@ -88,6 +88,8 @@ export function TripDetailView({
   const [isArriveWarningOpen, setIsArriveWarningOpen] = useState(false)
   const [arriveTargetDropPointId, setArriveTargetDropPointId] = useState<string | null>(null)
   const [arriveTargetDropPointName, setArriveTargetDropPointName] = useState('')
+  // Added: identifies the stop whose arrival request is loading so its action can show progress.
+  const [arrivingDropPointId, setArrivingDropPointId] = useState<string | null>(null)
   const [isFailedDeliveryRescheduleOpen, setIsFailedDeliveryRescheduleOpen] = useState(false)
   const [isFailedDeliverySubmitting, setIsFailedDeliverySubmitting] = useState(false)
   const [failedDeliveryRescheduleDropPointId, setFailedDeliveryRescheduleDropPointId] = useState<string | null>(null)
@@ -2004,7 +2006,12 @@ export function TripDetailView({
                       const targetId = String(arriveTargetDropPointId || '').trim()
                       setIsArriveWarningOpen(false)
                       if (!targetId) return
-                      await handleUpdateDropPoint(targetId, 'ARRIVED')
+                      setArrivingDropPointId(targetId)
+                      try {
+                        await handleUpdateDropPoint(targetId, 'ARRIVED')
+                      } finally {
+                        setArrivingDropPointId(null)
+                      }
                     }}
                     disabled={isUpdating || !arriveTargetDropPointId}
                   >
@@ -2402,8 +2409,12 @@ export function TripDetailView({
                                       onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
                                       disabled={isUpdating}
                                     >
-                                      <Navigation className="mr-2 h-4 w-4" />
-                                      Mark Arrived
+                                      {arrivingDropPointId === String(dropPoint.id) ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                                      ) : (
+                                        <Navigation className="mr-2 h-4 w-4" />
+                                      )}
+                                      {arrivingDropPointId === String(dropPoint.id) ? 'Marking Arrived...' : 'Mark Arrived'}
                                     </Button>
                                   )}
                                   {dropPoint.status === 'ARRIVED' && (
@@ -2610,8 +2621,12 @@ export function TripDetailView({
                             onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
                             disabled={isUpdating}
                           >
-                            <Navigation className="h-4 w-4 mr-2" />
-                            Mark Arrived
+                            {arrivingDropPointId === String(dropPoint.id) ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Navigation className="mr-2 h-4 w-4" />
+                            )}
+                            {arrivingDropPointId === String(dropPoint.id) ? 'Marking Arrived...' : 'Mark Arrived'}
                           </Button>
                         )}
                         {dropPoint.status === 'ARRIVED' && (

@@ -70,3 +70,14 @@ test('completed and remaining route sections meet at the exact projected point',
   assert.deepEqual(split.remaining[0], projected.point);
   assert.deepEqual(pointAtRouteDistance(route, projected.distanceAlongMeters), projected.point);
 });
+
+test('completed route grows progressively while the active route starts at the vehicle', () => {
+  const route: [number, number][] = [[10, 123], [10, 123.001], [10.001, 123.001]];
+  const earlier = splitRouteAtDistance(route, 40);
+  const later = splitRouteAtDistance(route, 120);
+
+  assert.ok(later.completed.length >= earlier.completed.length);
+  assert.deepEqual(earlier.completed.at(-1), earlier.remaining[0]);
+  assert.deepEqual(later.completed.at(-1), later.remaining[0]);
+  assert.notDeepEqual(later.completed.at(-1), earlier.completed.at(-1));
+});

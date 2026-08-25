@@ -3,6 +3,7 @@
     "name": "AAB TRADING DRIVER",
     "slug": "logitrack-driver-app",
     "version": "1.0.0",
+    "icon": "./assets/aab-trading-driver.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
@@ -53,9 +54,6 @@
         "NSLocationWhenInUseUsageDescription": "Allow AAB TRADING DRIVER to access your location while you are delivering orders.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow AAB TRADING DRIVER to share your route while an assigned delivery trip is active."
       }
-    },
-    "extra": {
-      "apiBaseUrl": "http://10.0.2.2:8000"
     }
   }
 }

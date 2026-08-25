@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
@@ -18,6 +19,7 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import {
@@ -35,20 +37,25 @@ import {
   startTrip,
   updateTripStop,
   uploadPodImage,
+  uploadProfileAvatar,
   updateDriverProfile,
+  verifyLoginOtp,
   verifyPasswordResetOtp,
   type DriverProfileUpdateInput,
 } from "./src/services/auth";
 import { ApiError } from "./src/services/api";
+import { API_BASE_URL } from "./src/config/env";
 import { getTrackedTripId, startBackgroundTripTracking, stopBackgroundTripTracking } from "./src/services/background-location";
 import { clearOfflineQueue, queueOfflineOperation, readOfflineQueue, syncOfflineQueue, type OfflineQueueItem } from "./src/services/offline-queue";
 import { buildTripSearchText, getStartBlockedOrders, isUsableLocationSample, normalizeStatus } from "./src/lib/driver-logic";
 import DriverNavigationMap from "./src/components/DriverNavigationMap";
-import type { AuthUser, DriverNotification, DriverProfile, DriverTrip, DriverTripDropPoint, DriverTripLocation } from "./src/types";
+import type { AuthUser, DriverNotification, DriverProfile, DriverTrip, DriverTripDropPoint, DriverTripLocation, DriverTripOrderItem } from "./src/types";
 
 type DriverTab = "home" | "trips" | "history" | "profile";
 type DriverProfileModal = "edit" | "security" | "notifications" | "license" | null;
 type StopActionMode = "complete" | "failed" | null;
+type AuthModal = "login-otp" | "forgot-password" | null;
+type ForgotPasswordStep = "email" | "otp" | "password";
 
 type DriverNotificationPreferences = {
   tripNotifications: boolean;
@@ -66,7 +73,10 @@ const DRIVER_NOTIFICATION_PREFS_KEY = "driver_notification_preferences";
 const DRIVER_SECURITY_PREFS_KEY = "driver_security_preferences";
 
 const initialProfileForm: DriverProfileUpdateInput = {
-  name: "",
+  firstName: "",
+  middleName: "",
+  lastName: "",
+  suffix: "",
   phone: "",
   emergencyContact: "",
   licenseNumber: "",
@@ -93,22 +103,40 @@ const defaultSecurityPrefs: DriverSecurityPreferences = {
 };
 
 export default function App() {
+  const { height: viewportHeight } = useWindowDimensions();
   const [booting, setBooting] = useState(true);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [authModal, setAuthModal] = useState<AuthModal>(null);
+  const [loginChallengeToken, setLoginChallengeToken] = useState("");
+  const [loginOtp, setLoginOtp] = useState("");
+  const [loginOtpLoading, setLoginOtpLoading] = useState(false);
+  const [forgotPasswordStep, setForgotPasswordStep] = useState<ForgotPasswordStep>("email");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [trips, setTrips] = useState<DriverTrip[]>([]);
   const [activeTab, setActiveTab] = useState<DriverTab>("home");
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  // Added: the web portal treats trip details as a dedicated mobile screen.
+  const [isTripDetailOpen, setIsTripDetailOpen] = useState(false);
+  const [isTripSheetOpen, setIsTripSheetOpen] = useState(false);
+  const [historyTripId, setHistoryTripId] = useState<string | null>(null);
+  const [historyPointId, setHistoryPointId] = useState<string | null>(null);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [startingTripId, setStartingTripId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState<DriverProfileUpdateInput>(initialProfileForm);
+  const [profileAvatarUri, setProfileAvatarUri] = useState<string | null>(null);
   const [activeProfileModal, setActiveProfileModal] = useState<DriverProfileModal>(null);
   const [confirmLogoutVisible, setConfirmLogoutVisible] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState<DriverNotificationPreferences>(defaultNotificationPrefs);
@@ -138,7 +166,7 @@ export default function App() {
   const [returnedEmpties, setReturnedEmpties] = useState<Record<string, number>>({});
   const [podImageUri, setPodImageUri] = useState<string | null>(null);
   const [failureReason, setFailureReason] = useState("");
-  const [rescheduleWindow, setRescheduleWindow] = useState<"today" | "tomorrow" | "other_date" | "cancel">("today");
+  const [rescheduleWindow, setRescheduleWindow] = useState<"tomorrow" | "other_date" | "cancel">("tomorrow");
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [stopActionLoading, setStopActionLoading] = useState(false);
 
@@ -181,6 +209,10 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    if (user) void loadNotifications();
+  }, [user?.userId]);
+
+  useEffect(() => {
     if (!user) return;
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
@@ -215,14 +247,24 @@ export default function App() {
   }, [user, trips.map((trip) => `${trip.id}:${trip.status}`).join("|")]);
 
   function hydrateProfileForm(nextProfile: DriverProfile) {
+    const fallbackNameParts = String(nextProfile.name || "").trim().split(/\s+/).filter(Boolean);
     setProfileForm({
-      name: nextProfile.name || "",
+      firstName: nextProfile.firstName || fallbackNameParts[0] || "",
+      middleName: nextProfile.middleName || "",
+      lastName: nextProfile.lastName || fallbackNameParts.slice(1).join(" "),
+      suffix: nextProfile.suffix || "",
       phone: nextProfile.phone || "",
       emergencyContact: nextProfile.emergencyContact || "",
       licenseNumber: nextProfile.licenseNumber || "",
       licenseType: nextProfile.licenseType || "",
       licenseExpiry: nextProfile.licenseExpiry ? String(nextProfile.licenseExpiry).slice(0, 10) : "",
     });
+    // Security switches reflect server-backed account settings, not local-only placeholders.
+    setSecurityPrefs((current) => ({
+      ...current,
+      twoFactorAuthentication: Boolean(nextProfile.twoFactorEnabled),
+      loginAlerts: nextProfile.loginAlertsEnabled !== false,
+    }));
   }
 
   async function loadNotificationPreferences() {
@@ -251,7 +293,12 @@ export default function App() {
   async function loadSecurityPreferences() {
     try {
       const raw = await AsyncStorage.getItem(DRIVER_SECURITY_PREFS_KEY);
-      setSecurityPrefs(raw ? { ...defaultSecurityPrefs, ...JSON.parse(raw) } : defaultSecurityPrefs);
+      const parsed = raw ? JSON.parse(raw) as Partial<DriverSecurityPreferences> : {};
+      // 2FA and login alerts come from the server profile; only the device preference is local.
+      setSecurityPrefs((current) => ({
+        ...current,
+        rememberDevice: parsed.rememberDevice ?? true,
+      }));
     } catch {
       setSecurityPrefs(defaultSecurityPrefs);
     }
@@ -301,8 +348,14 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const loggedIn = await login(email.trim(), password, rememberMe);
-      setUser(loggedIn);
+      const result = await login(email.trim(), password, rememberMe);
+      if (result.status === "OTP_REQUIRED") {
+        setLoginChallengeToken(result.challengeToken);
+        setLoginOtp("");
+        setAuthModal("login-otp");
+        return;
+      }
+      setUser(result.user);
       await refreshData(false);
       await loadNotificationPreferences();
       await loadSecurityPreferences();
@@ -310,6 +363,83 @@ export default function App() {
       setError(e instanceof Error ? e.message : "Login failed.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleVerifyLoginOtp() {
+    if (!loginOtp.trim()) {
+      setError("Enter the verification code sent to your email.");
+      return;
+    }
+    setLoginOtpLoading(true);
+    setError(null);
+    try {
+      const loggedIn = await verifyLoginOtp(loginChallengeToken, loginOtp.trim(), rememberMe);
+      setUser(loggedIn);
+      setAuthModal(null);
+      setLoginOtp("");
+      await refreshData(false);
+      await loadNotificationPreferences();
+      await loadSecurityPreferences();
+    } catch (otpError) {
+      setError(otpError instanceof Error ? otpError.message : "Verification failed.");
+    } finally {
+      setLoginOtpLoading(false);
+    }
+  }
+
+  async function handleResendLoginOtp() {
+    setLoginOtpLoading(true);
+    setError(null);
+    try {
+      const result = await login(email.trim(), password, rememberMe);
+      if (result.status !== "OTP_REQUIRED") throw new Error("A new verification challenge was not returned.");
+      setLoginChallengeToken(result.challengeToken);
+      setLoginOtp("");
+      Alert.alert("Code Sent", result.message);
+    } catch (resendError) {
+      setError(resendError instanceof Error ? resendError.message : "Failed to resend the code.");
+    } finally {
+      setLoginOtpLoading(false);
+    }
+  }
+
+  function openForgotPassword() {
+    setForgotEmail(email.trim());
+    setForgotOtp("");
+    setForgotNewPassword("");
+    setForgotConfirmPassword("");
+    setForgotPasswordStep("email");
+    setError(null);
+    setAuthModal("forgot-password");
+  }
+
+  async function handleForgotPasswordNext() {
+    setForgotPasswordLoading(true);
+    setError(null);
+    try {
+      if (forgotPasswordStep === "email") {
+        if (!forgotEmail.trim()) throw new Error("Enter your driver account email.");
+        await requestPasswordResetOtp(forgotEmail.trim());
+        setForgotPasswordStep("otp");
+        return;
+      }
+      if (forgotPasswordStep === "otp") {
+        if (!forgotOtp.trim()) throw new Error("Enter the verification code.");
+        await verifyPasswordResetOtp(forgotEmail.trim(), forgotOtp.trim());
+        setForgotPasswordStep("password");
+        return;
+      }
+      if (forgotNewPassword !== forgotConfirmPassword) throw new Error("New password and confirmation do not match.");
+      const passwordError = validatePasswordPolicy(forgotNewPassword);
+      if (passwordError) throw new Error(passwordError);
+      await resetPasswordWithOtp(forgotEmail.trim(), forgotOtp.trim(), forgotNewPassword);
+      setAuthModal(null);
+      Alert.alert("Password Updated", "Your password was reset. You can now log in.");
+    } catch (forgotError) {
+      setError(forgotError instanceof Error ? forgotError.message : "Password reset failed.");
+    } finally {
+      setForgotPasswordLoading(false);
     }
   }
 
@@ -326,6 +456,9 @@ export default function App() {
     setSecurityPrefs(defaultSecurityPrefs);
     setSecurityForm(initialSecurityForm);
     setOtpVerified(false);
+    setAuthModal(null);
+    setLoginChallengeToken("");
+    setLoginOtp("");
   }
 
   async function handleLogout() {
@@ -510,10 +643,12 @@ export default function App() {
     setSavingProfile(true);
     setError(null);
     try {
-      const nextProfile = await updateDriverProfile(profileForm);
+      const avatar = profileAvatarUri ? await uploadProfileAvatar(profileAvatarUri) : profile?.avatar;
+      const nextProfile = await updateDriverProfile({ ...profileForm, avatar });
       setProfile(nextProfile);
       setUser(nextProfile);
       hydrateProfileForm(nextProfile);
+      setProfileAvatarUri(null);
       setActiveProfileModal(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save profile.");
@@ -522,12 +657,45 @@ export default function App() {
     }
   }
 
+  async function chooseProfileAvatar() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission Required", "Allow photo library access to select a driver profile photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.75, allowsEditing: true, aspect: [1, 1] });
+    if (!result.canceled && result.assets[0]?.uri) setProfileAvatarUri(result.assets[0].uri);
+  }
+
+  async function handleSecurityPreferenceChange(key: "twoFactorAuthentication" | "loginAlerts", value: boolean) {
+    const previous = securityPrefs;
+    const nextPrefs = { ...securityPrefs, [key]: value };
+    setSecurityPrefs(nextPrefs);
+    try {
+      const nextProfile = await updateDriverProfile({
+        ...profileForm,
+        twoFactorEnabled: key === "twoFactorAuthentication" ? value : securityPrefs.twoFactorAuthentication,
+        loginAlertsEnabled: key === "loginAlerts" ? value : securityPrefs.loginAlerts,
+      });
+      setProfile(nextProfile);
+      setUser(nextProfile);
+      await AsyncStorage.setItem(DRIVER_SECURITY_PREFS_KEY, JSON.stringify(nextPrefs));
+    } catch (securityError) {
+      setSecurityPrefs(previous);
+      setError(securityError instanceof Error ? securityError.message : "Failed to update security settings.");
+    }
+  }
+
   async function loadNotifications() {
     setNotificationLoading(true);
     try {
       const data = await fetchNotifications();
-      setNotifications(data.notifications || []);
-      setUnreadNotifications(Number(data.unreadCount || 0));
+      // Match the web Driver Portal: warehouse, inventory, and user-admin alerts are not driver notifications.
+      const driverNotifications = (data.notifications || []).filter((notification) =>
+        !["WAREHOUSE", "INVENTORY", "USER"].includes(String(notification.type || "").toUpperCase()),
+      );
+      setNotifications(driverNotifications);
+      setUnreadNotifications(driverNotifications.filter((notification) => !notification.isRead).length);
     } catch (notificationError) {
       setError(notificationError instanceof Error ? notificationError.message : "Failed to load notifications.");
     } finally {
@@ -587,7 +755,7 @@ export default function App() {
     setReturnedEmpties({});
     setPodImageUri(null);
     setFailureReason("");
-    setRescheduleWindow("today");
+    setRescheduleWindow("tomorrow");
     setRescheduleDate("");
   }
 
@@ -616,10 +784,6 @@ export default function App() {
       setError("Capture or select a proof of delivery image first.");
       return;
     }
-    if (!recipientName.trim()) {
-      setError("Recipient name is required.");
-      return;
-    }
     if (!isOnline) {
       setError("Connect to the internet to upload the proof photo. Your selected photo is preserved.");
       return;
@@ -630,7 +794,7 @@ export default function App() {
       const imageUrl = await uploadPodImage(podImageUri);
       await executeStopUpdate(stopActionPoint, {
         status: "COMPLETED",
-        recipientName: recipientName.trim(),
+        recipientName: recipientName.trim() || "Customer",
         deliveryPhoto: imageUrl,
         notes: deliveryNotes.trim(),
         returnedEmpties: Object.entries(returnedEmpties).map(([containerTypeId, returnedQuantity]) => ({
@@ -646,13 +810,27 @@ export default function App() {
     }
   }
 
-  async function handleFailedStop() {
+  async function handleFailedStop(confirmed = false) {
     if (!stopActionPoint || !failureReason.trim()) {
       setError("Enter the failed-delivery reason.");
       return;
     }
     if (rescheduleWindow === "other_date" && !/^\d{4}-\d{2}-\d{2}$/.test(rescheduleDate.trim())) {
       setError("Enter the reschedule date as YYYY-MM-DD.");
+      return;
+    }
+    if (!confirmed) {
+      // Match the web workflow's final warning before inventory or route-planning state changes.
+      Alert.alert(
+        rescheduleWindow === "cancel" ? "Cancel this delivery?" : "Reschedule this delivery?",
+        rescheduleWindow === "cancel"
+          ? "This will release the reserved inventory and cannot be undone."
+          : "This stop will be removed from the current route and returned to route planning.",
+        [
+          { text: "Go Back", style: "cancel" },
+          { text: rescheduleWindow === "cancel" ? "Cancel Delivery" : "Confirm Reschedule", style: rescheduleWindow === "cancel" ? "destructive" : "default", onPress: () => void handleFailedStop(true) },
+        ],
+      );
       return;
     }
     setStopActionLoading(true);
@@ -683,6 +861,7 @@ export default function App() {
 
   function openProfileModal(modal: Exclude<DriverProfileModal, null>) {
     setError(null);
+    if (modal === "edit") setProfileAvatarUri(null);
     setActiveProfileModal(modal);
     if (modal === "notifications") void loadNotifications();
   }
@@ -772,6 +951,10 @@ export default function App() {
     () => trips.find((trip) => trip.id === selectedTripId) || trips[0] || null,
     [selectedTripId, trips]
   );
+  const activeHomeTrip = useMemo(
+    () => trips.find((trip) => normalizeStatus(trip.status) === "IN_PROGRESS") || null,
+    [trips],
+  );
 
   useEffect(() => {
     if (selectedTrip?.latestLocation && !currentLocation) {
@@ -827,41 +1010,77 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       {!user ? (
-        <View style={styles.authShell}>
-          <View style={styles.heroCard}>
-            <Text style={styles.eyebrow}>Driver Mobile Portal</Text>
-            <Text style={styles.title}>Manage trips on the road</Text>
-            <Text style={styles.subtleOnDark}>
-              Log in with a driver account to view assigned trips, start routes, and send live location.
-            </Text>
-          </View>
-          <View style={styles.card}>
-            <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" placeholder="Email" />
-            <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" />
-            <View style={styles.rememberRow}>
-              <View style={styles.flex}>
-                <Text style={styles.listTitle}>Keep me logged in</Text>
-                <Text style={styles.subtle}>Stay signed in after closing the app.</Text>
-              </View>
-              <Switch value={rememberMe} onValueChange={setRememberMe} trackColor={{ false: "#cbd5e1", true: "#86efac" }} thumbColor="#ffffff" />
+        <ScrollView contentContainerStyle={styles.authShell} keyboardShouldPersistTaps="handled">
+          <View style={styles.authCard}>
+            <Image source={require("./assets/aab-trading-driver.png")} style={styles.authLogoImage} resizeMode="contain" accessibilityLabel="AAB Trading Driver logo" />
+            <Text style={styles.authEyebrow}>ANN ANN&apos;S BEVERAGES TRADING</Text>
+            <Text style={styles.authTitle}>AAB TRADING</Text>
+            <View style={styles.authDriverRow}>
+              <View style={styles.speedLines}><View style={styles.speedLineLong} /><View style={styles.speedLineShort} /><View style={styles.speedLineLong} /></View>
+              <Text style={styles.authDriverTitle}>DRIVER</Text>
+              <View style={[styles.speedLines, styles.speedLinesMirrored]}><View style={styles.speedLineLong} /><View style={styles.speedLineShort} /><View style={styles.speedLineLong} /></View>
             </View>
-            {!!error && <Text style={styles.error}>{error}</Text>}
-            <Pressable style={styles.primaryButton} onPress={handleLogin} disabled={loading}>
-              <Text style={styles.primaryButtonText}>{loading ? "Logging in..." : "Log In"}</Text>
-            </Pressable>
+            <Text style={styles.authSubtitle}>Sign in to start routes and track drops in real time.</Text>
+
+            <View style={styles.authForm}>
+              <Text style={styles.inputLabel}>Email</Text>
+              <View style={styles.authInputRow}>
+                <Ionicons name="mail-outline" size={17} color="#8a99b3" />
+                <TextInput
+                  style={styles.authTextInput}
+                  value={email}
+                  onChangeText={(value) => { setEmail(value); setError(null); }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  placeholder="Enter email"
+                />
+              </View>
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={styles.passwordInputRow}>
+                <Ionicons name="lock-closed-outline" size={17} color="#8a99b3" style={styles.passwordLeadingIcon} />
+                <TextInput
+                  style={styles.passwordInput}
+                  value={password}
+                  onChangeText={(value) => { setPassword(value); setError(null); }}
+                  secureTextEntry={!showPassword}
+                  placeholder="Enter password"
+                />
+                <Pressable accessibilityLabel={showPassword ? "Hide password" : "Show password"} style={styles.passwordToggle} onPress={() => setShowPassword((value) => !value)}>
+                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={18} color="#6f7b96" />
+                </Pressable>
+              </View>
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Pressable style={styles.rememberRow} onPress={() => setRememberMe((value) => !value)}>
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe ? <Text style={styles.checkboxGlyph}>✓</Text> : null}
+                </View>
+                <Text style={styles.rememberText}>Keep me logged in</Text>
+              </Pressable>
+              <Pressable style={styles.loginButton} onPress={() => void handleLogin()} disabled={loading}>
+                {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryButtonText}>Log In</Text>}
+              </Pressable>
+              <Pressable style={styles.forgotButton} onPress={openForgotPassword}>
+                <Text style={styles.forgotButtonText}>Forgot password?</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </ScrollView>
       ) : (
         <View style={styles.flex}>
-          <AppHeader
-            title="AAB TRADING DRIVER"
-            subtitle={activeTab === "profile" ? "Driver account profile" : `Assigned trips: ${trips.length}`}
-          />
+          {!isTripDetailOpen ? (
+            <AppHeader
+              title="AAB TRADING DRIVER"
+              unreadCount={unreadNotifications}
+              onOpenNotifications={() => openProfileModal("notifications")}
+            />
+          ) : null}
 
           <ScrollView
             style={styles.flex}
-            contentContainerStyle={styles.scrollContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => refreshData(false)} />}
+            scrollEnabled={!isTripDetailOpen}
+            contentContainerStyle={[styles.scrollContent, activeTab === "profile" ? styles.profileScrollContent : null, isTripDetailOpen ? styles.tripDetailScrollContent : null]}
+            refreshControl={!isTripDetailOpen ? <RefreshControl refreshing={refreshing} onRefresh={() => refreshData(false)} /> : undefined}
           >
             {!!error && <Text style={styles.errorBanner}>{error}</Text>}
             {!isOnline ? <Text style={styles.offlineBanner}>Offline — delivery updates will be queued.</Text> : null}
@@ -880,130 +1099,164 @@ export default function App() {
             ) : null}
 
             {activeTab === "home" ? (
-              <>
-                <View style={styles.metricGrid}>
-                  <MetricCard label="In Progress" value={dashboardMetrics.inProgress} accent="#0f766e" />
-                  <MetricCard label="Planned" value={dashboardMetrics.planned} accent="#9a3412" />
-                  <MetricCard label="Completed" value={dashboardMetrics.completed} accent="#1d4ed8" />
-                  <MetricCard label="Stops Left" value={dashboardMetrics.remainingStops} accent="#6d28d9" />
+              <View style={styles.homePanel}>
+                <View style={styles.homeDashboardHeading}>
+                  <Text style={styles.dashboardEyebrow}>DRIVER DASHBOARD</Text>
+                  <Text style={styles.dashboardTitle}>Driver Dashboard</Text>
+                  <Text style={styles.dashboardSubtitle}>Here is your delivery overview for today.</Text>
+                </View>
+                <View style={styles.homeMetricGrid}>
+                  <MetricCard label="Total Trips" value={dashboardMetrics.inProgress + dashboardMetrics.planned + dashboardMetrics.completed} />
+                  <MetricCard label="Planned" value={dashboardMetrics.planned} />
+                  <MetricCard label="Completed" value={dashboardMetrics.completed} />
+                  <MetricCard label="Pending Stops" value={dashboardMetrics.remainingStops} />
                 </View>
 
-                <View style={styles.card}>
+                <View style={styles.homeAssignmentCard}>
                   <Text style={styles.sectionTitle}>Active trip</Text>
-                  {selectedTrip ? (
+                  {activeHomeTrip ? (
                     <>
-                      <Text style={styles.featureTitle}>{selectedTrip.tripNumber}</Text>
-                      <Text style={styles.subtle}>Status: {selectedTrip.status}</Text>
-                      <Text style={styles.subtle}>Schedule: {formatDate(selectedTrip.tripSchedule || selectedTrip.plannedStartAt)}</Text>
+                      <Text style={styles.featureTitle}>{activeHomeTrip.tripNumber}</Text>
+                      <Text style={styles.subtle}>Status: {activeHomeTrip.status}</Text>
+                      <Text style={styles.subtle}>Schedule: {formatDate(activeHomeTrip.tripSchedule || activeHomeTrip.plannedStartAt)}</Text>
                       <Text style={styles.subtle}>
-                        Stops: {selectedTrip.completedDropPoints || 0} / {selectedTrip.totalDropPoints || selectedTrip.dropPoints?.length || 0}
+                        Stops: {activeHomeTrip.completedDropPoints || 0} / {activeHomeTrip.totalDropPoints || activeHomeTrip.dropPoints?.length || 0}
                       </Text>
-                      {selectedTrip.vehicle?.licensePlate ? (
+                      {activeHomeTrip.vehicle?.licensePlate ? (
                         <Text style={styles.subtle}>
-                          Vehicle: {selectedTrip.vehicle.licensePlate} {selectedTrip.vehicle.type ? `(${selectedTrip.vehicle.type})` : ""}
+                          Vehicle: {activeHomeTrip.vehicle.licensePlate} {activeHomeTrip.vehicle.type ? `(${activeHomeTrip.vehicle.type})` : ""}
                         </Text>
                       ) : null}
-                      {currentLocation || selectedTrip.latestLocation ? (
+                      {currentLocation || activeHomeTrip.latestLocation ? (
                         <Text style={styles.subtle}>
-                          Last GPS: {(currentLocation || selectedTrip.latestLocation)!.latitude.toFixed(5)}, {(currentLocation || selectedTrip.latestLocation)!.longitude.toFixed(5)}
+                          Last GPS: {(currentLocation || activeHomeTrip.latestLocation)!.latitude.toFixed(5)}, {(currentLocation || activeHomeTrip.latestLocation)!.longitude.toFixed(5)}
                         </Text>
                       ) : (
                         <Text style={styles.subtle}>No GPS location sent yet.</Text>
                       )}
                       <Text style={styles.subtle}>Tracking: {trackingMode.replace("-", " ")}</Text>
                       <View style={styles.row}>
-                        {selectedTrip.status === "PLANNED" ? (
-                          <Pressable
-                            style={styles.primaryButton}
-                            onPress={() => handleStartTrip(selectedTrip.id)}
-                            disabled={startingTripId === selectedTrip.id}
-                          >
-                            <Text style={styles.primaryButtonText}>
-                              {startingTripId === selectedTrip.id ? "Starting..." : "Start Trip"}
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                        <Pressable style={styles.secondaryButton} onPress={handleShareLocation} disabled={sharingLocation}>
-                          <Text style={styles.secondaryButtonText}>
-                            {sharingLocation ? "Sending..." : "Share Location"}
-                          </Text>
+                        <Pressable style={styles.primaryButton} onPress={() => { setSelectedTripId(activeHomeTrip.id); setActiveTab("trips"); setIsTripSheetOpen(false); setIsTripDetailOpen(true); }}>
+                          <Text style={styles.primaryButtonText}>Open Active Trip</Text>
                         </Pressable>
                       </View>
                     </>
                   ) : (
-                    <Text style={styles.subtle}>No assigned trips yet.</Text>
+                    <>
+                      <Text style={styles.subtle}>No active trip right now.</Text>
+                      <Pressable style={styles.primaryButton} onPress={() => setActiveTab("trips")}>
+                        <Text style={styles.primaryButtonText}>View My Trips</Text>
+                      </Pressable>
+                    </>
                   )}
                 </View>
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Assigned orders</Text>
-                  {(selectedTrip?.dropPoints || []).filter((point) => point.order).length === 0 ? <Text style={styles.subtle}>No assigned orders for this trip.</Text> : null}
-                  {(selectedTrip?.dropPoints || []).filter((point) => point.order).map((point) => (
-                    <Pressable key={point.id} style={styles.listItem} onPress={() => { setActiveTab("trips"); setSelectedTripId(selectedTrip!.id); }}>
-                      <View style={styles.flex}>
-                        <Text style={styles.listTitle}>{point.order?.orderNumber || "Order"}</Text>
-                        <Text style={styles.subtle}>{point.contactName || point.order?.shippingName || point.locationName || "Customer"}</Text>
-                      </View>
-                      <Text style={styles.badgeText}>{point.order?.warehouseStage || point.status || "PENDING"}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </>
+              </View>
             ) : null}
 
             {activeTab === "trips" ? (
               <>
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Assigned trips</Text>
-                  <TextInput style={styles.input} value={tripSearch} onChangeText={setTripSearch} placeholder="Search trip, customer, order, address, or vehicle" />
+                {!isTripDetailOpen ? <View style={styles.tripsScreen}>
+                  <Text style={styles.tripsEyebrow}>ASSIGNED ROUTES</Text>
+                  <Text style={styles.tripsTitle}>My Deliveries</Text>
+                  <View style={styles.searchField}>
+                    <Ionicons name="search" size={18} color="#94a3b8" />
+                    <TextInput style={styles.searchInput} value={tripSearch} onChangeText={setTripSearch} placeholder="Search deliveries" placeholderTextColor="#94a3b8" />
+                  </View>
                   {activeTrips.length === 0 ? <Text style={styles.subtle}>No active assigned trips match your search.</Text> : null}
                   {activeTrips.map((trip) => (
                     <Pressable
                       key={trip.id}
-                      style={[styles.listItem, selectedTrip?.id === trip.id ? styles.listItemSelected : null]}
-                      onPress={() => setSelectedTripId(trip.id)}
+                      style={styles.routeCard}
+                      onPress={() => { setSelectedTripId(trip.id); setIsTripSheetOpen(false); setIsTripDetailOpen(true); }}
                     >
-                      <View style={styles.flex}>
-                        <Text style={styles.listTitle}>{trip.tripNumber}</Text>
-                        <Text style={styles.subtle}>{trip.status}</Text>
+                      <View style={styles.routeCardTop}>
+                        <Text style={styles.routeNumber}>{trip.tripNumber}</Text>
+                        <View style={styles.viewDetailsButton}><Text style={styles.viewDetailsText}>View Details</Text></View>
                       </View>
-                      <Text style={styles.badgeText}>
-                        {trip.completedDropPoints || 0}/{trip.totalDropPoints || trip.dropPoints?.length || 0}
-                      </Text>
+                      <View style={[styles.tripStatusBadge, normalizeStatus(trip.status) === "IN_PROGRESS" ? styles.tripStatusActive : null]}><Text style={styles.tripStatusText}>{String(trip.status || "").replace(/_/g, " ")}</Text></View>
+                      <Text style={styles.routeMeta}>Vehicle: {trip.vehicle?.licensePlate || "Not assigned"} | Driver: {profile?.name || user.name || "Assigned Driver"}</Text>
+                      <Text style={styles.routeMeta}>Route: Warehouse → {trip.dropPoints?.at(-1)?.locationName || "Destination"}</Text>
+                      <Text style={styles.routeMeta}>Schedule: {formatDateOnly(trip.tripSchedule)}</Text>
                     </Pressable>
                   ))}
-                </View>
+                </View> : null}
 
-                {selectedTrip ? (
-                  <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Trip details</Text>
-                    <Text style={styles.featureTitle}>{selectedTrip.tripNumber}</Text>
-                    <Text style={styles.subtle}>Status: {selectedTrip.status}</Text>
-                    <Text style={styles.subtle}>Schedule: {formatDate(selectedTrip.tripSchedule || selectedTrip.plannedStartAt)}</Text>
-                    <Text style={styles.subtle}>
-                      Vehicle: {selectedTrip.vehicle?.licensePlate || "Not assigned"} {selectedTrip.vehicle?.type ? `(${selectedTrip.vehicle.type})` : ""}
-                    </Text>
-                    {selectedTrip.warehouse ? (
-                      <Text style={styles.subtle}>Warehouse: {[selectedTrip.warehouse.name, selectedTrip.warehouse.address, selectedTrip.warehouse.city].filter(Boolean).join(", ")}</Text>
-                    ) : null}
-                    {selectedTrip.notes ? <Text style={styles.bodyText}>Notes: {selectedTrip.notes}</Text> : null}
-                    {normalizeStatus(selectedTrip.status) === "IN_PROGRESS" ? (
-                      <DriverNavigationMap trip={selectedTrip} currentLocation={currentLocation || selectedTrip.latestLocation || null} />
-                    ) : null}
-                    {selectedTrip.dropPoints?.length ? (
-                      <View style={styles.stack}>
-                        {selectedTrip.dropPoints.map((point) => (
-                          <DropPointCard
-                            key={point.id}
-                            point={point}
-                            tripStatus={selectedTrip.status}
-                            onArrive={() => confirmArrived(point)}
-                            onComplete={() => openStopAction(point, "complete")}
-                            onFailed={() => openStopAction(point, "failed")}
-                          />
-                        ))}
+                {selectedTrip && isTripDetailOpen ? (
+                  <View style={[styles.tripDetailScreen, { height: Math.max(620, viewportHeight) }]}>
+                    {/* Fix: Trip Details now uses the web portal's full-height map-first navigation layout. */}
+                    <DriverNavigationMap trip={selectedTrip} currentLocation={currentLocation || selectedTrip.latestLocation || null} fullScreen />
+
+                    <View style={styles.tripMapContextRow}>
+                      <Pressable
+                        style={styles.tripMapBackButton}
+                        onPress={() => { setIsTripSheetOpen(false); setIsTripDetailOpen(false); }}
+                        accessibilityLabel="Back to assigned trips"
+                      >
+                        <Ionicons name="chevron-back" size={21} color="#0f172a" />
+                      </Pressable>
+                      <View style={styles.tripMapChip}><Text style={styles.tripMapChipText}>Route Map</Text></View>
+                      <View style={[styles.tripMapChip, styles.tripCoordinateChip]}>
+                        <Text numberOfLines={1} style={styles.tripCoordinateText}>
+                          Exact: {(currentLocation || selectedTrip.latestLocation)
+                            ? `${Number((currentLocation || selectedTrip.latestLocation)!.latitude).toFixed(6)}, ${Number((currentLocation || selectedTrip.latestLocation)!.longitude).toFixed(6)}`
+                            : "Unavailable"}
+                        </Text>
                       </View>
+                    </View>
+
+                    {normalizeStatus(selectedTrip.status) === "PLANNED" ? (
+                      <Pressable
+                        style={styles.tripStartButton}
+                        onPress={() => void handleStartTrip(selectedTrip.id)}
+                        disabled={startingTripId === selectedTrip.id}
+                      >
+                        {startingTripId === selectedTrip.id ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="play" size={19} color="#ffffff" />}
+                        <Text style={styles.primaryButtonText}>Start Trip</Text>
+                      </Pressable>
+                    ) : null}
+
+                    {!isTripSheetOpen ? (
+                      <Pressable style={styles.tripSheetPeek} onPress={() => setIsTripSheetOpen(true)} accessibilityLabel="Open trip drop points">
+                        <View style={styles.tripSheetHandle} />
+                        <Text style={styles.tripSheetEyebrow}>DROP POINTS</Text>
+                        <View style={styles.tripSheetSummaryRow}>
+                          <View style={styles.flex}>
+                            <Text style={styles.tripSheetTripNumber}>{selectedTrip.tripNumber}</Text>
+                            <Text style={styles.tripSheetSchedule}>Schedule: {formatDateOnly(selectedTrip.tripSchedule || selectedTrip.plannedStartAt)}</Text>
+                          </View>
+                          <View style={styles.tripSheetSummaryRight}>
+                            <Text style={styles.tripSheetSpeed}>{Math.max(0, Math.round(Number((currentLocation || selectedTrip.latestLocation)?.speed || 0) * 3.6))} km/h</Text>
+                            <Text style={styles.tripSheetProgress}>
+                              {Math.max(Number(selectedTrip.completedDropPoints || 0), (selectedTrip.dropPoints || []).filter((point) => ["COMPLETED", "DELIVERED", "FAILED", "SKIPPED", "CANCELLED"].includes(normalizeStatus(point.status))).length)}/{selectedTrip.totalDropPoints || selectedTrip.dropPoints?.length || 0} Delivered
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
                     ) : (
-                      <Text style={styles.subtle}>No stops are assigned to this trip.</Text>
+                      <View style={styles.tripBottomSheet}>
+                        <Pressable onPress={() => setIsTripSheetOpen(false)} accessibilityLabel="Collapse trip drop points">
+                          <View style={styles.tripSheetHandle} />
+                        </Pressable>
+                        <View style={styles.tripSheetExpandedHeader}>
+                          <View style={styles.flex}>
+                            <Text style={styles.tripSheetEyebrow}>DROP POINTS</Text>
+                            <Text style={styles.tripSheetTripNumber}>{selectedTrip.tripNumber}</Text>
+                          </View>
+                          <View style={styles.tripStatusBadge}><Text style={styles.tripStatusText}>{String(selectedTrip.status || "").replace(/_/g, " ")}</Text></View>
+                        </View>
+                        <ScrollView style={styles.tripSheetScroll} contentContainerStyle={styles.tripSheetScrollContent} nestedScrollEnabled>
+                          {selectedTrip.dropPoints?.length ? selectedTrip.dropPoints.map((point) => (
+                            <DropPointCard
+                              key={point.id}
+                              point={point}
+                              tripStatus={selectedTrip.status}
+                              onArrive={() => confirmArrived(point)}
+                              onComplete={() => openStopAction(point, "complete")}
+                              onFailed={() => openStopAction(point, "failed")}
+                            />
+                          )) : <Text style={styles.subtle}>No stops are assigned to this trip.</Text>}
+                        </ScrollView>
+                      </View>
                     )}
                   </View>
                 ) : null}
@@ -1011,12 +1264,18 @@ export default function App() {
             ) : null}
 
             {activeTab === "history" ? (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Trip history</Text>
-                <TextInput style={styles.input} value={historySearch} onChangeText={(value) => { setHistorySearch(value); setHistoryLimit(10); }} placeholder="Search completed trips" />
-                {completedTrips.length === 0 ? <Text style={styles.subtle}>No completed trips yet.</Text> : null}
-                {completedTrips.slice(0, historyLimit).map((trip) => (
-                  <Pressable key={trip.id} style={styles.historyCard} onPress={() => { setSelectedTripId(trip.id); setActiveTab("trips"); }}>
+              <View style={styles.historyScreen}>
+                <Text style={styles.historyTitle}>{historyTripId ? "Trip Details" : "Delivery History"}</Text>
+                {!historyTripId ? <Text style={styles.historySubtitle}>Completed delivery trips and fulfilled orders</Text> : null}
+                {historyTripId ? (
+                  <Pressable style={styles.tripBackButton} onPress={() => { if (historyPointId) setHistoryPointId(null); else setHistoryTripId(null); }}>
+                    <Text style={styles.tripBackText}>‹</Text>
+                  </Pressable>
+                ) : null}
+                {!historyTripId ? <View style={styles.searchField}><Ionicons name="search" size={18} color="#94a3b8" /><TextInput style={styles.searchInput} value={historySearch} onChangeText={(value) => { setHistorySearch(value); setHistoryLimit(10); }} placeholder="Search completed trips" placeholderTextColor="#94a3b8" /></View> : null}
+                {!historyTripId && completedTrips.length === 0 ? <Text style={styles.subtle}>No completed trips yet.</Text> : null}
+                {!historyTripId ? completedTrips.slice(0, historyLimit).map((trip) => (
+                  <Pressable key={trip.id} style={styles.historyCard} onPress={() => setHistoryTripId(trip.id)}>
                     <Text style={styles.listTitle}>{trip.tripNumber}</Text>
                     <Text style={styles.subtle}>Completed stops: {trip.completedDropPoints || 0}</Text>
                     <Text style={styles.subtle}>Vehicle: {trip.vehicle?.licensePlate || "Not assigned"}</Text>
@@ -1024,26 +1283,34 @@ export default function App() {
                     <Text style={styles.subtle}>Started: {formatDate(trip.actualStartAt)}</Text>
                     <Text style={styles.subtle}>Finished: {formatDate(trip.actualEndAt)}</Text>
                   </Pressable>
-                ))}
-                {historyLimit < completedTrips.length ? (
+                )) : null}
+                {historyTripId ? (
+                  <HistoryDetails
+                    trip={trips.find((trip) => trip.id === historyTripId) || null}
+                    selectedPointId={historyPointId}
+                    onOpenPoint={setHistoryPointId}
+                  />
+                ) : null}
+                {!historyTripId && historyLimit < completedTrips.length ? (
                   <Pressable style={styles.secondaryButton} onPress={() => setHistoryLimit((value) => value + 10)}><Text style={styles.secondaryButtonText}>Load More</Text></Pressable>
                 ) : null}
               </View>
             ) : null}
 
             {activeTab === "profile" ? (
-              <>
-                <View style={styles.pageHeading}>
-                  <Text style={styles.profilePageTitle}>My Profile</Text>
-                  <Text style={styles.profilePageSubtitle}>Manage your driver account details, security, and license records.</Text>
-                </View>
-
-                <View style={styles.summaryCard}>
+              <View style={styles.profileScreen}>
+                <Text style={styles.profilePageTitle}>Profile</Text>
+                <View style={styles.profileHero}>
                   <View style={styles.summaryAvatar}>
-                    <Text style={styles.summaryAvatarText}>{driverInitials}</Text>
+                    {profile?.avatar ? (
+                      <Image source={{ uri: resolveMediaUrl(profile.avatar) }} style={styles.summaryAvatarImage} accessibilityLabel="Driver profile photo" />
+                    ) : (
+                      <Text style={styles.summaryAvatarText}>{driverInitials}</Text>
+                    )}
                   </View>
                   <View style={styles.summaryContent}>
                     <Text style={styles.summaryName}>{profile?.name || user.name || ""}</Text>
+                    <Text style={styles.summaryMeta}>{compactDriverName(profile)}</Text>
                     <Text style={styles.summaryMeta}>{profile?.email || user.email || ""}</Text>
                     <View style={styles.roleBadge}>
                       <Text style={styles.roleBadgeText}>Driver</Text>
@@ -1051,84 +1318,116 @@ export default function App() {
                   </View>
                 </View>
 
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Driver Information</Text>
-                  <InfoRow label="Phone" value={profile?.phone || ""} />
-                  <InfoRow label="Driver License" value={profile?.licenseNumber || ""} />
-                  <InfoRow label="License Type" value={profile?.licenseType || ""} />
-                  <InfoRow label="License Expiry" value={formatDateOnly(profile?.licenseExpiry)} />
-                  <InfoRow label="License Status" value={licenseStatus} />
-                </View>
-
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Profile Navigation</Text>
+                <View style={styles.profileMenuCard}>
                   <MenuRow
-                    icon="EP"
+                    icon="pencil-outline"
                     label="Edit Profile"
                     description="Update your name and contact details."
                     onPress={() => openProfileModal("edit")}
                   />
                   <MenuRow
-                    icon="AS"
+                    icon="shield-checkmark-outline"
                     label="Account & Security"
                     description="Change your password and secure your account."
                     onPress={() => openProfileModal("security")}
                   />
                   <MenuRow
-                    icon="NT"
-                    label="Notifications"
+                    icon="notifications-outline"
+                    label="Notification Settings"
                     description="Manage trip, delivery, and system alerts."
                     onPress={() => openProfileModal("notifications")}
                   />
                   <MenuRow
-                    icon="DL"
+                    icon="document-text-outline"
                     label="Driver License"
                     description="View and manage your license details."
                     onPress={() => openProfileModal("license")}
                   />
-                  <MenuRow
-                    icon="LO"
-                    label="Log Out"
-                    description="Sign out of the driver mobile app."
-                    onPress={() => setConfirmLogoutVisible(true)}
-                    danger
-                  />
                 </View>
-              </>
+                <View style={styles.profileLogoutCard}>
+                  <MenuRow
+                      icon="log-out-outline"
+                      label="Log Out"
+                      description="Sign out of the driver mobile app."
+                      onPress={() => setConfirmLogoutVisible(true)}
+                      danger
+                    />
+                </View>
+              </View>
             ) : null}
           </ScrollView>
 
-          <BottomNavigation
+          {!isTripDetailOpen ? <BottomNavigation
             items={[
-              { id: "home", label: "Home", icon: "HM" },
-              { id: "trips", label: "Trips", icon: "TR" },
-              { id: "history", label: "History", icon: "HI" },
-              { id: "profile", label: "Profile", icon: "PR" },
+              { id: "home", label: "Home", icon: "home-outline", activeIcon: "home" },
+              { id: "trips", label: "Trips", icon: "car-outline", activeIcon: "car" },
+              { id: "history", label: "History", icon: "time-outline", activeIcon: "time" },
+              { id: "profile", label: "Profile", icon: "person-outline", activeIcon: "person" },
             ]}
             activeTab={activeTab}
             onSelect={(tab) => {
               if (tab === "home") setSelectedTripId(getPreferredOperationalTripId(trips));
+              if (tab !== "history") { setHistoryTripId(null); setHistoryPointId(null); }
+              setIsTripSheetOpen(false);
+              setIsTripDetailOpen(false);
               setActiveTab(tab as DriverTab);
             }}
-          />
+          /> : null}
 
           <ModalShell
             visible={activeProfileModal === "edit"}
+            fullScreen
             title="Edit Profile"
             subtitle="Update your basic driver information."
             onClose={closeProfileModal}
           >
+            <View style={styles.avatarEditor}>
+              <View style={styles.summaryAvatar}>
+                {profileAvatarUri || profile?.avatar ? (
+                  <Image source={{ uri: profileAvatarUri || resolveMediaUrl(profile?.avatar || "") }} style={styles.summaryAvatarImage} accessibilityLabel="Selected driver profile photo" />
+                ) : (
+                  <Text style={styles.summaryAvatarText}>{driverInitials}</Text>
+                )}
+              </View>
+              <Pressable style={styles.modalOutlineButton} onPress={() => void chooseProfileAvatar()}>
+                <Text style={styles.outlineButtonText}>Choose Profile Photo</Text>
+              </Pressable>
+            </View>
             <TextInput
               style={styles.input}
-              value={profileForm.name}
-              onChangeText={(value) => setProfileForm((current) => ({ ...current, name: value }))}
-              placeholder="Full name"
+              value={profileForm.firstName}
+              onChangeText={(value) => setProfileForm((current) => ({ ...current, firstName: value }))}
+              placeholder="First name"
+            />
+            <TextInput
+              style={styles.input}
+              value={profileForm.middleName}
+              onChangeText={(value) => setProfileForm((current) => ({ ...current, middleName: value }))}
+              placeholder="Middle name (optional)"
+            />
+            <TextInput
+              style={styles.input}
+              value={profileForm.lastName}
+              onChangeText={(value) => setProfileForm((current) => ({ ...current, lastName: value }))}
+              placeholder="Last name"
+            />
+            <TextInput
+              style={styles.input}
+              value={profileForm.suffix}
+              onChangeText={(value) => setProfileForm((current) => ({ ...current, suffix: value }))}
+              placeholder="Suffix (optional)"
             />
             <TextInput
               style={styles.input}
               value={profileForm.phone}
               onChangeText={(value) => setProfileForm((current) => ({ ...current, phone: value }))}
               placeholder="Phone"
+            />
+            <TextInput
+              style={styles.input}
+              value={profileForm.emergencyContact}
+              onChangeText={(value) => setProfileForm((current) => ({ ...current, emergencyContact: value }))}
+              placeholder="Emergency contact"
             />
             <TextInput style={[styles.input, styles.disabledInput]} value={profile?.email || user?.email || ""} editable={false} placeholder="Email" />
             <Text style={styles.modalHelpText}>Driver license details are managed in the separate Driver License section.</Text>
@@ -1144,6 +1443,7 @@ export default function App() {
 
           <ModalShell
             visible={activeProfileModal === "security"}
+            fullScreen
             title="Account & Security"
             subtitle="Change your password using the OTP sent to your account email."
             onClose={closeProfileModal}
@@ -1195,13 +1495,13 @@ export default function App() {
               label="Two-Factor Authentication"
               description="Remember whether additional verification is enabled for this device."
               value={securityPrefs.twoFactorAuthentication}
-              onValueChange={(value) => void persistSecurityPreferences({ ...securityPrefs, twoFactorAuthentication: value })}
+              onValueChange={(value) => void handleSecurityPreferenceChange("twoFactorAuthentication", value)}
             />
             <ToggleRow
               label="Login Alerts"
               description="Show security alerts for new driver logins."
               value={securityPrefs.loginAlerts}
-              onValueChange={(value) => void persistSecurityPreferences({ ...securityPrefs, loginAlerts: value })}
+              onValueChange={(value) => void handleSecurityPreferenceChange("loginAlerts", value)}
             />
             <ToggleRow
               label="Remember This Device"
@@ -1213,6 +1513,7 @@ export default function App() {
 
           <ModalShell
             visible={activeProfileModal === "notifications"}
+            fullScreen
             title="Notifications"
             subtitle="Choose which driver alerts you want to receive."
             onClose={closeProfileModal}
@@ -1270,6 +1571,7 @@ export default function App() {
 
           <ModalShell
             visible={activeProfileModal === "license"}
+            fullScreen
             title="Driver License"
             subtitle="Review and manage your license details."
             onClose={closeProfileModal}
@@ -1310,7 +1612,6 @@ export default function App() {
             onClose={closeStopAction}
           >
             {!!error && <Text style={styles.error}>{error}</Text>}
-            <TextInput style={styles.input} value={recipientName} onChangeText={setRecipientName} placeholder="Recipient name" />
             <TextInput style={[styles.input, styles.multilineInput]} value={deliveryNotes} onChangeText={setDeliveryNotes} placeholder="Delivery notes (optional)" multiline />
             {getReturnableContainers(stopActionPoint).length ? (
               <View style={styles.orderItems}>
@@ -1354,7 +1655,6 @@ export default function App() {
             <Text style={styles.listTitle}>What should happen next?</Text>
             <View style={styles.choiceWrap}>
               {([
-                ["today", "Later today"],
                 ["tomorrow", "Tomorrow"],
                 ["other_date", "Other date"],
                 ["cancel", "Cancel delivery"],
@@ -1365,7 +1665,7 @@ export default function App() {
               ))}
             </View>
             {rescheduleWindow === "other_date" ? <TextInput style={styles.input} value={rescheduleDate} onChangeText={setRescheduleDate} placeholder="YYYY-MM-DD" /> : null}
-            <Text style={styles.modalHelpText}>{rescheduleWindow === "cancel" ? "Cancellation releases reserved inventory." : rescheduleWindow === "today" ? "The stop returns to pending at the end of today's route." : "Inventory stays reserved and the order returns to route planning."}</Text>
+            <Text style={styles.modalHelpText}>{rescheduleWindow === "cancel" ? "Cancellation releases reserved inventory." : "Inventory stays reserved and the order returns to route planning."}</Text>
             <View style={styles.modalActions}>
               <Pressable style={styles.modalGhostButton} onPress={closeStopAction}><Text style={styles.modalGhostButtonText}>Back</Text></Pressable>
               <Pressable style={[styles.primaryButtonCompact, rescheduleWindow === "cancel" && styles.dangerButton]} onPress={() => void handleFailedStop()} disabled={stopActionLoading}><Text style={styles.primaryButtonText}>{stopActionLoading ? "Saving…" : rescheduleWindow === "cancel" ? "Cancel Delivery" : "Save Reschedule"}</Text></Pressable>
@@ -1386,34 +1686,143 @@ export default function App() {
           />
         </View>
       )}
+      <ModalShell
+        visible={authModal === "login-otp"}
+        title="Verify Driver Login"
+        subtitle={`Enter the code sent to ${email.trim().toLowerCase()}.`}
+        onClose={() => { setAuthModal(null); setLoginOtp(""); setError(null); }}
+      >
+        {!!error && <Text style={styles.error}>{error}</Text>}
+        <TextInput
+          style={styles.input}
+          value={loginOtp}
+          onChangeText={(value) => { setLoginOtp(value.replace(/\D/g, "").slice(0, 6)); setError(null); }}
+          placeholder="6-digit verification code"
+          keyboardType="number-pad"
+          maxLength={6}
+        />
+        <Pressable style={styles.loginButton} onPress={() => void handleVerifyLoginOtp()} disabled={loginOtpLoading}>
+          <Text style={styles.primaryButtonText}>{loginOtpLoading ? "Verifying..." : "Verify and Log In"}</Text>
+        </Pressable>
+        <Pressable style={styles.forgotButton} onPress={() => void handleResendLoginOtp()} disabled={loginOtpLoading}>
+          <Text style={styles.forgotButtonText}>Resend verification code</Text>
+        </Pressable>
+      </ModalShell>
+
+      <ModalShell
+        visible={authModal === "forgot-password"}
+        title="Reset Password"
+        subtitle={forgotPasswordStep === "email" ? "Enter your driver account email." : forgotPasswordStep === "otp" ? "Verify the code sent to your email." : "Create a new secure password."}
+        onClose={() => { setAuthModal(null); setError(null); }}
+      >
+        {!!error && <Text style={styles.error}>{error}</Text>}
+        {forgotPasswordStep === "email" ? (
+          <TextInput style={styles.input} value={forgotEmail} onChangeText={setForgotEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Driver email" />
+        ) : null}
+        {forgotPasswordStep === "otp" ? (
+          <TextInput style={styles.input} value={forgotOtp} onChangeText={(value) => setForgotOtp(value.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" maxLength={6} placeholder="6-digit verification code" />
+        ) : null}
+        {forgotPasswordStep === "password" ? (
+          <>
+            <TextInput style={styles.input} value={forgotNewPassword} onChangeText={setForgotNewPassword} secureTextEntry placeholder="New password" />
+            <TextInput style={styles.input} value={forgotConfirmPassword} onChangeText={setForgotConfirmPassword} secureTextEntry placeholder="Confirm new password" />
+            <Text style={styles.modalHelpText}>Use at least 8 characters with uppercase, lowercase, number, and special character.</Text>
+          </>
+        ) : null}
+        <Pressable style={styles.loginButton} onPress={() => void handleForgotPasswordNext()} disabled={forgotPasswordLoading}>
+          <Text style={styles.primaryButtonText}>
+            {forgotPasswordLoading ? "Please wait..." : forgotPasswordStep === "email" ? "Send Verification Code" : forgotPasswordStep === "otp" ? "Verify Code" : "Reset Password"}
+          </Text>
+        </Pressable>
+        {forgotPasswordStep !== "email" ? (
+          <Pressable style={styles.forgotButton} onPress={() => setForgotPasswordStep(forgotPasswordStep === "password" ? "otp" : "email")}>
+            <Text style={styles.forgotButtonText}>Back</Text>
+          </Pressable>
+        ) : null}
+      </ModalShell>
     </SafeAreaView>
   );
 }
 
-function AppHeader({ title, subtitle }: { title: string; subtitle: string }) {
+function AppHeader({ title, unreadCount, onOpenNotifications }: { title: string; unreadCount: number; onOpenNotifications: () => void }) {
   return (
     <View style={styles.appHeader}>
       <View style={styles.logoWrap}>
-        <View style={styles.logoBadge}>
-          <Text style={styles.logoBadgeText}>AAB</Text>
-        </View>
         <View style={styles.flex}>
+          <Text style={styles.appHeaderEyebrow}>ANN ANN&apos;S BEVERAGES TRADING</Text>
           <Text style={styles.appHeaderTitle}>{title}</Text>
-          <Text style={styles.subtle}>{subtitle}</Text>
         </View>
       </View>
-      <View style={styles.headerAvatar}>
-        <Text style={styles.headerGlyph}>U</Text>
-      </View>
+      <Pressable accessibilityLabel="Open notifications" style={styles.headerAvatar} onPress={onOpenNotifications}>
+        <Ionicons name="notifications-outline" size={19} color="#ffffff" />
+        {unreadCount > 0 ? <View style={styles.headerUnreadDot} /> : null}
+      </Pressable>
     </View>
   );
 }
 
-function MetricCard({ label, value, accent }: { label: string; value: number; accent: string }) {
+function MetricCard({ label, value }: { label: string; value: number }) {
   return (
-    <View style={[styles.metricCard, { borderColor: accent }]}>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View style={styles.metricCard}>
       <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
+  );
+}
+
+function HistoryDetails({ trip, selectedPointId, onOpenPoint }: {
+  trip: DriverTrip | null;
+  selectedPointId: string | null;
+  onOpenPoint: (pointId: string | null) => void;
+}) {
+  if (!trip) return <Text style={styles.subtle}>This completed trip is no longer available.</Text>;
+  const selectedPoint = (trip.dropPoints || []).find((point) => point.id === selectedPointId) || null;
+
+  if (selectedPoint) {
+    return (
+      <View style={styles.stack}>
+        <Text style={styles.featureTitle}>{selectedPoint.order?.orderNumber || `Stop ${selectedPoint.sequence || ""}`}</Text>
+        <Text style={styles.bodyText}>{selectedPoint.contactName || selectedPoint.order?.shippingName || selectedPoint.locationName || "Customer"}</Text>
+        <Text style={styles.subtle}>{[selectedPoint.address, selectedPoint.city, selectedPoint.province].filter(Boolean).join(", ")}</Text>
+        {selectedPoint.deliveryPhoto ? <Image source={{ uri: resolveMediaUrl(selectedPoint.deliveryPhoto) }} style={styles.historyPodImage} resizeMode="cover" /> : null}
+        {(selectedPoint.order?.items || []).map((item) => <OrderItemDetails key={item.id} item={item} />)}
+        {selectedPoint.order?.totalAmount != null ? <Text style={styles.historyTotal}>Total: ₱{Number(selectedPoint.order.totalAmount).toFixed(2)}</Text> : null}
+        {selectedPoint.failureReason ? <Text style={styles.error}>Failure: {selectedPoint.failureReason}{selectedPoint.failureNotes ? ` — ${selectedPoint.failureNotes}` : ""}</Text> : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.stack}>
+      <Text style={styles.featureTitle}>{trip.tripNumber}</Text>
+      <Text style={styles.subtle}>Vehicle: {trip.vehicle?.licensePlate || "Not assigned"}</Text>
+      <Text style={styles.subtle}>Finished: {formatDate(trip.actualEndAt)}</Text>
+      {(trip.dropPoints || []).map((point) => (
+        <Pressable key={point.id} style={styles.historyCard} onPress={() => onOpenPoint(point.id)}>
+          <Text style={styles.listTitle}>{point.order?.orderNumber || `Stop ${point.sequence || ""}`}</Text>
+          <Text style={styles.subtle}>{point.contactName || point.order?.shippingName || point.locationName || "Customer"}</Text>
+          <Text style={styles.subtle}>{point.status || "COMPLETED"}</Text>
+          <Text style={styles.linkText}>View Details</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function OrderItemDetails({ item }: { item: DriverTripOrderItem }) {
+  const isMixed = item.itemType === "MIXED_CASE";
+  return (
+    <View style={styles.orderItemHistory}>
+      <Text style={styles.listTitle}>{isMixed ? "Mixed Case" : productNameWithSize(item.product?.name || item.product?.sku || "Product", item.product?.sizeLabel)}</Text>
+      <Text style={styles.subtle}>Quantity: {Number(item.quantity || 0)} case{Number(item.quantity || 0) === 1 ? "" : "s"}</Text>
+      {isMixed ? (item.components || []).map((component) => (
+        <View key={component.id || component.productId || component.productSku} style={styles.mixedComponentRow}>
+          {component.product?.imageUrl ? <Image source={{ uri: resolveMediaUrl(component.product.imageUrl) }} style={styles.componentImage} /> : null}
+          <Text style={[styles.subtle, styles.flex]}>
+            {productNameWithSize(component.productName || component.productSku || "Product", component.product?.sizes?.[0])}: {Number(component.quantityPerCase || 0)} {component.baseUnitLabel || "bottles"} per case
+          </Text>
+        </View>
+      )) : null}
     </View>
   );
 }
@@ -1468,18 +1877,21 @@ function DropPointCard({ point, tripStatus, onArrive, onComplete, onFailed }: {
               <View key={item.id} style={styles.orderItem}>
                 <Text style={styles.listTitle}>
                   {isMixedCase
-                    ? `Mixed Case (${Number(item.caseCapacity || 0)} bottles/cans)`
-                    : item.product?.name || item.product?.sku || "Product"}
+                    ? "Mixed Case"
+                    : productNameWithSize(item.product?.name || item.product?.sku || "Product", item.product?.sizeLabel)}
                   {` · ${Number(item.quantity || 0)} ${orderMeasure}`}
                 </Text>
                 {isMixedCase
                   ? (item.components || []).map((component) => (
-                      <Text key={component.id || component.productId || component.productSku} style={styles.subtle}>
-                        {component.productName || component.productSku || "Product"}: {Number(component.quantityPerCase || 0)} {component.baseUnitLabel || "bottle(s)/can(s)"} per case
-                        {component.totalBaseUnits !== null && component.totalBaseUnits !== undefined
-                          ? ` (${Number(component.totalBaseUnits)} total)`
-                          : ""}
-                      </Text>
+                      <View key={component.id || component.productId || component.productSku} style={styles.mixedComponentRow}>
+                        {component.product?.imageUrl ? <Image source={{ uri: resolveMediaUrl(component.product.imageUrl) }} style={styles.componentImage} /> : null}
+                        <Text style={[styles.subtle, styles.flex]}>
+                          {productNameWithSize(component.productName || component.productSku || "Product", component.product?.sizes?.[0])}: {Number(component.quantityPerCase || 0)} {component.baseUnitLabel || "bottles"} per case
+                          {component.totalBaseUnits !== null && component.totalBaseUnits !== undefined
+                            ? ` (${Number(component.totalBaseUnits)} total)`
+                            : ""}
+                        </Text>
+                      </View>
                     ))
                   : null}
               </View>
@@ -1530,7 +1942,7 @@ function MenuRow({
   onPress,
   danger = false,
 }: {
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   description: string;
   onPress: () => void;
@@ -1539,13 +1951,12 @@ function MenuRow({
   return (
     <Pressable style={styles.menuRow} onPress={onPress}>
       <View style={[styles.menuIconWrap, danger ? styles.menuIconWrapDanger : null]}>
-        <Text style={[styles.menuGlyph, danger ? styles.menuGlyphDanger : null]}>{icon}</Text>
+        <Ionicons name={icon} size={21} color={danger ? "#ef4444" : "#0d61ad"} />
       </View>
       <View style={styles.flex}>
         <Text style={[styles.menuLabel, danger ? styles.menuLabelDanger : null]}>{label}</Text>
-        <Text style={styles.menuDescription}>{description}</Text>
       </View>
-      <Text style={[styles.chevronText, danger ? styles.menuGlyphDanger : null]}>{">"}</Text>
+      <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
     </Pressable>
   );
 }
@@ -1578,25 +1989,28 @@ function ModalShell({
   subtitle,
   onClose,
   children,
+  fullScreen = false,
 }: {
   visible: boolean;
   title: string;
   subtitle: string;
   onClose: () => void;
   children: React.ReactNode;
+  fullScreen?: boolean;
 }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+      <View style={[styles.modalBackdrop, fullScreen ? styles.fullScreenModalBackdrop : null]}>
+        <View style={[styles.modalCard, fullScreen ? styles.fullScreenModalCard : null]}>
           <View style={styles.modalHeader}>
+            {fullScreen ? <Pressable onPress={onClose} hitSlop={8}><Ionicons name="arrow-back" size={21} color="#334155" /></Pressable> : null}
             <View style={styles.flex}>
               <Text style={styles.modalTitle}>{title}</Text>
-              <Text style={styles.subtle}>{subtitle}</Text>
+              {!fullScreen ? <Text style={styles.subtle}>{subtitle}</Text> : null}
             </View>
-            <Pressable onPress={onClose} hitSlop={8}>
+            {!fullScreen ? <Pressable onPress={onClose} hitSlop={8}>
               <Text style={styles.closeGlyph}>X</Text>
-            </Pressable>
+            </Pressable> : null}
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>{children}</ScrollView>
         </View>
@@ -1647,7 +2061,7 @@ function BottomNavigation({
   activeTab,
   onSelect,
 }: {
-  items: Array<{ id: string; label: string; icon: string }>;
+  items: Array<{ id: string; label: string; icon: React.ComponentProps<typeof Ionicons>["name"]; activeIcon: React.ComponentProps<typeof Ionicons>["name"] }>;
   activeTab: string;
   onSelect: (tab: string) => void;
 }) {
@@ -1656,9 +2070,9 @@ function BottomNavigation({
       {items.map((item) => {
         const active = item.id === activeTab;
         return (
-          <Pressable key={item.id} style={styles.bottomNavItem} onPress={() => onSelect(item.id)}>
-            <View style={[styles.bottomNavIconWrap, active ? styles.bottomNavIconWrapActive : null]}>
-              <Text style={[styles.bottomNavGlyph, active ? styles.bottomNavGlyphActive : null]}>{item.icon}</Text>
+          <Pressable key={item.id} style={[styles.bottomNavItem, active ? (item.id === "home" ? styles.bottomNavItemHomeActive : styles.bottomNavItemActive) : null]} onPress={() => onSelect(item.id)}>
+            <View style={styles.bottomNavIconWrap}>
+              <Ionicons name={active ? item.activeIcon : item.icon} size={18} color={active ? (item.id === "home" ? "#047857" : "#0369a1") : "#0e4f92"} />
             </View>
             <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>{item.label}</Text>
           </Pressable>
@@ -1678,6 +2092,19 @@ function getInitials(value: string) {
   return parts.map((part) => part[0]?.toUpperCase() || "").join("");
 }
 
+function compactDriverName(profile: DriverProfile | null): string {
+  if (!profile) return "Name details not set";
+  const middleInitial = String(profile.middleName || "").replace(/\.+$/, "").charAt(0).toUpperCase();
+  return [profile.firstName, middleInitial ? `${middleInitial}.` : "", profile.lastName, profile.suffix].filter(Boolean).join(" ") || "Name details not set";
+}
+
+function productNameWithSize(name: string, size?: string | null): string {
+  const cleanName = String(name || "Product").trim();
+  const cleanSize = String(size || "").trim();
+  if (!cleanSize || cleanName.toLowerCase().endsWith(cleanSize.toLowerCase())) return cleanName;
+  return `${cleanName} ${cleanSize}`;
+}
+
 function getPreferredOperationalTripId(trips: DriverTrip[]): string | null {
   return trips.find((trip) => normalizeStatus(trip.status) === "IN_PROGRESS")?.id
     || trips.find((trip) => normalizeStatus(trip.status) === "PLANNED")?.id
@@ -1690,6 +2117,11 @@ function formatDate(value?: string | null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
+}
+
+function resolveMediaUrl(value: string): string {
+  if (/^(https?:|file:|data:)/i.test(value)) return value;
+  return `${API_BASE_URL.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
 }
 
 function formatDateOnly(value?: string | null) {
@@ -1721,10 +2153,55 @@ function validatePasswordPolicy(nextPassword: string) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#edf2f7" },
+  container: { flex: 1, backgroundColor: "#dff0ea" },
   flex: { flex: 1 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "#edf2f7" },
-  authShell: { flex: 1, padding: 20, justifyContent: "center", gap: 16 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "#dff0ea" },
+  authShell: { flexGrow: 1, padding: 12, justifyContent: "center" },
+  authCard: {
+    // Keep the card inside narrow preview/native safe areas even when web uses content-box sizing.
+    width: "92%",
+    boxSizing: "border-box",
+    maxWidth: 440,
+    alignSelf: "center",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#d9e4e5",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    shadowColor: "#0f435e",
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  authLogoImage: { width: 100, height: 100 },
+  authEyebrow: { color: "#199154", fontSize: 11, fontWeight: "700", letterSpacing: 2.8, textAlign: "center" },
+  authTitle: { marginTop: 8, color: "#0a4286", fontSize: 32, lineHeight: 32, fontWeight: "900", letterSpacing: -1.2 },
+  authDriverRow: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  authDriverTitle: { color: "#13a455", fontSize: 34, lineHeight: 35, fontWeight: "900", letterSpacing: -1.2 },
+  speedLines: { width: 30, gap: 3, alignItems: "flex-end" },
+  speedLinesMirrored: { transform: [{ rotate: "180deg" }] },
+  speedLineLong: { width: 30, height: 2, borderRadius: 2, backgroundColor: "#13a455" },
+  speedLineShort: { width: 20, height: 2, borderRadius: 2, backgroundColor: "#13a455" },
+  authSubtitle: { marginTop: 10, color: "#586484", fontSize: 14, lineHeight: 19, fontWeight: "500", textAlign: "center", maxWidth: 288 },
+  authForm: { width: "100%", marginTop: 12, gap: 10 },
+  inputLabel: { color: "#324766", fontSize: 13, fontWeight: "700", marginTop: 2 },
+  authInputRow: { height: 44, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#d5dee4", borderRadius: 12, backgroundColor: "#ffffff" },
+  authTextInput: { flex: 1, height: 42, paddingVertical: 0, color: "#0f172a", fontSize: 15 },
+  passwordInputRow: { minHeight: 44, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#d5dee4", borderRadius: 12, backgroundColor: "#ffffff", overflow: "hidden" },
+  passwordLeadingIcon: { marginLeft: 12 },
+  passwordInput: { minWidth: 0, flex: 1, paddingHorizontal: 10, paddingVertical: 10, color: "#0f172a", fontSize: 15 },
+  passwordToggle: { width: 42, minHeight: 42, alignItems: "center", justifyContent: "center" },
+  passwordToggleText: { color: "#60708b", fontSize: 12, fontWeight: "700" },
+  loginButton: { minHeight: 50, borderRadius: 999, backgroundColor: "#169f50", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, marginTop: 4, shadowColor: "#16a850", shadowOpacity: 0.24, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  forgotButton: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  forgotButtonText: { color: "#16984e", fontSize: 14, fontWeight: "700" },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1, borderColor: "#94a3b8", alignItems: "center", justifyContent: "center", backgroundColor: "#ffffff" },
+  checkboxChecked: { backgroundColor: "#2f9a34", borderColor: "#2f9a34" },
+  checkboxGlyph: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  rememberText: { color: "#4e5f79", fontSize: 13, fontWeight: "500" },
   heroCard: {
     backgroundColor: "#0f172a",
     borderRadius: 28,
@@ -1735,9 +2212,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    backgroundColor: "#edf5fb",
+    borderBottomWidth: 1,
+    borderBottomColor: "#bae6fd",
   },
   logoWrap: {
     flexDirection: "row",
@@ -1749,17 +2229,19 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 16,
-    backgroundColor: "#0f172a",
+    backgroundColor: "#0e5aa8",
     alignItems: "center",
     justifyContent: "center",
   },
   logoBadgeText: { color: "#ffffff", fontSize: 13, fontWeight: "800", letterSpacing: 1 },
-  appHeaderTitle: { color: "#0f172a", fontSize: 16, fontWeight: "800", letterSpacing: 0.4 },
+  appHeaderEyebrow: { color: "#475569", fontSize: 9, fontWeight: "600", letterSpacing: 1.25 },
+  appHeaderTitle: { color: "#0f3d72", fontSize: 18, fontWeight: "900", letterSpacing: -0.2 },
+  appHeaderSubtitle: { color: "#64748b", fontSize: 11, marginTop: 1 },
   headerAvatar: {
     width: 42,
     height: 42,
-    borderRadius: 14,
-    backgroundColor: "#ffffff",
+    borderRadius: 21,
+    backgroundColor: "#0e5aa8",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#0f172a",
@@ -1768,7 +2250,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 2,
   },
-  headerGlyph: { color: "#0f172a", fontSize: 14, fontWeight: "800" },
+  headerGlyph: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
+  headerUnreadDot: { position: "absolute", top: 6, right: 6, width: 9, height: 9, borderRadius: 5, backgroundColor: "#ef4444", borderWidth: 2, borderColor: "#ffffff" },
   eyebrow: { color: "#94a3b8", fontSize: 12, fontWeight: "700", letterSpacing: 1 },
   title: { color: "#ffffff", fontSize: 28, fontWeight: "800" },
   subtle: { color: "#64748b", fontSize: 14 },
@@ -1779,7 +2262,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 6,
   },
-  profilePageTitle: { fontSize: 28, fontWeight: "800", color: "#0f172a" },
+  profileScreen: { marginTop: -8, paddingTop: 18, paddingBottom: 12, gap: 20, backgroundColor: "#f8f9fa" },
+  profilePageTitle: { marginHorizontal: 16, fontSize: 24, fontWeight: "800", color: "#0f172a" },
   profilePageSubtitle: { fontSize: 14, color: "#475569", lineHeight: 20 },
   card: {
     backgroundColor: "#ffffff",
@@ -1807,26 +2291,32 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 2,
   },
+  profileHero: { marginHorizontal: 16, paddingVertical: 4, flexDirection: "row", alignItems: "center", gap: 16 },
+  profileMenuCard: { marginHorizontal: 16, overflow: "hidden", borderRadius: 24, borderWidth: 1, borderColor: "#f1f5f9", backgroundColor: "#ffffff", shadowColor: "#000000", shadowOpacity: 0.02, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
+  profileLogoutCard: { marginHorizontal: 16, overflow: "hidden", borderRadius: 16, borderWidth: 1, borderColor: "#f1f5f9", backgroundColor: "#ffffff" },
   summaryAvatar: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#dbeafe",
+    backgroundColor: "#0d61ad",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
-  summaryAvatarText: { color: "#1d4ed8", fontSize: 26, fontWeight: "800" },
+  summaryAvatarImage: { width: "100%", height: "100%" },
+  summaryAvatarText: { color: "#ffffff", fontSize: 26, fontWeight: "800" },
+  avatarEditor: { alignItems: "center", gap: 12, paddingBottom: 4 },
   summaryContent: { flex: 1, gap: 6 },
-  summaryName: { fontSize: 21, fontWeight: "800", color: "#0f172a" },
-  summaryMeta: { fontSize: 14, color: "#475569" },
+  summaryName: { fontSize: 20, fontWeight: "800", color: "#17365d" },
+  summaryMeta: { fontSize: 14, color: "#5f7390" },
   roleBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "#dcfce7",
+    backgroundColor: "#e0f2fe",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  roleBadgeText: { color: "#166534", fontWeight: "700", fontSize: 12 },
+  roleBadgeText: { color: "#0369a1", fontWeight: "700", fontSize: 12 },
   sectionTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
   featureTitle: { fontSize: 20, fontWeight: "800", color: "#1e293b" },
   input: {
@@ -1885,10 +2375,21 @@ const styles = StyleSheet.create({
   rememberRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 9,
+    minHeight: 40,
   },
   row: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   scrollContent: { paddingTop: 8, paddingBottom: 120, gap: 16 },
+  profileScrollContent: { backgroundColor: "#f8f9fa" },
+  tripDetailScrollContent: { paddingTop: 0, paddingBottom: 0, backgroundColor: "#f8fafc" },
+  homePanel: { marginHorizontal: 16, padding: 16, gap: 16, borderRadius: 26, borderWidth: 1, borderColor: "rgba(255,255,255,0.75)", backgroundColor: "rgba(205,228,243,0.88)", shadowColor: "#0e7490", shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 3 },
+  homeDashboardHeading: { gap: 3 },
+  homeMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  homeAssignmentCard: { backgroundColor: "#f8f8f2", borderRadius: 16, padding: 16, gap: 12, borderWidth: 1, borderColor: "rgba(203,213,225,0.7)", shadowColor: "#0f172a", shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  dashboardHeading: { paddingHorizontal: 16, gap: 3 },
+  dashboardEyebrow: { color: "#1f3558", fontSize: 11, fontWeight: "700", letterSpacing: 1.75 },
+  dashboardTitle: { color: "#0a1435", fontSize: 32, lineHeight: 38, fontWeight: "900", letterSpacing: -0.6 },
+  dashboardSubtitle: { color: "#223c5d", fontSize: 18, lineHeight: 25 },
   metricGrid: {
     paddingHorizontal: 16,
     flexDirection: "row",
@@ -1897,14 +2398,53 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     width: "47%",
-    backgroundColor: "#ffffff",
-    borderRadius: 20,
+    minHeight: 106,
+    backgroundColor: "#f8f8f2",
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    gap: 6,
+    borderColor: "#d7dee7",
+    gap: 8,
   },
-  metricValue: { fontSize: 28, fontWeight: "800", color: "#0f172a" },
-  metricLabel: { color: "#475569", fontWeight: "600" },
+  metricValue: { fontSize: 32, lineHeight: 35, fontWeight: "900", color: "#2f9a34" },
+  metricLabel: { color: "#1f4d79", fontSize: 13, fontWeight: "600" },
+  tripBackButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center", backgroundColor: "#ffffff" },
+  tripBackText: { color: "#0f2747", fontSize: 34, lineHeight: 36, marginTop: -4 },
+  tripDetailScreen: { position: "relative", width: "100%", overflow: "hidden", backgroundColor: "#f8fbfe" },
+  tripMapContextRow: { position: "absolute", zIndex: 20, top: 88, left: 14, right: 14, flexDirection: "row", alignItems: "center", gap: 8 },
+  tripMapBackButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "rgba(255,255,255,0.97)", shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  tripMapChip: { height: 34, justifyContent: "center", paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "rgba(255,255,255,0.97)", shadowColor: "#0f172a", shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  tripMapChipText: { color: "#0f172a", fontSize: 12, fontWeight: "700" },
+  tripCoordinateChip: { minWidth: 0, flex: 1 },
+  tripCoordinateText: { color: "#0f172a", fontSize: 11, fontWeight: "600" },
+  tripStartButton: { position: "absolute", zIndex: 22, left: 16, right: 16, bottom: 118, minHeight: 48, borderRadius: 12, backgroundColor: "#1d4ed8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, shadowColor: "#1d4ed8", shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
+  tripSheetPeek: { position: "absolute", zIndex: 24, left: 0, right: 0, bottom: 0, minHeight: 108, paddingHorizontal: 18, paddingTop: 9, paddingBottom: 13, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(255,255,255,0.9)", backgroundColor: "rgba(255,255,255,0.97)", shadowColor: "#0f172a", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: -8 }, elevation: 10 },
+  tripSheetHandle: { width: 54, height: 5, borderRadius: 3, alignSelf: "center", marginBottom: 8, backgroundColor: "#cbd5e1" },
+  tripSheetEyebrow: { color: "#64748b", fontSize: 10, fontWeight: "700", letterSpacing: 1.7 },
+  tripSheetSummaryRow: { marginTop: 3, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  tripSheetTripNumber: { color: "#0f172a", fontSize: 19, fontWeight: "900", letterSpacing: -0.3 },
+  tripSheetSchedule: { color: "#64748b", fontSize: 11, marginTop: 2 },
+  tripSheetSummaryRight: { alignItems: "flex-end", gap: 4 },
+  tripSheetSpeed: { color: "#0f172a", fontSize: 12, fontWeight: "900" },
+  tripSheetProgress: { color: "#334155", fontSize: 11, fontWeight: "700", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: "hidden", backgroundColor: "#f1f5f9" },
+  tripBottomSheet: { position: "absolute", zIndex: 25, left: 0, right: 0, bottom: 0, height: "55%", paddingTop: 9, paddingHorizontal: 16, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(255,255,255,0.9)", backgroundColor: "rgba(255,255,255,0.98)", shadowColor: "#0f172a", shadowOpacity: 0.2, shadowRadius: 22, shadowOffset: { width: 0, height: -10 }, elevation: 12 },
+  tripSheetExpandedHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, paddingBottom: 10 },
+  tripSheetScroll: { flex: 1 },
+  tripSheetScrollContent: { gap: 10, paddingBottom: 24 },
+  tripsScreen: { paddingHorizontal: 16, gap: 12 },
+  tripsEyebrow: { color: "#64748b", fontSize: 11, fontWeight: "700", letterSpacing: 1.75 },
+  tripsTitle: { marginTop: -8, color: "#0f172a", fontSize: 20, lineHeight: 26, fontWeight: "900" },
+  searchField: { height: 40, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#e0f2fe", borderRadius: 12, backgroundColor: "rgba(255,255,255,0.94)", shadowColor: "#0284c7", shadowOpacity: 0.08, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
+  searchInput: { flex: 1, height: 40, paddingVertical: 0, color: "#0f172a", fontSize: 14 },
+  routeCard: { padding: 16, gap: 8, borderWidth: 1, borderColor: "#e0f2fe", borderRadius: 16, backgroundColor: "rgba(255,255,255,0.96)", shadowColor: "#0284c7", shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  routeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  routeNumber: { flex: 1, color: "#0f172a", fontSize: 16, fontWeight: "800" },
+  viewDetailsButton: { height: 32, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#bae6fd", borderRadius: 8, backgroundColor: "#ffffff" },
+  viewDetailsText: { color: "#0369a1", fontSize: 12, fontWeight: "700" },
+  tripStatusBadge: { alignSelf: "flex-start", paddingHorizontal: 9, paddingVertical: 3, borderWidth: 1, borderColor: "#bae6fd", borderRadius: 999, backgroundColor: "#e0f2fe" },
+  tripStatusActive: { borderColor: "#a7f3d0", backgroundColor: "#d1fae5" },
+  tripStatusText: { color: "#075985", fontSize: 11, fontWeight: "700" },
+  routeMeta: { color: "#475569", fontSize: 13, lineHeight: 19 },
   listItem: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -1928,17 +2468,33 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   orderItems: { gap: 6, marginTop: 6 },
+  mixedComponentRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  componentImage: { width: 38, height: 38, borderRadius: 8, backgroundColor: "#e2e8f0" },
   orderItem: {
     borderTopWidth: 1,
     borderTopColor: "#e2e8f0",
     paddingTop: 6,
     gap: 2,
   },
+  orderItemHistory: { borderWidth: 1, borderColor: "#dbe4ee", borderRadius: 14, padding: 12, gap: 4, backgroundColor: "#f8fafc" },
+  historyPodImage: { width: "100%", height: 210, borderRadius: 16, backgroundColor: "#e2e8f0" },
+  historyTotal: { color: "#059669", fontSize: 20, fontWeight: "900", textAlign: "right" },
+  linkText: { color: "#0d61ad", fontSize: 13, fontWeight: "800", marginTop: 6 },
+  historyScreen: { paddingHorizontal: 16, gap: 10 },
+  historyTitle: { color: "#0f172a", fontSize: 20, lineHeight: 26, fontWeight: "800" },
+  historySubtitle: { marginTop: -8, color: "#64748b", fontSize: 12 },
   historyCard: {
-    backgroundColor: "#f8fafc",
-    borderRadius: 18,
-    padding: 14,
-    gap: 4,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "rgba(203,213,225,0.8)",
+    borderRadius: 16,
+    padding: 16,
+    gap: 5,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   infoRow: {
     flexDirection: "row",
@@ -1953,64 +2509,69 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 18,
-    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+    paddingHorizontal: 16,
+    paddingVertical: 15,
   },
   menuIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "#eff6ff",
+    width: 22,
+    height: 24,
     alignItems: "center",
     justifyContent: "center",
   },
   menuIconWrapDanger: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: "transparent",
   },
-  menuLabel: { color: "#0f172a", fontSize: 15, fontWeight: "700" },
-  menuLabelDanger: { color: "#b91c1c" },
+  menuLabel: { color: "#1e293b", fontSize: 15, fontWeight: "700" },
+  menuLabelDanger: { color: "#dc2626" },
   menuDescription: { color: "#64748b", fontSize: 13, marginTop: 2 },
   menuGlyph: { color: "#0f172a", fontSize: 11, fontWeight: "800" },
   menuGlyphDanger: { color: "#b91c1c" },
   chevronText: { color: "#94a3b8", fontSize: 18, fontWeight: "700" },
   bottomNav: {
     position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 14,
-    backgroundColor: "#ffffff",
-    borderRadius: 24,
-    paddingVertical: 10,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#eff7fb",
+    borderTopWidth: 1,
+    borderTopColor: "#bae6fd",
+    paddingTop: 8,
+    paddingBottom: 10,
     paddingHorizontal: 8,
     flexDirection: "row",
     justifyContent: "space-between",
     shadowColor: "#0f172a",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 8,
   },
   bottomNavItem: {
     flex: 1,
+    height: 56,
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    gap: 2,
+    borderRadius: 12,
   },
+  bottomNavItemActive: { backgroundColor: "rgba(224,242,254,0.92)" },
+  bottomNavItemHomeActive: { backgroundColor: "rgba(209,250,229,0.92)" },
   bottomNavIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 24,
+    height: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   bottomNavIconWrapActive: {
-    backgroundColor: "#0f172a",
+    backgroundColor: "#dbeafe",
   },
-  bottomNavGlyph: { color: "#475569", fontSize: 11, fontWeight: "800" },
-  bottomNavGlyphActive: { color: "#ffffff" },
-  bottomNavLabel: { color: "#64748b", fontSize: 12, fontWeight: "700" },
-  bottomNavLabelActive: { color: "#0f172a" },
+  bottomNavIconWrapHomeActive: { backgroundColor: "#d1fae5" },
+  bottomNavGlyph: { color: "#0e4f92", fontSize: 18, fontWeight: "900" },
+  bottomNavGlyphActive: { color: "#047857" },
+  bottomNavLabel: { color: "#0e4f92", fontSize: 11, fontWeight: "700" },
+  bottomNavLabelActive: { color: "#047857" },
   error: { color: "#b91c1c", fontWeight: "600" },
   errorBanner: {
     color: "#991b1b",
@@ -2030,6 +2591,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.45)",
     justifyContent: "flex-end",
   },
+  fullScreenModalBackdrop: { backgroundColor: "#f8f9fa", justifyContent: "flex-start" },
   modalCard: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 28,
@@ -2037,6 +2599,7 @@ const styles = StyleSheet.create({
     maxHeight: "88%",
     paddingTop: 10,
   },
+  fullScreenModalCard: { flex: 1, width: "100%", maxHeight: "100%", paddingTop: 24, borderTopLeftRadius: 0, borderTopRightRadius: 0, backgroundColor: "#f8f9fa" },
   confirmCard: {
     marginHorizontal: 20,
     marginBottom: 24,

@@ -27,6 +27,7 @@ const NAVIGATION_3D_FORWARD_VIEW_RATIO = 0.12;
 type TruckMarkerEntry = {
   marker: maplibregl.Marker;
   element: HTMLDivElement;
+  popupHtml: string;
 };
 
 type DropPinMarkerEntry = {
@@ -318,14 +319,20 @@ export default function MapLibreNavigationMap({
           .setLngLat([location.lng, location.lat])
           .setPopup(new maplibregl.Popup({ closeButton: false, offset: [0, -42] }).setHTML(popupHtml(location)))
           .addTo(map);
-        entry = { marker, element };
+        entry = { marker, element, popupHtml: popupHtml(location) };
         truckMarkersRef.current.set(location.id, entry);
       }
       const projectedPlacement = projectedRoutePlacement(map, location, routeLinesRef.current);
       const markerLat = projectedPlacement?.lat ?? location.lat;
       const markerLng = projectedPlacement?.lng ?? location.lng;
       entry.marker.setLngLat([markerLng, markerLat]);
-      entry.marker.getPopup()?.setHTML(popupHtml(location));
+      const nextPopupHtml = popupHtml(location);
+      // Position changes arrive every animation frame; keep static popup DOM out
+      // of that hot path to avoid needless layout work and marker flicker.
+      if (entry.popupHtml !== nextPopupHtml) {
+        entry.marker.getPopup()?.setHTML(nextPopupHtml);
+        entry.popupHtml = nextPopupHtml;
+      }
       const hasRouteHeading = typeof location.markerHeading === 'number' && Number.isFinite(location.markerHeading);
       const heading = hasRouteHeading ? normalizeMapAngle(location.markerHeading as number) : 0;
       if (hasRouteHeading) entry.element.dataset.routeHeading = String(heading);
@@ -658,7 +665,7 @@ export default function MapLibreNavigationMap({
     const cameraOffset: [number, number] = is3DPerspective
       ? [0, usableViewportHeight * NAVIGATION_3D_FORWARD_VIEW_RATIO]
       : [0, 0];
-    map.easeTo({
+    const cameraOptions = {
       center: targetCenter,
       bearing: is3DPerspective ? cameraHeading : 0,
       pitch: is3DPerspective ? NAVIGATION_3D_PITCH : 0,
@@ -667,10 +674,13 @@ export default function MapLibreNavigationMap({
         : map.getZoom(),
       padding: cameraPadding,
       offset: cameraOffset,
-      duration: perspectiveChanged ? 700 : 350,
+      // GPS positions and bearings are already interpolated at animation-frame
+      // cadence. Applying another 350ms transition on every frame creates lag.
+      duration: perspectiveChanged || recenterChanged ? 700 : 0,
       easing: (value) => 1 - Math.pow(1 - value, 3),
       essential: true,
-    });
+    };
+    map.easeTo(cameraOptions);
   }, [center, is3DPerspective, navigationViewportInsets, recenterSignal, routeSignature, truck?.lat, truck?.lng, truckHeading]);
 
   return (

@@ -12,10 +12,16 @@ export interface AuthUser {
 }
 
 export interface DriverProfile extends AuthUser {
+  firstName?: string | null;
+  middleName?: string | null;
+  lastName?: string | null;
+  suffix?: string | null;
   emergencyContact?: string | null;
   licenseNumber?: string | null;
   licenseType?: string | null;
   licenseExpiry?: string | null;
+  twoFactorEnabled?: boolean;
+  loginAlertsEnabled?: boolean;
 }
 
 export interface DriverMixedCaseComponent {
@@ -27,6 +33,14 @@ export interface DriverMixedCaseComponent {
   caseCount?: number | null;
   totalBaseUnits?: number | null;
   baseUnitLabel?: string | null;
+  product?: {
+    id?: string | null;
+    name?: string | null;
+    sku?: string | null;
+    imageUrl?: string | null;
+    sizes?: string[] | null;
+    category?: string | null;
+  } | null;
 }
 
 export interface DriverTripOrderItem {
@@ -45,6 +59,7 @@ export interface DriverTripOrderItem {
     unit?: string | null;
     sizeLabel?: string | null;
     category?: string | null;
+    imageUrl?: string | null;
   } | null;
   components?: DriverMixedCaseComponent[];
 }

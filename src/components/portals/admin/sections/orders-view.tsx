@@ -136,6 +136,12 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
     return `${formatProductNameWithSize(item)} x${qty}`
   }
 
+  // Display long database IDs compactly in the table while preserving the full ID in the tooltip.
+  const formatTransactionId = (value: unknown): string => {
+    const id = String(value || '').trim()
+    return id.length > 20 ? `${id.slice(0, 8)}...${id.slice(-6)}` : id
+  }
+
   const isReplacementOrder = (order: any): boolean => {
     const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
     return Boolean(order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
@@ -242,7 +248,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
       isFetchingOrders = true
       try {
         const result = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=preview&includeFulfillments=true&includeWarehouseAllocations=true',
+          // Full item data prevents later mixed-case lines from waiting for detail hydration.
+          '/api/orders?includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true',
           'orders',
           { cache: 'no-store' },
           { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
@@ -308,7 +315,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
         }
 
         const params = new URLSearchParams({
-          includeItems: 'preview',
+          includeItems: 'full',
           includeFulfillments: 'true',
           includeWarehouseAllocations: 'true',
           sort: 'updated_at',
@@ -955,13 +962,11 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                             <td className="px-4 py-3 font-semibold text-slate-900">{reqId}</td>
                             <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
                             <td className="max-w-[280px] px-4 py-3 text-slate-600">
-                              {/* Each product stays on the same line as its matching quantity in the next column. */}
                               <div className="space-y-1">
                                 {orderItems.length > 0
                                   ? orderItems.map((item: any, index: number) => (
-                                      <div key={`${order.id}-product-${item?.id || index}`}>
+                                      <div key={`${order.id}-product-${item?.id || index}`} className="min-h-12">
                                         <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
-                                        {/* Keep table rows text-only; product photos belong in View Details. */}
                                         {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
                                       </div>
                                     ))
@@ -970,9 +975,15 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                             </td>
                             <td className="px-4 py-3">
                               <div className="space-y-1">
+                                {/* Match each request product slot so wrapped names keep quantities aligned. */}
                                 {orderItems.length > 0
                                   ? orderItems.map((item: any, index: number) => (
-                                      <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                      <div key={`${order.id}-quantity-${item?.id || index}`} className={`min-h-12 ${item?.itemType === 'MIXED_CASE' ? 'pt-0.5' : ''}`}>
+                                        <p>{Number(item?.quantity || 0)}</p>
+                                        {item?.itemType === 'MIXED_CASE' && Array.isArray(item?.components) ? item.components.map((_: any, ci: number) => (
+                                          <p key={ci} className="text-[11px] text-slate-400">&nbsp;</p>
+                                        )) : null}
+                                      </div>
                                     ))
                                   : <p>0</p>}
                               </div>
@@ -1203,7 +1214,14 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                           </td>
                           <td className="p-4 text-gray-600">
                             {transactionIds.length > 0
-                              ? transactionIds.map((id: unknown) => <p key={String(id)}>{String(id)}</p>)
+                              ? transactionIds.map((id: unknown) => {
+                                  const fullId = String(id)
+                                  return (
+                                    <p key={fullId} title={fullId} className="whitespace-nowrap font-mono text-xs">
+                                      {formatTransactionId(fullId)}
+                                    </p>
+                                  )
+                                })
                               : '----'}
                           </td>
                           <td className="p-4">
@@ -1215,7 +1233,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                             <div className="space-y-1">
                               {orderItems.length > 0
                                 ? orderItems.map((item: any, index: number) => (
-                                    <div key={`${order.id}-product-${item?.id || index}`}>
+                                    <div key={`${order.id}-product-${item?.id || index}`} className="min-h-12">
                                       <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
                                       {/* Keep table rows text-only; product photos belong in View Details. */}
                                       {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
@@ -1228,7 +1246,10 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                             <div className="space-y-1">
                               {orderItems.length > 0
                                 ? orderItems.map((item: any, index: number) => (
-                                    <p key={`${order.id}-quantity-${item?.id || index}`}>{Number(item?.quantity || 0)}</p>
+                                    // Match the product slot height so wrapped names cannot shift later quantities.
+                                    <p key={`${order.id}-quantity-${item?.id || index}`} className="min-h-12">
+                                      {Number(item?.quantity || 0)}
+                                    </p>
                                   ))
                                 : <p>0</p>}
                             </div>
