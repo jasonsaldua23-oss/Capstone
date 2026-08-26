@@ -39,7 +39,7 @@ interface TopClientsReportProps {
   customers?: any[]
 }
 
-type PeriodFilter = 'weekly' | 'monthly' | 'yearly' | 'all' | 'custom'
+type PeriodFilter = 'all' | '7' | '30' | '90' | '365' | 'custom'
 
 function getClientBarangay(address: unknown, city: unknown) {
   const addressParts = String(address || '')
@@ -65,7 +65,7 @@ function getClientBarangay(address: unknown, city: unknown) {
 }
 
 export function TopClientsReport({ orders, customers = [] }: TopClientsReportProps) {
-  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('monthly')
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -102,7 +102,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
           list = list.filter((o) => new Date(o.createdAt || o.date).getTime() <= toTime)
         }
       } else {
-        const days = periodFilter === 'weekly' ? 7 : periodFilter === 'monthly' ? 30 : 365
+        const days = Number(periodFilter)
         const cutoff = new Date()
         cutoff.setDate(cutoff.getDate() - days)
         cutoff.setHours(0, 0, 0, 0)
@@ -281,64 +281,23 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Period Selector */}
-          <div className="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-100 p-1">
-            <button
-              onClick={() => {
-                setPeriodFilter('weekly')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                periodFilter === 'weekly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Weekly
-            </button>
-            <button
-              onClick={() => {
-                setPeriodFilter('monthly')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                periodFilter === 'monthly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Monthly
-            </button>
-            <button
-              onClick={() => {
-                setPeriodFilter('yearly')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                periodFilter === 'yearly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Yearly
-            </button>
-            <button
-              onClick={() => {
-                setPeriodFilter('all')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                periodFilter === 'all' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              All-Time
-            </button>
-            <button
-              onClick={() => {
-                setPeriodFilter('custom')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                periodFilter === 'custom' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Custom
-            </button>
-          </div>
+          {/* Use the same fixed date-range choices as every other Reports tab. */}
+          <select
+            value={periodFilter}
+            onChange={(event) => {
+              setPeriodFilter(event.target.value as PeriodFilter)
+              setCurrentPage(1)
+            }}
+            aria-label="Filter top clients by date range"
+            className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="all">All Time</option>
+            <option value="7">Past 7 Days</option>
+            <option value="30">Past 30 Days</option>
+            <option value="90">Past 90 Days</option>
+            <option value="365">Past 1 Year</option>
+            <option value="custom">Custom Date Range</option>
+          </select>
 
           {/* Export Buttons */}
           <Button
@@ -378,6 +337,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
             <span className="text-xs font-medium text-slate-600">Custom Date Range:</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
@@ -389,6 +349,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
             <span className="text-xs text-slate-400">to</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)

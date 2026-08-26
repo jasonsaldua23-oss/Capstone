@@ -14,7 +14,12 @@ import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck,
 import { toast } from 'sonner'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
-import { DRIVER_LICENSE_RESTRICTIONS, isValidDriverLicenseRestriction } from '@/lib/driver-license-restrictions'
+import {
+  DRIVER_LICENSE_RESTRICTIONS,
+  isValidDriverLicenseRestriction,
+  isValidPhilippineDriverLicense,
+  formatPhilippineDriverLicenseInput,
+} from '@/lib/driver-license-restrictions'
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -421,13 +426,24 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       toast.error('Please enter a valid Philippine mobile number')
       return
     }
-    if (mode === 'license' && !isValidDriverLicenseRestriction(draft.licenseType)) {
-      toast.error('Please select a valid driver license restriction')
-      return
-    }
-    if (mode === 'license' && draft.licenseExpiry && draft.licenseExpiry < new Date().toISOString().slice(0, 10)) {
-      toast.error('License expiration date cannot be in the past.')
-      return
+    if (mode === 'license') {
+      const rawLicense = (draft.licenseNumber || '').trim()
+      if (!rawLicense) {
+        toast.error("Driver's license number is required")
+        return
+      }
+      if (!isValidPhilippineDriverLicense(rawLicense)) {
+        toast.error("Driver's License Number must follow standard Philippine LTO format: 1 letter, 2 digits, hyphen, 2 digits, hyphen, 6 digits (e.g. D09-22-000984 / X00-00-000000).")
+        return
+      }
+      if (!isValidDriverLicenseRestriction(draft.licenseType)) {
+        toast.error('Please select a valid driver license restriction')
+        return
+      }
+      if (draft.licenseExpiry && draft.licenseExpiry < new Date().toISOString().slice(0, 10)) {
+        toast.error('License expiration date cannot be in the past.')
+        return
+      }
     }
 
     setIsSaving(true)
@@ -943,9 +959,18 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             <Input
               id="driver-license-number"
               value={draft.licenseNumber}
-              onChange={(e) => onChange('licenseNumber', e.target.value)}
-              className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
+              placeholder="e.g. D09-22-000984"
+              maxLength={13}
+              onChange={(e) => onChange('licenseNumber', formatPhilippineDriverLicenseInput(e.target.value))}
+              className={`h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200 ${
+                draft.licenseNumber && !isValidPhilippineDriverLicense(draft.licenseNumber)
+                  ? 'border-amber-300 focus-visible:border-amber-500 focus-visible:ring-amber-200'
+                  : ''
+              }`}
             />
+            {draft.licenseNumber && !isValidPhilippineDriverLicense(draft.licenseNumber) ? (
+              <p className="text-xs text-amber-600 font-medium">Please enter a valid Philippine LTO license number (e.g. D09-22-000984 / X00-00-000000).</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
+import { validatePasswordPolicy } from '@/lib/password-policy'
 import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 
 function toArray<T>(value: unknown): T[] {
@@ -92,6 +93,13 @@ export function UsersView() {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any | null>(null)
+  const [resetPasswordUser, setResetPasswordUser] = useState<any | null>(null)
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [resetPasswordError, setResetPasswordError] = useState('')
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [emailVerified, setEmailVerified] = useState(false)
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -222,6 +230,11 @@ export function UsersView() {
       case 'email': {
         if (!value.trim()) return 'This field is required.'
         if (!isValidEmail(value.trim())) return 'Please enter a valid email address.'
+        const normalizedEmail = value.trim().toLowerCase()
+        const duplicateUser = users.some(
+          (user) => user.id !== editingUser?.id && String(user.email || '').trim().toLowerCase() === normalizedEmail
+        )
+        if (duplicateUser) return 'This email address is already registered.'
         return ''
       }
       case 'phone': {
@@ -253,6 +266,13 @@ export function UsersView() {
   const saveUser = async (mode: 'create' | 'edit') => {
     if (mode === 'create' && !canSave) {
       toast.error('Please complete all required fields.')
+      return
+    }
+    const emailError = validateField('email', form.email)
+    if (emailError) {
+      setTouched((current) => ({ ...current, email: true }))
+      setFormErrors((current) => ({ ...current, email: emailError }))
+      toast.error(emailError)
       return
     }
     if (!isValidPhilippinePhone(form.phone)) {
@@ -300,6 +320,11 @@ export function UsersView() {
       resetForm()
       await fetchUsers()
     } catch (error: any) {
+      if (/already registered|already exists/i.test(String(error?.message || ''))) {
+        // Fix: show the duplicate validation beside the email field, not only in a toast.
+        setTouched((current) => ({ ...current, email: true }))
+        setFormErrors((current) => ({ ...current, email: 'This email address is already registered.' }))
+      }
       toast.error(error?.message || 'Failed to save user')
     } finally {
       setIsSubmitting(false)
@@ -353,6 +378,10 @@ export function UsersView() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
+        if (response.status === 409) {
+          setTouched((current) => ({ ...current, email: true }))
+          setFormErrors((current) => ({ ...current, email: 'This email address is already registered.' }))
+        }
         throw new Error(payload?.error || 'Failed to send verification code')
       }
       setOtpModalOpen(true)
@@ -435,6 +464,54 @@ export function UsersView() {
     }
   }
 
+  const openResetPassword = (user: any) => {
+    // Fix: retain the selected row so the modal always resets the intended user.
+    setResetPasswordUser(user)
+    setNewPassword('')
+    setConfirmNewPassword('')
+    setResetPasswordError('')
+    setShowResetPassword(false)
+    setResetPasswordOpen(true)
+  }
+
+  const submitPasswordReset = async () => {
+    if (!resetPasswordUser?.id) return
+    const policyError = validatePasswordPolicy(newPassword)
+    if (policyError) {
+      setResetPasswordError(policyError)
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      setResetPasswordError('Passwords do not match.')
+      return
+    }
+
+    setIsResettingPassword(true)
+    setResetPasswordError('')
+    try {
+      const response = await fetch(`/api/users/${resetPasswordUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: newPassword, adminResetPassword: true }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Failed to reset password')
+      }
+      toast.success(`Password reset successfully for ${resetPasswordUser.name || resetPasswordUser.email}.`)
+      setResetPasswordOpen(false)
+      setResetPasswordUser(null)
+      setNewPassword('')
+      setConfirmNewPassword('')
+    } catch (error: any) {
+      const message = error?.message || 'Failed to reset password'
+      setResetPasswordError(message)
+      toast.error(message)
+    } finally {
+      setIsResettingPassword(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -490,7 +567,10 @@ export function UsersView() {
                         </Badge>
                       </td>
                       <td className="p-4">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(user)}>Edit</Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openEdit(user)}>Edit</Button>
+                          <Button variant="outline" size="sm" onClick={() => openResetPassword(user)}>Reset Password</Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -760,6 +840,75 @@ export function UsersView() {
         </DialogContent>
       </Dialog>
 
+      {/* Reset Password Modal */}
+      <Dialog
+        open={resetPasswordOpen}
+        onOpenChange={(open) => {
+          setResetPasswordOpen(open)
+          if (!open) {
+            setResetPasswordUser(null)
+            setResetPasswordError('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-[90vw] sm:max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {resetPasswordUser?.name || resetPasswordUser?.email || 'the selected user'}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">New Password</label>
+              <div className="relative">
+                <Input
+                  type={showResetPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => {
+                    setNewPassword(event.target.value)
+                    setResetPasswordError('')
+                  }}
+                  className="h-10 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassword((value) => !value)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-700"
+                  aria-label={showResetPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showResetPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Confirm New Password</label>
+              <Input
+                type={showResetPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={confirmNewPassword}
+                onChange={(event) => {
+                  setConfirmNewPassword(event.target.value)
+                  setResetPasswordError('')
+                }}
+                className="h-10"
+              />
+            </div>
+            {resetPasswordError ? <p className="text-sm text-red-600">{resetPasswordError}</p> : null}
+            <div className="flex gap-2 pt-2 border-t border-gray-100">
+              <Button variant="outline" className="flex-1" onClick={() => setResetPasswordOpen(false)} disabled={isResettingPassword}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={submitPasswordReset} disabled={isResettingPassword}>
+                {isResettingPassword ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Save Password
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Save Confirmation Modal */}
       <AlertDialog open={saveConfirmOpen} onOpenChange={setSaveConfirmOpen}>
         <AlertDialogContent>
@@ -877,9 +1026,13 @@ export function UsersView() {
                 type="email"
                 autoComplete="off"
                 value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="h-10"
+                onChange={(e) => updateField('email', e.target.value)}
+                onBlur={() => handleBlur('email')}
+                className={`h-10 ${touched.email && formErrors.email ? 'border-red-400 ring-red-200' : ''}`}
               />
+              {touched.email && formErrors.email ? (
+                <p className="text-xs text-red-600">{formErrors.email}</p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Phone</label>

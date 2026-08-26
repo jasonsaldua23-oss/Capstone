@@ -39,7 +39,12 @@ import {
   formatVehicleClassification,
   formatVehicleStatus,
 } from '@/lib/vehicle-config'
-import { DRIVER_LICENSE_RESTRICTIONS, isValidDriverLicenseRestriction } from '@/lib/driver-license-restrictions'
+import {
+  DRIVER_LICENSE_RESTRICTIONS,
+  isValidDriverLicenseRestriction,
+  isValidPhilippineDriverLicense,
+  formatPhilippineDriverLicenseInput,
+} from '@/lib/driver-license-restrictions'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -245,10 +250,16 @@ export function TransportationView() {
   }
 
   const saveVehicle = async (mode: 'create' | 'edit') => {
-    if (!vehicleForm.licensePlate.trim()) {
-      toast.error('License plate is required')
+    const rawPlate = vehicleForm.licensePlate.trim()
+    const normalizedPlate = rawPlate.toUpperCase()
+    const duplicateVehicle = vehicles.find(
+      (v) => (v.licensePlate || '').trim().toUpperCase() === normalizedPlate && (mode === 'create' || v.id !== selectedVehicle?.id)
+    )
+    if (duplicateVehicle) {
+      toast.error(`A vehicle with plate number ${rawPlate} already exists.`)
       return
     }
+
     if (!vehicleForm.brand.trim()) {
       toast.error('Vehicle Brand / Make is required')
       return
@@ -269,6 +280,13 @@ export function TransportationView() {
         toast.error('Selected driver is inactive and cannot be assigned')
         return
       }
+      const existingVehicleWithDriver = vehicles.find(
+        (v) => (v.driverId === vehicleForm.driverId || v.driver?.id === vehicleForm.driverId) && (mode === 'create' || v.id !== selectedVehicle?.id)
+      )
+      if (existingVehicleWithDriver) {
+        toast.error(`Driver is already assigned to vehicle ${existingVehicleWithDriver.licensePlate || 'another vehicle'}.`)
+        return
+      }
     }
 
     setIsSubmitting(true)
@@ -281,7 +299,7 @@ export function TransportationView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: mode === 'edit' ? selectedVehicle.id : undefined,
-          licensePlate: vehicleForm.licensePlate.trim(),
+          licensePlate: rawPlate,
           brand: vehicleForm.brand.trim(),
           model: vehicleForm.model.trim(),
           year: yearNum,
@@ -319,6 +337,7 @@ export function TransportationView() {
     const name = (driverForm.name || '').trim()
     const email = (driverForm.email || '').trim()
     const phoneNumber = (driverForm.phoneNumber || '').trim()
+    const licenseNumber = (driverForm.licenseNumber || '').trim()
 
     if (!name || !email || !phoneNumber) {
       toast.error('Name, email, and phone number are required')
@@ -326,6 +345,10 @@ export function TransportationView() {
     }
     if (!isValidPhilippinePhone(phoneNumber)) {
       toast.error('Please enter a valid Philippine mobile number')
+      return
+    }
+    if (licenseNumber && !isValidPhilippineDriverLicense(licenseNumber)) {
+      toast.error("Driver's License Number must follow standard Philippine LTO format: 1 letter, 2 digits, hyphen, 2 digits, hyphen, 6 digits (e.g. D09-22-000984 / X00-00-000000).")
       return
     }
     if (!isValidDriverLicenseRestriction(driverForm.licenseType)) {
@@ -341,6 +364,13 @@ export function TransportationView() {
       const selectedVehicleRecord = vehicles.find((vehicle) => vehicle.id === driverForm.vehicleId)
       if (selectedVehicleRecord && !isVehicleAssignable(selectedVehicleRecord)) {
         toast.error('Selected vehicle is inactive and cannot be assigned')
+        return
+      }
+      const existingVehicleWithDriver = vehicles.find(
+        (v) => (v.driverId === selectedDriver.id || v.driver?.id === selectedDriver.id) && v.id !== driverForm.vehicleId
+      )
+      if (existingVehicleWithDriver) {
+        toast.error(`Driver is already assigned to vehicle ${existingVehicleWithDriver.licensePlate || 'another vehicle'}.`)
         return
       }
     }

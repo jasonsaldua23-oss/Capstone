@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
+import { isValidPhilippineDriverLicense } from '@/lib/driver-license-restrictions'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -127,7 +128,13 @@ export function TripsView() {
     const licenseType = String(driver?.licenseType || driver?.license_type || '').trim()
     const licenseExpiry = String(driver?.licenseExpiry || driver?.license_expiry || '').trim()
     if (!phone || !licenseNumber || !licenseType || !licenseExpiry) {
-      return 'Incomplete profile'
+      return 'Incomplete driver license profile'
+    }
+    if (!isValidPhilippineDriverLicense(licenseNumber)) {
+      return 'Invalid driver license format (LTO: X00-00-000000)'
+    }
+    if (licenseExpiry && licenseExpiry < new Date().toISOString().slice(0, 10)) {
+      return 'Driver license has expired'
     }
     return ''
   }

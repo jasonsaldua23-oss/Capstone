@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 from django.utils import timezone
 
-from .auth import create_token
+from .auth import create_token, hash_password, verify_password
 from .models import (
     Customer,
     Inventory,
@@ -82,6 +82,124 @@ class SingleWarehouseApiContractTests(TestCase):
         )
         self.assertEqual(response.status_code, 201, response.content)
         return Warehouse.objects.get()
+
+    def test_duplicate_email_is_rejected_across_account_types(self) -> None:
+        Customer.objects.create(
+            email="already.registered@example.com",
+            password="hashed",
+            name="Existing Customer",
+        )
+
+        response = self.client.post(
+            "/api/auth/email-verification/request",
+            data=json.dumps(
+                {
+                    "email": "already.registered@example.com",
+                    "accountType": "staff",
+                    "roleId": RoleType.DRIVER,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()["error"], "This email address is already registered.")
+
+        different_role_response = self.client.post(
+            "/api/auth/email-verification/request",
+            data=json.dumps(
+                {
+                    "email": self.admin.email,
+                    "accountType": "staff",
+                    "roleId": RoleType.DRIVER,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(different_role_response.status_code, 409, different_role_response.content)
+        self.assertEqual(different_role_response.json()["error"], "This email address is already registered.")
+
+        edit_target = User.objects.create(
+            email="edit.target@example.com",
+            password="hashed",
+            name="Edit Target",
+            role=RoleType.DRIVER,
+            is_active=True,
+        )
+        edit_response = self.client.put(
+            f"/api/users/{edit_target.id}",
+            data=json.dumps({"email": self.admin.email}),
+            content_type="application/json",
+            **self.auth(self.admin_token),
+        )
+        self.assertEqual(edit_response.status_code, 409, edit_response.content)
+        self.assertEqual(edit_response.json()["error"], "This email address is already registered.")
+
+    def test_admin_can_reset_selected_user_password_without_user_otp(self) -> None:
+        target = User.objects.create(
+            email="password.reset.target@example.com",
+            password=hash_password("OldPassword1!"),
+            name="Password Reset Target",
+            role=RoleType.DRIVER,
+            is_active=True,
+        )
+
+        response = self.client.put(
+            f"/api/users/{target.id}",
+            data=json.dumps({"password": "NewPassword2!", "adminResetPassword": True}),
+            content_type="application/json",
+            **self.auth(self.admin_token),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        target.refresh_from_db()
+        self.assertTrue(verify_password("NewPassword2!", target.password))
+
+    def test_warehouse_staff_can_edit_stock_batch_dates_without_changing_quantity(self) -> None:
+        warehouse = self.create_warehouse()
+        warehouse.manager_id = self.staff.id
+        warehouse.save(update_fields=["manager_id", "updated_at"])
+        product = Product.objects.create(
+            sku="SKU-DATE-EDIT",
+            name="Batch Date Edit Product",
+            unit="case",
+            price=25,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=10,
+            reserved_quantity=0,
+            threshold=1,
+        )
+        batch = StockBatch.objects.create(
+            batch_number="BATCH-DATE-EDIT-001",
+            inventory=inventory,
+            quantity=10,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        manufactured_date = timezone.now() - timedelta(days=10)
+        expiry_date = timezone.now() + timedelta(days=90)
+
+        response = self.client.put(
+            "/api/stock-batches",
+            data=json.dumps(
+                {
+                    "batchId": batch.id,
+                    "quantity": batch.quantity,
+                    "manufacturedDate": manufactured_date.isoformat(),
+                    "expiryDate": expiry_date.isoformat(),
+                }
+            ),
+            content_type="application/json",
+            **self.auth(self.staff_token),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        batch.refresh_from_db()
+        self.assertEqual(batch.quantity, 10)
+        self.assertEqual(batch.receipt_date, manufactured_date)
+        self.assertEqual(batch.expiry_date, expiry_date)
 
     def test_admin_can_register_once_and_edit_profile(self) -> None:
         warehouse = self.create_warehouse()

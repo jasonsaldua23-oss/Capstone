@@ -940,7 +940,6 @@ export function ReplacementsView() {
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Warehouse</th>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
                     <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
@@ -1022,10 +1021,6 @@ export function ReplacementsView() {
                         <td className="p-4 font-medium">{item.replacementNumber}</td>
                         <td className="p-4">{item.orderNumber || item.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{item.customerName || item.order?.customer?.name || 'N/A'}</td>
-                        <td className="p-4">
-                          <p className="font-medium text-gray-900">{item.warehouseName || item.warehouseCode || item.order?.warehouseName || item.order?.warehouseCode || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{item.warehouseCity || item.warehouseProvince || item.order?.warehouseCity || item.order?.warehouseProvince || 'N/A'}</p>
-                        </td>
                         <td className="p-4">
                           <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
                           {totalLoss > 0 ? <p className="mt-1 text-xs font-semibold text-red-600">Loss: {formatPeso(totalLoss)}</p> : null}

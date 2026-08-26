@@ -1,5 +1,7 @@
 'use client'
 
+'use client'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -24,6 +26,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
+import { isValidPhilippineDriverLicense } from '@/lib/driver-license-restrictions'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from './WarehouseTripsSection'
 import { WarehouseHeader } from './sections/layout/warehouse-header'
@@ -660,6 +663,8 @@ export function WarehousePortal() {
   const [editImageFile, setEditImageFile] = useState<File | null>(null)
   const [editingBatch, setEditingBatch] = useState<StockBatchItem | null>(null)
   const [editBatchQuantity, setEditBatchQuantity] = useState('')
+  const [editBatchManufacturedDate, setEditBatchManufacturedDate] = useState('')
+  const [editBatchExpiryDate, setEditBatchExpiryDate] = useState('')
   const [isSavingBatchQty, setIsSavingBatchQty] = useState(false)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeletingEdit, setIsDeletingEdit] = useState(false)
@@ -1045,7 +1050,13 @@ export function WarehousePortal() {
     const licenseType = String((driver as any)?.licenseType || (driver as any)?.license_type || '').trim()
     const licenseExpiry = String((driver as any)?.licenseExpiry || (driver as any)?.license_expiry || '').trim()
     if (!phone || !licenseNumber || !licenseType || !licenseExpiry) {
-      return 'Incomplete profile'
+      return 'Incomplete driver license profile'
+    }
+    if (!isValidPhilippineDriverLicense(licenseNumber)) {
+      return 'Invalid driver license format (LTO: X00-00-000000)'
+    }
+    if (licenseExpiry && licenseExpiry < new Date().toISOString().slice(0, 10)) {
+      return 'Driver license has expired'
     }
     return ''
   }
@@ -3267,6 +3278,9 @@ export function WarehousePortal() {
   const openBatchQuantityDialog = (batch: StockBatchItem) => {
     setEditingBatch(batch)
     setEditBatchQuantity(String(Math.max(0, Number(batch.quantity || 0))))
+    // Added: populate the batch dates so warehouse staff can update them with the quantity.
+    setEditBatchManufacturedDate(batch.receiptDate ? new Date(batch.receiptDate).toISOString().slice(0, 10) : '')
+    setEditBatchExpiryDate(batch.expiryDate ? new Date(batch.expiryDate).toISOString().slice(0, 10) : '')
   }
 
   const uploadProductImage = async (file: File) => {
@@ -3326,11 +3340,15 @@ export function WarehousePortal() {
     }
   }
 
-  const saveStockBatchQuantity = async () => {
+  const saveStockBatchChanges = async () => {
     if (!editingBatch?.id) return
     const nextQuantity = Number(editBatchQuantity)
     if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
       toast.error('Quantity must be a non-negative number')
+      return
+    }
+    if (!editBatchManufacturedDate) {
+      toast.error('Manufactured date is required')
       return
     }
 
@@ -3339,21 +3357,27 @@ export function WarehousePortal() {
       const response = await fetch('/api/stock-batches', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId: editingBatch.id, quantity: Math.floor(nextQuantity) }),
+        // Added: save the batch dates in the same update as its quantity.
+        body: JSON.stringify({
+          batchId: editingBatch.id,
+          quantity: Math.floor(nextQuantity),
+          manufacturedDate: editBatchManufacturedDate,
+          expiryDate: editBatchExpiryDate || null,
+        }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to update stock batch quantity')
+        throw new Error(payload?.error || 'Failed to update stock batch')
       }
 
       setEditingBatch(null)
-      toast.success('Stock batch quantity updated')
+      toast.success('Stock batch updated')
       await fetchInventoryData()
       await fetchStockBatchesData()
       await fetchInventoryTransactionsData()
       emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to update stock batch quantity')
+      toast.error(error?.message || 'Failed to update stock batch')
     } finally {
       setIsSavingBatchQty(false)
     }
@@ -6051,9 +6075,9 @@ export function WarehousePortal() {
       <Dialog open={!!editingBatch} onOpenChange={(open) => !open && setEditingBatch(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Stock Batch Quantity</DialogTitle>
+            <DialogTitle>Edit Stock Batch</DialogTitle>
             <DialogDescription>
-              Update quantity for batch {editingBatch?.batchNumber || ''}. Inventory totals will sync automatically.
+              Update the quantity and dates for batch {editingBatch?.batchNumber || ''}. Inventory totals will sync automatically.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -6068,10 +6092,30 @@ export function WarehousePortal() {
                 onChange={(e) => setEditBatchQuantity(e.target.value)}
               />
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="edit-batch-manufactured-date">Manufactured Date</Label>
+                <Input
+                  id="edit-batch-manufactured-date"
+                  type="date"
+                  value={editBatchManufacturedDate}
+                  onChange={(e) => setEditBatchManufacturedDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-batch-expiry-date">Expiry Date</Label>
+                <Input
+                  id="edit-batch-expiry-date"
+                  type="date"
+                  value={editBatchExpiryDate}
+                  onChange={(e) => setEditBatchExpiryDate(e.target.value)}
+                />
+              </div>
+            </div>
             <div className="flex gap-2 pt-1">
-              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveStockBatchQuantity} disabled={isSavingBatchQty}>
+              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveStockBatchChanges} disabled={isSavingBatchQty}>
                 {isSavingBatchQty ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Save Quantity
+                Save Changes
               </Button>
             </div>
           </div>

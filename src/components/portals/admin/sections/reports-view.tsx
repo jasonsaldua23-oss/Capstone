@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Receipt, FileCheck, RotateCcw, Store, Trophy } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, FileSpreadsheet, Users, Star, Download, Pencil, Trash2, Receipt, FileCheck, RotateCcw, Store, Trophy } from 'lucide-react'
 import {
   PurchaseRequestsReport,
   PurchaseOrdersReport,
@@ -73,6 +73,7 @@ import {
   summarizeInventoryMovementTrend,
   summarizeStockHealth,
 } from '@/lib/report-metrics'
+import { exportToCsv } from './reports/export-utils'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -90,14 +91,8 @@ const buildReportStamp = () => new Date().toISOString().replace(/[:T]/g, '-').sl
 
 export function ReportsView() {
   const { user } = useAuth()
-  type WarehouseDatePreset =
-    | 'past_7_days'
-    | 'past_14_days'
-    | 'past_1_month'
-    | 'past_3_months'
-    | 'past_6_months'
-    | 'past_1_year'
-    | 'custom'
+  type WarehouseDatePreset = 'all' | '7' | '30' | '90' | '365' | 'custom'
+  type FeedbackDatePreset = 'all' | '7' | '30' | '90' | '365' | 'custom'
   const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
   const [rangeDays, setRangeDays] = useState<'7' | '30' | '90'>('30')
   const [selectedWarehouse, setSelectedWarehouse] = useState('all')
@@ -109,7 +104,10 @@ export function ReportsView() {
   const [selectedMovementType, setSelectedMovementType] = useState('all')
   const [selectedReplacementStatus, setSelectedReplacementStatus] = useState('all')
   const [selectedFeedbackStatus, setSelectedFeedbackStatus] = useState('all')
-  const [warehouseDatePreset, setWarehouseDatePreset] = useState<WarehouseDatePreset>('past_7_days')
+  const [feedbackDatePreset, setFeedbackDatePreset] = useState<FeedbackDatePreset>('30')
+  const [feedbackDateFrom, setFeedbackDateFrom] = useState('')
+  const [feedbackDateTo, setFeedbackDateTo] = useState('')
+  const [warehouseDatePreset, setWarehouseDatePreset] = useState<WarehouseDatePreset>('30')
   const [warehouseDateFrom, setWarehouseDateFrom] = useState('')
   const [warehouseDateTo, setWarehouseDateTo] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -224,6 +222,32 @@ export function ReportsView() {
     return formatReportDateRangeLabel(start, end)
   }, [rangeStart])
 
+  const feedbackDateWindow = useMemo(() => {
+    if (feedbackDatePreset === 'all') return { start: null, end: null, label: 'All Time' }
+    if (feedbackDatePreset === 'custom') {
+      const start = feedbackDateFrom ? new Date(`${feedbackDateFrom}T00:00:00`) : null
+      const end = feedbackDateTo ? new Date(`${feedbackDateTo}T23:59:59.999`) : null
+      return {
+        start,
+        end,
+        label: feedbackDateFrom || feedbackDateTo
+          ? `${feedbackDateFrom || 'Start'} to ${feedbackDateTo || 'Today'}`
+          : 'Custom Date Range',
+      }
+    }
+
+    const end = new Date()
+    end.setHours(23, 59, 59, 999)
+    const start = new Date()
+    start.setDate(start.getDate() - Number(feedbackDatePreset))
+    start.setHours(0, 0, 0, 0)
+    return {
+      start,
+      end,
+      label: feedbackDatePreset === '365' ? 'Past 1 Year' : `Past ${feedbackDatePreset} Days`,
+    }
+  }, [feedbackDatePreset, feedbackDateFrom, feedbackDateTo])
+
   const warehouseDateWindow = useMemo(() => {
     const today = new Date()
     const end = new Date(today)
@@ -238,26 +262,7 @@ export function ReportsView() {
       return value
     }
 
-    if (warehouseDatePreset === 'past_14_days') {
-      const presetStart = startFromPreset(13)
-      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
-    }
-    if (warehouseDatePreset === 'past_1_month') {
-      const presetStart = startFromPreset(29)
-      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
-    }
-    if (warehouseDatePreset === 'past_3_months') {
-      const presetStart = startFromPreset(89)
-      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
-    }
-    if (warehouseDatePreset === 'past_6_months') {
-      const presetStart = startFromPreset(179)
-      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
-    }
-    if (warehouseDatePreset === 'past_1_year') {
-      const presetStart = startFromPreset(364)
-      return { start: presetStart, end, label: formatReportDateRangeLabel(presetStart, end) }
-    }
+    if (warehouseDatePreset === 'all') return { start: new Date(0), end, label: 'All Time' }
     if (warehouseDatePreset === 'custom') {
       const customStart = warehouseDateFrom ? new Date(`${warehouseDateFrom}T00:00:00`) : startFromPreset(6)
       const customEnd = warehouseDateTo ? new Date(`${warehouseDateTo}T23:59:59.999`) : end
@@ -271,8 +276,12 @@ export function ReportsView() {
         label: formatReportDateRangeLabel(customStart, customEnd),
       }
     }
-    const defaultStart = startFromPreset(6)
-    return { start: defaultStart, end, label: formatReportDateRangeLabel(defaultStart, end) }
+    const presetStart = startFromPreset(Math.max(0, Number(warehouseDatePreset) - 1))
+    return {
+      start: presetStart,
+      end,
+      label: warehouseDatePreset === '365' ? 'Past 1 Year' : `Past ${warehouseDatePreset} Days`,
+    }
   }, [warehouseDatePreset, warehouseDateFrom, warehouseDateTo])
 
   // The order report uses a single normalized row model so cards, charts, exports, and the table stay in sync.
@@ -483,7 +492,13 @@ export function ReportsView() {
     }
 
     return feedback
-      .filter((item) => withinRange(item.createdAt, rangeStart))
+      .filter((item) => {
+        const itemTime = new Date(item.createdAt).getTime()
+        if (!Number.isFinite(itemTime)) return false
+        if (feedbackDateWindow.start && itemTime < feedbackDateWindow.start.getTime()) return false
+        if (feedbackDateWindow.end && itemTime > feedbackDateWindow.end.getTime()) return false
+        return true
+      })
       .filter((item) => selectedFeedbackStatus === 'all' || String(item.status || '').toUpperCase() === selectedFeedbackStatus)
       .map((item) => {
         const orderRef = item.order
@@ -525,7 +540,7 @@ export function ReportsView() {
           subject: item.subject || 'N/A',
         }
       })
-  }, [feedback, orders, trips, rangeStart, selectedFeedbackStatus])
+  }, [feedback, orders, trips, feedbackDateWindow, selectedFeedbackStatus])
 
   // Batch expiry stays under inventory reporting so stock age is reviewed alongside movement and low-stock risks.
   const stockExpiryRows = useMemo(() => {
@@ -1020,8 +1035,7 @@ export function ReportsView() {
       .map((row) => Number(row.rating))
       .filter((rating) => Number.isFinite(rating))
     const avgRating = ratings.length > 0 ? ratings.reduce((acc, rating) => acc + rating, 0) / ratings.length : 0
-    const open = feedbackRows.filter((row) => String(row.status).toUpperCase() === 'OPEN').length
-    return { total, avgRating, open }
+    return { total, avgRating }
   }, [feedbackRows])
 
   const driverPerformanceKpi = useMemo(() => {
@@ -1121,7 +1135,6 @@ export function ReportsView() {
   const inventoryExportRows = useMemo(() => {
     return inventoryMovementRows.map((row) => ({
       createdAt: row.createdAt,
-      warehouse: row.warehouse,
       product: row.product,
       type: row.sourceType || row.type,
       quantity: row.quantity,
@@ -1216,7 +1229,6 @@ export function ReportsView() {
   const feedbackSummaryLines = useMemo(() => ([
     `Total Feedback: ${feedbackKpi.total}`,
     `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
-    `Open Items: ${feedbackKpi.open}`,
   ]), [feedbackKpi])
 
   const driverPerformanceSummaryLines = useMemo(() => ([
@@ -1459,9 +1471,9 @@ export function ReportsView() {
       let y = kpiY - 86
       page.drawText('INVENTORY MOVEMENTS', { x: pad, y, size: 13, font: boldFont, color: navy })
       y -= 12
-      const headers = ['Date & Time', 'Warehouse', 'Product', 'Type', 'Quantity']
+      const headers = ['Date & Time', 'Product', 'Type', 'Quantity']
       // Fit table exactly within portrait content width (547px) with enough room for Type/Quantity labels.
-      const widths = [140, 150, 141, 58, 58]
+      const widths = [150, 220, 90, 87]
       let x = pad
       headers.forEach((hdr, idx) => {
         drawCell(x, y, widths[idx], 22, hdr, true, 'center', rgb(1, 1, 1))
@@ -1476,14 +1488,13 @@ export function ReportsView() {
         const typeRaw = String(r.type || '').toUpperCase()
         const rowVals = [
           formatDateTime(r.createdAt),
-          String(r.warehouse || 'N/A'),
           String(r.product || 'N/A'),
           typeRaw,
           String(r.quantity ?? '0'),
         ]
         let cx = pad
         rowVals.forEach((v, idx) => {
-          drawCell(cx, y, widths[idx], rowH, v, false, idx === 4 ? 'center' : 'left')
+          drawCell(cx, y, widths[idx], rowH, v, false, idx === 3 ? 'center' : 'left')
           cx += widths[idx]
         })
         y -= rowH
@@ -2291,14 +2302,14 @@ export function ReportsView() {
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackExportRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
-      rangeLabel: standardDateRangeLabel,
+      rangeLabel: feedbackDateWindow.label,
     })
     toast.success('All PDF reports exported')
   }
 
   const resetFilters = () => {
     setRangeDays('30')
-    setWarehouseDatePreset('past_7_days')
+    setWarehouseDatePreset('30')
     setWarehouseDateFrom('')
     setWarehouseDateTo('')
     setSelectedWarehouse('all')
@@ -2310,6 +2321,34 @@ export function ReportsView() {
     setSelectedMovementType('all')
     setSelectedReplacementStatus('all')
     setSelectedFeedbackStatus('all')
+    setFeedbackDatePreset('30')
+    setFeedbackDateFrom('')
+    setFeedbackDateTo('')
+  }
+
+  // Export the filtered rows used by each shared report toolbar.
+  const exportCurrentCsv = () => {
+    const reportMap: Record<string, { filename: string; rows: Array<Record<string, unknown>> }> = {
+      orders: { filename: 'orders-report', rows: orderExportRows },
+      transport: { filename: 'transport-report', rows: transportExportRows },
+      inventory: { filename: 'inventory-report', rows: inventoryExportRows },
+      replacement: { filename: 'replacement-report', rows: replacementRows },
+      feedback: { filename: 'feedback-report', rows: feedbackExportRows },
+    }
+    const report = reportMap[activeReportTab]
+
+    if (!report || report.rows.length === 0) {
+      toast.error('No report data to export')
+      return
+    }
+
+    const columns = Object.keys(report.rows[0]).map((key) => ({
+      header: key
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/^./, (character) => character.toUpperCase()),
+      key,
+    }))
+    exportToCsv(`${report.filename}-${buildReportStamp()}.csv`, columns, report.rows)
   }
 
   const reportToolbar = ({
@@ -2333,7 +2372,7 @@ export function ReportsView() {
   }) => (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
-        {title !== 'Warehouse' ? (
+        {title !== 'Warehouse' && title !== 'Feedback' ? (
           <select
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
             value={rangeDays}
@@ -2345,6 +2384,30 @@ export function ReportsView() {
             <option value="90">Last 90 days</option>
           </select>
         ) : null}
+        {title === 'Feedback' ? (
+          <>
+            <select
+              className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              value={feedbackDatePreset}
+              onChange={(event) => setFeedbackDatePreset(event.target.value as FeedbackDatePreset)}
+              title="Select feedback report date range"
+              aria-label="Filter feedback by date range"
+            >
+              <option value="all">All Time</option>
+              <option value="7">Past 7 Days</option>
+              <option value="30">Past 30 Days</option>
+              <option value="90">Past 90 Days</option>
+              <option value="365">Past 1 Year</option>
+              <option value="custom">Custom Date Range</option>
+            </select>
+            {feedbackDatePreset === 'custom' ? (
+              <>
+                <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={feedbackDateFrom} onChange={(event) => setFeedbackDateFrom(event.target.value)} className="h-11 w-[170px]" aria-label="Feedback date from" />
+                <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={feedbackDateTo} onChange={(event) => setFeedbackDateTo(event.target.value)} className="h-11 w-[170px]" aria-label="Feedback date to" />
+              </>
+            ) : null}
+          </>
+        ) : null}
         {title === 'Warehouse' ? (
           <>
             <select
@@ -2353,16 +2416,16 @@ export function ReportsView() {
               onChange={(event) => setWarehouseDatePreset(event.target.value as WarehouseDatePreset)}
               title="Select warehouse report date range"
             >
-              <option value="past_7_days">Past 7 days</option>
-              <option value="past_14_days">Past 14 days</option>
-              <option value="past_1_month">Past 1 month</option>
-              <option value="past_3_months">Past 3 months</option>
-              <option value="past_6_months">Past 6 months</option>
-              <option value="past_1_year">Past 1 year</option>
-              <option value="custom">Custom range</option>
+              <option value="all">All Time</option>
+              <option value="7">Past 7 Days</option>
+              <option value="30">Past 30 Days</option>
+              <option value="90">Past 90 Days</option>
+              <option value="365">Past 1 Year</option>
+              <option value="custom">Custom Date Range</option>
             </select>
             <Input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={warehouseDateFrom}
               onChange={(event) => setWarehouseDateFrom(event.target.value)}
               disabled={warehouseDatePreset !== 'custom'}
@@ -2371,6 +2434,7 @@ export function ReportsView() {
             />
             <Input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={warehouseDateTo}
               onChange={(event) => setWarehouseDateTo(event.target.value)}
               disabled={warehouseDatePreset !== 'custom'}
@@ -2429,10 +2493,16 @@ export function ReportsView() {
             </Button>
           </>
         ) : (
-          <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
-            <Download className="h-4 w-4" />
-            {`Export ${title} PDF`}
-          </Button>
+          <>
+            <Button variant="outline" className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
+              <FileSpreadsheet className="h-4 w-4" />
+              Export CSV
+            </Button>
+            <Button variant="outline" className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+              <Download className="h-4 w-4" />
+              {`Export ${title} PDF`}
+            </Button>
+          </>
         )}
       </div>
     </div>
@@ -2507,7 +2577,7 @@ export function ReportsView() {
     await downloadPdf(`feedback-report-${stamp}.pdf`, 'Client Feedback & Service Evaluation Report', feedbackExportRows, {
       ...reportBranding,
       summaryLines: feedbackSummaryLines,
-      rangeLabel: standardDateRangeLabel,
+      rangeLabel: feedbackDateWindow.label,
     })
   }
 
@@ -2531,7 +2601,9 @@ export function ReportsView() {
     const summaryLines = report.summaryLines
     const reportDateLabel = activeReportTab === 'warehouse'
       ? warehouseDateWindow.label
-      : standardDateRangeLabel
+      : activeReportTab === 'feedback'
+        ? feedbackDateWindow.label
+        : standardDateRangeLabel
     const bodyRows = report.rows
       .slice(0, 300)
       .map((row) => `<tr>${columns.map((column) => `<td>${String(row[column] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`)
@@ -3135,7 +3207,6 @@ export function ReportsView() {
                       <thead className="border-b bg-gray-50">
                         <tr>
                           <th className="p-3 text-left">Date</th>
-                          <th className="p-3 text-left">Warehouse</th>
                           <th className="p-3 text-left">Product</th>
                           <th className="p-3 text-left">Type</th>
                           <th className="p-3 text-left">Quantity</th>
@@ -3145,7 +3216,6 @@ export function ReportsView() {
                         {previewRows(inventoryMovementRows).map((row, index) => (
                           <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
                             <td className="p-3">{formatDateTime(row.createdAt)}</td>
-                            <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                             <td className="p-3">{String(row.product || 'N/A')}</td>
                             <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
                             <td className="p-3">{String(row.quantity || 0)}</td>
@@ -3176,7 +3246,6 @@ export function ReportsView() {
                     <table className="w-full text-sm">
                       <thead className="border-b bg-gray-50">
                         <tr>
-                          <th className="p-3 text-left">Warehouse</th>
                           <th className="p-3 text-left">Product</th>
                           <th className="p-3 text-left">SKU</th>
                           <th className="p-3 text-left">Current Stock</th>
@@ -3189,7 +3258,6 @@ export function ReportsView() {
                       <tbody>
                         {previewRows(lowStockRows).map((row, index) => (
                           <tr key={`${row.sku}-${index}`} className="border-b last:border-0">
-                            <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                             <td className="p-3 font-medium">{String(row.product || 'N/A')}</td>
                             <td className="p-3">{String(row.sku || 'N/A')}</td>
                             <td className="p-3">{String(row.currentStock || 0)}</td>
@@ -3233,7 +3301,6 @@ export function ReportsView() {
                           <th className="p-3 text-left">Batch #</th>
                           <th className="p-3 text-left">Product</th>
                           <th className="p-3 text-left">SKU</th>
-                          <th className="p-3 text-left">Warehouse</th>
                           <th className="p-3 text-left">Quantity</th>
                           <th className="p-3 text-left">Manufacture Date</th>
                           <th className="p-3 text-left">Expiry Date</th>
@@ -3247,7 +3314,6 @@ export function ReportsView() {
                             <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
                             <td className="p-3">{String(row.product || 'N/A')}</td>
                             <td className="p-3">{String(row.sku || 'N/A')}</td>
-                            <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                             <td className="p-3">{String(row.quantity || 0)}</td>
                             <td className="p-3">{String(row.manufacturedDate || 'N/A')}</td>
                             <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
@@ -3357,7 +3423,6 @@ export function ReportsView() {
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="p-3 text-left">Date</th>
-                        <th className="p-3 text-left">Warehouse</th>
                         <th className="p-3 text-left">Product</th>
                         <th className="p-3 text-left">Type</th>
                         <th className="p-3 text-left">Quantity</th>
@@ -3367,7 +3432,6 @@ export function ReportsView() {
                       {previewRows(inventoryMovementRows).map((row, index) => (
                         <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
                           <td className="p-3">{formatDateTime(row.createdAt)}</td>
-                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                           <td className="p-3">{String(row.product || 'N/A')}</td>
                           <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
                           <td className="p-3">{String(row.quantity || 0)}</td>
@@ -3398,7 +3462,6 @@ export function ReportsView() {
                   <table className="w-full text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
-                        <th className="p-3 text-left">Warehouse</th>
                         <th className="p-3 text-left">Product</th>
                         <th className="p-3 text-left">SKU</th>
                         <th className="p-3 text-left">Current Stock</th>
@@ -3411,7 +3474,6 @@ export function ReportsView() {
                     <tbody>
                       {previewRows(lowStockRows).map((row, index) => (
                         <tr key={`${row.sku}-${index}`} className="border-b last:border-0">
-                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
                           <td className="p-3 font-medium">{String(row.product || 'N/A')}</td>
                           <td className="p-3">{String(row.sku || 'N/A')}</td>
                           <td className="p-3">{String(row.currentStock || 0)}</td>
@@ -3529,10 +3591,10 @@ export function ReportsView() {
               onStatusChange: setSelectedFeedbackStatus,
               showStatus: false,
             })}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {/* Feedback has no response workflow, so only measurable submission metrics are shown. */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Feedback</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Responses in selected period</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Rating</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.avgRating.toFixed(2)}</CardTitle><p className="text-[11px] text-slate-400">Across rated submissions</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Items</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.open}</CardTitle><p className="text-[11px] text-slate-400">Items awaiting follow-up</p></CardHeader></Card>
             </div>
             <Card className={chartCardClassName}>
               <CardHeader className="pb-3">

@@ -365,6 +365,7 @@ export type LiveRouteLine = {
   dashArray?: string;
   snapToRoad?: boolean;
   preserveExactEndpoints?: boolean;
+  selectable?: boolean;
 };
 
 interface LiveTrackingMapProps {
@@ -381,6 +382,7 @@ interface LiveTrackingMapProps {
   navigationViewportInsets?: NavigationViewportInsets;
   showZoomControls?: boolean;
   showDriverSelfBadge?: boolean;
+  onRouteLineSelect?: (routeLineId: string) => void;
   className?: string;
 }
 
@@ -947,6 +949,7 @@ export default function LiveTrackingMap({
   navigationViewportInsets,
   showZoomControls = true,
   showDriverSelfBadge = false,
+  onRouteLineSelect,
   className = "w-full h-[350px] rounded-xl overflow-hidden border shadow-sm",
 }: LiveTrackingMapProps) {
   const rawSafeLocations = useMemo(
@@ -1572,6 +1575,7 @@ export default function LiveTrackingMap({
         zoomOutSignal={zoomOutSignal}
         navigationViewportInsets={navigationViewportInsets}
         showDriverSelfBadge={showDriverSelfBadge}
+        onRouteLineSelect={onRouteLineSelect}
         className={className}
       />
     );

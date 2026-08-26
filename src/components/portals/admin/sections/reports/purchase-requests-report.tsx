@@ -68,9 +68,6 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
         const reason = o.rejectionReason || o.cancellationReason || ''
         const date = o.createdAt || o.updatedAt || new Date().toISOString()
         const amount = Number(o.totalAmount || o.subtotal || 0)
-        const warehouseId = o.warehouseId || o.warehouse_id || o.warehouse?.id || ''
-        const warehouseName = o.warehouseName || o.warehouse?.name || 'Central Distribution'
-
         return {
           id: o.id,
           prNumber,
@@ -84,8 +81,6 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
           reason,
           amount,
           date,
-          warehouseId,
-          warehouseName,
           itemsCount: Array.isArray(o.items) ? o.items.length : 0,
         }
       })
@@ -212,7 +207,6 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
     { header: 'PR Number', key: 'prNumber' },
     { header: 'Order Ref', key: 'orderNumber' },
     { header: 'Requester', key: 'requester' },
-    { header: 'Warehouse Hub', key: 'warehouseName' },
     { header: 'Status', key: 'status' },
     {
       header: 'Reason',
@@ -444,6 +438,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
             <span className="text-xs font-medium text-slate-500">Date Range:</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
@@ -455,6 +450,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
             <span className="text-xs text-slate-400">to</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
@@ -476,7 +472,6 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
                 <th className="p-3.5 pl-4">PR Number</th>
                 <th className="p-3.5">Order Ref</th>
                 <th className="p-3.5">Requester / Client</th>
-                <th className="p-3.5">Warehouse Hub</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5">Reason</th>
                 <th className="p-3.5 text-right">Amount</th>
@@ -493,7 +488,6 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
                       <div className="font-medium text-slate-900">{row.requester}</div>
                       {row.customerEmail && <div className="text-[11px] text-slate-400">{row.customerEmail}</div>}
                     </td>
-                    <td className="p-3.5 text-slate-600">{row.warehouseName}</td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
                     <td className="p-3.5">
                       {row.reason ? (

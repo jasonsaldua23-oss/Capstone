@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
 import { emitDataSync } from '@/lib/data-sync'
@@ -48,6 +48,12 @@ import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-comp
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
 })
+
+type DriverRouteOption = {
+  id: string
+  points: [number, number][]
+  steps: OsrmStep[]
+}
 
 // Main driver trip detail screen: controls stop workflow, map state, and proof-of-delivery capture.
 export function TripDetailView({
@@ -128,6 +134,8 @@ export function TripDetailView({
   const [isUpdating, setIsUpdating] = useState(false)
   const [routeSteps, setRouteSteps] = useState<OsrmStep[]>([])
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
+  const [routeOptions, setRouteOptions] = useState<DriverRouteOption[]>([])
+  const [activeRouteOptionIndex, setActiveRouteOptionIndex] = useState(0)
   const [navigationRouteOrigin, setNavigationRouteOrigin] = useState<{ tripId: string; lat: number; lng: number } | null>(null)
   const [is3DPerspective, setIs3DPerspective] = useState(false)
   const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true)
@@ -1759,12 +1767,21 @@ export function TripDetailView({
     }
     return [...start, ...completedCoords, ...pendingCoords]
   })()
+  const routeWaypoints = fullRouteWaypoints
+  // Stabilized driver origin that only changes when the driver moves ≥20m.
+  // Must be declared before the route waypoint builders that reference it.
+  const savedNavigationOrigin = navigationRouteOrigin
+  const stableNavigationOrigin = savedNavigationOrigin && savedNavigationOrigin.tripId === trip.id
+    ? { lat: savedNavigationOrigin.lat, lng: savedNavigationOrigin.lng }
+    : driverLocationMarker
+      ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
+      : null
   const upcomingRouteWaypoints = (() => {
     const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    // The live GPS coordinate is no longer included here. LiveTrackingMap's
-    // animation engine projects the truck onto this stable road geometry and
-    // splits the grey/active route at the projected distance. Including the
-    // moving GPS caused OSRM re-fetches on every tick, killing smoothness.
+    // Use the stabilized navigation origin (only updates every 20m) instead of
+    // raw GPS. This prevents OSRM re-fetch storms while still providing the
+    // required ≥2-point route geometry for the upcoming line.
+    if (stableNavigationOrigin) return [stableNavigationOrigin, ...pendingCoords]
     return pendingCoords
   })()
   const completedRouteWaypoints = (() => {
@@ -1772,26 +1789,18 @@ export function TripDetailView({
     const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
     if (driverLocationMarker) {
       const recordedTrail = tripLocationHistory.map((point) => ({ lat: point.lat, lng: point.lng }))
-      // Fix: the taken line follows chronological GPS history but NO LONGER
-      // appends the live GPS coordinate. The truck's real-time position is
-      // projected onto the stable road geometry by LiveTrackingMap, which
-      // splits grey/active at the projected distance. This prevents OSRM
-      // re-fetch storms caused by the GPS moving every second.
+      // The taken line uses chronological GPS history. The endpoint uses the
+      // stabilized navigation origin (20m threshold) instead of raw GPS so
+      // OSRM refetches are rare. LiveTrackingMap's animation engine handles
+      // the real-time truck position between these stable checkpoints.
+      const stableEnd = stableNavigationOrigin || { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
       if (recordedTrail.length > 0) {
-        return [...start, ...recordedTrail]
+        return [...start, ...recordedTrail, stableEnd]
       }
-      // Preserve the prior waypoint reconstruction only when no GPS trail exists.
-      return [...start, ...completedCoords]
+      return [...start, ...completedCoords, stableEnd]
     }
     return [...start, ...completedCoords]
   })()
-  const routeWaypoints = fullRouteWaypoints
-  const savedNavigationOrigin = navigationRouteOrigin
-  const stableNavigationOrigin = savedNavigationOrigin && savedNavigationOrigin.tripId === trip.id
-    ? { lat: savedNavigationOrigin.lat, lng: savedNavigationOrigin.lng }
-    : driverLocationMarker
-      ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
-      : null
   const navigationRouteWaypoints = stableNavigationOrigin && pendingDropPoints.length > 0
     ? [
       stableNavigationOrigin,
@@ -1810,6 +1819,8 @@ export function TripDetailView({
     })
 
     if (uniqueWaypoints.length < 2) {
+      setRouteOptions([])
+      setActiveRouteOptionIndex(0)
       setRouteSteps([])
       setCurrentStepIndex(0)
       return
@@ -1825,40 +1836,109 @@ export function TripDetailView({
           .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
           .join(';')
         const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`,
+          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=2`,
           { signal: controller.signal }
         )
         const payload = await response.json().catch(() => ({}))
-        const rawLegs = Array.isArray(payload?.routes?.[0]?.legs) ? payload.routes[0].legs : []
-        const normalizedSteps: OsrmStep[] = rawLegs
-          .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
-          .map((step: any) => ({
-            maneuver: {
-              type: String(step?.maneuver?.type || '').trim(),
-              modifier: step?.maneuver?.modifier ? String(step.maneuver.modifier).trim() : undefined,
-              location: [
-                Number(step?.maneuver?.location?.[0]),
-                Number(step?.maneuver?.location?.[1]),
-              ] as [number, number],
-            },
-            name: String(step?.name || '').trim(),
-            distance: Number(step?.distance || 0),
-            duration: Number(step?.duration || 0),
-            driving_side: step?.driving_side ? String(step.driving_side).trim() : undefined,
-          }))
-          .filter(
-            (step) =>
-              step.maneuver.type &&
-              Number.isFinite(step.maneuver.location[0]) &&
-              Number.isFinite(step.maneuver.location[1])
-          )
+        const rawRoutes = Array.isArray(payload?.routes) ? [...payload.routes] : []
+
+        // OSRM may return no native alternatives. Ask it for two modestly shaped
+        // road routes while keeping every real delivery coordinate as a waypoint.
+        if (response.ok && rawRoutes.length < 2 && uniqueWaypoints.length >= 2) {
+          const start = uniqueWaypoints[0]
+          const firstStop = uniqueWaypoints[1]
+          const midpoint = {
+            lat: (start.lat + firstStop.lat) / 2,
+            lng: (start.lng + firstStop.lng) / 2,
+          }
+          const longitudeScale = Math.max(Math.cos((midpoint.lat * Math.PI) / 180), 0.1)
+          const dx = (firstStop.lng - start.lng) * longitudeScale
+          const dy = firstStop.lat - start.lat
+          const straightLength = Math.hypot(dx, dy)
+          const offsetDegrees = Math.min(Math.max(haversineKm(start, firstStop) * 0.12, 0.4), 1.5) / 111
+
+          if (straightLength > 0) {
+            const detourPoints = [-1, 1].map((direction) => ({
+              lat: midpoint.lat + direction * (dx / straightLength) * offsetDegrees,
+              lng: midpoint.lng - direction * (dy / straightLength) * offsetDegrees / longitudeScale,
+            }))
+            const shapedRoutes = await Promise.all(detourPoints.map(async (detourPoint) => {
+              const shapedCoordinates = [start, detourPoint, ...uniqueWaypoints.slice(1)]
+                .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
+                .join(';')
+              // Index 1 is a silent shaping coordinate, so instructions still reference only actual stops.
+              const waypointIndexes = [0, ...Array.from({ length: uniqueWaypoints.length - 1 }, (_, index) => index + 2)]
+                .join(';')
+              try {
+                const shapedResponse = await fetch(
+                  `https://router.project-osrm.org/route/v1/driving/${shapedCoordinates}?overview=full&geometries=geojson&steps=true&waypoints=${encodeURIComponent(waypointIndexes)}`,
+                  { signal: controller.signal }
+                )
+                const shapedPayload = await shapedResponse.json().catch(() => ({}))
+                return shapedResponse.ok && Array.isArray(shapedPayload?.routes) ? shapedPayload.routes[0] : null
+              } catch {
+                return null
+              }
+            }))
+            const recommendedDistance = Math.max(Number(rawRoutes[0]?.distance || 0), 1)
+            const routeKeys = new Set(rawRoutes.map((route: any) => JSON.stringify(route?.geometry?.coordinates || [])))
+            shapedRoutes.forEach((route) => {
+              const routeKey = JSON.stringify(route?.geometry?.coordinates || [])
+              const routeDistance = Number(route?.distance || 0)
+              if (
+                routeKey !== '[]' &&
+                !routeKeys.has(routeKey) &&
+                routeDistance > 0 &&
+                routeDistance <= recommendedDistance * 1.5
+              ) {
+                routeKeys.add(routeKey)
+                rawRoutes.push(route)
+              }
+            })
+          }
+        }
+
+        // Added: keep all returned routes so the driver can choose an alternative without changing the stop order.
+        const normalizedOptions: DriverRouteOption[] = rawRoutes
+          .map((route: any, routeIndex: number) => {
+            const points = (Array.isArray(route?.geometry?.coordinates) ? route.geometry.coordinates : [])
+              .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
+              .filter((point: [number, number]) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+            const steps: OsrmStep[] = (Array.isArray(route?.legs) ? route.legs : [])
+              .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
+              .map((step: any) => ({
+                maneuver: {
+                  type: String(step?.maneuver?.type || '').trim(),
+                  modifier: step?.maneuver?.modifier ? String(step.maneuver.modifier).trim() : undefined,
+                  location: [
+                    Number(step?.maneuver?.location?.[0]),
+                    Number(step?.maneuver?.location?.[1]),
+                  ] as [number, number],
+                },
+                name: String(step?.name || '').trim(),
+                distance: Number(step?.distance || 0),
+                duration: Number(step?.duration || 0),
+                driving_side: step?.driving_side ? String(step.driving_side).trim() : undefined,
+              }))
+              .filter(
+                (step: OsrmStep) =>
+                  step.maneuver.type &&
+                  Number.isFinite(step.maneuver.location[0]) &&
+                  Number.isFinite(step.maneuver.location[1])
+              )
+            return { id: String(routeIndex), points, steps }
+          })
+          .filter((route: DriverRouteOption) => route.points.length > 1)
 
         if (!cancelled) {
-          setRouteSteps(normalizedSteps)
+          setRouteOptions(normalizedOptions)
+          setActiveRouteOptionIndex((previous) => Math.min(previous, Math.max(normalizedOptions.length - 1, 0)))
           setCurrentStepIndex(0)
         }
       } catch {
         if (!cancelled) {
+          setRouteOptions([])
+          setActiveRouteOptionIndex(0)
           setRouteSteps([])
           setCurrentStepIndex(0)
         }
@@ -1874,12 +1954,30 @@ export function TripDetailView({
     }
   }, [navigationWaypointsKey])
 
+  useEffect(() => {
+    const activeOption = routeOptions[activeRouteOptionIndex]
+    setRouteSteps(activeOption?.steps || [])
+    setCurrentStepIndex(0)
+    spokenNavigationPromptsRef.current.clear()
+  }, [activeRouteOptionIndex, routeOptions])
+
   const completedRoutePoints = completedRouteWaypoints.map(
     (point) => [point.lat, point.lng] as [number, number]
   )
   const upcomingRoutePoints = upcomingRouteWaypoints.map(
     (point) => [point.lat, point.lng] as [number, number]
   )
+  const activeRouteOption = routeOptions[activeRouteOptionIndex] || null
+  const isRecommendedRouteActive = activeRouteOptionIndex === 0
+  const handleRouteLineSelect = useCallback((routeLineId: string) => {
+    const alternativePrefix = `trip-${trip.id}-route-alternative-`
+    if (!routeLineId.startsWith(alternativePrefix)) return
+    const optionId = routeLineId.slice(alternativePrefix.length)
+    const selectedIndex = routeOptions.findIndex((option) => option.id === optionId)
+    if (selectedIndex < 0 || selectedIndex === activeRouteOptionIndex) return
+    // Added: promote the tapped light-blue route and its instructions to the active route.
+    setActiveRouteOptionIndex(selectedIndex)
+  }, [activeRouteOptionIndex, routeOptions, trip.id])
   const mapRouteLines = [
     ...(completedRoutePoints.length > 1
       ? [
@@ -1896,16 +1994,30 @@ export function TripDetailView({
         },
       ]
       : []),
-    ...(upcomingRoutePoints.length > 1
+    ...routeOptions
+      .filter((_, optionIndex) => optionIndex !== activeRouteOptionIndex)
+      .map((option) => ({
+        id: `trip-${trip.id}-route-alternative-${option.id}`,
+        points: option.points,
+        color: '#93c5fd',
+        label: `${trip.tripNumber} alternative path`,
+        opacity: 0.82,
+        weight: 6,
+        selectable: true,
+        preserveExactEndpoints: false,
+      })),
+    ...((activeRouteOption?.points.length || upcomingRoutePoints.length) > 1
       ? [
         {
           id: `trip-${trip.id}-route-upcoming`,
-          points: upcomingRoutePoints,
+          // Preserve the existing recommended-route snapping until the driver explicitly chooses an alternative.
+          points: isRecommendedRouteActive ? upcomingRoutePoints : activeRouteOption?.points || upcomingRoutePoints,
           color: '#2563eb',
           label: `${trip.tripNumber} upcoming path`,
           opacity: 1,
           weight: 8,
-          snapToRoad: true,
+          snapToRoad: isRecommendedRouteActive,
+          selectable: Boolean(activeRouteOption),
           // Fix: begin the visible path and truck marker at the routed road position.
           preserveExactEndpoints: false,
         },
@@ -2210,6 +2322,7 @@ export function TripDetailView({
                   <LiveTrackingMap
                     locations={mapLocations}
                     routeLines={mapRouteLines}
+                    onRouteLineSelect={handleRouteLineSelect}
                     center={mapCenter}
                     zoom={13}
                     navigationPerspective
@@ -2289,6 +2402,7 @@ export function TripDetailView({
                       <LiveTrackingMap
                         locations={mapLocations}
                         routeLines={mapRouteLines}
+                        onRouteLineSelect={handleRouteLineSelect}
                         center={mobileMapCenter}
                         zoom={13}
                         navigationPerspective

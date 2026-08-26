@@ -85,7 +85,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft,
                           variant="ghost"
                           className="text-blue-600 hover:bg-blue-50 hover:text-blue-700"
                           onClick={() => openBatchQuantityDialog(batch)}
-                          title="Edit batch quantity"
+                          title="Edit batch quantity and dates"
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>

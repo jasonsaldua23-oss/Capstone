@@ -2,6 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
+import {
+  DRIVER_LICENSE_RESTRICTIONS,
+  isValidDriverLicenseRestriction,
+  isValidPhilippineDriverLicense,
+  formatPhilippineDriverLicenseInput,
+} from '@/lib/driver-license-restrictions'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -165,8 +171,21 @@ export function DriversView() {
   }
 
   const createDriver = async () => {
-    if (!driverForm.licenseNumber.trim()) {
+    const rawLic = driverForm.licenseNumber.trim()
+    if (!rawLic) {
       toast.error('License number is required')
+      return
+    }
+    if (!isValidPhilippineDriverLicense(rawLic)) {
+      toast.error("Driver's License Number must follow standard Philippine LTO format: 1 letter, 2 digits, hyphen, 2 digits, hyphen, 6 digits (e.g. D09-22-000984 / X00-00-000000).")
+      return
+    }
+    if (!isValidDriverLicenseRestriction(driverForm.licenseType)) {
+      toast.error('Please select a valid driver license restriction')
+      return
+    }
+    if (driverForm.licenseExpiry && driverForm.licenseExpiry < new Date().toISOString().slice(0, 10)) {
+      toast.error('License expiration date cannot be in the past.')
       return
     }
 
@@ -212,7 +231,7 @@ export function DriversView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
-          licenseNumber: driverForm.licenseNumber.trim(),
+          licenseNumber: rawLic,
           licenseType: driverForm.licenseType || 'B',
           licenseExpiry: driverForm.licenseExpiry || null,
           phone: driverForm.phone.trim() || null,
@@ -249,9 +268,21 @@ export function DriversView() {
       return
     }
 
+    const alreadyAssignedVehicle = vehicles.find(
+      (v) => (v.driverId === assignDriver.id || v.driver?.id === assignDriver.id) && v.id !== assignVehicleId
+    )
+    if (alreadyAssignedVehicle) {
+      toast.error(`Driver is already assigned to vehicle ${alreadyAssignedVehicle.licensePlate || 'another vehicle'}.`)
+      return
+    }
+
     const selectedVehicle = vehicles.find((vehicle) => vehicle.id === assignVehicleId)
     if (selectedVehicle && !isVehicleAssignable(selectedVehicle)) {
       toast.error('Selected vehicle is unavailable and cannot be assigned')
+      return
+    }
+    if (selectedVehicle && selectedVehicle.driverId && selectedVehicle.driverId !== assignDriver.id) {
+      toast.error(`Vehicle is already assigned to driver ${selectedVehicle.driver?.name || selectedVehicle.driver?.email || 'another driver'}.`)
       return
     }
 
@@ -454,11 +485,28 @@ export function DriversView() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">License Number</label>
-                <Input value={driverForm.licenseNumber} onChange={(e) => setDriverForm((f) => ({ ...f, licenseNumber: e.target.value }))} />
+                <Input
+                  value={driverForm.licenseNumber}
+                  placeholder="e.g. D09-22-000984"
+                  maxLength={13}
+                  onChange={(e) => setDriverForm((f) => ({ ...f, licenseNumber: formatPhilippineDriverLicenseInput(e.target.value) }))}
+                />
+                {driverForm.licenseNumber && !isValidPhilippineDriverLicense(driverForm.licenseNumber) && (
+                  <p className="text-xs text-amber-600">Must match X00-00-000000 format</p>
+                )}
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">License Type</label>
-                <Input value={driverForm.licenseType} onChange={(e) => setDriverForm((f) => ({ ...f, licenseType: e.target.value }))} />
+                <label className="text-sm font-medium text-gray-700">Restrictions</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  title="Driver Restrictions"
+                  value={driverForm.licenseType}
+                  onChange={(e) => setDriverForm((f) => ({ ...f, licenseType: e.target.value }))}
+                >
+                  {DRIVER_LICENSE_RESTRICTIONS.map((res) => (
+                    <option key={res.code} value={res.code}>{res.label}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">License Expiry</label>

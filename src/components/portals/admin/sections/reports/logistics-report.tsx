@@ -486,6 +486,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             <span className="text-xs font-medium text-slate-500">Date Range:</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
@@ -497,6 +498,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             <span className="text-xs text-slate-400">to</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)

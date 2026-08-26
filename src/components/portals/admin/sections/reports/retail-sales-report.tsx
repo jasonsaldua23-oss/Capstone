@@ -65,10 +65,12 @@ interface RetailSalesReportProps {
   retailSales?: any[]
 }
 
-type PeriodMode = 'weekly' | 'monthly' | 'yearly'
+type PeriodMode = 'all' | '7' | '30' | '90' | '365' | 'custom'
 
 export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesReportProps) {
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('weekly')
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('30')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
@@ -125,43 +127,43 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     return list
   }, [orders, retailSales])
 
-  // Split into Current vs Previous period based on mode
+  // Split the selected date window from its immediately preceding comparison period.
   const { currentPeriodItems, prevPeriodItems, periodLabel, prevPeriodLabel } = useMemo(() => {
     const now = new Date()
-    let currentStart = new Date(now)
-    let prevStart = new Date(now)
-    let prevEnd = new Date(now)
-    let label = ''
-    let prevLabel = ''
+    let currentStartTime = Number.NEGATIVE_INFINITY
+    let currentEndTime = now.getTime()
+    let prevStartTime = Number.NEGATIVE_INFINITY
+    let prevEndTime = Number.NEGATIVE_INFINITY
+    let label = 'All Time'
+    let prevLabel = 'No prior comparison'
 
-    if (periodMode === 'weekly') {
-      currentStart.setDate(now.getDate() - 7)
-      prevStart.setDate(now.getDate() - 14)
-      prevEnd.setDate(now.getDate() - 7)
-      label = 'Past 7 Days'
-      prevLabel = 'Prior 7 Days'
-    } else if (periodMode === 'monthly') {
-      currentStart.setDate(now.getDate() - 30)
-      prevStart.setDate(now.getDate() - 60)
-      prevEnd.setDate(now.getDate() - 30)
-      label = 'Past 30 Days'
-      prevLabel = 'Prior 30 Days'
-    } else {
-      // yearly
-      currentStart.setDate(now.getDate() - 365)
-      prevStart.setDate(now.getDate() - 730)
-      prevEnd.setDate(now.getDate() - 365)
-      label = 'Past 12 Months'
-      prevLabel = 'Prior 12 Months'
+    if (periodMode === 'custom') {
+      if (dateFrom) currentStartTime = new Date(`${dateFrom}T00:00:00`).getTime()
+      if (dateTo) currentEndTime = new Date(`${dateTo}T23:59:59.999`).getTime()
+      label = dateFrom || dateTo ? `${dateFrom || 'Start'} to ${dateTo || 'Today'}` : 'Custom Date Range'
+
+      // A complete custom range can be compared with the equally sized preceding window.
+      if (dateFrom && dateTo && currentEndTime >= currentStartTime) {
+        const duration = currentEndTime - currentStartTime
+        prevEndTime = currentStartTime
+        prevStartTime = currentStartTime - duration
+        prevLabel = 'prior matching period'
+      }
+    } else if (periodMode !== 'all') {
+      const days = Number(periodMode)
+      const currentStart = new Date(now)
+      currentStart.setDate(now.getDate() - days)
+      currentStart.setHours(0, 0, 0, 0)
+      currentStartTime = currentStart.getTime()
+      prevEndTime = currentStartTime
+      prevStartTime = currentStartTime - days * 24 * 60 * 60 * 1000
+      label = periodMode === '365' ? 'Past 1 Year' : `Past ${days} Days`
+      prevLabel = periodMode === '365' ? 'Prior 1 Year' : `Prior ${days} Days`
     }
-
-    const currentStartTime = currentStart.getTime()
-    const prevStartTime = prevStart.getTime()
-    const prevEndTime = prevEnd.getTime()
 
     const currentPeriodItems = retailTransactions.filter((item) => {
       const t = new Date(item.date).getTime()
-      return t >= currentStartTime
+      return t >= currentStartTime && t <= currentEndTime
     })
 
     const prevPeriodItems = retailTransactions.filter((item) => {
@@ -170,7 +172,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     })
 
     return { currentPeriodItems, prevPeriodItems, periodLabel: label, prevPeriodLabel: prevLabel }
-  }, [retailTransactions, periodMode])
+  }, [retailTransactions, periodMode, dateFrom, dateTo])
 
   // Filtered current period list for table
   const filteredCurrentItems = useMemo(() => {
@@ -236,14 +238,11 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       let key = ''
       let label = ''
 
-      if (periodMode === 'weekly') {
-        key = formatDayKey(d)
-        label = `${d.getMonth() + 1}/${d.getDate()}`
-      } else if (periodMode === 'monthly') {
+      if (['7', '30', 'custom'].includes(periodMode)) {
         key = formatDayKey(d)
         label = `${d.getMonth() + 1}/${d.getDate()}`
       } else {
-        // Group by Month for Yearly
+        // Longer ranges are grouped by month to keep the chart readable.
         key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
         label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
       }
@@ -347,42 +346,23 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Weekly / Monthly / Yearly Selector */}
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1">
-            <button
-              onClick={() => {
-                setPeriodMode('weekly')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
-                periodMode === 'weekly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Weekly
-            </button>
-            <button
-              onClick={() => {
-                setPeriodMode('monthly')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
-                periodMode === 'monthly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Monthly
-            </button>
-            <button
-              onClick={() => {
-                setPeriodMode('yearly')
-                setCurrentPage(1)
-              }}
-              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
-                periodMode === 'yearly' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Yearly
-            </button>
-          </div>
+          {/* Use the same fixed date-range choices as every other Reports tab. */}
+          <select
+            value={periodMode}
+            onChange={(event) => {
+              setPeriodMode(event.target.value as PeriodMode)
+              setCurrentPage(1)
+            }}
+            aria-label="Filter retail sales by date range"
+            className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="all">All Time</option>
+            <option value="7">Past 7 Days</option>
+            <option value="30">Past 30 Days</option>
+            <option value="90">Past 90 Days</option>
+            <option value="365">Past 1 Year</option>
+            <option value="custom">Custom Date Range</option>
+          </select>
 
           {/* Export Buttons */}
           <Button
@@ -414,6 +394,18 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
           </Button>
         </div>
       </div>
+
+      {/* Custom dates appear only when the shared Custom Date Range option is selected. */}
+      {periodMode === 'custom' && (
+        <Card className="border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-600">Custom Date Range:</span>
+            <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date from" />
+            <span className="text-xs text-slate-400">to</span>
+            <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={dateTo} onChange={(event) => { setDateTo(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date to" />
+          </div>
+        </Card>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

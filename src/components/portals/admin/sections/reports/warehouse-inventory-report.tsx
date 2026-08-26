@@ -133,32 +133,17 @@ export function WarehouseInventoryReport({
   inventoryTransactions = [],
   orders = [],
   retailSales = [],
-  warehouses = [],
   stockBatches = [],
 }: WarehouseInventoryReportProps) {
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState<'velocity' | 'units' | 'revenue' | 'stock'>('velocity')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 12
-
-  // Match selected warehouse object for ID or name comparison
-  const selectedWarehouseObj = useMemo(() => {
-    if (warehouseFilter === 'all') return null
-    return (
-      warehouses.find(
-        (w) =>
-          String(w.id || w._id) === warehouseFilter ||
-          String(w.code || '').toLowerCase() === warehouseFilter.toLowerCase() ||
-          String(w.name || '').toLowerCase() === warehouseFilter.toLowerCase()
-      ) || null
-    )
-  }, [warehouses, warehouseFilter])
 
   // Number of days in the active period for daily velocity calculation
   const periodDays = useMemo(() => {
@@ -211,14 +196,6 @@ export function WarehouseInventoryReport({
       }
     >()
     inventory.forEach((inv) => {
-      if (warehouseFilter !== 'all') {
-        const invWId = String(inv.warehouseId || inv.warehouse_id || inv.warehouse?.id || '').trim()
-        const invWName = String(inv.warehouseName || inv.warehouse?.name || '').trim().toLowerCase()
-        const matchId = invWId && invWId === warehouseFilter
-        const matchName = selectedWarehouseObj && invWName && invWName === selectedWarehouseObj.name?.toLowerCase()
-        if (!matchId && !matchName) return
-      }
-
       const prod = inv.product || {}
       const prodId = String(inv.productId || prod.id || '').trim()
       const pName = String(prod.name || inv.productName || '').trim()
@@ -254,7 +231,7 @@ export function WarehouseInventoryReport({
       }
     })
     return map
-  }, [inventory, warehouseFilter, selectedWarehouseObj])
+  }, [inventory])
 
   // Extract all distinct categories for filter dropdown
   const distinctCategories = useMemo(() => {
@@ -280,6 +257,7 @@ export function WarehouseInventoryReport({
         imageUrl: string
         unitPrice: number
         totalUnitsSold: number
+        totalComparableUnits: number
         totalRevenue: number
         orderCount: number
         warehouseId: string
@@ -301,7 +279,8 @@ export function WarehouseInventoryReport({
       revenue: number,
       wId: string,
       wName: string,
-      uLabel?: string
+      uLabel?: string,
+      comparableQty: number = qty
     ) => {
       const rawName = String(pName || 'Product').trim()
       const key = (pId || rawName).toLowerCase().trim()
@@ -312,6 +291,7 @@ export function WarehouseInventoryReport({
       const existing = map.get(key)
       if (existing) {
         existing.totalUnitsSold += qty
+        existing.totalComparableUnits += comparableQty
         existing.totalRevenue += revenue
         existing.orderCount += 1
         existing.unitsMap.set(unit, (existing.unitsMap.get(unit) || 0) + qty)
@@ -328,6 +308,7 @@ export function WarehouseInventoryReport({
           imageUrl: pImg || '',
           unitPrice: pPrice,
           totalUnitsSold: qty,
+          totalComparableUnits: comparableQty,
           totalRevenue: revenue,
           orderCount: 1,
           warehouseId: wId,
@@ -345,13 +326,8 @@ export function WarehouseInventoryReport({
       const orderDate = order.createdAt || order.date || ''
       if (!isDateInPeriod(orderDate)) return
 
+      // Keep warehouse metadata on aggregated rows without using it as a filter.
       const orderWarehouseId = String(order.warehouseId || order.warehouse_id || order.warehouse?.id || '').trim()
-      const orderWarehouseName = String(order.warehouseName || order.warehouse?.name || '').trim().toLowerCase()
-      if (warehouseFilter !== 'all') {
-        const matchId = orderWarehouseId && orderWarehouseId === warehouseFilter
-        const matchName = selectedWarehouseObj && orderWarehouseName && orderWarehouseName === selectedWarehouseObj.name?.toLowerCase()
-        if (!matchId && !matchName) return
-      }
       const wName = String(order.warehouseName || order.warehouse?.name || 'Central Warehouse').trim()
 
       const items = Array.isArray(order.items) ? order.items : []
@@ -375,7 +351,8 @@ export function WarehouseInventoryReport({
             const totalBottles = perCaseQty * caseQty
             const rev = totalBottles * cPrice
             const uLabel = getLooseUnitLabel(comp, cCat)
-            registerMovement(cId, cName, cSize, cSku, cCat, cImg, cPrice, totalBottles, rev, orderWarehouseId, wName, uLabel)
+            // Bottle components are converted back to their case count for fair velocity ranking.
+            registerMovement(cId, cName, cSize, cSku, cCat, cImg, cPrice, totalBottles, rev, orderWarehouseId, wName, uLabel, caseQty)
           })
         } else {
           const prod = item.product || {}
@@ -401,12 +378,6 @@ export function WarehouseInventoryReport({
       if (!isDateInPeriod(saleDate)) return
 
       const saleWarehouseId = String(sale.warehouseId || sale.warehouse?.id || '').trim()
-      const saleWarehouseName = String(sale.warehouseName || sale.warehouse?.name || '').trim().toLowerCase()
-      if (warehouseFilter !== 'all') {
-        const matchId = saleWarehouseId && saleWarehouseId === warehouseFilter
-        const matchName = selectedWarehouseObj && saleWarehouseName && saleWarehouseName === selectedWarehouseObj.name?.toLowerCase()
-        if (!matchId && !matchName) return
-      }
       const wName = String(sale.warehouseName || sale.warehouse?.name || 'Retail Warehouse').trim()
 
       const items = Array.isArray(sale.items) ? sale.items : []
@@ -428,7 +399,8 @@ export function WarehouseInventoryReport({
             const totalBottles = Math.max(1, Number(comp.quantityBaseUnits || comp.quantityPerCase || 1)) * caseQty
             const rev = totalBottles * cPrice
             const uLabel = getLooseUnitLabel(comp, cCat)
-            registerMovement(cId, cName, cSize, cSku, cCat, cImg, cPrice, totalBottles, rev, saleWarehouseId, wName, uLabel)
+            // Compare the movement as cases while retaining bottle quantity in the display breakdown.
+            registerMovement(cId, cName, cSize, cSku, cCat, cImg, cPrice, totalBottles, rev, saleWarehouseId, wName, uLabel, caseQty)
           })
         } else {
           const pId = String(item.productId || '').trim()
@@ -443,7 +415,9 @@ export function WarehouseInventoryReport({
           const explicitUnit = String(item?.unit || '').toLowerCase()
           const isLoose = item.mode === 'BOTTLE' || explicitUnit.includes('bottle') || explicitUnit.includes('can')
           const uLabel = isLoose ? getLooseUnitLabel(item, pCat) : (explicitUnit.includes('pack') ? 'packs' : 'cases')
-          registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, saleWarehouseId, wName, uLabel)
+          const quantityPerCase = Math.max(1, Number(item.quantityPerCase || item.product?.quantityPerCase || 1))
+          const comparableQty = isLoose ? qty / quantityPerCase : qty
+          registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, saleWarehouseId, wName, uLabel, comparableQty)
         }
       })
     })
@@ -458,12 +432,6 @@ export function WarehouseInventoryReport({
       if (!isDateInPeriod(txDate)) return
 
       const txWarehouseId = String(tx.warehouseId || tx.warehouse?.id || '').trim()
-      const txWarehouseName = String(tx.warehouseName || tx.warehouse?.name || '').trim().toLowerCase()
-      if (warehouseFilter !== 'all') {
-        const matchId = txWarehouseId && txWarehouseId === warehouseFilter
-        const matchName = selectedWarehouseObj && txWarehouseName && txWarehouseName === selectedWarehouseObj.name?.toLowerCase()
-        if (!matchId && !matchName) return
-      }
       const wName = String(tx.warehouseName || tx.warehouse?.name || 'Warehouse Hub').trim()
 
       const pId = String(tx.productId || tx.product?.id || '').trim()
@@ -483,12 +451,14 @@ export function WarehouseInventoryReport({
         const explicitUnit = String(tx.unit || '').toLowerCase()
         const isLoose = tx.mode === 'BOTTLE' || explicitUnit.includes('bottle') || explicitUnit.includes('can')
         const uLabel = isLoose ? getLooseUnitLabel(tx, pCat) : (explicitUnit.includes('pack') ? 'packs' : 'cases')
-        registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, txWarehouseId, wName, uLabel)
+        const quantityPerCase = Math.max(1, Number(tx.quantityPerCase || tx.product?.quantityPerCase || 1))
+        const comparableQty = isLoose ? qty / quantityPerCase : qty
+        registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, txWarehouseId, wName, uLabel, comparableQty)
       }
     })
 
     return Array.from(map.values())
-  }, [orders, retailSales, inventoryTransactions, isDateInPeriod, warehouseFilter, selectedWarehouseObj])
+  }, [orders, retailSales, inventoryTransactions, isDateInPeriod])
 
   // Build fully ranked fastest moving product list with on-hand stock and velocity
   const rankedProducts = useMemo(() => {
@@ -507,7 +477,8 @@ export function WarehouseInventoryReport({
         }
 
       const currentStock = stockInfo.currentStock
-      const dailyVelocity = Number((item.totalUnitsSold / Math.max(1, periodDays)).toFixed(1))
+      // Rank velocity using normalized case/pack equivalents instead of adding bottles to cases.
+      const dailyVelocity = Number((item.totalComparableUnits / Math.max(1, periodDays)).toFixed(1))
       const stockRunwayDays = dailyVelocity > 0 ? Math.round(currentStock / dailyVelocity) : (currentStock > 0 ? 999 : 0)
 
       let stockStatus = 'HEALTHY'
@@ -580,8 +551,8 @@ export function WarehouseInventoryReport({
         valA = a.dailyVelocity
         valB = b.dailyVelocity
       } else if (sortField === 'units') {
-        valA = a.totalUnitsSold
-        valB = b.totalUnitsSold
+        valA = a.totalComparableUnits
+        valB = b.totalComparableUnits
       } else if (sortField === 'revenue') {
         valA = a.totalRevenue
         valB = b.totalRevenue
@@ -603,8 +574,9 @@ export function WarehouseInventoryReport({
   const kpis = useMemo(() => {
     const totalMovingSkus = rankedProducts.length
     const totalUnitsDispatched = rankedProducts.reduce((sum, p) => sum + p.totalUnitsSold, 0)
+    const totalComparableUnits = rankedProducts.reduce((sum, p) => sum + p.totalComparableUnits, 0)
     const totalOutflowRevenue = rankedProducts.reduce((sum, p) => sum + p.totalRevenue, 0)
-    const avgDailyTurnover = Number((totalUnitsDispatched / Math.max(1, periodDays)).toFixed(1))
+    const avgDailyTurnover = Number((totalComparableUnits / Math.max(1, periodDays)).toFixed(1))
     const topFastestProduct = rankedProducts[0] || null
 
     return {
@@ -621,7 +593,8 @@ export function WarehouseInventoryReport({
     return rankedProducts.slice(0, 8).map((p) => ({
       name: p.productName.length > 18 ? `${p.productName.slice(0, 16)}...` : p.productName,
       fullName: p.productName,
-      units: p.totalUnitsSold,
+      // The chart uses the same normalized quantity as the ranking and velocity calculation.
+      units: Number(p.totalComparableUnits.toFixed(1)),
       velocity: p.dailyVelocity,
       revenue: p.totalRevenue,
       rank: p.rank,
@@ -662,7 +635,7 @@ export function WarehouseInventoryReport({
           ? r.unitBreakdown.map((b: any) => `${b.qty.toLocaleString()} ${b.unit}`).join(' / ')
           : `${Number(r.totalUnitsSold || 0).toLocaleString()} ${r.unitLabel || 'cases'}`,
     },
-    { header: 'Daily Velocity (Units/Day)', accessor: (r) => `${r.dailyVelocity}/day` },
+    { header: 'Daily Velocity (Equivalent Units/Day)', accessor: (r) => `${r.dailyVelocity}/day` },
     { header: 'Revenue Generated (PHP)', accessor: (r) => Number(r.totalRevenue || 0).toFixed(2) },
     { header: 'Current Stock', accessor: (r) => `${Number(r.currentStock || 0).toLocaleString()} ${r.stockUnitLabel || r.unitLabel || 'cases'}` },
     { header: 'Stock Status', key: 'stockStatus' },
@@ -832,10 +805,10 @@ export function WarehouseInventoryReport({
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-base font-semibold text-slate-800">
-                Top Fast-Moving Products by Volume & Velocity
+                Top Fast-Moving Products by Normalized Volume
               </CardTitle>
               <CardDescription className="text-xs text-slate-500">
-                Units dispatched and daily turnover velocity ({periodLabel})
+                Case/pack-equivalent movement used for fair ranking ({periodLabel})
               </CardDescription>
             </div>
             <Badge variant="outline" className="text-xs text-slate-600">Top {top10ChartData.length} Ranked</Badge>
@@ -855,18 +828,18 @@ export function WarehouseInventoryReport({
                     tick={{ fontSize: 11, fill: '#64748b' }}
                     tickLine={false}
                     axisLine={false}
-                    allowDecimals={false}
+                    allowDecimals
                   />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: any, name: any) => [
-                      name === 'units' ? `${Number(value).toLocaleString()} units` : `${value}/day`,
-                      name === 'units' ? 'Total Volume Dispatched' : 'Daily Velocity',
+                    formatter={(value: any) => [
+                      `${Number(value).toLocaleString()} equivalent units`,
+                      'Normalized QTY Dispatched',
                     ]}
                     labelFormatter={(label) => String(label)}
                   />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b', paddingTop: '4px' }} />
-                  <Bar dataKey="units" name="QTY Dispatched" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={32}>
+                  <Bar dataKey="units" name="Normalized QTY Dispatched" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={32}>
                     {top10ChartData.map((entry, index) => (
                       <Cell
                         key={`cell-${index}`}
@@ -883,7 +856,7 @@ export function WarehouseInventoryReport({
 
       {/* Filters Bar */}
       <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -909,32 +882,12 @@ export function WarehouseInventoryReport({
               aria-label="Filter by time preset"
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none"
             >
+              <option value="all">All Time</option>
               <option value="7">Past 7 Days</option>
-              <option value="30">Past 30 Days (Default)</option>
+              <option value="30">Past 30 Days</option>
               <option value="90">Past 90 Days</option>
               <option value="365">Past 1 Year</option>
-              <option value="all">All Time</option>
               <option value="custom">Custom Date Range</option>
-            </select>
-          </div>
-
-          {/* Warehouse Filter */}
-          <div>
-            <select
-              value={warehouseFilter}
-              onChange={(e) => {
-                setWarehouseFilter(e.target.value)
-                setCurrentPage(1)
-              }}
-              aria-label="Filter by warehouse"
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none"
-            >
-              <option value="all">All Warehouses / Hubs</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name || w.code}
-                </option>
-              ))}
             </select>
           </div>
 
@@ -989,6 +942,7 @@ export function WarehouseInventoryReport({
             <span className="text-xs font-medium text-slate-500">Date Range:</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
@@ -1000,6 +954,7 @@ export function WarehouseInventoryReport({
             <span className="text-xs text-slate-400">to</span>
             <input
               type="date"
+              onClick={(event) => event.currentTarget.showPicker?.()}
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)

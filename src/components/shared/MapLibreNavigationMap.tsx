@@ -210,6 +210,7 @@ export default function MapLibreNavigationMap({
   zoomOutSignal,
   navigationViewportInsets,
   showDriverSelfBadge,
+  onRouteLineSelect,
   className,
 }: {
   locations: DriverLocation[];
@@ -222,6 +223,7 @@ export default function MapLibreNavigationMap({
   zoomOutSignal?: number;
   navigationViewportInsets?: NavigationViewportInsets;
   showDriverSelfBadge: boolean;
+  onRouteLineSelect?: (routeLineId: string) => void;
   className: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -529,6 +531,7 @@ export default function MapLibreNavigationMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const routeInteractionCleanups: Array<() => void> = [];
     const updateRoutes = () => {
       if (mapRef.current !== map || !map.getStyle()) return;
       const activeSourceIds: string[] = [];
@@ -540,17 +543,19 @@ export default function MapLibreNavigationMap({
         const shadowLayerId = `${sourceId}-shadow`;
         const mainLayerId = `${sourceId}-main`;
         const detailLayerId = `${sourceId}-detail`;
+        const hitLayerId = `${sourceId}-hit`;
         const isUpcoming = line.color === '#2563eb' && !line.dashArray;
+        const isAlternative = line.color === '#93c5fd' && !line.dashArray;
         const routeData = {
           type: 'Feature' as const,
-          properties: {},
+          properties: { routeLineId: line.id },
           geometry: {
             type: 'LineString' as const,
             coordinates: line.points.map((point) => [point[1], point[0]]),
           },
         };
         activeSourceIds.push(sourceId);
-        activeLayerIds.push(shadowLayerId, mainLayerId, detailLayerId);
+        activeLayerIds.push(shadowLayerId, mainLayerId, detailLayerId, hitLayerId);
 
         const existingSource = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
         if (existingSource) {
@@ -568,9 +573,9 @@ export default function MapLibreNavigationMap({
             source: sourceId,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
-              'line-color': isUpcoming ? '#0f3b8f' : '#1e293b',
+              'line-color': isUpcoming ? '#0f3b8f' : isAlternative ? '#60a5fa' : '#1e293b',
               'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 7, 18, 12],
-              'line-opacity': isUpcoming ? 0.3 : 0.24,
+              'line-opacity': isUpcoming ? 0.3 : isAlternative ? 0.24 : 0.24,
               'line-blur': 1.2,
             },
           });
@@ -584,9 +589,11 @@ export default function MapLibreNavigationMap({
             paint: {
               'line-gradient': isUpcoming
                 ? ['interpolate', ['linear'], ['line-progress'], 0, '#38bdf8', 0.48, '#2563eb', 1, '#1d4ed8']
+                : isAlternative
+                  ? ['interpolate', ['linear'], ['line-progress'], 0, '#bfdbfe', 0.5, '#93c5fd', 1, '#60a5fa']
                 : ['interpolate', ['linear'], ['line-progress'], 0, '#94a3b8', 0.55, '#64748b', 1, '#475569'],
               'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.6, 14, 5, 18, 8.5],
-              'line-opacity': isUpcoming ? 0.98 : 0.84,
+              'line-opacity': isUpcoming ? 0.98 : isAlternative ? 0.86 : 0.84,
             },
           });
         }
@@ -597,10 +604,23 @@ export default function MapLibreNavigationMap({
             source: sourceId,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
-              'line-color': isUpcoming ? '#e0f2fe' : '#cbd5e1',
+              'line-color': isUpcoming ? '#e0f2fe' : isAlternative ? '#eff6ff' : '#cbd5e1',
               'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.7, 16, 1.35, 19, 1.8],
-              'line-opacity': isUpcoming ? 0.72 : 0.62,
-              'line-dasharray': isUpcoming ? [1.2, 3.2] : [0.8, 2.5],
+              'line-opacity': isUpcoming ? 0.72 : isAlternative ? 0.5 : 0.62,
+              'line-dasharray': isUpcoming ? [1.2, 3.2] : isAlternative ? [1, 3.6] : [0.8, 2.5],
+            },
+          });
+        }
+        if (!map.getLayer(hitLayerId)) {
+          map.addLayer({
+            id: hitLayerId,
+            type: 'line',
+            source: sourceId,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': '#ffffff',
+              'line-width': 24,
+              'line-opacity': 0.01,
             },
           });
         }
@@ -609,8 +629,29 @@ export default function MapLibreNavigationMap({
         map.setPaintProperty(shadowLayerId, 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 7, 18, 12]);
         map.setPaintProperty(mainLayerId, 'line-offset', 0);
         map.setPaintProperty(mainLayerId, 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 2.6, 14, 5, 18, 8.5]);
-        map.setPaintProperty(mainLayerId, 'line-opacity', isUpcoming ? 0.98 : 0.84);
+        map.setPaintProperty(mainLayerId, 'line-opacity', isUpcoming ? 0.98 : isAlternative ? 0.86 : 0.84);
         map.setPaintProperty(detailLayerId, 'line-offset', 0);
+        if (line.selectable && onRouteLineSelect) {
+          const selectRoute = (event: maplibregl.MapLayerMouseEvent) => {
+            const hitLayerIds = routeLayerIdsRef.current.filter((layerId) => layerId.endsWith('-hit') && map.getLayer(layerId));
+            const topRoute = hitLayerIds.length > 0
+              ? map.queryRenderedFeatures(event.point, { layers: hitLayerIds })[0]
+              : null;
+            // Only the visually top route receives the tap where routes overlap.
+            if (String(topRoute?.properties?.routeLineId || '') !== String(line.id)) return;
+            onRouteLineSelect(line.id);
+          };
+          const showPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
+          const clearPointer = () => { map.getCanvas().style.cursor = ''; };
+          map.on('click', hitLayerId, selectRoute);
+          map.on('mouseenter', hitLayerId, showPointer);
+          map.on('mouseleave', hitLayerId, clearPointer);
+          routeInteractionCleanups.push(() => {
+            map.off('click', hitLayerId, selectRoute);
+            map.off('mouseenter', hitLayerId, showPointer);
+            map.off('mouseleave', hitLayerId, clearPointer);
+          });
+        }
       });
 
       const activeLayerSet = new Set(activeLayerIds);
@@ -626,8 +667,12 @@ export default function MapLibreNavigationMap({
     };
     if (map.loaded()) updateRoutes();
     else map.once('load', updateRoutes);
-    return () => { map.off('load', updateRoutes); };
-  }, [routeLines, routeSignature]);
+    return () => {
+      map.off('load', updateRoutes);
+      routeInteractionCleanups.forEach((cleanup) => cleanup());
+      map.getCanvas().style.cursor = '';
+    };
+  }, [onRouteLineSelect, routeLines, routeSignature]);
 
   useEffect(() => {
     const map = mapRef.current;

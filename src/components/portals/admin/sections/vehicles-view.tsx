@@ -147,10 +147,16 @@ export function VehiclesView() {
   }
 
   const saveVehicle = async (mode: 'create' | 'edit') => {
-    if (!form.licensePlate.trim()) {
-      toast.error('License plate is required')
+    const rawPlate = form.licensePlate.trim()
+    const normalizedPlate = rawPlate.toUpperCase()
+    const duplicateVehicle = vehicles.find(
+      (v) => (v.licensePlate || '').trim().toUpperCase() === normalizedPlate && (mode === 'create' || v.id !== editingVehicle?.id)
+    )
+    if (duplicateVehicle) {
+      toast.error(`A vehicle with plate number ${rawPlate} already exists.`)
       return
     }
+
     if (!form.brand.trim()) {
       toast.error('Vehicle Brand / Make is required')
       return
@@ -169,6 +175,13 @@ export function VehiclesView() {
       const selectedDriverRecord = drivers.find((driver) => driver.id === form.driverId)
       if (selectedDriverRecord && !isDriverAssignable(selectedDriverRecord)) {
         toast.error('Selected driver is inactive and cannot be assigned')
+        return
+      }
+      const existingVehicleWithDriver = vehicles.find(
+        (v) => (v.driverId === form.driverId || v.driver?.id === form.driverId) && (mode === 'create' || v.id !== editingVehicle?.id)
+      )
+      if (existingVehicleWithDriver) {
+        toast.error(`Driver is already assigned to vehicle ${existingVehicleWithDriver.licensePlate || 'another vehicle'}.`)
         return
       }
     }

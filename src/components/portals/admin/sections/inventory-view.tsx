@@ -148,6 +148,10 @@ export function InventoryView() {
   const [productImageFile, setProductImageFile] = useState<File | null>(null)
   const [productSkuSeed, setProductSkuSeed] = useState('')
   const [productWarehouseId, setProductWarehouseId] = useState('')
+  const [productBottleDeposit, setProductBottleDeposit] = useState('')
+  const [productCaseDeposit, setProductCaseDeposit] = useState('')
+  const [editBottleDeposit, setEditBottleDeposit] = useState('')
+  const [editCaseDeposit, setEditCaseDeposit] = useState('')
   const createSkuSeed = () => Math.random().toString(36).slice(2, 7).toUpperCase()
 
   const selectedProductSize = productSizes[0] ?? ''
@@ -377,6 +381,8 @@ export function InventoryView() {
     setEditSize(Array.isArray(item.product?.sizes) ? String(item.product.sizes[0] || '').trim() : '')
     setEditQuantityPerUnit(String(item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? ''))
     setEditPrice(String(item.product?.price ?? 0))
+    setEditBottleDeposit(item.product?.bottleDeposit != null ? String(item.product.bottleDeposit) : '')
+    setEditCaseDeposit(item.product?.caseDeposit != null ? String(item.product.caseDeposit) : '')
     setEditImageFile(null)
   }
 
@@ -410,6 +416,8 @@ export function InventoryView() {
           price: nextPrice,
           retailUnitPrice: nextQuantityPerUnit > 0 ? Number((nextPrice / nextQuantityPerUnit).toFixed(2)) : nextPrice,
           casePrice: nextPrice,
+          bottleDeposit: editBottleDeposit !== '' ? Number(editBottleDeposit) : (editingGlassDeposit?.bottle ?? null),
+          caseDeposit: editCaseDeposit !== '' ? Number(editCaseDeposit) : (editingGlassDeposit?.case ?? null),
         }),
       })
       const productPayload = await productResponse.json().catch(() => ({}))
@@ -497,6 +505,8 @@ export function InventoryView() {
           price: nextPrice,
           retailUnitPrice: nextQuantityPerUnit > 0 ? Number((nextPrice / nextQuantityPerUnit).toFixed(2)) : nextPrice,
           casePrice: nextPrice,
+          bottleDeposit: productBottleDeposit !== '' ? Number(productBottleDeposit) : (selectedGlassDeposit?.bottle ?? null),
+          caseDeposit: productCaseDeposit !== '' ? Number(productCaseDeposit) : (selectedGlassDeposit?.case ?? null),
           warehouseId: productWarehouseId || warehouses[0]?.id,
           sizes: productSizes,
           imageUrl: uploadedImageUrl,
@@ -519,6 +529,8 @@ export function InventoryView() {
       setProductSizes([])
       setProductImageFile(null)
       setProductWarehouseId('')
+      setProductBottleDeposit('')
+      setProductCaseDeposit('')
       await Promise.all([fetchInventory(), fetchProducts()])
       emitDataSync(['inventory', 'products'])
     } catch (error: any) {
@@ -739,20 +751,32 @@ export function InventoryView() {
                       ))}
                     </select>
                   </div>
-                  {editingGlassDeposit ? (
-                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                      <div className="space-y-1">
-                        <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
-                        <Input value={editingGlassDeposit.bottle.toFixed(2)} readOnly />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
-                        <Input value={editingGlassDeposit.case.toFixed(2)} readOnly />
-                      </div>
+                  <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editBottleDeposit}
+                        onChange={(e) => setEditBottleDeposit(e.target.value)}
+                        placeholder={editingGlassDeposit ? editingGlassDeposit.bottle.toFixed(2) : '0.00'}
+                        className="bg-white"
+                      />
                     </div>
-                  ) : editingCategorySpec?.depositExempt ? (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
-                  ) : null}
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editCaseDeposit}
+                        onChange={(e) => setEditCaseDeposit(e.target.value)}
+                        placeholder={editingGlassDeposit ? editingGlassDeposit.case.toFixed(2) : '0.00'}
+                        className="bg-white"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="md:col-span-2 flex gap-3 pt-3 border-t">
@@ -933,21 +957,33 @@ export function InventoryView() {
                   />
                 </div>
               </div>
-              {selectedGlassDeposit ? (
-                <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-emerald-900">Deposit / Bottle</label>
-                    <Input value={`PHP ${selectedGlassDeposit.bottle.toFixed(2)}`} readOnly />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-emerald-900">Deposit / Case</label>
-                    <Input value={`PHP ${selectedGlassDeposit.case.toFixed(2)}`} readOnly />
-                  </div>
-                  <p className="col-span-2 text-xs text-emerald-800">Auto-configured for this supported glass-bottle size.</p>
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-emerald-900">Deposit / Bottle (PHP)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={productBottleDeposit}
+                    onChange={(e) => setProductBottleDeposit(e.target.value)}
+                    placeholder={selectedGlassDeposit ? selectedGlassDeposit.bottle.toFixed(2) : '0.00'}
+                    className="bg-white"
+                  />
                 </div>
-              ) : selectedCategorySpec?.depositExempt ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">Deposit: Exempt</div>
-              ) : null}
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-emerald-900">Deposit / Case (PHP)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={productCaseDeposit}
+                    onChange={(e) => setProductCaseDeposit(e.target.value)}
+                    placeholder={selectedGlassDeposit ? selectedGlassDeposit.case.toFixed(2) : '0.00'}
+                    className="bg-white"
+                  />
+                </div>
+                <p className="col-span-2 text-xs text-emerald-800">Enter custom deposit amounts or leave blank to use defaults.</p>
+              </div>
             </div>
 
             {/* Bottom Actions spanning full width */}

@@ -368,6 +368,19 @@ def _normalize_philippine_phone(value: Any) -> str | None:
     return None
 
 
+PHILIPPINE_DRIVER_LICENSE_REGEX = re.compile(r"^[A-Z]\d{2}-\d{2}-\d{6}$")
+
+
+def _validate_philippine_driver_license(value: Any) -> tuple[str | None, str | None]:
+    """Validate Philippine LTO driver's license format (e.g. D09-22-000984, X00-00-000000)."""
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return None, "Driver's license number is required."
+    if not PHILIPPINE_DRIVER_LICENSE_REGEX.match(raw):
+        return None, "Driver's license number must follow the format X00-00-000000 (e.g. D09-22-000984)."
+    return raw, None
+
+
 def _validate_future_license_expiry(value: Any) -> tuple[datetime | None, str | None]:
     """Parse a license date and reject dates earlier than the current local date."""
     parsed = _parse_iso_datetime(value)
@@ -1626,12 +1639,20 @@ def _missing_driver_profile_fields(driver: User) -> list[str]:
     missing: list[str] = []
     if not str(getattr(driver, "phone", "") or "").strip():
         missing.append("phone")
-    if not str(getattr(driver, "license_number", "") or "").strip():
+    lic_num = str(getattr(driver, "license_number", "") or "").strip().upper()
+    if not lic_num:
         missing.append("license number")
+    elif not PHILIPPINE_DRIVER_LICENSE_REGEX.match(lic_num):
+        missing.append("valid license number (format: X00-00-000000)")
     if not str(getattr(driver, "license_type", "") or "").strip():
         missing.append("license type")
-    if not getattr(driver, "license_expiry", None):
+    lic_expiry = getattr(driver, "license_expiry", None)
+    if not lic_expiry:
         missing.append("license expiry")
+    elif isinstance(lic_expiry, (datetime, date)):
+        exp_date = lic_expiry.date() if isinstance(lic_expiry, datetime) else lic_expiry
+        if exp_date < timezone.localdate():
+            missing.append("valid (unexpired) license")
     return missing
 
 
@@ -3585,11 +3606,12 @@ def _staff_email_conflict_message(email: str, role: str, exclude_user_id: str | 
     if not normalized_email:
         return None
 
-    qs = User.objects.filter(email=normalized_email, role=str(role or "").strip())
+    # Fix: email addresses identify one account system-wide, not one account per role.
+    qs = User.objects.filter(email__iexact=normalized_email)
     if exclude_user_id:
         qs = qs.exclude(id=exclude_user_id)
-    if qs.exists():
-        return "Email already exists for this role"
+    if qs.exists() or Customer.objects.filter(email__iexact=normalized_email).exists():
+        return "This email address is already registered."
     return None
 
 
@@ -3597,13 +3619,13 @@ def _email_exists_for_account(email: str, account_type: str, role_id: str | None
     normalized_email = _normalize_email(email)
     if not normalized_email:
         return False
-    if account_type == "customer":
-        return Customer.objects.filter(email=normalized_email).exists()
-    if account_type == "staff" and role_id:
-        return User.objects.filter(email=normalized_email, role=role_id).exists()
-    if account_type == "staff":
-        return User.objects.filter(email=normalized_email).exists()
-    return False
+    if account_type not in {"customer", "staff"}:
+        return False
+    # Fix: registration and email verification share the same global duplicate check.
+    return (
+        Customer.objects.filter(email__iexact=normalized_email).exists()
+        or User.objects.filter(email__iexact=normalized_email).exists()
+    )
 
 
 def _verify_google_token(credential: str) -> dict[str, Any]:
@@ -4362,7 +4384,7 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
         if role_id not in {x for x, _ in RoleType.choices}:
             return _err("Role not found", 404)
     if _email_exists_for_account(email, account_type, role_id):
-        return _err("Email already exists for this account type", 409)
+        return _err("This email address is already registered.", 409)
     if not _otp_mail_ready():
         return _err("Verification email service is not configured", 500)
 
@@ -4791,8 +4813,8 @@ def auth_register(request: HttpRequest) -> JsonResponse:
         return _err(password_error)
     if not _is_gmail_email(email):
         return _err("Invalid email format (example@domain.com)")
-    if Customer.objects.filter(email=email).exists():
-        return _err("Email is already registered", 409)
+    if _email_exists_for_account(email, "customer"):
+        return _err("This email address is already registered.", 409)
     if not _is_email_verification_token_valid(email_verification_token, email, "customer"):
         return _err("Please verify your email address before registration", 400)
     address_error = _ensure_negros_occidental_address(
@@ -5077,8 +5099,23 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         requested_email = str(requested_email_raw).strip().lower()
         email_change_requested = requested_email != current_email
 
+    if email_change_requested:
+        requested_role = str(body.get("roleId") or user.role or "").strip()
+        existing_message = _staff_email_conflict_message(requested_email, requested_role, exclude_user_id=user.id)
+        if existing_message:
+            return _err(existing_message, 409)
+
     password_change_requested = bool(body.get("password"))
-    if email_change_requested or password_change_requested:
+    admin_password_reset_requested = password_change_requested and bool(body.get("adminResetPassword"))
+    if admin_password_reset_requested:
+        actor_role = str(staff.get("role") or "").strip().upper()
+        target_role = str(user.role or "").strip().upper()
+        if actor_role not in {RoleType.SUPER_ADMIN, RoleType.ADMIN}:
+            return _err("Only an administrator can reset another user's password", 403)
+        if target_role == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
+            return _err("Only the owner can reset this password", 403)
+
+    if email_change_requested or (password_change_requested and not admin_password_reset_requested):
         email_verification_token = str(body.get("emailVerificationToken", "")).strip()
         old_email_verification_token = str(body.get("oldEmailVerificationToken", "")).strip()
         verification_email = requested_email if email_change_requested else current_email
@@ -5182,8 +5219,8 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
         return _err(password_error)
     if not _is_gmail_email(email):
         return _err("Invalid email format for customer account")
-    if Customer.objects.filter(email=email).exists():
-        return _err("Email already exists for customer accounts", 409)
+    if _email_exists_for_account(email, "customer"):
+        return _err("This email address is already registered.", 409)
     address_error = _ensure_negros_occidental_address(
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
@@ -5601,6 +5638,19 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 reference_id=prod.id,
             )
 
+            # Create or update packaging / deposit if specified
+            bottle_deposit = float(body.get("bottleDeposit") or body.get("depositAmount") or 0)
+            case_deposit = float(body.get("caseDeposit") or body.get("caseDepositAmount") or 0)
+            if bottle_deposit > 0 or case_deposit > 0 or _is_returnable_product(prod):
+                pkg_obj, ct_obj = _get_or_create_product_packaging(prod)
+                if bottle_deposit > 0:
+                    pkg_obj.deposit_amount = Decimal(str(round(bottle_deposit, 2)))
+                    ct_obj.deposit_amount = Decimal(str(round(bottle_deposit, 2)))
+                    ct_obj.save(update_fields=["deposit_amount"])
+                if case_deposit > 0:
+                    pkg_obj.case_deposit_amount = Decimal(str(round(case_deposit, 2)))
+                pkg_obj.save(update_fields=["deposit_amount", "case_deposit_amount"])
+
         return _ok({"success": True, "product": _serialize_model(prod)}, 201)
     except Exception as e:
         return _err(str(e), 500)
@@ -5957,12 +6007,40 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         previous_qty = max(0, _int(getattr(batch, "quantity", 0), 0))
         next_qty = max(0, quantity)
         delta = next_qty - previous_qty
-        if delta == 0:
+
+        # Added: warehouse staff can update batch dates independently of quantity.
+        manufactured_date = batch.receipt_date
+        if "manufacturedDate" in body or "manufactured_date" in body:
+            manufactured_raw = str(body.get("manufacturedDate") or body.get("manufactured_date") or "").strip()
+            if not manufactured_raw:
+                return _err("manufacturedDate is required", 400)
+            try:
+                manufactured_date = datetime.fromisoformat(manufactured_raw.replace("Z", "+00:00"))
+                if timezone.is_naive(manufactured_date):
+                    manufactured_date = timezone.make_aware(manufactured_date)
+            except ValueError:
+                return _err("Invalid manufacturedDate", 400)
+
+        expiry_date = batch.expiry_date
+        if "expiryDate" in body or "expiry_date" in body:
+            expiry_raw = str(body.get("expiryDate") or body.get("expiry_date") or "").strip()
+            if expiry_raw:
+                try:
+                    expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+                    if timezone.is_naive(expiry_date):
+                        expiry_date = timezone.make_aware(expiry_date)
+                except ValueError:
+                    return _err("Invalid expiryDate", 400)
+            else:
+                expiry_date = None
+
+        dates_changed = manufactured_date != batch.receipt_date or expiry_date != batch.expiry_date
+        if delta == 0 and not dates_changed:
             return _ok(
                 {
                     "success": True,
                     "stockBatch": _serialize_model(batch, include={"inventory": lambda o: _serialize_model(o.inventory)}),
-                    "message": "Stock batch quantity unchanged",
+                    "message": "Stock batch unchanged",
                 }
             )
 
@@ -5970,49 +6048,57 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             return _err("Cannot increase stock batch quantity: product is overstocked.", 400)
 
         with transaction.atomic():
-            batch.quantity = next_qty
-            _persist_stock_batch_quantity(batch)
+            if delta != 0:
+                batch.quantity = next_qty
+                _persist_stock_batch_quantity(batch)
 
-            refreshed_inventory = Inventory.objects.select_for_update().filter(id=inv.id).first()
-            if not refreshed_inventory:
-                return _err("Inventory not found", 404)
-            recalculated_total = (
-                StockBatch.objects.filter(inventory_id=refreshed_inventory.id, quantity__gt=0)
-                .aggregate(total=Sum("quantity"))
-                .get("total")
-            )
-            inv.quantity = max(0, _int(recalculated_total, 0))
-            should_update_threshold = not _stockin_would_flag_overstock(inv, next_qty)
-            if should_update_threshold:
-                inv.threshold = max(1, int(inv.quantity * 0.15))
-            update_fields = ["quantity", "updated_at"]
-            if should_update_threshold:
-                update_fields.insert(1, "threshold")
-            inv.save(update_fields=update_fields)
+            # Save date-only edits too; quantity persistence deliberately uses a narrow update_fields list.
+            if next_qty > 0 and dates_changed:
+                batch.receipt_date = manufactured_date
+                batch.expiry_date = expiry_date
+                batch.save(update_fields=["receipt_date", "expiry_date", "updated_at"])
 
-            tx = (
-                InventoryTransaction.objects.filter(
-                    reference_type="stock_batch",
-                    reference_id=batch_id,
-                    type="IN",
+            if delta != 0:
+                refreshed_inventory = Inventory.objects.select_for_update().filter(id=inv.id).first()
+                if not refreshed_inventory:
+                    return _err("Inventory not found", 404)
+                recalculated_total = (
+                    StockBatch.objects.filter(inventory_id=refreshed_inventory.id, quantity__gt=0)
+                    .aggregate(total=Sum("quantity"))
+                    .get("total")
                 )
-                .order_by("created_at")
-                .first()
-            )
-            if tx:
-                tx.quantity = next_qty
-                tx.notes = "Stock batch added (edited quantity)"
-                tx.save(update_fields=["quantity", "notes"])
-            else:
-                InventoryTransaction.objects.create(
-                    warehouse=inv.warehouse,
-                    product=inv.product,
-                    type="IN",
-                    quantity=next_qty,
-                    reference_type="stock_batch",
-                    reference_id=batch_id,
-                    notes="Stock batch added (edited quantity)",
+                inv.quantity = max(0, _int(recalculated_total, 0))
+                should_update_threshold = not _stockin_would_flag_overstock(inv, next_qty)
+                if should_update_threshold:
+                    inv.threshold = max(1, int(inv.quantity * 0.15))
+                update_fields = ["quantity", "updated_at"]
+                if should_update_threshold:
+                    update_fields.insert(1, "threshold")
+                inv.save(update_fields=update_fields)
+
+                tx = (
+                    InventoryTransaction.objects.filter(
+                        reference_type="stock_batch",
+                        reference_id=batch_id,
+                        type="IN",
+                    )
+                    .order_by("created_at")
+                    .first()
                 )
+                if tx:
+                    tx.quantity = next_qty
+                    tx.notes = "Stock batch added (edited quantity)"
+                    tx.save(update_fields=["quantity", "notes"])
+                else:
+                    InventoryTransaction.objects.create(
+                        warehouse=inv.warehouse,
+                        product=inv.product,
+                        type="IN",
+                        quantity=next_qty,
+                        reference_type="stock_batch",
+                        reference_id=batch_id,
+                        notes="Stock batch added (edited quantity)",
+                    )
 
         updated_batch = (
             StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
@@ -6023,7 +6109,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             {
                 "success": True,
                 "stockBatch": _serialize_model(updated_batch, include={"inventory": lambda o: _serialize_model(o.inventory)}) if updated_batch else None,
-                "message": "Stock batch quantity updated",
+                "message": "Stock batch updated",
             }
         )
 
@@ -6313,7 +6399,6 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
         return _err(str(e), 500)
 
 
-
 @csrf_exempt
 @require_http_methods(["GET", "POST", "PATCH"])
 def vehicles_collection(request: HttpRequest) -> JsonResponse:
@@ -6337,8 +6422,19 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
     if request.method == "POST":
         if not body.get("licensePlate") or not body.get("type"):
             return _err("licensePlate and type are required")
+        raw_plate = str(body["licensePlate"]).strip()
+        if Vehicle.objects.filter(license_plate__iexact=raw_plate).exists():
+            return _err(f"A vehicle with plate number {raw_plate} already exists.", 400)
+        driver_id = str(body.get("driverId") or "").strip()
+        if driver_id:
+            driver = User.objects.filter(id=driver_id, role="DRIVER").first()
+            if not driver:
+                return _err("Driver not found", 404)
+            existing_veh = Vehicle.objects.filter(driver=driver).first()
+            if existing_veh:
+                return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
         v = Vehicle.objects.create(
-            license_plate=body["licensePlate"],
+            license_plate=raw_plate,
             brand=str(body.get("brand") or "").strip(),
             model=str(body.get("model") or "").strip(),
             year=body.get("year"),
@@ -6348,11 +6444,7 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             status=body.get("status") or VehicleStatus.AVAILABLE,
             is_active=bool(body.get("isActive", True)),
         )
-        driver_id = str(body.get("driverId") or "").strip()
         if driver_id:
-            driver = User.objects.filter(id=driver_id, role="DRIVER").first()
-            if not driver:
-                return _err("Driver not found", 404)
             _assign_vehicle_to_driver(driver, v)
         actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
         _create_staff_notifications(
@@ -6370,6 +6462,10 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
         v = Vehicle.objects.get(id=vehicle_id)
     except Vehicle.DoesNotExist:
         return _err("Vehicle not found", 404)
+    if "licensePlate" in body:
+        new_plate = str(body.get("licensePlate") or "").strip()
+        if new_plate and Vehicle.objects.filter(license_plate__iexact=new_plate).exclude(id=v.id).exists():
+            return _err(f"A vehicle with plate number {new_plate} already exists.", 400)
     mapping = [("licensePlate", "license_plate"), ("brand", "brand"), ("model", "model"), ("year", "year"), ("type", "type"), ("classification", "classification"), ("capacity", "capacity"), ("status", "status")]
     for key, attr in mapping:
         if key in body:
@@ -6380,6 +6476,9 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             driver = User.objects.filter(id=driver_id, role="DRIVER").first()
             if not driver:
                 return _err("Driver not found", 404)
+            existing_veh = Vehicle.objects.filter(driver=driver).exclude(id=v.id).first()
+            if existing_veh:
+                return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
             _assign_vehicle_to_driver(driver, v)
         else:
             v.driver = None
@@ -6447,8 +6546,11 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             return _err("User not found", 404)
         if user.role == "DRIVER":
             return _err("User already assigned as driver", 409)
+        lic_number, lic_err = _validate_philippine_driver_license(body.get("licenseNumber"))
+        if lic_err:
+            return _err(lic_err, 400)
         user.role = "DRIVER"
-        user.license_number = body.get("licenseNumber") or f"DRV-{int(timezone.now().timestamp())}"
+        user.license_number = lic_number
         license_type_value = str(body.get("licenseType") or "B").strip().upper()
         if license_type_value not in DRIVER_RESTRICTIONS:
             return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
@@ -6482,8 +6584,12 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         d = User.objects.get(id=driver_id, role="DRIVER")
     except User.DoesNotExist:
         return _err("Driver not found", 404)
+    if "licenseNumber" in body:
+        lic_number, lic_err = _validate_philippine_driver_license(body.get("licenseNumber"))
+        if lic_err:
+            return _err(lic_err, 400)
+        d.license_number = lic_number
     mapping = [
-        ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
         ("licensePhotoUrl", "license_photo_url"),
         ("emergencyContact", "emergency_contact"),
@@ -6511,6 +6617,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             vehicle = Vehicle.objects.filter(id=vehicle_id).first()
             if not vehicle:
                 return _err("Vehicle not found", 404)
+            existing_veh = Vehicle.objects.filter(driver=d).exclude(id=vehicle.id).first()
+            if existing_veh:
+                return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
             _assign_vehicle_to_driver(d, vehicle)
         else:
             _assign_vehicle_to_driver(d, None)
@@ -7470,7 +7579,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
     missing_driver_fields = _missing_driver_profile_fields(driver)
     if missing_driver_fields:
         return _err(
-            "Selected driver profile is incomplete. Missing: " + ", ".join(missing_driver_fields),
+            "Driver cannot be assigned to trip because driver's license is not yet verified or filled out. Missing/Invalid: " + ", ".join(missing_driver_fields),
             400,
         )
     requested_order_ids = [str(oid) for oid in (body.get("orderIds") or []) if str(oid).strip()]
@@ -8739,13 +8848,11 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         return _err("Invalid coordinates")
     accuracy = _to_float_or_none(body.get("accuracy"))
-    # Clamp accuracy for reliable tracking without rejecting browser/Wi-Fi approximations
     if accuracy is not None and accuracy < 0:
         accuracy = None
     heading = _to_float_or_none(body.get("heading"))
     altitude = _to_float_or_none(body.get("altitude"))
     raw_speed = _to_float_or_none(body.get("speed"))
-    # Geolocation reports speed in m/s; clamp to reasonable driving range.
     gps_speed = raw_speed if raw_speed is not None and 0 <= raw_speed <= 50 else None
     requested_trip_id = str(body.get("tripId") or "").strip()
     active_statuses = {"IN_PROGRESS", "IN_TRANSIT", "OUT_FOR_DELIVERY"}
@@ -8754,8 +8861,6 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     trip_resolution = "none"
     if requested_trip_id:
         requested_trip = Trip.objects.filter(id=requested_trip_id, driver_id=d.id).first()
-        # Always attach to the explicitly requested trip when it belongs to this driver.
-        # This prevents logs from being saved without trip linkage during status transitions.
         if requested_trip:
             trip_id = requested_trip.id
             trip_resolution = "requested_trip_matched_driver"
@@ -8810,7 +8915,6 @@ def driver_location(request: HttpRequest) -> JsonResponse:
                 recorded_at=now,
             )
 
-        # Keep latest-only location state per driver (no history).
         LocationLog.objects.filter(driver_id=d.id).exclude(id=log.id).delete()
     return _ok({
         "success": True,
@@ -8848,8 +8952,13 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         if key in body:
             next_value = body.get(key)
             if attr == "license_number":
-                normalized = str(next_value or "").strip()
-                next_license_number = normalized or None
+                if next_value:
+                    normalized, lic_err = _validate_philippine_driver_license(next_value)
+                    if lic_err:
+                        return _err(lic_err, 400)
+                    next_license_number = normalized
+                else:
+                    next_license_number = None
                 setattr(d, attr, next_license_number)
             elif attr == "license_type":
                 normalized_type = str(next_value or "").strip().upper()
@@ -8894,6 +9003,12 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         d.avatar = body.get("avatar")
     if "twoFactorEnabled" in body:
         d.two_factor_enabled = bool(body.get("twoFactorEnabled"))
+    if "emailNotificationsEnabled" in body:
+        d.email_notifications_enabled = bool(body.get("emailNotificationsEnabled"))
+    if "smsNotificationsEnabled" in body:
+        d.sms_notifications_enabled = bool(body.get("smsNotificationsEnabled"))
+    if "pushNotificationsEnabled" in body:
+        d.push_notifications_enabled = bool(body.get("pushNotificationsEnabled"))
     if "loginAlertsEnabled" in body:
         d.login_alerts_enabled = bool(body.get("loginAlertsEnabled"))
     try:
