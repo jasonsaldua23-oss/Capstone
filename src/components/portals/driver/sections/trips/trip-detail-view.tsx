@@ -1761,7 +1761,10 @@ export function TripDetailView({
   })()
   const upcomingRouteWaypoints = (() => {
     const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    if (driverLocationMarker) return [{ lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }, ...pendingCoords]
+    // The live GPS coordinate is no longer included here. LiveTrackingMap's
+    // animation engine projects the truck onto this stable road geometry and
+    // splits the grey/active route at the projected distance. Including the
+    // moving GPS caused OSRM re-fetches on every tick, killing smoothness.
     return pendingCoords
   })()
   const completedRouteWaypoints = (() => {
@@ -1769,13 +1772,16 @@ export function TripDetailView({
     const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
     if (driverLocationMarker) {
       const recordedTrail = tripLocationHistory.map((point) => ({ lat: point.lat, lng: point.lng }))
-      // Fix: the taken line follows chronological GPS history and ends at the
-      // truck. Completed delivery pins are not assumed to be the driven trail.
+      // Fix: the taken line follows chronological GPS history but NO LONGER
+      // appends the live GPS coordinate. The truck's real-time position is
+      // projected onto the stable road geometry by LiveTrackingMap, which
+      // splits grey/active at the projected distance. This prevents OSRM
+      // re-fetch storms caused by the GPS moving every second.
       if (recordedTrail.length > 0) {
-        return [...start, ...recordedTrail, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }]
+        return [...start, ...recordedTrail]
       }
       // Preserve the prior waypoint reconstruction only when no GPS trail exists.
-      return [...start, ...completedCoords, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }]
+      return [...start, ...completedCoords]
     }
     return [...start, ...completedCoords]
   })()

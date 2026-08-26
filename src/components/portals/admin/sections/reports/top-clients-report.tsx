@@ -8,8 +8,6 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Trophy,
-  Crown,
-  Medal,
   Users,
   DollarSign,
   ShoppingCart,
@@ -32,7 +30,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Cell,
 } from 'recharts'
 import { formatPeso, formatDateTime, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
@@ -43,6 +40,29 @@ interface TopClientsReportProps {
 }
 
 type PeriodFilter = 'weekly' | 'monthly' | 'yearly' | 'all' | 'custom'
+
+function getClientBarangay(address: unknown, city: unknown) {
+  const addressParts = String(address || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  const explicitBarangay = addressParts.find((part) => /\b(barangay|brgy\.?|poblacion)\b/i.test(part))
+  if (explicitBarangay) {
+    return explicitBarangay.replace(/\bbrgy\.?/i, 'Barangay').replace(/\s+/g, ' ').trim()
+  }
+
+  // Customer addresses are stored with the barangay immediately before the city.
+  const normalizeLocality = (value: unknown) => String(value || '').toLowerCase().replace(/\bcity\b/g, '').replace(/[^a-z0-9]/g, '')
+  const normalizedCity = normalizeLocality(city)
+  const cityIndex = addressParts.findIndex((part) => normalizedCity && normalizeLocality(part) === normalizedCity)
+  if (cityIndex > 0) {
+    const barangayCandidate = addressParts[cityIndex - 1]
+    if (normalizeLocality(barangayCandidate) !== normalizedCity) return barangayCandidate
+  }
+
+  return 'Barangay not specified'
+}
 
 export function TopClientsReport({ orders, customers = [] }: TopClientsReportProps) {
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('monthly')
@@ -102,7 +122,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         name: string
         email: string
         phone: string
-        city: string
+        barangay: string
         totalAmount: number
         orderCount: number
         transactionsCount: number
@@ -116,7 +136,10 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       const customerEmail = (o.customer?.email || o.customerEmail || '').toLowerCase()
       const clientName = o.customer?.name || o.shippingName || o.walkInName || 'Valued Customer'
       const clientPhone = o.customer?.phone || o.shippingPhone || ''
-      const clientCity = o.customer?.city || o.shippingCity || 'Negros Occidental'
+      const customerRecord = customersMap.get(customerId) || customersMap.get(customerEmail)
+      const clientCity = o.shippingCity || o.customer?.city || customerRecord?.city || ''
+      const clientAddress = o.shippingAddress || o.customer?.address || customerRecord?.address || ''
+      const clientBarangay = getClientBarangay(clientAddress, clientCity)
 
       // Key by ID or email or name
       const key = customerId || customerEmail || clientName
@@ -130,7 +153,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
           name: clientName,
           email: customerEmail,
           phone: clientPhone,
-          city: clientCity,
+          barangay: clientBarangay,
           totalAmount: 0,
           orderCount: 0,
           transactionsCount: 0,
@@ -161,7 +184,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         (c) =>
           c.name.toLowerCase().includes(q) ||
           c.email.toLowerCase().includes(q) ||
-          c.city.toLowerCase().includes(q)
+          c.barangay.toLowerCase().includes(q)
       )
     }
 
@@ -173,7 +196,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     })
 
     return list
-  }, [filteredOrders, searchTerm, sortField])
+  }, [filteredOrders, customersMap, searchTerm, sortField])
 
   // KPIs
   const kpis = useMemo(() => {
@@ -205,13 +228,11 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     return rankedClients.slice(start, start + pageSize)
   }, [rankedClients, currentPage])
 
-  const barColors = ['#4f46e5', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff', '#e0e7ff', '#e0e7ff']
-
   const exportColumns: ExportColumn[] = [
-    { header: 'Rank', accessor: (_, idx) => `#${(idx ?? 0) + 1}` },
+    { header: 'Rank', accessor: (r: any) => `#${r.rank || 1}` },
     { header: 'Client Name', key: 'name' },
     { header: 'Email', key: 'email' },
-    { header: 'Location / City', key: 'city' },
+    { header: 'Barangay', key: 'barangay' },
     { header: 'Orders Placed', key: 'orderCount' },
     { header: 'Total Purchased (PHP)', accessor: (r) => Number(r.totalAmount || 0).toFixed(2) },
     { header: 'Latest Transaction', accessor: (r) => formatDateTime(r.mostRecentDate) },
@@ -251,7 +272,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header with Period Switcher & Export */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
@@ -324,27 +345,27 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
-            CSV
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
+            Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
-            <Download className="h-3.5 w-3.5 text-blue-600" />
-            PDF
+            <Download className="h-4 w-4 text-blue-600" />
+            Export PDF
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <Printer className="h-3.5 w-3.5 text-slate-600" />
+            <Printer className="h-4 w-4 text-slate-600" />
             Print
           </Button>
         </div>
@@ -383,19 +404,19 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Top Performer */}
-        <Card className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/50 to-white shadow-sm">
+        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center justify-between">
-              <CardDescription className="text-xs uppercase font-medium tracking-wide text-amber-700">
+              <CardDescription className="text-xs uppercase font-medium tracking-wide text-slate-500">
                 #1 Top Client
               </CardDescription>
-              <Crown className="h-4 w-4 text-amber-500" />
+              <Trophy className="h-4 w-4 text-blue-600" />
             </div>
             <CardTitle className="text-xl font-bold text-slate-900 truncate">
               {kpis.topClient ? kpis.topClient.name : 'No records'}
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-amber-800 font-semibold">
+          <CardContent className="p-4 pt-0 text-xs font-semibold text-blue-700">
             {kpis.topClient ? `${formatPeso(kpis.topClient.totalAmount)} (${kpis.topClient.orderCount} orders)` : 'N/A'}
           </CardContent>
         </Card>
@@ -432,21 +453,13 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       {topThree.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {topThree.map((client, index) => {
-            const medals = [
-              { label: 'Gold Tier (1st)', bg: 'from-amber-100/70 to-amber-50', border: 'border-amber-300', text: 'text-amber-800', icon: Crown },
-              { label: 'Silver Tier (2nd)', bg: 'from-slate-100 to-slate-50', border: 'border-slate-300', text: 'text-slate-700', icon: Medal },
-              { label: 'Bronze Tier (3rd)', bg: 'from-orange-100/70 to-orange-50', border: 'border-orange-300', text: 'text-orange-800', icon: Medal },
-            ]
-            const medal = medals[index]
-            const Icon = medal.icon
-
             return (
-              <Card key={client.id} className={`rounded-2xl border ${medal.border} bg-gradient-to-b ${medal.bg} p-4 shadow-sm`}>
+              <Card key={client.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <Badge variant="outline" className={`gap-1 font-semibold ${medal.text} border-current/30`}>
-                    <Icon className="h-3.5 w-3.5" /> {medal.label}
+                  <Badge variant="outline" className="border-blue-100 bg-blue-50 font-semibold text-blue-700">
+                    Rank {index + 1}
                   </Badge>
-                  <span className="text-xs text-slate-500">Rank #{index + 1}</span>
+                  <span className="text-xs font-medium text-slate-400">Top performer</span>
                 </div>
                 <div className="mt-3 flex items-center gap-3">
                   <Avatar className="h-10 w-10 border border-white shadow-sm">
@@ -456,16 +469,16 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <h4 className="font-bold text-slate-900 truncate">{client.name}</h4>
-                    <p className="text-xs text-slate-500 truncate">{client.city}</p>
+                    <p className="text-xs text-slate-500 truncate">{client.barangay}</p>
                   </div>
                 </div>
-                <div className="mt-3 pt-3 border-t border-black/5 flex items-center justify-between text-xs">
+                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
                   <div>
                     <span className="text-slate-500">Orders: </span>
                     <span className="font-bold text-slate-800">{client.orderCount}</span>
                   </div>
                   <div className="text-right">
-                    <div className="font-bold text-slate-900 text-sm">{formatPeso(client.totalAmount)}</div>
+                    <div className="text-sm font-bold text-blue-700">{formatPeso(client.totalAmount)}</div>
                   </div>
                 </div>
               </Card>
@@ -497,11 +510,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                     formatter={(value: any) => [formatPeso(Number(value)), 'Total Purchases']}
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Bar dataKey="amount" name="Revenue" radius={[6, 6, 0, 0]}>
-                    {chartData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={barColors[index % barColors.length]} />
-                    ))}
-                  </Bar>
+                  <Bar dataKey="amount" name="Revenue" fill="#2563eb" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -549,7 +558,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
               <tr>
                 <th className="p-3.5 pl-4 w-12 text-center">Rank</th>
                 <th className="p-3.5">Client Information</th>
-                <th className="p-3.5">Location / Hub</th>
+                <th className="p-3.5">Barangay</th>
                 <th className="p-3.5 text-center">Orders Placed</th>
                 <th className="p-3.5 text-right">Total Purchased</th>
                 <th className="p-3.5 pr-4 text-right">Latest Transaction</th>
@@ -563,11 +572,11 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                     <tr key={client.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="p-3.5 pl-4 text-center font-bold">
                         {globalRank === 1 ? (
-                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-800 text-xs">1</span>
+                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs text-white">1</span>
                         ) : globalRank === 2 ? (
                           <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-slate-700 text-xs">2</span>
                         ) : globalRank === 3 ? (
-                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-orange-100 text-orange-800 text-xs">3</span>
+                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-700">3</span>
                         ) : (
                           <span className="text-slate-400">#{globalRank}</span>
                         )}
@@ -576,9 +585,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                         <div className="font-semibold text-slate-900">{client.name}</div>
                         {client.email && <div className="text-[11px] text-slate-400">{client.email}</div>}
                       </td>
-                      <td className="p-3.5 text-slate-600">{client.city}</td>
+                      <td className="p-3.5 text-slate-600">{client.barangay}</td>
                       <td className="p-3.5 text-center font-semibold text-slate-900">{client.orderCount}</td>
-                      <td className="p-3.5 text-right font-bold text-emerald-700">{formatPeso(client.totalAmount)}</td>
+                      <td className="p-3.5 text-right font-bold text-blue-700">{formatPeso(client.totalAmount)}</td>
                       <td className="p-3.5 pr-4 text-right text-slate-500 whitespace-nowrap">{formatDateTime(client.mostRecentDate)}</td>
                     </tr>
                   )

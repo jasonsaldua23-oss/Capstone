@@ -9,7 +9,7 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -39,6 +39,7 @@ import {
   formatVehicleClassification,
   formatVehicleStatus,
 } from '@/lib/vehicle-config'
+import { DRIVER_LICENSE_RESTRICTIONS, isValidDriverLicenseRestriction } from '@/lib/driver-license-restrictions'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -76,6 +77,7 @@ export function TransportationView() {
   const tripsPageSize = 10
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isUploadingLicense, setIsUploadingLicense] = useState(false)
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
   const [addDriverOpen, setAddDriverOpen] = useState(false)
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null)
@@ -106,6 +108,7 @@ export function TransportationView() {
     phoneNumber: '',
     licenseNumber: '',
     licenseType: '',
+    licensePhotoUrl: '',
     licenseExpiry: '',
     vehicleId: '',
     status: 'Active',
@@ -321,6 +324,18 @@ export function TransportationView() {
       toast.error('Name, email, and phone number are required')
       return
     }
+    if (!isValidPhilippinePhone(phoneNumber)) {
+      toast.error('Please enter a valid Philippine mobile number')
+      return
+    }
+    if (!isValidDriverLicenseRestriction(driverForm.licenseType)) {
+      toast.error('Please select a valid driver license restriction')
+      return
+    }
+    if (driverForm.licenseExpiry && driverForm.licenseExpiry < new Date().toISOString().slice(0, 10)) {
+      toast.error('License expiration date cannot be in the past.')
+      return
+    }
 
     if (driverForm.vehicleId) {
       const selectedVehicleRecord = vehicles.find((vehicle) => vehicle.id === driverForm.vehicleId)
@@ -357,6 +372,7 @@ export function TransportationView() {
           id: selectedDriver.id,
           licenseNumber: (driverForm.licenseNumber || '').trim() || null,
           licenseType: (driverForm.licenseType || '').trim() || null,
+          licensePhotoUrl: driverForm.licensePhotoUrl || null,
           phone: phoneNumber,
           licenseExpiry: driverForm.licenseExpiry || null,
           vehicleId: driverForm.vehicleId || null,
@@ -440,12 +456,53 @@ export function TransportationView() {
       phoneNumber: '',
       licenseNumber: '',
       licenseType: '',
+      licensePhotoUrl: '',
       licenseExpiry: '',
       vehicleId: '',
       status: 'Active',
       isActive: true,
     })
     setSelectedDriver(null)
+  }
+
+  const openEditDriver = (driver: any) => {
+    const rawExpiry = String(driver.licenseExpiry || driver.license_expiry || '')
+    // Fix: date inputs only accept YYYY-MM-DD, while the API returns full ISO timestamps.
+    const licenseExpiry = rawExpiry ? rawExpiry.slice(0, 10) : ''
+    setSelectedDriver(driver)
+    setDriverForm({
+      name: driver.user?.name || driver.name || '',
+      email: driver.user?.email || driver.email || '',
+      phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '',
+      licenseNumber: driver.licenseNumber || driver.license_number || '',
+      licenseType: driver.licenseType || driver.license_type || '',
+      licensePhotoUrl: driver.licensePhotoUrl || driver.license_photo_url || '',
+      licenseExpiry,
+      vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '',
+      status: driver.isActive ? 'Active' : 'Inactive',
+      isActive: driver.isActive !== false,
+    })
+    setAddDriverOpen(true)
+  }
+
+  const uploadDriverLicense = async (file: File) => {
+    setIsUploadingLicense(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch('/api/uploads/driver-license-image', { method: 'POST', body: formData })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false || !payload?.imageUrl) {
+        throw new Error(payload?.error || 'Failed to upload driver license')
+      }
+      // Added: keep the uploaded URL in the driver form so Update Driver persists it.
+      setDriverForm((current) => ({ ...current, licensePhotoUrl: String(payload.imageUrl) }))
+      toast.success('Driver license uploaded')
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to upload driver license')
+    } finally {
+      setIsUploadingLicense(false)
+    }
   }
 
   const TransportationSkeleton = () => (
@@ -1025,6 +1082,21 @@ export function TransportationView() {
               <DialogHeader>
                 <DialogTitle>Edit Driver</DialogTitle>
               </DialogHeader>
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <Avatar className="h-14 w-14 border border-slate-200">
+                      {selectedDriver?.user?.avatar || selectedDriver?.avatar ? (
+                        <AvatarImage src={selectedDriver?.user?.avatar || selectedDriver?.avatar} alt={`${driverForm.name || 'Driver'} avatar`} className="object-cover" />
+                      ) : null}
+                      <AvatarFallback className="bg-blue-600 font-semibold text-white">
+                        {(driverForm.name || 'D').charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">{driverForm.name || 'Driver'}</p>
+                      <p className="truncate text-sm text-slate-500">{driverForm.email || 'No email'}</p>
+                      <p className="text-sm text-slate-500">{driverForm.phoneNumber || 'No phone number'}</p>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Name</label>
@@ -1039,6 +1111,7 @@ export function TransportationView() {
                       <Input
                         placeholder="09XX XXX XXXX"
                         maxLength={13}
+                        inputMode="numeric"
                         value={driverForm.phoneNumber}
                         onChange={(e) => setDriverForm({...driverForm, phoneNumber: formatPhilippinePhoneInput(e.target.value)})}
                       />
@@ -1051,12 +1124,39 @@ export function TransportationView() {
                       <Input placeholder="License Number" value={driverForm.licenseNumber} onChange={(e) => setDriverForm({...driverForm, licenseNumber: e.target.value})} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-sm font-medium text-gray-700">License Type</label>
-                      <Input placeholder="License Type" maxLength={30} value={driverForm.licenseType} onChange={(e) => setDriverForm({...driverForm, licenseType: e.target.value})} />
+                      <label className="text-sm font-medium text-gray-700">Restrictions</label>
+                      <select
+                        value={driverForm.licenseType}
+                        onChange={(e) => setDriverForm({ ...driverForm, licenseType: e.target.value })}
+                        title="Driver license restrictions"
+                        className="w-full rounded-md border px-3 py-2"
+                      >
+                        <option value="">Select restriction</option>
+                        {DRIVER_LICENSE_RESTRICTIONS.map((restriction) => (
+                          <option key={restriction.code} value={restriction.code}>{restriction.label}</option>
+                        ))}
+                      </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-sm font-medium text-gray-700">License Expiry</label>
-                      <Input type="date" placeholder="License Expiry" value={driverForm.licenseExpiry} onChange={(e) => setDriverForm({...driverForm, licenseExpiry: e.target.value})} />
+                      <label className="text-sm font-medium text-gray-700">Driver's License Expiration Date</label>
+                      <Input type="date" min={new Date().toISOString().slice(0, 10)} placeholder="License Expiry" value={driverForm.licenseExpiry} onChange={(e) => setDriverForm({...driverForm, licenseExpiry: e.target.value})} />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className="text-sm font-medium text-gray-700">Driver's License Upload</label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        disabled={isUploadingLicense}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) void uploadDriverLicense(file)
+                          e.currentTarget.value = ''
+                        }}
+                      />
+                      {isUploadingLicense ? <p className="text-xs text-slate-500">Uploading license...</p> : null}
+                      {driverForm.licensePhotoUrl ? (
+                        <a href={driverForm.licensePhotoUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-blue-700 hover:underline">View uploaded license</a>
+                      ) : null}
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Status</label>
@@ -1113,13 +1213,13 @@ export function TransportationView() {
                         <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
                         <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
                         <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
-                        <p className="text-sm text-gray-500">License Type: {driver.licenseType || driver.license_type || 'N/A'}</p>
+                        <p className="text-sm text-gray-500">Restrictions: {driver.licenseType || driver.license_type || 'N/A'}</p>
                         <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
                           {driver.isActive ? 'Active' : 'Inactive'}
                         </p>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => { setSelectedDriver(driver); setDriverForm({ name: driver.user?.name || driver.name || '', email: driver.user?.email || driver.email || '', phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '', licenseNumber: driver.licenseNumber || driver.license_number || '', licenseType: driver.licenseType || driver.license_type || '', licenseExpiry: driver.licenseExpiry || driver.license_expiry || '', vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '', status: driver.isActive ? 'Active' : 'Inactive', isActive: driver.isActive !== false }); setAddDriverOpen(true) }}>Edit</Button>
+                        <Button size="sm" variant="outline" onClick={() => openEditDriver(driver)}>Edit</Button>
                         <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
                       </div>
                     </div>

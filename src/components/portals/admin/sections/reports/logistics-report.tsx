@@ -39,6 +39,29 @@ interface LogisticsReportProps {
   warehouses?: any[]
 }
 
+function getDropPointBarangay(address: unknown, city: unknown) {
+  const addressParts = String(address || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  const explicitBarangay = addressParts.find((part) => /\b(barangay|brgy\.?|poblacion)\b/i.test(part))
+  if (explicitBarangay) {
+    return explicitBarangay.replace(/\bbrgy\.?/i, 'Barangay').replace(/\s+/g, ' ').trim()
+  }
+
+  // Customer addresses are stored in locality order, with barangay immediately before the city.
+  const normalizeLocality = (value: unknown) => String(value || '').toLowerCase().replace(/\bcity\b/g, '').replace(/[^a-z0-9]/g, '')
+  const normalizedCity = normalizeLocality(city)
+  const cityIndex = addressParts.findIndex((part) => normalizedCity && normalizeLocality(part) === normalizedCity)
+  if (cityIndex > 0) {
+    const barangayCandidate = addressParts[cityIndex - 1]
+    if (normalizeLocality(barangayCandidate) !== normalizedCity) return barangayCandidate
+  }
+
+  return 'Barangay not specified'
+}
+
 export function LogisticsReport({ trips, drivers = [], warehouses = [] }: LogisticsReportProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -65,8 +88,8 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       const completedDrops = Number(trip.completedDropPoints || dropPoints.filter((dp) => dp.status === 'COMPLETED').length)
       const completionRate = totalDrops > 0 ? Math.round((completedDrops / totalDrops) * 100) : 0
 
-      // Destinations summary
-      const destinationsList = dropPoints.map((dp) => dp.city || dp.customerName || dp.address).filter(Boolean)
+      // Show delivery barangays instead of repeating the broader destination city.
+      const destinationsList = dropPoints.map((dp) => getDropPointBarangay(dp.address, dp.city))
       const destinationSummary = destinationsList.length > 0 ? destinationsList.slice(0, 2).join(', ') + (destinationsList.length > 2 ? ` +${destinationsList.length - 2} more` : '') : 'Multiple Drop Points'
 
       const date = trip.createdAt || trip.plannedStartAt || new Date().toISOString()
@@ -210,7 +233,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
     { header: 'Trip Number', key: 'tripNumber' },
     { header: 'Driver', key: 'driverName' },
     { header: 'Vehicle Plate', key: 'vehiclePlate' },
-    { header: 'Stops Summary', key: 'destinationSummary' },
+    { header: 'Barangays / Stops', key: 'destinationSummary' },
     {
       header: 'Fulfillment',
       accessor: (r) => `${r.completedDrops}/${r.totalDrops} drops (${r.completionRate}%)`,
@@ -253,7 +276,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -267,16 +290,16 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
             Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
             <Download className="h-4 w-4 text-blue-600" />
             Export PDF
@@ -285,7 +308,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <Printer className="h-4 w-4 text-slate-600" />
             Print
@@ -495,7 +518,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                 <th className="p-3.5 pl-4">Trip Number</th>
                 <th className="p-3.5">Assigned Driver</th>
                 <th className="p-3.5">Vehicle</th>
-                <th className="p-3.5">Destinations / Stops</th>
+                <th className="p-3.5">Barangays / Stops</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5">Departure Time</th>
                 <th className="p-3.5">Completion Time</th>

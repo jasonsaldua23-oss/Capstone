@@ -16,7 +16,6 @@ import {
   Calendar,
   Store,
   Globe,
-  ShoppingBag,
   Download,
   Printer,
   FileSpreadsheet,
@@ -64,6 +63,10 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       const date = o.createdAt || new Date().toISOString()
       const status = String(o.status || 'PENDING').toUpperCase()
       const paymentStatus = String(o.paymentStatus || (status === 'DELIVERED' ? 'PAID' : 'PENDING')).toUpperCase()
+      // Retail POS and counter sales belong to one Retail reporting channel.
+      const normalizedChannel = ['RETAIL', 'RETAIL_POS', 'RETAIL_COUNTER'].includes(channel)
+        ? 'RETAIL'
+        : 'WHOLESALE_ONLINE'
 
       list.push({
         id: o.id,
@@ -73,7 +76,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         clientEmail,
         amount,
         date,
-        channel: channel === 'RETAIL_POS' ? 'RETAIL_POS' : channel === 'RETAIL' ? 'RETAIL_COUNTER' : 'WHOLESALE_ONLINE',
+        channel: normalizedChannel,
         status,
         paymentStatus,
         itemSummary: Array.isArray(o.items) ? `${o.items.length} items` : '1 order',
@@ -93,7 +96,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
           clientEmail: '',
           amount: Number(rs.totalAmount || rs.subtotal || 0),
           date: rs.createdAt || new Date().toISOString(),
-          channel: 'RETAIL_POS',
+          channel: 'RETAIL',
           status: 'COMPLETED',
           paymentStatus: 'PAID',
           itemSummary: Array.isArray(rs.items) ? `${rs.items.length} items` : 'Retail items',
@@ -167,9 +170,13 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
   // KPIs
   const kpis = useMemo(() => {
     const totalCount = filteredTransactions.length
-    const totalVolume = filteredTransactions.reduce((sum, item) => sum + (item.amount || 0), 0)
+    // Cancelled and rejected transactions stay in the ledger but do not count as revenue.
+    const revenueTransactions = filteredTransactions.filter(
+      (item) => !['CANCELLED', 'REJECTED'].includes(item.status)
+    )
+    const totalVolume = revenueTransactions.reduce((sum, item) => sum + (item.amount || 0), 0)
     const paidCount = filteredTransactions.filter((item) => item.paymentStatus === 'PAID').length
-    const avgValue = totalCount > 0 ? totalVolume / totalCount : 0
+    const avgValue = revenueTransactions.length > 0 ? totalVolume / revenueTransactions.length : 0
 
     return { totalCount, totalVolume, paidCount, avgValue }
   }, [filteredTransactions])
@@ -177,19 +184,21 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
   // Trend Chart Data (Daily Revenue)
   const chartData = useMemo(() => {
     const map: Record<string, { date: string; amount: number; count: number }> = {}
-    filteredTransactions.forEach((item) => {
-      const d = new Date(item.date)
-      const key = formatDayKey(d)
-      if (!map[key]) {
-        map[key] = {
-          date: `${d.getMonth() + 1}/${d.getDate()}`,
-          amount: 0,
-          count: 0,
+    filteredTransactions
+      .filter((item) => !['CANCELLED', 'REJECTED'].includes(item.status))
+      .forEach((item) => {
+        const d = new Date(item.date)
+        const key = formatDayKey(d)
+        if (!map[key]) {
+          map[key] = {
+            date: `${d.getMonth() + 1}/${d.getDate()}`,
+            amount: 0,
+            count: 0,
+          }
         }
-      }
-      map[key].amount += item.amount || 0
-      map[key].count += 1
-    })
+        map[key].amount += item.amount || 0
+        map[key].count += 1
+      })
 
     return Object.values(map).slice(-14)
   }, [filteredTransactions])
@@ -209,16 +218,10 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             <Globe className="h-3 w-3" /> Wholesale
           </Badge>
         )
-      case 'RETAIL_POS':
+      case 'RETAIL':
         return (
           <Badge variant="outline" className="gap-1 border-emerald-200 bg-emerald-50 text-emerald-700">
-            <Store className="h-3 w-3" /> Retail POS
-          </Badge>
-        )
-      case 'RETAIL_COUNTER':
-        return (
-          <Badge variant="outline" className="gap-1 border-indigo-200 bg-indigo-50 text-indigo-700">
-            <ShoppingBag className="h-3 w-3" /> Counter Sale
+            <Store className="h-3 w-3" /> Retail
           </Badge>
         )
       default:
@@ -245,12 +248,12 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     }
   }
 
+  // Payment status remains available for filtering and KPIs but is omitted from report outputs.
   const exportColumns: ExportColumn[] = [
     { header: 'Transaction ID', key: 'txNumber' },
-    { header: 'Channel / Type', key: 'channel' },
+    { header: 'Channel / Type', accessor: (r) => (r.channel === 'RETAIL' ? 'Retail' : 'Wholesale (Online)') },
     { header: 'Client / Customer', key: 'client' },
     { header: 'Status', key: 'status' },
-    { header: 'Payment Status', key: 'paymentStatus' },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
     { header: 'Transaction Date', accessor: (r) => formatDateTime(r.date) },
   ]
@@ -287,7 +290,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -301,16 +304,16 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
             Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
             <Download className="h-4 w-4 text-blue-600" />
             Export PDF
@@ -319,7 +322,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <Printer className="h-4 w-4 text-slate-600" />
             Print
@@ -328,7 +331,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Transactions</CardDescription>
@@ -342,7 +345,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Gross Transaction Revenue</CardDescription>
             <CardTitle className="text-2xl font-bold text-emerald-700">{formatPeso(kpis.totalVolume)}</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Total transaction value</CardContent>
+          <CardContent className="p-4 pt-0 text-xs text-slate-500">Excludes cancelled and rejected transactions</CardContent>
         </Card>
 
         <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
@@ -350,18 +353,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Average Transaction Value</CardDescription>
             <CardTitle className="text-2xl font-bold text-purple-700">{formatPeso(kpis.avgValue)}</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Mean basket size per transaction</CardContent>
+          <CardContent className="p-4 pt-0 text-xs text-slate-500">Mean value of valid transactions</CardContent>
         </Card>
 
-        <Card className="rounded-2xl border border-amber-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-amber-600">Settled / Paid Records</CardDescription>
-            <CardTitle className="text-2xl font-bold text-amber-700">{kpis.paidCount}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">
-            {kpis.totalCount > 0 ? ((kpis.paidCount / kpis.totalCount) * 100).toFixed(1) : 0}% settlement rate
-          </CardContent>
-        </Card>
       </div>
 
       {/* Daily Revenue Trend */}
@@ -431,8 +425,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             >
               <option value="all">All Transaction Types</option>
               <option value="WHOLESALE_ONLINE">Wholesale (Online)</option>
-              <option value="RETAIL_POS">Retail POS</option>
-              <option value="RETAIL_COUNTER">Retail Counter</option>
+              <option value="RETAIL">Retail</option>
             </select>
           </div>
 
@@ -529,7 +522,6 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                 <th className="p-3.5">Type / Channel</th>
                 <th className="p-3.5">Client / Customer</th>
                 <th className="p-3.5">Status</th>
-                <th className="p-3.5">Payment</th>
                 <th className="p-3.5 text-right">Amount</th>
                 <th className="p-3.5 pr-4">Transaction Date</th>
               </tr>
@@ -545,19 +537,13 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                       {row.clientEmail && <div className="text-[11px] text-slate-400">{row.clientEmail}</div>}
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
-                    <td className="p-3.5">
-                      <span className={`inline-flex items-center gap-1 font-medium ${row.paymentStatus === 'PAID' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${row.paymentStatus === 'PAID' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                        {row.paymentStatus}
-                      </span>
-                    </td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
                     <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     <Receipt className="mx-auto h-8 w-8 text-slate-300 mb-2" />
                     No transaction records match the selected filters.
                   </td>

@@ -204,7 +204,9 @@ export async function exportReportPdf<T>(
     // Summary lines
     if (summaryLines.length > 0) {
       summaryLines.slice(0, 3).forEach((line) => {
-        page.drawText(line, {
+        // Fix: standard PDF fonts use WinAnsi, which cannot encode the Philippine peso symbol.
+        const pdfSafeLine = line.replace(/\u20B1/g, 'PHP ')
+        page.drawText(pdfSafeLine, {
           x: margin,
           y,
           size: 8,
@@ -260,7 +262,7 @@ export async function exportReportPdf<T>(
     }
 
     const pdfBytes = await pdfDoc.save()
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+    const blob = new Blob([pdfBytes as any], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

@@ -109,6 +109,8 @@ ALLOWED_PRODUCT_UNITS = {PRODUCT_UNIT_CASE, PRODUCT_UNIT_PACK_BUNDLE, PRODUCT_UN
 HIDDEN_SAMPLE_WORDS = ("test", "demo", "sample", "dummy", "placeholder", "fake")
 HIDDEN_SAMPLE_EMAIL_DOMAINS = ("@example.com", "@test.com", "@demo.com")
 PASSWORD_POLICY_ERROR = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces."
+PHILIPPINE_PHONE_ERROR = "Please enter a valid Philippine mobile number"
+DRIVER_RESTRICTIONS = {"A", "A1", "B", "B1", "B2", "C", "D", "BE", "CE"}
 DISCOUNT_NO = "NO_DISCOUNT"
 DISCOUNT_OTHER = "OTHER"
 DISCOUNT_ACTIVE = "ACTIVE"
@@ -356,6 +358,24 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
     if timezone.is_naive(parsed):
         parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
     return parsed
+
+
+def _normalize_philippine_phone(value: Any) -> str | None:
+    """Keep staff phone values numeric and limited to supported Philippine mobile formats."""
+    phone = str(value or "").strip()
+    if re.fullmatch(r"(?:09\d{9}|63\d{10})", phone):
+        return phone
+    return None
+
+
+def _validate_future_license_expiry(value: Any) -> tuple[datetime | None, str | None]:
+    """Parse a license date and reject dates earlier than the current local date."""
+    parsed = _parse_iso_datetime(value)
+    if not parsed:
+        return None, "Invalid licenseExpiry format"
+    if timezone.localtime(parsed).date() < timezone.localdate():
+        return None, "License expiration date cannot be in the past."
+    return parsed, None
 
 
 def _validate_password_strength(password: str) -> str | None:
@@ -3685,6 +3705,7 @@ def _send_via_gmail_api(*, subject: str, message: str, recipient: str, html_mess
     from email.mime.multipart import MIMEMultipart
     from email.mime.image import MIMEImage
     from email.mime.text import MIMEText
+    from email.utils import formatdate, make_msgid
     token = _get_gmail_api_access_token()
     if not token:
         return False
@@ -3715,6 +3736,12 @@ def _send_via_gmail_api(*, subject: str, message: str, recipient: str, html_mess
     msg["To"] = recipient
     msg["From"] = f"{from_name} <{from_email}>" if from_email else from_name
     msg["Subject"] = subject
+    # RFC-required headers — missing Message-ID is a top spam trigger for raw MIME via Gmail API.
+    email_domain = from_email.split("@")[-1] if "@" in from_email else "gmail.com"
+    msg["Message-ID"] = make_msgid(domain=email_domain)
+    msg["Date"] = formatdate(localtime=True)
+    msg["Reply-To"] = f"{from_name} <{from_email}>" if from_email else from_name
+    msg["MIME-Version"] = "1.0"
 
     raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
 
@@ -3774,9 +3801,25 @@ def _email_public_url(path: Any) -> str:
     if not value:
         return ""
     if value.startswith(("https://", "http://")):
+        low = value.lower()
+        if any(h in low for h in ("127.0.0.1", "localhost", "0.0.0.0", "192.168.")):
+            return ""
         return value
-    origin = str(os.getenv("EMAIL_PUBLIC_BASE_URL") or os.getenv("DJANGO_API_ORIGIN") or "").strip().rstrip("/")
-    return f"{origin}/{value.lstrip('/')}" if origin else ""
+
+    public_base = str(os.getenv("EMAIL_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if public_base:
+        low_base = public_base.lower()
+        if not any(h in low_base for h in ("127.0.0.1", "localhost", "0.0.0.0", "192.168.")):
+            return f"{public_base}/{value.lstrip('/')}"
+
+    origin = str(os.getenv("DJANGO_API_ORIGIN") or "").strip().rstrip("/")
+    if origin:
+        low_origin = origin.lower()
+        # Local development origins are not reachable by external email clients (Gmail/Yahoo/etc.)
+        if any(h in low_origin for h in ("127.0.0.1", "localhost", "0.0.0.0", "192.168.")):
+            return ""
+        return f"{origin}/{value.lstrip('/')}"
+    return ""
 
 
 def _render_order_product_rows(order: Order | None) -> str:
@@ -3826,7 +3869,7 @@ def _build_branded_email_html(*, subject: str, message: str, otp_code: str | Non
     logo = (
         f'<img src="{escape(logo_url)}" alt="AAB Trading" width="180" style="display:block;width:180px;height:auto;margin:0 auto;">'
         if logo_url else
-        '<div style="font-size:42px;line-height:1;font-weight:800;letter-spacing:.08em;color:#073783;">A<span style="color:#43b51a;">A</span>B</div><div style="margin-top:6px;color:#073783;font-size:18px;font-weight:800;letter-spacing:.28em;">TRADING</div>'
+        '<div style="text-align:center;padding:8px 0 2px;"><div style="font-size:38px;line-height:1;font-weight:900;letter-spacing:.06em;color:#073783;display:inline-block;">A<span style="color:#43b51a;">A</span>B</div><div style="margin-top:4px;color:#073783;font-size:15px;font-weight:800;letter-spacing:.28em;">TRADING</div></div>'
     )
     visible_message = message
     if otp_code:
@@ -3841,10 +3884,10 @@ def _build_branded_email_html(*, subject: str, message: str, otp_code: str | Non
         digits = "&nbsp; ".join(escape(character) for character in str(otp_code))
         otp_html = (
             '<div style="margin:26px 0 22px;border:2px solid #0a3e91;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(7,55,131,.10);">'
-            '<div style="background:#073783;padding:15px 20px;text-align:center;color:#ffffff;font-size:16px;font-weight:800;letter-spacing:.04em;">&#128737;&nbsp;&nbsp; YOUR OTP CODE</div>'
+            '<div style="background:#073783;padding:15px 20px;text-align:center;color:#ffffff;font-size:16px;font-weight:800;letter-spacing:.04em;">&#128274;&nbsp;&nbsp; YOUR OTP CODE</div>'
             f'<div style="padding:28px 18px 20px;text-align:center;background:#ffffff;font-size:43px;line-height:1.2;font-weight:800;letter-spacing:.13em;color:#35ad15;">{digits}</div>'
             '<div style="margin:0 24px;border-top:2px dashed #b4c9eb;"></div>'
-            f'<div style="padding:18px;text-align:center;color:#17233b;font-size:16px;">&#128339;&nbsp; Expires in <strong style="color:#35ad15;">{OTP_EXPIRY_MINUTES} minutes.</strong></div></div>'
+            f'<div style="padding:18px;text-align:center;color:#17233b;font-size:16px;">&#9201;&nbsp; Expires in <strong style="color:#35ad15;">{OTP_EXPIRY_MINUTES} minutes.</strong></div></div>'
         )
     products_html = _render_order_product_rows(order)
     year = timezone.localtime(timezone.now()).year
@@ -3855,10 +3898,10 @@ def _build_branded_email_html(*, subject: str, message: str, otp_code: str | Non
 <tr><td style="height:12px;background:#42b719;font-size:0;line-height:0;">&nbsp;</td></tr>
 <tr><td align="center" style="padding:0 28px 18px;background:#ffffff;">{logo}</td></tr>
 <tr><td style="padding:0 42px 32px;background:#ffffff;"><h1 style="margin:0;text-align:center;color:#073783;font-size:40px;line-height:1.16;font-weight:800;">{escape(title)}</h1>
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:22px 0 26px;"><tr><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td><td align="center" width="76" style="color:#43b719;font-size:25px;line-height:1;">&#127811;</td><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td></tr></table>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:22px 0 26px;"><tr><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td><td align="center" width="76" style="color:#43b719;font-size:25px;line-height:1;">&#9679;</td><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td></tr></table>
 <div style="font-size:17px;line-height:1.72;color:#151b27;"><strong style="color:#073783;">Hello,</strong><br>{body_html}</div>{otp_html}{products_html}
-<div style="margin-top:26px;padding:18px 20px;border:1px solid #71c953;border-radius:14px;background:#f8fcf6;color:#17233b;font-size:15px;line-height:1.55;">&#128737;&nbsp;&nbsp; If you did not request this, <strong style="color:#35ad15;">you can ignore this email.</strong></div>
-<div style="padding:30px 0 16px;text-align:center;font-size:58px;line-height:1;color:#073783;">&#128666;</div></td></tr>
+<div style="margin-top:26px;padding:18px 20px;border:1px solid #71c953;border-radius:14px;background:#f8fcf6;color:#17233b;font-size:15px;line-height:1.55;">&#9432;&nbsp;&nbsp; If you did not request this, <strong style="color:#35ad15;">you can ignore this email.</strong></div>
+</td></tr>
 <tr><td style="height:11px;background:#43b719;font-size:0;line-height:0;">&nbsp;</td></tr>
 <tr><td style="height:28px;background:#063784;font-size:0;line-height:0;">&nbsp;</td></tr>
 <tr><td align="center" style="padding:22px 24px;background:#ffffff;color:#17233b;font-size:13px;line-height:1.7;">&copy; {year} Ann Ann's Beverages Trading. All rights reserved.<br><span style="color:#35ad15;font-weight:700;font-style:italic;">Moving fresh ideas, <span style="color:#073783;">delivering great service.</span></span></td></tr>
@@ -4948,9 +4991,12 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     name = str(body.get("name", "")).strip()
     password = str(body.get("password", "")).strip()
     role_id = str(body.get("roleId", "")).strip()
+    phone = _normalize_philippine_phone(body.get("phone"))
     email_verification_token = str(body.get("emailVerificationToken", "")).strip()
     if not email or not name or not password or not role_id:
         return _err("name, email, password and roleId are required")
+    if not phone:
+        return _err(PHILIPPINE_PHONE_ERROR)
     password_error = _validate_password_strength(password)
     if password_error:
         return _err(password_error)
@@ -4968,7 +5014,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         email=email,
         password=hash_password(password),
         name=name,
-        phone=body.get("phone"),
+        phone=phone,
         avatar=body.get("avatar"),
         role=role,
         is_active=bool(body.get("isActive", True)),
@@ -5061,9 +5107,14 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     elif "name" in body:
         user.name = str(body.get("name") or "").strip()
 
-    for key, attr in [("phone", "phone"), ("avatar", "avatar")]:
-        if key in body:
-            setattr(user, attr, body.get(key))
+    if "phone" in body:
+        # Fix: validate and persist the same numeric phone value returned to admin/staff clients.
+        normalized_phone = _normalize_philippine_phone(body.get("phone"))
+        if not normalized_phone:
+            return _err(PHILIPPINE_PHONE_ERROR)
+        user.phone = normalized_phone
+    if "avatar" in body:
+        user.avatar = body.get("avatar")
     if "twoFactorEnabled" in body:
         user.two_factor_enabled = bool(body.get("twoFactorEnabled"))
     if "loginAlertsEnabled" in body:
@@ -6398,14 +6449,15 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             return _err("User already assigned as driver", 409)
         user.role = "DRIVER"
         user.license_number = body.get("licenseNumber") or f"DRV-{int(timezone.now().timestamp())}"
-        license_type_value = str(body.get("licenseType") or "B").strip()
-        if len(license_type_value) > 30:
-            return _err("License type must be 30 characters or fewer", 400)
+        license_type_value = str(body.get("licenseType") or "B").strip().upper()
+        if license_type_value not in DRIVER_RESTRICTIONS:
+            return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
         user.license_type = license_type_value
+        user.license_photo_url = body.get("licensePhotoUrl") or None
         if body.get("licenseExpiry"):
-            parsed_license_expiry = _parse_iso_datetime(body.get("licenseExpiry"))
-            if not parsed_license_expiry:
-                return _err("Invalid licenseExpiry format", 400)
+            parsed_license_expiry, expiry_error = _validate_future_license_expiry(body.get("licenseExpiry"))
+            if expiry_error:
+                return _err(expiry_error, 400)
             user.license_expiry = parsed_license_expiry
         else:
             user.license_expiry = timezone.now() + timedelta(days=365)
@@ -6433,6 +6485,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     mapping = [
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
+        ("licensePhotoUrl", "license_photo_url"),
         ("emergencyContact", "emergency_contact"),
         ("rating", "rating"),
         ("totalDeliveries", "total_deliveries"),
@@ -6441,16 +6494,16 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         if key in body:
             next_value = body.get(key)
             if attr == "license_type" and next_value is not None:
-                normalized_type = str(next_value).strip()
-                if len(normalized_type) > 30:
-                    return _err("License type must be 30 characters or fewer", 400)
+                normalized_type = str(next_value).strip().upper()
+                if normalized_type not in DRIVER_RESTRICTIONS:
+                    return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
                 setattr(d, attr, normalized_type or None)
             else:
                 setattr(d, attr, next_value)
     if "licenseExpiry" in body and body.get("licenseExpiry"):
-        parsed_license_expiry = _parse_iso_datetime(body.get("licenseExpiry"))
-        if not parsed_license_expiry:
-            return _err("Invalid licenseExpiry format", 400)
+        parsed_license_expiry, expiry_error = _validate_future_license_expiry(body.get("licenseExpiry"))
+        if expiry_error:
+            return _err(expiry_error, 400)
         d.license_expiry = parsed_license_expiry
     if "vehicleId" in body:
         vehicle_id = str(body.get("vehicleId") or "").strip()
@@ -6465,7 +6518,10 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         d.is_active = bool(body.get("isActive"))
     d.save()
     if "phone" in body:
-        d.phone = body.get("phone")
+        normalized_phone = _normalize_philippine_phone(body.get("phone"))
+        if not normalized_phone:
+            return _err(PHILIPPINE_PHONE_ERROR)
+        d.phone = normalized_phone
         d.save(update_fields=["phone", "updated_at"])
     driver_payload = _serialize_model(d, exclude={"password"})
     driver_payload["user"] = _serialize_model(d, exclude={"password"})
@@ -8787,6 +8843,7 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         ("emergencyContact", "emergency_contact"),
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
+        ("licensePhotoUrl", "license_photo_url"),
     ]:
         if key in body:
             next_value = body.get(key)
@@ -8795,16 +8852,16 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
                 next_license_number = normalized or None
                 setattr(d, attr, next_license_number)
             elif attr == "license_type":
-                normalized_type = str(next_value or "").strip()
-                if len(normalized_type) > 30:
-                    return _err("License type must be 30 characters or fewer", 400)
+                normalized_type = str(next_value or "").strip().upper()
+                if normalized_type not in DRIVER_RESTRICTIONS:
+                    return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
                 setattr(d, attr, normalized_type or None)
             else:
                 setattr(d, attr, next_value)
     if "licenseExpiry" in body and body.get("licenseExpiry"):
-        parsed_license_expiry = _parse_iso_datetime(body.get("licenseExpiry"))
-        if not parsed_license_expiry:
-            return _err("Invalid licenseExpiry format", 400)
+        parsed_license_expiry, expiry_error = _validate_future_license_expiry(body.get("licenseExpiry"))
+        if expiry_error:
+            return _err(expiry_error, 400)
         d.license_expiry = parsed_license_expiry
     if next_license_number:
         duplicate = User.objects.filter(
@@ -8828,9 +8885,13 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
     elif "name" in body:
         d.name = str(body.get("name") or "").strip()
 
-    for key, attr in [("phone", "phone"), ("avatar", "avatar")]:
-        if key in body:
-            setattr(d, attr, body.get(key))
+    if "phone" in body:
+        normalized_phone = _normalize_philippine_phone(body.get("phone"))
+        if not normalized_phone:
+            return _err(PHILIPPINE_PHONE_ERROR)
+        d.phone = normalized_phone
+    if "avatar" in body:
+        d.avatar = body.get("avatar")
     if "twoFactorEnabled" in body:
         d.two_factor_enabled = bool(body.get("twoFactorEnabled"))
     if "loginAlertsEnabled" in body:
@@ -9355,6 +9416,18 @@ def upload_damage_image(request: HttpRequest) -> JsonResponse:
     if p.get("role") != "DRIVER":
         return _err("Forbidden", 403)
     return _handle_image_upload(request, "damages", "damage")
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def upload_driver_license_image(request: HttpRequest) -> JsonResponse:
+    p, err = _require_staff(request)
+    if err:
+        return err
+    if p.get("role") not in {"DRIVER", "ADMIN", "SUPER_ADMIN"}:
+        return _err("Forbidden", 403)
+    # Added: driver and admin editors share one authenticated license-image endpoint.
+    return _handle_image_upload(request, "licenses", "license")
 
 
 @csrf_exempt

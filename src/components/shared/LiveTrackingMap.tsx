@@ -412,7 +412,7 @@ const NAV_CAMERA_ANIMATION_SECONDS = 0.35;
 const TRUCK_DEFAULT_SMOOTHING_DURATION_MS = 1000;
 const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
 const TRUCK_MAX_SMOOTHING_DURATION_MS = 4500;
-const TRUCK_STATIONARY_THRESHOLD_METERS = 4;
+const TRUCK_STATIONARY_THRESHOLD_METERS = 1.5;
 const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 35;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
@@ -1332,11 +1332,12 @@ export default function LiveTrackingMap({
       const previousProgress = acceptedRouteProgressRef.current;
       let acceptedDistance = projected.distanceAlongMeters;
       if (previousProgress?.routeKey === navigationRouteKey) {
-        // GPS noise must not move the truck or completed line backward. Changes
-        // below four metres are also treated as stationary jitter.
-        acceptedDistance = projected.distanceAlongMeters <= previousProgress.distanceMeters + TRUCK_STATIONARY_THRESHOLD_METERS
-          ? previousProgress.distanceMeters
-          : projected.distanceAlongMeters;
+        // GPS noise must not move the truck backward on the route. Any forward
+        // movement (even sub-metre) is accepted so the truck visually advances
+        // continuously at walking and slow-driving speeds.
+        acceptedDistance = projected.distanceAlongMeters >= previousProgress.distanceMeters
+          ? projected.distanceAlongMeters
+          : previousProgress.distanceMeters;
       } else if (routeGeometryChanged) {
         const previousVisibleLocation = smoothedLocationsRef.current.find(
           (candidate) => candidate.id === location.id && candidate.markerType === 'truck'
@@ -1369,9 +1370,13 @@ export default function LiveTrackingMap({
         if (loc.markerType !== 'truck') return false;
         const previous = previousById.get(loc.id);
         if (previous && navigationPerspective) {
-          // Ignore stationary heading/position noise; a real navigation move
-          // must clear the same four-metre threshold used for route progress.
-          return approximateDistanceMeters([previous.lat, previous.lng], [loc.lat, loc.lng]) >= TRUCK_STATIONARY_THRESHOLD_METERS;
+          // Any measurable forward movement triggers a smooth animation.
+          // Even sub-metre GPS advances should produce visible truck motion
+          // at slow driving speeds (4 km/h = ~1 m/s).
+          const distanceMoved = approximateDistanceMeters([previous.lat, previous.lng], [loc.lat, loc.lng]);
+          const headingChanged = typeof loc.markerHeading === 'number' && typeof previous.markerHeading === 'number'
+            && Math.abs(shortestAngleDelta(previous.markerHeading, loc.markerHeading)) > 2;
+          return distanceMoved >= 0.5 || headingChanged;
         }
         return (
           previous &&

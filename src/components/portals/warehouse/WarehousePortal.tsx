@@ -45,7 +45,7 @@ import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy } from '@/lib/password-policy'
-import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
@@ -886,6 +886,10 @@ export function WarehousePortal() {
     }
     if (!profileFirstName.trim() || !profileLastName.trim() || !profileEmail.trim()) {
       toast.error('Name and email are required')
+      return
+    }
+    if (!isValidPhilippinePhone(profilePhone)) {
+      toast.error('Please enter a valid Philippine mobile number')
       return
     }
     if (isProfileEmailChanged && !profileOtpVerified) {
@@ -4781,7 +4785,10 @@ export function WarehousePortal() {
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="warehouse-profile-phone" className="text-xs font-semibold text-slate-700">Phone</Label>
-                      <Input id="warehouse-profile-phone" inputMode="numeric" value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} disabled={!isEditingProfile} />
+                      <Input id="warehouse-profile-phone" inputMode="numeric" maxLength={12} value={profilePhone} onChange={(e) => setProfilePhone(formatPhilippinePhoneInput(e.target.value))} disabled={!isEditingProfile} />
+                      {profilePhone && !isValidPhilippinePhone(profilePhone) ? (
+                        <p className="text-xs font-medium text-red-600">Please enter a valid Philippine mobile number</p>
+                      ) : null}
                     </div>
                     {isProfileEmailChanged ? (
                       <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 space-y-3">

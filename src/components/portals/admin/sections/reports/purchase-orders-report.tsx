@@ -15,7 +15,6 @@ import {
   PackageCheck,
   XCircle,
   TrendingUp,
-  Building2,
   Calendar,
   Download,
   Printer,
@@ -23,12 +22,14 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  ComposedChart,
+  Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
 } from 'recharts'
 import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
@@ -38,10 +39,9 @@ interface PurchaseOrdersReportProps {
   warehouses?: any[]
 }
 
-export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrdersReportProps) {
+export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
-  const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [datePreset, setDatePreset] = useState<'all' | '7' | '30' | '90' | '365' | 'custom'>('30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -79,13 +79,12 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
           else if (normStatus === 'CANCELLED') stage = 'CANCELLED'
           else stage = 'APPROVED'
         }
+        // Ready/for-delivery records are represented by the simpler Processing stage in reports.
+        if (['READY_FOR_DELIVERY', 'FOR_DELIVERY'].includes(stage)) stage = 'PROCESSING'
 
         const date = o.createdAt || new Date().toISOString()
         const deliveredDate = o.timeline?.deliveredAt || (stage === 'DELIVERED' ? o.updatedAt : null)
         const amount = Number(o.totalAmount || o.subtotal || 0)
-        const warehouseId = o.warehouseId || o.warehouse_id || o.warehouse?.id || ''
-        const warehouseName = o.warehouseName || o.warehouse?.name || 'Central Distribution'
-        const itemsCount = Array.isArray(o.items) ? o.items.length : 0
 
         return {
           id: o.id,
@@ -99,9 +98,6 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
           date,
           deliveredDate,
           amount,
-          warehouseId,
-          warehouseName,
-          itemsCount,
         }
       })
   }, [orders])
@@ -135,11 +131,6 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
       list = list.filter((item) => item.stage === stageFilter)
     }
 
-    // Warehouse filter
-    if (warehouseFilter !== 'all') {
-      list = list.filter((item) => item.warehouseId === warehouseFilter)
-    }
-
     // Search term
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim()
@@ -161,32 +152,35 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
     })
 
     return list
-  }, [rawPOList, datePreset, dateFrom, dateTo, stageFilter, warehouseFilter, searchTerm, sortOrder])
+  }, [rawPOList, datePreset, dateFrom, dateTo, stageFilter, searchTerm, sortOrder])
 
   // KPIs
   const kpis = useMemo(() => {
     const total = filteredPOs.length
     const delivered = filteredPOs.filter((p) => p.stage === 'DELIVERED' || p.stage === 'COMPLETED').length
-    const inFulfillment = filteredPOs.filter((p) =>
-      ['PROCESSING', 'READY_FOR_DELIVERY', 'FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'APPROVED'].includes(p.stage)
-    ).length
+    const processing = filteredPOs.filter((p) => p.stage === 'PROCESSING').length
     const cancelled = filteredPOs.filter((p) => p.stage === 'CANCELLED').length
-    const totalValue = filteredPOs.reduce((sum, p) => sum + (p.amount || 0), 0)
+    // Cancelled and rejected orders remain auditable but do not contribute to purchase value.
+    const totalValue = filteredPOs.reduce(
+      (sum, order) => ['CANCELLED', 'REJECTED'].includes(order.stage) ? sum : sum + (order.amount || 0),
+      0
+    )
 
-    return { total, delivered, inFulfillment, cancelled, totalValue }
+    return { total, delivered, processing, cancelled, totalValue }
   }, [filteredPOs])
 
-  // Trend Chart Data (by Stage Breakdown)
+  // Build a chronological time series so daily stage movement is easy to compare.
   const chartData = useMemo(() => {
-    const map: Record<string, { date: string; delivered: number; inFlight: number; cancelled: number }> = {}
+    const map: Record<string, { date: string; total: number; delivered: number; processing: number; cancelled: number }> = {}
     filteredPOs.forEach((item) => {
       const d = new Date(item.date)
       const key = formatDayKey(d)
       if (!map[key]) {
         map[key] = {
           date: `${d.getMonth() + 1}/${d.getDate()}`,
+          total: 0,
           delivered: 0,
-          inFlight: 0,
+          processing: 0,
           cancelled: 0,
         }
       }
@@ -194,12 +188,16 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
         map[key].delivered += 1
       } else if (item.stage === 'CANCELLED') {
         map[key].cancelled += 1
-      } else {
-        map[key].inFlight += 1
+      } else if (item.stage === 'PROCESSING') {
+        map[key].processing += 1
       }
+      map[key].total += 1
     })
 
-    return Object.values(map).slice(-14)
+    return Object.entries(map)
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .slice(-14)
+      .map(([, values]) => values)
   }, [filteredPOs])
 
   // Pagination
@@ -217,9 +215,7 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
       case 'OUT_FOR_DELIVERY':
         return <Badge className="bg-purple-50 text-purple-700 border-purple-200">Out for Delivery</Badge>
       case 'PROCESSING':
-      case 'READY_FOR_DELIVERY':
-      case 'FOR_DELIVERY':
-        return <Badge className="bg-blue-50 text-blue-700 border-blue-200">In Fulfillment</Badge>
+        return <Badge className="bg-blue-50 text-blue-700 border-blue-200">Processing</Badge>
       case 'APPROVED':
         return <Badge className="bg-cyan-50 text-cyan-700 border-cyan-200">Approved PO</Badge>
       case 'CANCELLED':
@@ -234,7 +230,6 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
     { header: 'PR Ref', key: 'prNumber' },
     { header: 'Order Ref', key: 'orderNumber' },
     { header: 'Client', key: 'client' },
-    { header: 'Warehouse Hub', key: 'warehouseName' },
     { header: 'PO Stage', key: 'stage' },
     { header: 'PO Total (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
     { header: 'Created Date', accessor: (r) => formatDateTime(r.date) },
@@ -252,7 +247,7 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
       filteredPOs,
       [
         `Total POs: ${kpis.total}`,
-        `Delivered: ${kpis.delivered} | In Fulfillment: ${kpis.inFulfillment} | Cancelled: ${kpis.cancelled}`,
+        `Delivered: ${kpis.delivered} | Processing: ${kpis.processing} | Cancelled: ${kpis.cancelled}`,
         `Total PO Value: ${formatPeso(kpis.totalValue)}`,
       ]
     )
@@ -265,19 +260,19 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
       filteredPOs,
       [
         `Total POs: ${kpis.total}`,
-        `Delivered: ${kpis.delivered} | In Fulfillment: ${kpis.inFulfillment} | Cancelled: ${kpis.cancelled}`,
+        `Delivered: ${kpis.delivered} | Processing: ${kpis.processing} | Cancelled: ${kpis.cancelled}`,
         `Total PO Value: ${formatPeso(kpis.totalValue)}`,
       ]
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Purchase Orders Report</h2>
-          <p className="text-sm text-slate-500">Comprehensive overview of issued purchase orders, execution stages, and fulfillment status.</p>
+          <p className="text-sm text-slate-500">Comprehensive overview of issued purchase orders and processing stages.</p>
         </div>
 
         {/* Export Buttons */}
@@ -286,16 +281,16 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
             Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
             <Download className="h-4 w-4 text-blue-600" />
             Export PDF
@@ -304,7 +299,7 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <Printer className="h-4 w-4 text-slate-600" />
             Print
@@ -334,10 +329,10 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
 
         <Card className="rounded-2xl border border-cyan-100 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-cyan-600">Active in Fulfillment</CardDescription>
-            <CardTitle className="text-2xl font-bold text-cyan-700">{kpis.inFulfillment}</CardTitle>
+            <CardDescription className="text-xs uppercase font-medium tracking-wide text-cyan-600">Processing Orders</CardDescription>
+            <CardTitle className="text-2xl font-bold text-cyan-700">{kpis.processing}</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Preparing or in dispatch</CardContent>
+          <CardContent className="p-4 pt-0 text-xs text-slate-500">Orders currently being prepared</CardContent>
         </Card>
 
         <Card className="rounded-2xl border border-rose-100 bg-white shadow-sm">
@@ -353,31 +348,33 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
             <CardDescription className="text-xs uppercase font-medium tracking-wide text-indigo-600">Total Purchase Value</CardDescription>
             <CardTitle className="text-2xl font-bold text-indigo-700">{formatPeso(kpis.totalValue)}</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Gross order value</CardContent>
+          <CardContent className="p-4 pt-0 text-xs text-slate-500">Excludes cancelled and rejected orders</CardContent>
         </Card>
       </div>
 
-      {/* Trend Chart */}
+      {/* A composed time-series separates overall PO volume from each stage trend. */}
       {chartData.length > 0 && (
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-base font-semibold text-slate-800">Purchase Order Fulfillment Volume</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Daily creation and fulfillment status</CardDescription>
+            <CardTitle className="text-base font-semibold text-slate-800">Daily Purchase Order Trend</CardTitle>
+            <CardDescription className="text-xs text-slate-500">Total purchase order volume and stage movement over time</CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Bar dataKey="delivered" name="Delivered" fill="#10b981" radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="inFlight" name="In Fulfillment" fill="#3b82f6" radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="cancelled" name="Cancelled" fill="#f43f5e" radius={[4, 4, 0, 0]} stackId="a" />
-                </BarChart>
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b' }} />
+                  <Area type="monotone" dataKey="total" name="Total Orders" stroke="#2563eb" strokeWidth={2} fill="#dbeafe" fillOpacity={0.7} />
+                  <Line type="monotone" dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="processing" name="Processing" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="cancelled" name="Cancelled" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
@@ -386,7 +383,7 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
 
       {/* Filter Bar */}
       <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -414,32 +411,11 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
             >
               <option value="all">All PO Stages</option>
               <option value="APPROVED">Approved PO</option>
-              <option value="PROCESSING">Processing / Preparing</option>
-              <option value="READY_FOR_DELIVERY">Ready for Delivery</option>
+              <option value="PROCESSING">Processing</option>
               <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
               <option value="DELIVERED">Delivered</option>
               <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-
-          {/* Warehouse Filter */}
-          <div>
-            <select
-              value={warehouseFilter}
-              onChange={(e) => {
-                setWarehouseFilter(e.target.value)
-                setCurrentPage(1)
-              }}
-              aria-label="Filter by fulfillment warehouse"
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none"
-            >
-              <option value="all">All Fulfillment Hubs</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name || w.code}
-                </option>
-              ))}
             </select>
           </div>
 
@@ -516,7 +492,6 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
                 <th className="p-3.5">PR Ref</th>
                 <th className="p-3.5">Order Ref</th>
                 <th className="p-3.5">Client / Customer</th>
-                <th className="p-3.5">Hub / Warehouse</th>
                 <th className="p-3.5">Stage</th>
                 <th className="p-3.5 text-right">PO Total</th>
                 <th className="p-3.5 pr-4">Created Date</th>
@@ -533,7 +508,6 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
                       <div className="font-medium text-slate-900">{row.client}</div>
                       {row.clientEmail && <div className="text-[11px] text-slate-400">{row.clientEmail}</div>}
                     </td>
-                    <td className="p-3.5 text-slate-600">{row.warehouseName}</td>
                     <td className="p-3.5">{getStageBadge(row.stage)}</td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
                     <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
@@ -541,7 +515,7 @@ export function PurchaseOrdersReport({ orders, warehouses = [] }: PurchaseOrders
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <FileCheck className="mx-auto h-8 w-8 text-slate-300 mb-2" />
                     No purchase order records match the selected filters.
                   </td>

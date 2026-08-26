@@ -22,12 +22,15 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer,
-  BarChart,
+  ComposedChart,
+  Area,
+  Line,
   Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
 } from 'recharts'
 import { formatDateTime, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
@@ -68,14 +71,106 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       const client = rep.customer?.name || matchedOrder?.customer?.name || matchedOrder?.shippingName || 'Customer'
       const clientEmail = rep.customer?.email || matchedOrder?.customer?.email || ''
 
-      const originalProduct = rep.originalProductName || rep.productName || rep.originalOrderItem?.productName || 'Beverage Case'
+      const _originalProductName = rep.originalProductName || rep.productName || rep.originalOrderItem?.productName || 'Beverage Case'
+      const _originalProductSize = rep.originalProductSize || ''
+      const originalProduct = _originalProductSize ? `${_originalProductName} ${_originalProductSize}` : _originalProductName
       const replacementProduct = rep.replacementProductName || rep.productName || 'Direct Replacement'
-      const quantity = Number(rep.replacementQuantity || rep.quantity || rep.quantityReplaced || 1)
+
+      // Parse structured meta from notes if available
+      let meta: any = {}
+      try {
+        if (typeof rep.notes === 'string' && rep.notes.trim().startsWith('{')) {
+          meta = JSON.parse(rep.notes)
+        }
+      } catch {}
 
       const reason = String(rep.reason || 'Damaged in transit / Defective seal').trim()
       const description = rep.description || rep.notes || ''
-      const status = String(rep.status || 'REPORTED').toUpperCase()
-      const processedBy = rep.processedBy || (status === 'RESOLVED' || status === 'CLOSED' ? 'Warehouse Ops' : null)
+      const rawStatus = String(rep.status || 'REPORTED').toUpperCase()
+      const isResolved = ['RESOLVED', 'CLOSED', 'COMPLETED', 'RESOLVED_ON_DELIVERY', 'REPLACED'].includes(rawStatus)
+      const status = isResolved ? 'RESOLVED' : rawStatus
+
+      const contextText = `${String(description)} ${String(reason)} ${String(rep.notes || '')}`.toLowerCase()
+      const isByBottle = /\bby\s*bottle\b/.test(contextText)
+      const isByUnit = /\bby\s*unit\b/.test(contextText) || /\bby\s*case\b/.test(contextText)
+      const isByPack = /\bby\s*pack\b/.test(contextText)
+      const isByBundle = /\bby\s*bundle\b/.test(contextText)
+
+      // Qty/Unit parsing from description or line
+      const qtyPerUnitMatch = contextText.match(/qty\s*\/\s*(?:unit|case|pack|bundle)\s*[:\-]?\s*(\d+)/i)
+      const qtyPerUnitFromText = qtyPerUnitMatch ? Number(qtyPerUnitMatch[1]) : NaN
+
+      // Matched Order Item & Pricing
+      let matchedItem: any = null
+      if (matchedOrder?.items && Array.isArray(matchedOrder.items)) {
+        const origName = (_originalProductName || '').toLowerCase().trim()
+        matchedItem = matchedOrder.items.find((item: any) => {
+          const iName = (item.productName || item.product?.name || item.name || '').toLowerCase().trim()
+          return origName && iName && (iName.includes(origName.split(' ')[0]) || origName.includes(iName.split(' ')[0]))
+        }) || matchedOrder.items[0]
+      }
+
+      const unitPrice = Number(
+        matchedItem?.unitPrice ??
+        matchedItem?.unit_price ??
+        matchedItem?.price ??
+        matchedItem?.product?.price ??
+        0
+      )
+      const qtyPerCase = Math.max(
+        1,
+        Number.isFinite(qtyPerUnitFromText) && qtyPerUnitFromText > 0
+          ? qtyPerUnitFromText
+          : Number(matchedItem?.product?.quantityPerCase || matchedItem?.product?.quantityPerUnit || matchedItem?.caseCapacity || 24)
+      )
+
+      const rawBottleQuantity = Number(
+        rep.replacementQuantity ??
+        rep.quantity ??
+        rep.quantityReplaced ??
+        meta.quantityReplaced ??
+        meta.quantityToReplace ??
+        1
+      )
+
+      const unitMatch = contextText.match(/by\s*unit\s*[:\-]?\s*(\d+)/i) || contextText.match(/by\s*case\s*[:\-]?\s*(\d+)/i)
+      const directUnits = unitMatch
+        ? Number(unitMatch[1])
+        : Number(meta.quantityToReplaceCases || meta.quantityReplacedCases || meta.damagedCases || NaN)
+
+      let quantity = rawBottleQuantity
+      let unitLabel = 'units'
+      let loss = 0
+
+      if (isByBottle) {
+        quantity = rawBottleQuantity
+        unitLabel = 'bottles'
+        const replacedQtyInBillingUnit = rawBottleQuantity / qtyPerCase
+        loss = replacedQtyInBillingUnit * unitPrice
+      } else if (isByUnit) {
+        const caseCount = Number.isFinite(directUnits) && directUnits > 0
+          ? directUnits
+          : (rawBottleQuantity > 0 ? Math.max(1, Math.round(rawBottleQuantity / qtyPerCase)) : 1)
+        quantity = caseCount
+        unitLabel = isByPack ? 'packs' : isByBundle ? 'bundles' : 'cases'
+        loss = caseCount * unitPrice
+      } else {
+        // Default detection
+        if (Number.isFinite(directUnits) && directUnits > 0) {
+          quantity = directUnits
+          unitLabel = 'cases'
+          loss = directUnits * unitPrice
+        } else if (rawBottleQuantity >= qtyPerCase && rawBottleQuantity % qtyPerCase === 0) {
+          const caseCount = rawBottleQuantity / qtyPerCase
+          quantity = caseCount
+          unitLabel = 'cases'
+          loss = caseCount * unitPrice
+        } else {
+          quantity = rawBottleQuantity
+          unitLabel = 'bottles'
+          loss = (rawBottleQuantity / qtyPerCase) * unitPrice
+        }
+      }
 
       const date = rep.createdAt || new Date().toISOString()
       const processedDate = rep.processedAt || rep.pickupCompleted || null
@@ -89,10 +184,13 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         originalProduct,
         replacementProduct,
         quantity,
+        rawBottleQuantity,
+        unitLabel,
+        unitPrice,
+        loss,
         reason,
         description,
         status,
-        processedBy,
         date,
         processedDate,
       }
@@ -142,7 +240,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       list = list.filter((item) => item.reason === reasonFilter)
     }
 
-    // Search term (searches Rep #, Order, Client, Product, Reason, Processed By)
+    // Search term (searches Rep #, Order, Client, Product, Reason)
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim()
       list = list.filter(
@@ -152,8 +250,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
           item.client.toLowerCase().includes(q) ||
           item.originalProduct.toLowerCase().includes(q) ||
           item.replacementProduct.toLowerCase().includes(q) ||
-          item.reason.toLowerCase().includes(q) ||
-          (item.processedBy && item.processedBy.toLowerCase().includes(q))
+          item.reason.toLowerCase().includes(q)
       )
     }
 
@@ -172,25 +269,43 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     const total = filteredReplacements.length
     const resolved = filteredReplacements.filter((r) => r.status === 'RESOLVED' || r.status === 'CLOSED').length
     const inProgress = filteredReplacements.filter((r) => r.status === 'IN_PROGRESS' || r.status === 'NEEDS_FOLLOW_UP').length
-    const pending = filteredReplacements.filter((r) => r.status === 'REPORTED').length
-    const totalUnits = filteredReplacements.reduce((sum, r) => sum + r.quantity, 0)
+    const pending = filteredReplacements.filter((r) => r.status === 'REPORTED' || r.status === 'PENDING').length
+    const totalUnits = filteredReplacements.reduce((sum, r) => sum + (r.rawBottleQuantity || r.quantity), 0)
 
     return { total, resolved, inProgress, pending, totalUnits }
   }, [filteredReplacements])
 
-  // Trend Chart Data
+  // Trend Chart Data (Chronological daily breakdown with full continuous date range)
   const chartData = useMemo(() => {
-    const map: Record<string, { date: string; resolved: number; pending: number }> = {}
+    // Generate a continuous 14-day chronological map so isolated data points don't stretch
+    const map: Record<string, { dateKey: string; date: string; total: number; resolved: number; pending: number }> = {}
+    const now = new Date()
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      const key = formatDayKey(d)
+      map[key] = {
+        dateKey: key,
+        date: `${d.getMonth() + 1}/${d.getDate()}`,
+        total: 0,
+        resolved: 0,
+        pending: 0,
+      }
+    }
+
     filteredReplacements.forEach((item) => {
       const d = new Date(item.date)
       const key = formatDayKey(d)
       if (!map[key]) {
         map[key] = {
+          dateKey: key,
           date: `${d.getMonth() + 1}/${d.getDate()}`,
+          total: 0,
           resolved: 0,
           pending: 0,
         }
       }
+      map[key].total += 1
       if (item.status === 'RESOLVED' || item.status === 'CLOSED') {
         map[key].resolved += 1
       } else {
@@ -198,7 +313,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       }
     })
 
-    return Object.values(map).slice(-14)
+    return Object.values(map).sort((a, b) => a.dateKey.localeCompare(b.dateKey)).slice(-14)
   }, [filteredReplacements])
 
   // Pagination
@@ -212,12 +327,16 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     switch (status) {
       case 'RESOLVED':
       case 'CLOSED':
-        return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Resolved</Badge>
+      case 'COMPLETED':
+      case 'RESOLVED_ON_DELIVERY':
+      case 'REPLACED':
+        return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Resolved / Replaced</Badge>
       case 'IN_PROGRESS':
         return <Badge className="bg-blue-50 text-blue-700 border-blue-200">In Progress</Badge>
       case 'NEEDS_FOLLOW_UP':
         return <Badge className="bg-purple-50 text-purple-700 border-purple-200">Needs Follow-Up</Badge>
       case 'REPORTED':
+      case 'PENDING':
         return <Badge className="bg-amber-50 text-amber-700 border-amber-200">Reported</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
@@ -229,10 +348,20 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     { header: 'Order Ref', key: 'orderRef' },
     { header: 'Client', key: 'client' },
     { header: 'Original Product', key: 'originalProduct' },
-    { header: 'Qty', key: 'quantity' },
+    { header: 'Qty', accessor: (r) => `${r.quantity} ${r.unitLabel}` },
     { header: 'Reason', key: 'reason' },
-    { header: 'Status', key: 'status' },
-    { header: 'Processed By', accessor: (r) => r.processedBy || 'Unassigned' },
+    {
+      header: 'Status',
+      accessor: (r) =>
+        ['RESOLVED', 'CLOSED', 'COMPLETED', 'RESOLVED_ON_DELIVERY', 'REPLACED'].includes(r.status)
+          ? 'Resolved / Replaced'
+          : r.status === 'IN_PROGRESS'
+          ? 'In Progress'
+          : r.status === 'NEEDS_FOLLOW_UP'
+          ? 'Needs Follow-Up'
+          : 'Reported',
+    },
+    { header: 'Loss (₱)', accessor: (r) => r.loss > 0 ? `₱${r.loss.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—' },
     { header: 'Reported Date', accessor: (r) => formatDateTime(r.date) },
   ]
 
@@ -268,7 +397,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -282,16 +411,16 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
             Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
             <Download className="h-4 w-4 text-blue-600" />
             Export PDF
@@ -300,7 +429,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <Printer className="h-4 w-4 text-slate-600" />
             Print
@@ -358,21 +487,23 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-base font-semibold text-slate-800">Replacement Request & Resolution Trend</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Daily breakdown of reported vs resolved replacements</CardDescription>
+            <CardDescription className="text-xs text-slate-500">Daily breakdown of total reported vs resolved replacements over time</CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Bar dataKey="resolved" name="Resolved" fill="#10b981" radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="pending" name="Open / In-Progress" fill="#f59e0b" radius={[4, 4, 0, 0]} stackId="a" />
-                </BarChart>
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b', paddingTop: '4px' }} />
+                  <Area type="monotone" dataKey="total" name="Total Reported" stroke="#6366f1" strokeWidth={2} fill="#e0e7ff" fillOpacity={0.35} />
+                  <Line type="monotone" dataKey="resolved" name="Resolved / Replaced" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3.5, fill: '#10b981' }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="pending" name="Open / In-Progress" stroke="#f59e0b" strokeWidth={2.5} strokeDasharray="4 4" dot={{ r: 3.5, fill: '#f59e0b' }} activeDot={{ r: 6 }} />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
@@ -511,7 +642,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                 <th className="p-3.5 text-center">Qty</th>
                 <th className="p-3.5">Reason & Description</th>
                 <th className="p-3.5">Status</th>
-                <th className="p-3.5">Processed By</th>
+                <th className="p-3.5">Loss (₱)</th>
                 <th className="p-3.5 pr-4">Reported Time</th>
               </tr>
             </thead>
@@ -528,17 +659,20 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                     <td className="p-3.5">
                       <div className="font-medium text-slate-800">{row.originalProduct}</div>
                     </td>
-                    <td className="p-3.5 text-center font-bold text-slate-900">{row.quantity}</td>
+                    <td className="p-3.5 text-center">
+                      <span className="font-bold text-slate-900">{row.quantity}</span>
+                      <span className="ml-1 text-[11px] text-slate-400 font-normal">{row.unitLabel}</span>
+                    </td>
                     <td className="p-3.5 max-w-xs">
                       <div className="font-medium text-slate-800">{row.reason}</div>
                       {row.description && <div className="text-[11px] text-slate-400 line-clamp-1">{row.description}</div>}
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
-                    <td className="p-3.5 text-slate-600">
-                      {row.processedBy ? (
-                        <span className="font-medium text-emerald-700">✓ {row.processedBy}</span>
+                    <td className="p-3.5">
+                      {row.loss > 0 ? (
+                        <span className="font-semibold text-rose-600">₱{row.loss.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       ) : (
-                        <span className="text-slate-400">Unassigned</span>
+                        <span className="text-slate-400 text-[11px]">—</span>
                       )}
                     </td>
                     <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>

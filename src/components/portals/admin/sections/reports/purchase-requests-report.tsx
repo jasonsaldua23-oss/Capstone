@@ -24,12 +24,14 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  ComposedChart,
+  Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
 } from 'recharts'
 import { formatPeso, formatDateTime, formatDayKey, withinRange, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
@@ -39,10 +41,9 @@ interface PurchaseRequestsReportProps {
   warehouses?: any[]
 }
 
-export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequestsReportProps) {
+export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [datePreset, setDatePreset] = useState<'all' | '7' | '30' | '90' | '365' | 'custom'>('30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -119,11 +120,6 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
       list = list.filter((item) => item.status === statusFilter)
     }
 
-    // Warehouse / Supplier filter
-    if (warehouseFilter !== 'all') {
-      list = list.filter((item) => item.warehouseId === warehouseFilter)
-    }
-
     // Search term
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim()
@@ -144,7 +140,7 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
     })
 
     return list
-  }, [rawPRList, datePreset, dateFrom, dateTo, statusFilter, warehouseFilter, searchTerm, sortOrder])
+  }, [rawPRList, datePreset, dateFrom, dateTo, statusFilter, searchTerm, sortOrder])
 
   // KPIs
   const kpis = useMemo(() => {
@@ -152,7 +148,11 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
     const approved = filteredPRs.filter((p) => p.status === 'APPROVED').length
     const pending = filteredPRs.filter((p) => p.status === 'PENDING_APPROVAL' || p.status === 'PENDING').length
     const rejected = filteredPRs.filter((p) => p.status === 'REJECTED' || p.status === 'CANCELLED').length
-    const totalValue = filteredPRs.reduce((sum, p) => sum + (p.amount || 0), 0)
+    // Cancelled and rejected requests remain auditable but do not contribute to requested value.
+    const totalValue = filteredPRs.reduce(
+      (sum, request) => ['REJECTED', 'CANCELLED'].includes(request.status) ? sum : sum + (request.amount || 0),
+      0
+    )
 
     return { total, approved, pending, rejected, totalValue }
   }, [filteredPRs])
@@ -178,7 +178,11 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
       else map[key].pending += 1
     })
 
-    return Object.values(map).slice(-14)
+    // Keep the time-series chronological so the chart communicates an actual daily trend.
+    return Object.entries(map)
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .slice(-14)
+      .map(([, values]) => values)
   }, [filteredPRs])
 
   // Pagination
@@ -211,8 +215,8 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
     { header: 'Warehouse Hub', key: 'warehouseName' },
     { header: 'Status', key: 'status' },
     {
-      header: 'Decision By',
-      accessor: (r) => (r.approver ? `Approved: ${r.approver}` : r.rejector ? `Rejected: ${r.rejector}` : 'Pending'),
+      header: 'Reason',
+      accessor: (r) => r.reason || '—',
     },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
     { header: 'Date & Time', accessor: (r) => formatDateTime(r.date) },
@@ -250,7 +254,7 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header & Controls */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -264,16 +268,16 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
             Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
             <Download className="h-4 w-4 text-blue-600" />
             Export PDF
@@ -282,7 +286,7 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-9 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
             <Printer className="h-4 w-4 text-slate-600" />
             Print
@@ -331,31 +335,33 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
             <CardDescription className="text-xs uppercase font-medium tracking-wide text-indigo-600">Total Requested Value</CardDescription>
             <CardTitle className="text-2xl font-bold text-indigo-700">{formatPeso(kpis.totalValue)}</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Cumulative value</CardContent>
+          <CardContent className="p-4 pt-0 text-xs text-slate-500">Excludes rejected and cancelled requests</CardContent>
         </Card>
       </div>
 
-      {/* Trend Chart */}
+      {/* A composed time-series separates total volume from individual request statuses. */}
       {chartData.length > 0 && (
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-base font-semibold text-slate-800">Purchase Request Volume & Approval Trend</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Recent distribution by daily status</CardDescription>
+            <CardTitle className="text-base font-semibold text-slate-800">Daily Purchase Request Trend</CardTitle>
+            <CardDescription className="text-xs text-slate-500">Total request volume and status movement over time</CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Bar dataKey="approved" name="Approved" fill="#10b981" radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="pending" name="Pending" fill="#f59e0b" radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="rejected" name="Rejected" fill="#f43f5e" radius={[4, 4, 0, 0]} stackId="a" />
-                </BarChart>
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b' }} />
+                  <Area type="monotone" dataKey="total" name="Total Requests" stroke="#2563eb" strokeWidth={2} fill="#dbeafe" fillOpacity={0.7} />
+                  <Line type="monotone" dataKey="approved" name="Approved" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="pending" name="Pending" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="rejected" name="Rejected" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
@@ -364,7 +370,7 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
 
       {/* Filter Bar */}
       <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -395,26 +401,6 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
               <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-
-          {/* Warehouse Filter */}
-          <div>
-            <select
-              value={warehouseFilter}
-              onChange={(e) => {
-                setWarehouseFilter(e.target.value)
-                setCurrentPage(1)
-              }}
-              aria-label="Filter by warehouse or fulfillment hub"
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none"
-            >
-              <option value="all">All Warehouses / Hubs</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name || w.code}
-                </option>
-              ))}
             </select>
           </div>
 
@@ -492,7 +478,7 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
                 <th className="p-3.5">Requester / Client</th>
                 <th className="p-3.5">Warehouse Hub</th>
                 <th className="p-3.5">Status</th>
-                <th className="p-3.5">Decision By</th>
+                <th className="p-3.5">Reason</th>
                 <th className="p-3.5 text-right">Amount</th>
                 <th className="p-3.5 pr-4">Date & Time</th>
               </tr>
@@ -509,13 +495,11 @@ export function PurchaseRequestsReport({ orders, warehouses = [] }: PurchaseRequ
                     </td>
                     <td className="p-3.5 text-slate-600">{row.warehouseName}</td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
-                    <td className="p-3.5 text-slate-600">
-                      {row.approver ? (
-                        <span className="text-emerald-700 font-medium">✓ {row.approver}</span>
-                      ) : row.rejector ? (
-                        <span className="text-rose-700 font-medium">✗ {row.rejector}</span>
+                    <td className="p-3.5">
+                      {row.reason ? (
+                        <span className="text-slate-700">{row.reason}</span>
                       ) : (
-                        <span className="text-slate-400">Pending</span>
+                        <span className="text-slate-300">—</span>
                       )}
                     </td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>

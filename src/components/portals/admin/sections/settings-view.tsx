@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 import { validatePasswordPolicy } from '@/lib/password-policy'
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import {
@@ -269,6 +270,10 @@ export function SettingsView() {
   const handleProfileSave = async () => {
     if (!accountEmail) {
       toast.error('Unable to resolve account email')
+      return
+    }
+    if (!isValidPhilippinePhone(phone)) {
+      toast.error('Please enter a valid Philippine mobile number')
       return
     }
     if (isEmailChanged && !profileOtpVerified) {
@@ -533,11 +538,16 @@ export function SettingsView() {
                 <Input
                   id="phone"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(formatPhilippinePhoneInput(e.target.value))}
                   placeholder="09XX XXX XXXX"
+                  maxLength={12}
+                  inputMode="numeric"
                   className="h-10 text-sm"
                   disabled={!isEditingProfile}
                 />
+                {phone && !isValidPhilippinePhone(phone) ? (
+                  <p className="text-xs font-medium text-red-600">Please enter a valid Philippine mobile number</p>
+                ) : null}
               </div>
 
               {isEmailChanged ? (

@@ -162,6 +162,8 @@ class User(models.Model):
     role = models.CharField(max_length=50, choices=RoleType.choices, default=RoleType.CUSTOMER)
     license_number = models.CharField(max_length=120, blank=True, null=True, unique=True)
     license_type = models.CharField(max_length=30, blank=True, null=True)
+    # Added: stores the uploaded driver's license image used by both driver and admin editors.
+    license_photo_url = models.TextField(blank=True, null=True)
     license_expiry = models.DateTimeField(blank=True, null=True)
     emergency_contact = models.CharField(max_length=255, blank=True, null=True)
     rating = models.FloatField(default=5.0)

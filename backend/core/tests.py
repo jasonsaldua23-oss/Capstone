@@ -1373,11 +1373,12 @@ class DriverProfileApiContractTests(TestCase):
                 "name": "Updated Driver Name",
                 "firstName": "Updated",
                 "lastName": "Driver",
-                "phone": "+1-555-4444",
+                "phone": "09171234567",
                 "avatar": "/uploads/avatars/new.png",
                 "emergencyContact": "Updated Emergency Contact",
                 "licenseNumber": "LIC-PROFILE-UPDATED",
-                "licenseType": "B",
+                "licenseType": "C",
+                "licensePhotoUrl": "/uploads/licenses/license-new.png",
                 "licenseExpiry": "2030-01-15T10:00:00Z",
             },
             content_type="application/json",
@@ -1387,24 +1388,57 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["driver"]["user"]["name"], "Updated Driver Name")
+        self.assertEqual(payload["driver"]["user"]["name"], "Updated Driver")
         self.assertEqual(payload["driver"]["user"]["firstName"], "Updated")
         self.assertEqual(payload["driver"]["user"]["lastName"], "Driver")
-        self.assertEqual(payload["driver"]["user"]["phone"], "+1-555-4444")
+        self.assertEqual(payload["driver"]["user"]["phone"], "09171234567")
         self.assertEqual(payload["driver"]["licenseNumber"], "LIC-PROFILE-UPDATED")
-        self.assertEqual(payload["driver"]["licenseType"], "B")
+        self.assertEqual(payload["driver"]["licenseType"], "C")
+        self.assertEqual(payload["driver"]["licensePhotoUrl"], "/uploads/licenses/license-new.png")
 
         self.driver.refresh_from_db()
         self.driver_user.refresh_from_db()
         self.assertEqual(self.driver.emergency_contact, "Updated Emergency Contact")
         self.assertEqual(self.driver.license_number, "LIC-PROFILE-UPDATED")
-        self.assertEqual(self.driver.license_type, "B")
-        self.assertEqual(self.driver_user.name, "Updated Driver Name")
+        self.assertEqual(self.driver.license_type, "C")
+        self.assertEqual(self.driver.license_photo_url, "/uploads/licenses/license-new.png")
+        self.assertEqual(self.driver_user.name, "Updated Driver")
         self.assertEqual(self.driver_user.first_name, "Updated")
         self.assertEqual(self.driver_user.last_name, "Driver")
-        self.assertEqual(self.driver_user.phone, "+1-555-4444")
+        self.assertEqual(self.driver_user.phone, "09171234567")
         self.assertEqual(self.driver_user.avatar, "/uploads/avatars/new.png")
         self.assertEqual(self.driver.license_expiry.year, 2030)
+
+    def test_driver_profile_rejects_invalid_phone_and_past_license_expiry(self) -> None:
+        invalid_phone = self.client.put(
+            "/api/driver/profile",
+            data={"phone": "not-a-number"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(invalid_phone.status_code, 400)
+        self.assertEqual(invalid_phone.json()["error"], "Please enter a valid Philippine mobile number")
+
+        expired_license = self.client.put(
+            "/api/driver/profile",
+            data={"licenseExpiry": "2020-01-01"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(expired_license.status_code, 400)
+        self.assertEqual(expired_license.json()["error"], "License expiration date cannot be in the past.")
+
+        invalid_restriction = self.client.put(
+            "/api/driver/profile",
+            data={"licenseType": "3"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(invalid_restriction.status_code, 400)
+        self.assertEqual(
+            invalid_restriction.json()["error"],
+            "Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE",
+        )
 
     def test_driver_profile_forbidden_for_non_driver_staff(self) -> None:
         response = self.client.get(
@@ -1416,6 +1450,56 @@ class DriverProfileApiContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
+
+
+class StaffPhoneValidationContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.admin = User.objects.create(
+            email="phone.admin@example.com",
+            password="hashed",
+            name="Phone Admin",
+            role="ADMIN",
+            is_active=True,
+        )
+        self.staff = User.objects.create(
+            email="phone.staff@example.com",
+            password="hashed",
+            name="Phone Staff",
+            role="WAREHOUSE_STAFF",
+            is_active=True,
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin.id,
+                "email": self.admin.email,
+                "name": self.admin.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_staff_phone_update_persists_valid_philippine_mobile(self) -> None:
+        response = self.client.put(
+            f"/api/users/{self.staff.id}",
+            data={"phone": "639171234567"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.phone, "639171234567")
+        self.assertEqual(response.json()["user"]["phone"], "639171234567")
+
+    def test_staff_phone_update_rejects_non_numeric_or_invalid_mobile(self) -> None:
+        response = self.client.put(
+            f"/api/users/{self.staff.id}",
+            data={"phone": "09AB1234567"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Please enter a valid Philippine mobile number")
 
 
 class OrderStatusTransitionApiContractTests(TestCase):
@@ -2442,6 +2526,18 @@ class UploadEndpointsAuthContractTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertIn("/uploads/customers/customer-", payload["imageUrl"])
+
+    def test_upload_driver_license_accepts_driver_image(self) -> None:
+        image_file = SimpleUploadedFile("license.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
+        response = self.client.post(
+            "/api/uploads/driver-license-image",
+            data={"file": image_file},
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("/uploads/licenses/license-", payload["imageUrl"])
 
 
 class TripsCollectionTrackingContractTests(TestCase):

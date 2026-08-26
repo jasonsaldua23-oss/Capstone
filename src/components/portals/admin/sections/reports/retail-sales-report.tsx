@@ -37,6 +37,29 @@ import {
 import { formatPeso, formatDateTime, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
+function getItemSize(item: any): string {
+  if (Array.isArray(item?.sizes) && item.sizes.length > 0) {
+    return item.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(' ')
+  }
+  if (Array.isArray(item?.product?.sizes) && item.product.sizes.length > 0) {
+    return item.product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(' ')
+  }
+  const explicit = String(item?.sizeLabel || item?.productSize || item?.product?.sizeLabel || item?.product?.size || '').trim()
+  if (explicit) return explicit
+  const unit = String(item?.product?.unit || item?.productUnit || '').trim()
+  return /\d\s*(ml|l|liter|litre|oz|cl|g|kg)\b/i.test(unit) ? unit : ''
+}
+
+function formatProductNameWithSize(item: any): string {
+  const name = String(item?.productName || item?.product?.name || item?.name || 'Product').trim()
+  const size = getItemSize(item)
+  const cleanName = name.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  const cleanSize = size.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  return cleanSize && !cleanName.toLowerCase().includes(cleanSize.toLowerCase())
+    ? `${cleanName} ${cleanSize}`
+    : cleanName
+}
+
 interface RetailSalesReportProps {
   orders: any[]
   retailSales?: any[]
@@ -158,7 +181,17 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       list = list.filter(
         (item) =>
           item.txNumber.toLowerCase().includes(q) ||
-          item.customer.toLowerCase().includes(q)
+          item.customer.toLowerCase().includes(q) ||
+          (Array.isArray(item.items) &&
+            item.items.some((i: any) => {
+              const name = String(i.productName || i.name || '').toLowerCase()
+              const compMatch =
+                Array.isArray(i.components) &&
+                i.components.some((c: any) =>
+                  String(c.productName || c.name || '').toLowerCase().includes(q)
+                )
+              return name.includes(q) || compMatch
+            }))
       )
     }
 
@@ -240,7 +273,34 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   const exportColumns: ExportColumn[] = [
     { header: 'POS / Receipt ID', key: 'txNumber' },
     { header: 'Customer', key: 'customer' },
-    { header: 'Items Count', key: 'itemsCount' },
+    {
+      header: 'Products',
+      accessor: (r) =>
+        Array.isArray(r.items) && r.items.length > 0
+          ? r.items
+              .map((item: any) => {
+                const isMixedCase =
+                  String(item.itemType || item.item_type || item.mode || '').toUpperCase() === 'MIXED_CASE' ||
+                  (Array.isArray(item.components) && item.components.length > 0) ||
+                  /mixed\s*case/i.test(String(item.productName || item.name || ''))
+                const hasComponents = Array.isArray(item.components) && item.components.length > 0
+                const qty = Number(item.quantity || item.qty || 1)
+                if (isMixedCase && hasComponents) {
+                  const compList = item.components
+                    .map((c: any) => {
+                      const cName = formatProductNameWithSize(c)
+                      const cQty = Number(c.quantityPerCase || c.quantityBaseUnits || c.quantity || 0)
+                      return `${cName} ×${cQty}`
+                    })
+                    .join(', ')
+                  return `${formatProductNameWithSize(item)} ×${qty} [${compList}]`
+                }
+                const name = formatProductNameWithSize(item)
+                return `${name} ×${qty}`
+              })
+              .join('; ')
+          : `${r.itemsCount} item(s)`,
+    },
     { header: 'Status', key: 'status' },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
     { header: 'Date & Time', accessor: (r) => formatDateTime(r.date) },
@@ -278,7 +338,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   }
 
   return (
-    <div className="space-y-6">
+    <div className="report-design-system space-y-6">
       {/* Header with Mode Switcher & Export */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
@@ -329,27 +389,27 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
-            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
-            CSV
+            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
+            Export CSV
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPdf}
-            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
           >
-            <Download className="h-3.5 w-3.5 text-blue-600" />
-            PDF
+            <Download className="h-4 w-4 text-blue-600" />
+            Export PDF
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="h-8 gap-1.5 rounded-xl border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <Printer className="h-3.5 w-3.5 text-slate-600" />
+            <Printer className="h-4 w-4 text-slate-600" />
             Print
           </Button>
         </div>
@@ -497,7 +557,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
               <tr>
                 <th className="p-3.5 pl-4">Receipt / POS ID</th>
                 <th className="p-3.5">Customer / Walk-In</th>
-                <th className="p-3.5 text-center">Items Count</th>
+                <th className="p-3.5">Products</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5 text-right">Sale Amount</th>
                 <th className="p-3.5 pr-4">Date & Time</th>
@@ -509,7 +569,56 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3.5 pl-4 font-semibold text-emerald-700">{row.txNumber}</td>
                     <td className="p-3.5 font-medium text-slate-900">{row.customer}</td>
-                    <td className="p-3.5 text-center font-medium text-slate-700">{row.itemsCount}</td>
+                    <td className="p-3.5">
+                      {Array.isArray(row.items) && row.items.length > 0 ? (
+                        <div className="flex flex-col gap-1.5">
+                          {row.items.map((item: any, idx: number) => {
+                            const isMixedCase =
+                              String(item.itemType || item.item_type || item.mode || '').toUpperCase() === 'MIXED_CASE' ||
+                              (Array.isArray(item.components) && item.components.length > 0) ||
+                              /mixed\s*case/i.test(String(item.productName || item.name || ''))
+                            const hasComponents = Array.isArray(item.components) && item.components.length > 0
+                            const mainName = formatProductNameWithSize(item)
+                            const qty = Number(item.quantity || item.qty || 1)
+
+                            if (isMixedCase && hasComponents) {
+                              return (
+                                <div key={idx} className="space-y-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-slate-800 leading-snug">{mainName}</span>
+                                    <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">×{qty}</span>
+                                  </div>
+                                  <div className="pl-2 border-l-2 border-slate-200 space-y-0.5">
+                                    {item.components.map((comp: any, cIdx: number) => {
+                                      const compName = formatProductNameWithSize(comp)
+                                      const compQty = Number(comp.quantityPerCase || comp.quantityBaseUnits || comp.quantity || 0)
+                                      const totalUnits = Number(comp.totalBaseUnits || (compQty * qty))
+                                      const displayCount = compQty > 0 ? compQty : totalUnits
+                                      return (
+                                        <div key={cIdx} className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                                          <span className="text-slate-400">↳</span>
+                                          <span className="font-medium text-slate-700">{compName}</span>
+                                          <span className="shrink-0 rounded bg-slate-100 px-1 py-0.2 text-[9px] font-semibold text-slate-500">×{displayCount}</span>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            }
+
+                            return (
+                              <div key={idx} className="flex items-center gap-1.5">
+                                <span className="font-medium text-slate-800 leading-snug">{mainName}</span>
+                                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">×{qty}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">{row.itemsCount} item(s)</span>
+                      )}
+                    </td>
                     <td className="p-3.5">
                       <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
                     </td>

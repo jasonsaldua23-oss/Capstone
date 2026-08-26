@@ -159,6 +159,88 @@
     background-color: var(--color-red-500, #ef4444);
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
+
+  /* Added: shared visual language for the modular Reports & Analytics screens. */
+  .report-design-system {
+    --report-accent: #2563eb;
+  }
+  .report-design-system > :first-child {
+    padding: 1.25rem;
+    border: 1px solid #dbeafe;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, rgb(239 246 255 / 0.92), rgb(255 255 255 / 0.98) 62%, rgb(240 249 255 / 0.72));
+    box-shadow: 0 14px 34px rgb(30 64 175 / 0.07);
+  }
+  .report-design-system > :first-child h2 {
+    font-size: 1.375rem;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+    color: #0f172a;
+  }
+  .report-design-system [data-slot='card'] {
+    border-color: #e2e8f0 !important;
+    border-radius: 1rem !important;
+    background-color: #fff !important;
+    background-image: none !important;
+    box-shadow: 0 10px 30px rgb(15 23 42 / 0.055) !important;
+  }
+  .report-design-system > .grid > [data-slot='card'] {
+    position: relative;
+    overflow: hidden;
+  }
+  .report-design-system > .grid > [data-slot='card']::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--report-accent);
+    content: '';
+  }
+  .report-design-system [data-slot='card-description'].uppercase {
+    color: #64748b !important;
+    letter-spacing: 0.06em !important;
+  }
+  .report-design-system [data-slot='card-title'] {
+    color: #0f172a !important;
+    letter-spacing: -0.02em;
+  }
+  .report-design-system button[data-slot='button'] {
+    min-height: 2.5rem;
+    border-radius: 0.75rem !important;
+    border-color: #dbe3ef !important;
+    box-shadow: none !important;
+  }
+  .report-design-system button[data-slot='button']:hover {
+    border-color: #bfdbfe !important;
+    background: #eff6ff !important;
+    color: #1d4ed8 !important;
+  }
+  .report-design-system button[data-slot='button'] svg {
+    color: currentColor !important;
+  }
+  .report-design-system input,
+  .report-design-system select {
+    min-height: 2.5rem !important;
+    border-radius: 0.625rem !important;
+    border-color: #dbe3ef !important;
+    background-color: #fff;
+    box-shadow: none !important;
+  }
+  .report-design-system input:focus,
+  .report-design-system select:focus {
+    border-color: #60a5fa !important;
+    outline: 3px solid rgb(191 219 254 / 0.55) !important;
+    outline-offset: 0;
+  }
+  .report-design-system thead {
+    background: #f8fafc !important;
+    color: #475569 !important;
+  }
+  .report-design-system tbody tr {
+    transition: background-color 150ms ease;
+  }
+  .report-design-system tbody tr:hover {
+    background: #f8fbff !important;
+  }
 }
 
 /* 3D Map View perspective and tilt transition */

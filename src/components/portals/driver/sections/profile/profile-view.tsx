@@ -14,6 +14,7 @@ import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck,
 import { toast } from 'sonner'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
+import { DRIVER_LICENSE_RESTRICTIONS, isValidDriverLicenseRestriction } from '@/lib/driver-license-restrictions'
 
 async function fetchJsonWithRetry(
   input: RequestInfo | URL,
@@ -232,6 +233,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     phone: '',
     licenseNumber: '',
     licenseType: '',
+    licensePhotoUrl: '',
     licenseExpiry: '',
   })
   const [draft, setDraft] = useState({
@@ -243,6 +245,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     phone: '',
     licenseNumber: '',
     licenseType: '',
+    licensePhotoUrl: '',
     licenseExpiry: '',
   })
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
@@ -313,6 +316,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           phone: profile?.phone || profile?.user?.phone || '',
           licenseNumber: resolvedLicenseNumber,
           licenseType: resolvedLicenseType,
+          licensePhotoUrl: String(profile?.licensePhotoUrl ?? profile?.license_photo_url ?? nestedUser?.licensePhotoUrl ?? nestedUser?.license_photo_url ?? ''),
           licenseExpiry: formatDateInputValue(resolvedLicenseExpiry),
         })
       } catch (error) {
@@ -361,6 +365,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
+      licensePhotoUrl: form.licensePhotoUrl,
       licenseExpiry: form.licenseExpiry,
     })
     setSubView('edit')
@@ -376,6 +381,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
+      licensePhotoUrl: form.licensePhotoUrl,
       licenseExpiry: form.licenseExpiry,
     })
     setSubView('license')
@@ -411,24 +417,37 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       toast.error('Name is required')
       return
     }
-    if (draft.phone && !isValidPhilippinePhone(draft.phone)) {
+    if (mode === 'profile' && !isValidPhilippinePhone(draft.phone)) {
       toast.error('Please enter a valid Philippine mobile number')
+      return
+    }
+    if (mode === 'license' && !isValidDriverLicenseRestriction(draft.licenseType)) {
+      toast.error('Please select a valid driver license restriction')
+      return
+    }
+    if (mode === 'license' && draft.licenseExpiry && draft.licenseExpiry < new Date().toISOString().slice(0, 10)) {
+      toast.error('License expiration date cannot be in the past.')
       return
     }
 
     setIsSaving(true)
     try {
-      const payloadBody: Record<string, string> = {
-        firstName: draft.firstName,
-        middleName: draft.middleName,
-        lastName: draft.lastName,
-        suffix: draft.suffix,
-        phone: draft.phone,
-        licenseNumber: draft.licenseNumber,
-        licenseType: draft.licenseType,
-        licenseExpiry: draft.licenseExpiry ? `${draft.licenseExpiry}T00:00:00Z` : '',
-      }
-      if (avatarFile) {
+      // Fix: submit only the fields owned by the active section so legacy license data cannot block profile saves.
+      const payloadBody: Record<string, string> = mode === 'license'
+        ? {
+            licenseNumber: draft.licenseNumber,
+            licenseType: draft.licenseType,
+            licensePhotoUrl: draft.licensePhotoUrl,
+            licenseExpiry: draft.licenseExpiry ? `${draft.licenseExpiry}T00:00:00Z` : '',
+          }
+        : {
+            firstName: draft.firstName,
+            middleName: draft.middleName,
+            lastName: draft.lastName,
+            suffix: draft.suffix,
+            phone: draft.phone,
+          }
+      if (mode === 'profile' && avatarFile) {
         const formData = new FormData()
         formData.append('file', avatarFile)
         const uploadResponse = await fetch('/api/uploads/customer-avatar', { method: 'POST', body: formData })
@@ -459,6 +478,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
+        licensePhotoUrl: draft.licensePhotoUrl,
         licenseExpiry: draft.licenseExpiry,
       }))
 
@@ -470,6 +490,21 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const uploadLicensePhoto = async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch('/api/uploads/driver-license-image', {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload?.success === false || !payload?.imageUrl) {
+      throw new Error(payload?.error || 'Failed to upload driver license')
+    }
+    return String(payload.imageUrl).trim()
   }
 
   const openChangePassword = () => {
@@ -914,14 +949,18 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="driver-license-type" className="text-sm font-semibold text-slate-700">License Type</Label>
-            <Input
+            <Label htmlFor="driver-license-type" className="text-sm font-semibold text-slate-700">Restrictions</Label>
+            <select
               id="driver-license-type"
               value={draft.licenseType}
               onChange={(e) => onChange('licenseType', e.target.value)}
-              maxLength={30}
-              className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
-            />
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+            >
+              <option value="">Select restriction</option>
+              {DRIVER_LICENSE_RESTRICTIONS.map((restriction) => (
+                <option key={restriction.code} value={restriction.code}>{restriction.label}</option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-2">
@@ -929,15 +968,41 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             <Input
               id="driver-license-expiry"
               type="date"
+              min={new Date().toISOString().slice(0, 10)}
               value={draft.licenseExpiry}
               onChange={(e) => onChange('licenseExpiry', e.target.value)}
               className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
             />
           </div>
 
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5 text-center">
-            <p className="text-sm font-semibold text-slate-700">No license document uploaded</p>
-            <p className="mt-1 text-xs text-slate-400">Preview and upload support is not available in this build.</p>
+          <div className="space-y-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5">
+            <Label htmlFor="driver-license-photo" className="text-sm font-semibold text-slate-700">Driver's License Upload</Label>
+            <Input
+              id="driver-license-photo"
+              type="file"
+              accept="image/*"
+              onChange={async (event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                setIsSaving(true)
+                try {
+                  const imageUrl = await uploadLicensePhoto(file)
+                  // Added: retain the uploaded license URL until Save License persists the profile.
+                  onChange('licensePhotoUrl', imageUrl)
+                  toast.success('Driver license uploaded')
+                } catch (error: any) {
+                  toast.error(error?.message || 'Failed to upload driver license')
+                } finally {
+                  setIsSaving(false)
+                  event.currentTarget.value = ''
+                }
+              }}
+            />
+            {draft.licensePhotoUrl ? (
+              <a href={draft.licensePhotoUrl} target="_blank" rel="noreferrer" className="text-sm font-medium text-blue-700 hover:underline">View uploaded license</a>
+            ) : (
+              <p className="text-xs text-slate-400">Upload a clear image of the driver's license.</p>
+            )}
           </div>
         </div>
 

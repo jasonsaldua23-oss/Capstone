@@ -226,7 +226,7 @@ export function UsersView() {
       }
       case 'phone': {
         if (!value) return 'This field is required.'
-        if (!isValidPhilippinePhone(value)) return 'Please enter a valid phone number.'
+        if (!isValidPhilippinePhone(value)) return 'Please enter a valid Philippine mobile number.'
         return ''
       }
       case 'roleId':
@@ -253,6 +253,13 @@ export function UsersView() {
   const saveUser = async (mode: 'create' | 'edit') => {
     if (mode === 'create' && !canSave) {
       toast.error('Please complete all required fields.')
+      return
+    }
+    if (!isValidPhilippinePhone(form.phone)) {
+      // Fix: edit mode previously bypassed the field validator and submitted invalid staff phones.
+      setTouched((current) => ({ ...current, phone: true }))
+      setFormErrors((current) => ({ ...current, phone: 'Please enter a valid Philippine mobile number.' }))
+      toast.error('Please enter a valid Philippine mobile number')
       return
     }
 
@@ -879,11 +886,15 @@ export function UsersView() {
               <Input
                 autoComplete="off"
                 placeholder="09XX XXX XXXX"
-                maxLength={13}
+                maxLength={12}
+                inputMode="numeric"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
                 className="h-10"
               />
+              {form.phone && !isValidPhilippinePhone(form.phone) ? (
+                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number</p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Role</label>

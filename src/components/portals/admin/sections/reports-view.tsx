@@ -35,6 +35,7 @@ import {
   ReplacementRecordsReport,
   RetailSalesReport,
   TopClientsReport,
+  WarehouseInventoryReport,
 } from './reports'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, Cell, BarChart, Bar, ResponsiveContainer, Legend, LabelList, PieChart, Pie } from 'recharts'
 import {
@@ -2005,10 +2006,11 @@ export function ReportsView() {
             color: rgb(1, 1, 1),
           })
           if (idx === 4 && Number.isFinite(ratingNum)) {
-            const stars = '★★★★★'
-            const filled = '★'.repeat(ratingNum) + '☆'.repeat(5 - ratingNum)
-            page.drawText(stars, { x: cx + 8, y: y - 14, size: 10, font, color: rgb(0.82, 0.84, 0.87) })
-            page.drawText(filled, { x: cx + 8, y: y - 14, size: 10, font: boldFont, color: typeRaw.includes('COMPLIMENT') ? green : red })
+            // Fix: standard PDF fonts cannot encode Unicode stars, so use WinAnsi-safe rating marks.
+            const ratingSlots = '*****'
+            const filledRating = '*'.repeat(ratingNum)
+            page.drawText(ratingSlots, { x: cx + 8, y: y - 14, size: 10, font, color: rgb(0.82, 0.84, 0.87) })
+            page.drawText(filledRating, { x: cx + 8, y: y - 14, size: 10, font: boldFont, color: typeRaw.includes('COMPLIMENT') ? green : red })
             page.drawText(String(ratingNum), { x: cx + widths[idx] - 14, y: y - 14, size: 8.8, font: boldFont, color: text })
           } else {
             const val = String(v || '')
@@ -2584,10 +2586,16 @@ export function ReportsView() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-[34px] leading-tight font-bold text-slate-800">Reports & Analytics</h1>
-          <p className="text-sm text-slate-500">Order, transport, warehouse, replacement, and feedback reports</p>
+      <div className="relative overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50/70 px-5 py-6 shadow-[0_18px_45px_rgba(30,64,175,0.08)] sm:px-7">
+        <div className="relative flex items-center gap-4">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.24)]">
+            <BarChart3 className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">Business intelligence</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-[30px]">Reports & Analytics</h1>
+            <p className="mt-1 text-sm text-slate-600">Operational records, performance trends, and decision-ready summaries in one workspace.</p>
+          </div>
         </div>
       </div>
 
@@ -2929,318 +2937,337 @@ export function ReportsView() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="warehouse" className="space-y-4">
-            {reportToolbar({
-              title: 'Warehouse',
-              statusLabel: 'Movement Types',
-              statusOptions: inventoryMovementTypeOptions,
-              statusValue: selectedMovementType,
-              onStatusChange: setSelectedMovementType,
-              showWarehouse: true,
-            })}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-emerald-600">+12.5% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-emerald-600">+28.3% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-emerald-600">+15.4% vs prev {rangeDays} days</p></CardHeader></Card>
-            </div>
+          <TabsContent value="warehouse" className="report-design-system space-y-8">
+            {/* Fastest-Moving Products Ranking & Velocity Report */}
+            <WarehouseInventoryReport
+              inventory={inventory}
+              inventoryTransactions={inventoryTransactions}
+              orders={orders}
+              retailSales={retailSales}
+              warehouses={warehouses}
+              stockBatches={stockBatches}
+            />
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* General Warehouse & Inventory Health Overview */}
+            <div className="pt-6 border-t border-slate-200 space-y-6">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Warehouse Capacity & Stock Movement Overview</h3>
+                <p className="text-xs text-slate-500">Storage utilization, inventory movement trends, stock alerts, and batch expiry records</p>
+              </div>
+
+              {reportToolbar({
+                title: 'Warehouse',
+                statusLabel: 'Movement Types',
+                statusOptions: inventoryMovementTypeOptions,
+                statusValue: selectedMovementType,
+                onStatusChange: setSelectedMovementType,
+                showWarehouse: true,
+              })}
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">Products currently tracked</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">At or below reorder threshold</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-slate-400">Units currently available</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-slate-400">Units received in selected period</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-slate-400">Units issued in selected period</p></CardHeader></Card>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Card className={chartCardClassName}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg">Warehouse Capacity vs Used</CardTitle>
+                    <CardDescription>Utilization percentage per warehouse</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72 w-full">
+                      {warehouseCapacityVsUsedChart.length === 0 ? (
+                        <p className="py-8 text-center text-gray-500">No warehouse capacity data available</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={warehouseCapacityVsUsedChart} margin={{ top: 15, right: 20, left: 0, bottom: 40 }}>
+                            <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                            <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                            <Tooltip
+                              contentStyle={chartTooltipStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                              formatter={(value: any, name: any) => [
+                                `${Number(value).toLocaleString()}%`,
+                                String(name || ''),
+                              ]}
+                            />
+                            <Legend wrapperStyle={{ paddingTop: '14px', color: '#475569' }} />
+                            <Bar dataKey="capacityPercent" name="Capacity" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="usedPercent" name="Used" fill="#10b981" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className={chartCardClassName}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-lg">Inventory Movement by Product</CardTitle>
+                        <CardDescription>Top products by movement volume</CardDescription>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                        Top 5 Products
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72 w-full">
+                      {inventoryMovementByProductChart.length === 0 ? (
+                        <p className="py-8 text-center text-gray-500">No product movement data for this range</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={inventoryMovementByProductChart.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }} barGap={8}>
+                            <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                            <YAxis
+                              allowDecimals={false}
+                              tick={{ fontSize: 11, fill: '#6b7280' }}
+                              axisLine={false}
+                              tickLine={false}
+                              tickCount={5}
+                            />
+                            <Legend
+                              verticalAlign="top"
+                              align="center"
+                              wrapperStyle={{ paddingBottom: '8px', color: '#64748b', fontSize: '12px' }}
+                              iconType="rect"
+                            />
+                            <Tooltip
+                              contentStyle={chartTooltipStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                              formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
+                            />
+                            <Bar dataKey="inQty" name="Stock In" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={22}>
+                              <LabelList dataKey="inQty" position="top" fill="#0f172a" fontSize={11} />
+                            </Bar>
+                            <Bar dataKey="outQty" name="Stock Out" fill="#fbbf24" radius={[4, 4, 0, 0]} maxBarSize={22}>
+                              <LabelList dataKey="outQty" position="top" fill="#0f172a" fontSize={11} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Warehouse Capacity vs Used</CardTitle>
-                  <CardDescription>Utilization percentage per warehouse</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-72 w-full">
-                    {warehouseCapacityVsUsedChart.length === 0 ? (
-                      <p className="py-8 text-center text-gray-500">No warehouse capacity data available</p>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={warehouseCapacityVsUsedChart} margin={{ top: 15, right: 20, left: 0, bottom: 40 }}>
-                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                          <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                          <Tooltip
-                            contentStyle={chartTooltipStyle}
-                            labelStyle={chartTooltipLabelStyle}
-                            itemStyle={chartTooltipItemStyle}
-                            formatter={(value: any, name: any) => [
-                              `${Number(value).toLocaleString()}%`,
-                              String(name || ''),
-                            ]}
-                          />
-                          <Legend wrapperStyle={{ paddingTop: '14px', color: '#475569' }} />
-                          <Bar dataKey="capacityPercent" name="Capacity" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="usedPercent" name="Used" fill="#10b981" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className={chartCardClassName}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
-                      <CardTitle className="text-lg">Inventory Movement by Product</CardTitle>
-                      <CardDescription>Top products by movement volume</CardDescription>
+                      <CardTitle className="text-3xl font-bold tracking-tight text-slate-800">Stock In vs Stock Out Trend</CardTitle>
+                      <CardDescription>Track stock movement over time</CardDescription>
                     </div>
-                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
-                      Top 5 Products
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+                      {inventoryMovementChart[0]?.label || 'N/A'} - {inventoryMovementChart[inventoryMovementChart.length - 1]?.label || 'N/A'}
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-72 w-full">
-                    {inventoryMovementByProductChart.length === 0 ? (
-                      <p className="py-8 text-center text-gray-500">No product movement data for this range</p>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={inventoryMovementByProductChart.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }} barGap={8}>
-                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                          <YAxis
-                            allowDecimals={false}
-                            tick={{ fontSize: 11, fill: '#6b7280' }}
-                            axisLine={false}
-                            tickLine={false}
-                            tickCount={5}
-                          />
-                          <Legend
-                            verticalAlign="top"
-                            align="center"
-                            wrapperStyle={{ paddingBottom: '8px', color: '#64748b', fontSize: '12px' }}
-                            iconType="rect"
-                          />
-                          <Tooltip
-                            contentStyle={chartTooltipStyle}
-                            labelStyle={chartTooltipLabelStyle}
-                            itemStyle={chartTooltipItemStyle}
-                            formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
-                          />
-                          <Bar dataKey="inQty" name="Stock In" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={22}>
-                            <LabelList dataKey="inQty" position="top" fill="#0f172a" fontSize={11} />
-                          </Bar>
-                          <Bar dataKey="outQty" name="Stock Out" fill="#fbbf24" radius={[4, 4, 0, 0]} maxBarSize={22}>
-                            <LabelList dataKey="outQty" position="top" fill="#0f172a" fontSize={11} />
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
+                  {inventoryMovementChart.length === 0 ? (
+                    <p className="py-8 text-center text-gray-500">No movement trend data for this range</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2">
+                        <div className="rounded-2xl border border-blue-100 bg-slate-50 p-5">
+                          <p className="text-sm font-medium text-slate-600">Total Stock In</p>
+                          <p className="text-4xl font-bold text-blue-600 mt-1">{stockTrendSummary.totalIn.toLocaleString()}</p>
+                          <p className="text-sm text-slate-500">units</p>
+                          <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+                            {stockTrendSummary.inChangePercent >= 0 ? '+' : ''}{stockTrendSummary.inChangePercent.toFixed(1)}% vs previous period
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5">
+                          <p className="text-sm font-medium text-slate-600">Total Stock Out</p>
+                          <p className="text-4xl font-bold text-amber-600 mt-1">{stockTrendSummary.totalOut.toLocaleString()}</p>
+                          <p className="text-sm text-slate-500">units</p>
+                          <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+                            {stockTrendSummary.outChangePercent >= 0 ? '+' : ''}{stockTrendSummary.outChangePercent.toFixed(1)}% vs previous period
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="h-[360px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={inventoryMovementChart} margin={{ top: 24, right: 22, left: 8, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
+                            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
+                            <Tooltip
+                              contentStyle={chartTooltipStyle}
+                              labelStyle={chartTooltipLabelStyle}
+                              itemStyle={chartTooltipItemStyle}
+                              formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
+                            />
+                            <Legend wrapperStyle={{ paddingTop: '8px', color: '#475569' }} iconType="circle" verticalAlign="top" height={24} />
+                            <Line type="monotone" dataKey="inQty" name="Stock In" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4, fill: '#2563eb' }} animationDuration={1000} isAnimationActive>
+                              <LabelList dataKey="inQty" position="top" style={{ fill: '#2563eb', fontSize: 11, fontWeight: 700 }} />
+                            </Line>
+                            <Line type="monotone" dataKey="outQty" name="Stock Out" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4, fill: '#f59e0b' }} animationDuration={1000} isAnimationActive>
+                              <LabelList dataKey="outQty" position="bottom" style={{ fill: '#d97706', fontSize: 11, fontWeight: 700 }} />
+                            </Line>
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Warehouse & Inventory Movement Report</CardTitle>
+                    <CardDescription>Stock transactions and movement history</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b bg-gray-50">
+                        <tr>
+                          <th className="p-3 text-left">Date</th>
+                          <th className="p-3 text-left">Warehouse</th>
+                          <th className="p-3 text-left">Product</th>
+                          <th className="p-3 text-left">Type</th>
+                          <th className="p-3 text-left">Quantity</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows(inventoryMovementRows).map((row, index) => (
+                          <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
+                            <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                            <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                            <td className="p-3">{String(row.product || 'N/A')}</td>
+                            <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
+                            <td className="p-3">{String(row.quantity || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {inventoryMovementRows.length === 0 ? <p className="py-8 text-center text-gray-500">No inventory movement found for this range</p> : null}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
+              </div>
+
+              <Card className="rounded-2xl border border-slate-200 shadow-sm">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Low Stock Alert Report</CardTitle>
+                    <CardDescription>Products requiring replenishment attention</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b bg-gray-50">
+                        <tr>
+                          <th className="p-3 text-left">Warehouse</th>
+                          <th className="p-3 text-left">Product</th>
+                          <th className="p-3 text-left">SKU</th>
+                          <th className="p-3 text-left">Current Stock</th>
+                          <th className="p-3 text-left">Min Stock</th>
+                          <th className="p-3 text-left">Reorder Point</th>
+                          <th className="p-3 text-left">Stock %</th>
+                          <th className="p-3 text-left">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows(lowStockRows).map((row, index) => (
+                          <tr key={`${row.sku}-${index}`} className="border-b last:border-0">
+                            <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                            <td className="p-3 font-medium">{String(row.product || 'N/A')}</td>
+                            <td className="p-3">{String(row.sku || 'N/A')}</td>
+                            <td className="p-3">{String(row.currentStock || 0)}</td>
+                            <td className="p-3">{String(row.minStock || 0)}</td>
+                            <td className="p-3">{String(row.reorderPoint || 0)}</td>
+                            <td className="p-3">{String(row.stockPercent || 0)}%</td>
+                            <td className="p-3">
+                              <Badge variant={
+                                row.status === 'OUT_OF_STOCK' ? 'destructive' :
+                                row.status === 'CRITICAL' ? 'destructive' : 'secondary'
+                              }>{String(row.status || 'N/A')}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {lowStockRows.length === 0 ? <p className="py-8 text-center text-gray-500">All stock levels are healthy</p> : null}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Tracked Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Inventory batches with expiry dates</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
+                <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Warning (30-60 days)</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{stockExpiryKpi.warning}</CardTitle><p className="text-[11px] text-amber-600">Plan usage first</p></CardHeader></Card>
+              </div>
+
+              <Card className="rounded-2xl border border-slate-200 shadow-sm">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Stock Batch Expiry Report</CardTitle>
+                    <CardDescription>Batches nearing expiration sorted by urgency</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b bg-gray-50">
+                        <tr>
+                          <th className="p-3 text-left">Batch #</th>
+                          <th className="p-3 text-left">Product</th>
+                          <th className="p-3 text-left">SKU</th>
+                          <th className="p-3 text-left">Warehouse</th>
+                          <th className="p-3 text-left">Quantity</th>
+                          <th className="p-3 text-left">Manufacture Date</th>
+                          <th className="p-3 text-left">Expiry Date</th>
+                          <th className="p-3 text-left">Days Left</th>
+                          <th className="p-3 text-left">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows(stockExpiryRows).map((row, index) => (
+                          <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
+                            <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
+                            <td className="p-3">{String(row.product || 'N/A')}</td>
+                            <td className="p-3">{String(row.sku || 'N/A')}</td>
+                            <td className="p-3">{String(row.warehouse || 'N/A')}</td>
+                            <td className="p-3">{String(row.quantity || 0)}</td>
+                            <td className="p-3">{String(row.manufacturedDate || 'N/A')}</td>
+                            <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
+                            <td className="p-3">{typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A'}</td>
+                            <td className="p-3">
+                              <Badge variant={
+                                row.status === 'EXPIRED' ? 'destructive' :
+                                row.status === 'CRITICAL' ? 'destructive' :
+                                row.status === 'WARNING' ? 'secondary' : 'default'
+                              }>{String(row.status || 'N/A')}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {stockExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
                   </div>
                 </CardContent>
               </Card>
             </div>
-            <Card className={chartCardClassName}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-3xl font-bold tracking-tight text-slate-800">Stock In vs Stock Out Trend</CardTitle>
-                    <CardDescription>Track stock movement over time</CardDescription>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
-                    {inventoryMovementChart[0]?.label || 'N/A'} - {inventoryMovementChart[inventoryMovementChart.length - 1]?.label || 'N/A'}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {inventoryMovementChart.length === 0 ? (
-                  <p className="py-8 text-center text-gray-500">No movement trend data for this range</p>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2">
-                      <div className="rounded-2xl border border-blue-100 bg-slate-50 p-5">
-                        <p className="text-sm font-medium text-slate-600">Total Stock In</p>
-                        <p className="text-4xl font-bold text-blue-600 mt-1">{stockTrendSummary.totalIn.toLocaleString()}</p>
-                        <p className="text-sm text-slate-500">units</p>
-                        <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
-                          {stockTrendSummary.inChangePercent >= 0 ? '+' : ''}{stockTrendSummary.inChangePercent.toFixed(1)}% vs previous period
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5">
-                        <p className="text-sm font-medium text-slate-600">Total Stock Out</p>
-                        <p className="text-4xl font-bold text-amber-600 mt-1">{stockTrendSummary.totalOut.toLocaleString()}</p>
-                        <p className="text-sm text-slate-500">units</p>
-                        <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
-                          {stockTrendSummary.outChangePercent >= 0 ? '+' : ''}{stockTrendSummary.outChangePercent.toFixed(1)}% vs previous period
-                        </p>
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <div className="h-[360px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={inventoryMovementChart} margin={{ top: 24, right: 22, left: 8, bottom: 20 }}>
-                          <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
-                          <Tooltip
-                            contentStyle={chartTooltipStyle}
-                            labelStyle={chartTooltipLabelStyle}
-                            itemStyle={chartTooltipItemStyle}
-                            formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} units`, name]}
-                          />
-                          <Legend wrapperStyle={{ paddingTop: '8px', color: '#475569' }} iconType="circle" verticalAlign="top" height={24} />
-                          <Line type="monotone" dataKey="inQty" name="Stock In" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4, fill: '#2563eb' }} animationDuration={1000} isAnimationActive>
-                            <LabelList dataKey="inQty" position="top" style={{ fill: '#2563eb', fontSize: 11, fontWeight: 700 }} />
-                          </Line>
-                          <Line type="monotone" dataKey="outQty" name="Stock Out" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4, fill: '#f59e0b' }} animationDuration={1000} isAnimationActive>
-                            <LabelList dataKey="outQty" position="bottom" style={{ fill: '#d97706', fontSize: 11, fontWeight: 700 }} />
-                          </Line>
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="rounded-2xl border border-slate-200 shadow-sm">
-              <CardHeader>
-                <div>
-                  <CardTitle>Warehouse & Inventory Movement Report</CardTitle>
-                  <CardDescription>Stock transactions and movement history</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-left">Date</th>
-                        <th className="p-3 text-left">Warehouse</th>
-                        <th className="p-3 text-left">Product</th>
-                        <th className="p-3 text-left">Type</th>
-                        <th className="p-3 text-left">Quantity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows(inventoryMovementRows).map((row, index) => (
-                        <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
-                          <td className="p-3">{formatDateTime(row.createdAt)}</td>
-                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
-                          <td className="p-3">{String(row.product || 'N/A')}</td>
-                          <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
-                          <td className="p-3">{String(row.quantity || 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {inventoryMovementRows.length === 0 ? <p className="py-8 text-center text-gray-500">No inventory movement found for this range</p> : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
-            </div>
-
-            <Card className="rounded-2xl border border-slate-200 shadow-sm">
-              <CardHeader>
-                <div>
-                  <CardTitle>Low Stock Alert Report</CardTitle>
-                  <CardDescription>Products requiring replenishment attention</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-left">Warehouse</th>
-                        <th className="p-3 text-left">Product</th>
-                        <th className="p-3 text-left">SKU</th>
-                        <th className="p-3 text-left">Current Stock</th>
-                        <th className="p-3 text-left">Min Stock</th>
-                        <th className="p-3 text-left">Reorder Point</th>
-                        <th className="p-3 text-left">Stock %</th>
-                        <th className="p-3 text-left">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows(lowStockRows).map((row, index) => (
-                        <tr key={`${row.sku}-${index}`} className="border-b last:border-0">
-                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
-                          <td className="p-3 font-medium">{String(row.product || 'N/A')}</td>
-                          <td className="p-3">{String(row.sku || 'N/A')}</td>
-                          <td className="p-3">{String(row.currentStock || 0)}</td>
-                          <td className="p-3">{String(row.minStock || 0)}</td>
-                          <td className="p-3">{String(row.reorderPoint || 0)}</td>
-                          <td className="p-3">{String(row.stockPercent || 0)}%</td>
-                          <td className="p-3">
-                            <Badge variant={
-                              row.status === 'OUT_OF_STOCK' ? 'destructive' :
-                              row.status === 'CRITICAL' ? 'destructive' : 'secondary'
-                            }>{String(row.status || 'N/A')}</Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {lowStockRows.length === 0 ? <p className="py-8 text-center text-gray-500">All stock levels are healthy</p> : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Tracked Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Inventory batches with expiry dates</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Warning (30-60 days)</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{stockExpiryKpi.warning}</CardTitle><p className="text-[11px] text-amber-600">Plan usage first</p></CardHeader></Card>
-            </div>
-
-            <Card className="rounded-2xl border border-slate-200 shadow-sm">
-              <CardHeader>
-                <div>
-                  <CardTitle>Stock Batch Expiry Report</CardTitle>
-                  <CardDescription>Batches nearing expiration sorted by urgency</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-gray-50">
-                      <tr>
-                        <th className="p-3 text-left">Batch #</th>
-                        <th className="p-3 text-left">Product</th>
-                        <th className="p-3 text-left">SKU</th>
-                        <th className="p-3 text-left">Warehouse</th>
-                        <th className="p-3 text-left">Quantity</th>
-                        <th className="p-3 text-left">Manufacture Date</th>
-                        <th className="p-3 text-left">Expiry Date</th>
-                        <th className="p-3 text-left">Days Left</th>
-                        <th className="p-3 text-left">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows(stockExpiryRows).map((row, index) => (
-                        <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
-                          <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
-                          <td className="p-3">{String(row.product || 'N/A')}</td>
-                          <td className="p-3">{String(row.sku || 'N/A')}</td>
-                          <td className="p-3">{String(row.warehouse || 'N/A')}</td>
-                          <td className="p-3">{String(row.quantity || 0)}</td>
-                          <td className="p-3">{String(row.manufacturedDate || 'N/A')}</td>
-                          <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
-                          <td className="p-3">{typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A'}</td>
-                          <td className="p-3">
-                            <Badge variant={
-                              row.status === 'EXPIRED' ? 'destructive' :
-                              row.status === 'CRITICAL' ? 'destructive' :
-                              row.status === 'WARNING' ? 'secondary' : 'default'
-                            }>{String(row.status || 'N/A')}</Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {stockExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="inventory" className="space-y-4">
@@ -3253,11 +3280,11 @@ export function ReportsView() {
               showWarehouse: true,
             })}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-emerald-600">+12.5% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-emerald-600">+28.3% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-emerald-600">+15.4% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">Products currently tracked</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">At or below reorder threshold</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-slate-400">Units currently available</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-slate-400">Units received in selected period</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-slate-400">Units issued in selected period</p></CardHeader></Card>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -3415,9 +3442,9 @@ export function ReportsView() {
               showStatus: false,
             })}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Processed</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.completed}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.open}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Cases in selected period</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Processed</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.completed}</CardTitle><p className="text-[11px] text-slate-400">Completed replacement cases</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.open}</CardTitle><p className="text-[11px] text-slate-400">Cases awaiting resolution</p></CardHeader></Card>
             </div>
             <Card className={chartCardClassName}>
               <CardHeader className="pb-3">
@@ -3493,7 +3520,7 @@ export function ReportsView() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="feedback" className="space-y-4">
+          <TabsContent value="feedback" className="report-design-system space-y-4">
             {reportToolbar({
               title: 'Feedback',
               statusLabel: 'Feedback Statuses',
@@ -3503,9 +3530,9 @@ export function ReportsView() {
               showStatus: false,
             })}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Feedback</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.total}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Rating</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.avgRating.toFixed(2)}</CardTitle><p className="text-[11px] text-emerald-600">+0% vs prev {rangeDays} days</p></CardHeader></Card>
-              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Items</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.open}</CardTitle><p className="text-[11px] text-slate-400">-- 0% vs prev {rangeDays} days</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Feedback</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Responses in selected period</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Rating</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.avgRating.toFixed(2)}</CardTitle><p className="text-[11px] text-slate-400">Across rated submissions</p></CardHeader></Card>
+              <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Items</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.open}</CardTitle><p className="text-[11px] text-slate-400">Items awaiting follow-up</p></CardHeader></Card>
             </div>
             <Card className={chartCardClassName}>
               <CardHeader className="pb-3">
