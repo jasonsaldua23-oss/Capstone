@@ -763,7 +763,22 @@ export function CustomerOrdersView(props: any) {
         <div className="space-y-2.5 px-2.5 pt-2.5 md:px-4">
           {pagedOrders.map((o: any) => {
             const normalizedStatus = String(normalizeDeliveryStatus(o.status, o.paymentStatus))
-              const dateTime = formatOrderDateTime(o, normalizedStatus)
+            const rawStatus = String(o.status || '').toUpperCase()
+            const rawRequestStatus = String(o.requestStatus || o.request_status || o.approvalStatus || '').toUpperCase()
+            const isCancelled = ['CANCELLED', 'CANCELED'].includes(rawStatus) || ['CANCELLED', 'CANCELED'].includes(rawRequestStatus)
+            const isRejected = rawStatus === 'REJECTED' || rawRequestStatus === 'REJECTED'
+            const isFailed = isCancelled || isRejected
+            const cancellationReasonText = String(
+              o.cancellationReason ||
+              o.cancellation_reason ||
+              o.rejectionReason ||
+              o.rejection_reason ||
+              o.cancelReason ||
+              o.cancel_reason ||
+              (isFailed && typeof o.notes === 'string' && o.notes.trim() ? o.notes : '') ||
+              ''
+            ).trim()
+            const dateTime = formatOrderDateTime(o, normalizedStatus)
             const isRescheduled = isRescheduledOrder(o.status)
             const orderItems = Array.isArray(o.items) ? o.items : []
             const replacementRequestDisplay = getReplacementRequestDisplay(o)
@@ -781,27 +796,31 @@ export function CustomerOrdersView(props: any) {
               <div key={o.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm md:px-3.5 md:py-3.5">
                 <div className="grid gap-2.5 md:grid-cols-[1.35fr_1.05fr_0.72fr_0.8fr]">
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-block h-2.5 w-2.5 rounded-full ${isFailed ? 'bg-rose-500' : 'bg-emerald-500'}`} />
                       <button
                         type="button"
                         onClick={() => handleOpenOrderDetail(o)}
-                        className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900 hover:text-emerald-700 transition-colors text-left"
+                        className={`text-[18px] font-semibold tracking-[-0.01em] transition-colors text-left ${isFailed ? 'text-slate-900 hover:text-rose-600' : 'text-slate-900 hover:text-emerald-700'}`}
                       >
                         {o.orderNumber}
                       </button>
-                      {isReplacementOrder(o) ? (
+                      {isCancelled ? (
+                        <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100 border border-rose-200 font-semibold">Cancelled</Badge>
+                      ) : isRejected ? (
+                        <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100 border border-rose-200 font-semibold">Rejected</Badge>
+                      ) : isReplacementOrder(o) ? (
                         <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Replacement</Badge>
                       ) : null}
                       {isRescheduled ? (
                         <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Rescheduled Order</Badge>
                       ) : null}
                     </div>
-                    <p className="flex items-center gap-1.5 text-xs text-emerald-700">
+                    <p className={`flex items-center gap-1.5 text-xs ${isFailed ? 'text-rose-600 font-medium' : isDelivered ? 'text-emerald-700' : 'text-slate-600'}`}>
                       <CalendarDays className="h-4 w-4" />
-                      {normalizedStatus === 'DELIVERED' ? 'Delivered on ' : ''}
+                      {isCancelled ? 'Cancelled on ' : isRejected ? 'Rejected on ' : normalizedStatus === 'DELIVERED' ? 'Delivered on ' : ''}
                       {dateTime.date}
-                        {dateTime.time ? ` · ${dateTime.time}` : ''}
+                      {dateTime.time ? ` · ${dateTime.time}` : ''}
                     </p>
                     <div className="flex items-start gap-1.5 text-xs text-slate-700">
                       <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
@@ -818,6 +837,16 @@ export function CustomerOrdersView(props: any) {
                         <p className="line-clamp-2 text-slate-600">{o.shippingAddress || 'No address provided'}</p>
                       </div>
                     </div>
+                    {isFailed ? (
+                      <div className="rounded-lg bg-rose-50 border border-rose-200/80 px-2.5 py-2 text-xs text-rose-700 mt-2">
+                        <span className="font-bold text-rose-800">
+                          {isRejected ? 'Reason for Rejection:' : 'Reason for Cancellation:'}
+                        </span>{' '}
+                        <span className="text-rose-700">
+                          {cancellationReasonText || (isRejected ? 'Request was rejected.' : 'Order was cancelled.')}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
@@ -945,7 +974,7 @@ export function CustomerOrdersView(props: any) {
                       </Button>
                     )}
 
-                    {isOrderCancellable(o.status, o.paymentStatus) ? (
+                    {isOrderCancellable(o.status, o.paymentStatus, o) ? (
                       <Button
                         variant="outline"
                         className="h-8 w-full rounded-md border-red-200 text-[11px] text-red-600 hover:bg-red-50"

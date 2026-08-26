@@ -1396,7 +1396,7 @@ export default function LiveTrackingMap({
         return distanceMoved > 0.05 || headingChanged || progressChanged;
       });
 
-      if (!hasAnimatedTruck) {
+      if (!hasMovement) {
         const nextLocations = stabilizedTargets.map((targetLocation) => {
           if (targetLocation.markerType !== 'truck') return targetLocation;
           const previous = previousById.get(targetLocation.id);
@@ -1405,8 +1405,8 @@ export default function LiveTrackingMap({
               ...targetLocation,
               // On first route load, adopt the projected road point once;
               // subsequent sub-threshold GPS fixes retain the prior position.
-              lat: hasAcceptedRoadPosition ? previous.lat : targetLocation.lat,
-              lng: hasAcceptedRoadPosition ? previous.lng : targetLocation.lng,
+              lat: previous.lat,
+              lng: previous.lng,
               markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
               routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
             }

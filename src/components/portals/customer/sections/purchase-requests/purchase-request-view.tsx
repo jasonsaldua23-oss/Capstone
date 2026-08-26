@@ -65,8 +65,8 @@ export function getStatusConfig(status: PRStatus): {
         label: 'Cancelled',
         message: 'This purchase request has been cancelled.',
         icon: <CircleAlert className="h-3.5 w-3.5" />,
-        badgeClass: 'bg-slate-100 text-slate-600 hover:bg-slate-100 border-slate-200',
-        dotClass: 'bg-slate-400',
+        badgeClass: 'bg-rose-100 text-rose-700 hover:bg-rose-100 border-rose-200',
+        dotClass: 'bg-rose-500',
       }
     default:
       return {
@@ -334,6 +334,17 @@ export function CustomerPurchaseRequestView(props: any) {
                         </p>
                       </div>
                     </div>
+
+                    {(status === 'REJECTED' || status === 'CANCELLED') && (
+                      <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200/80 px-2.5 py-2 text-xs text-rose-700">
+                        <span className="font-bold text-rose-800">
+                          {status === 'REJECTED' ? 'Reason for Rejection:' : 'Reason for Cancellation:'}
+                        </span>{' '}
+                        <span className="text-rose-700">
+                          {o.rejectionReason || o.rejection_reason || o.cancellationReason || o.cancellation_reason || o.notes || (status === 'REJECTED' ? 'Purchase request was rejected.' : 'Purchase request was cancelled.')}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Col 2: Requested Items with Thumbnails */}

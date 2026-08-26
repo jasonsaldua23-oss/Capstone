@@ -247,6 +247,21 @@ export function CustomerOrderDetailPage(props: any) {
   if (!order) return null
 
   const isDelivered = Boolean(isOrderDelivered?.(order))
+  const rawStatus = String(order?.status || '').toUpperCase()
+  const rawRequestStatus = String(order?.requestStatus || order?.request_status || order?.approvalStatus || '').toUpperCase()
+  const isCancelled = ['CANCELLED', 'CANCELED'].includes(rawStatus) || ['CANCELLED', 'CANCELED'].includes(rawRequestStatus)
+  const isRejected = rawStatus === 'REJECTED' || rawRequestStatus === 'REJECTED'
+  const isFailed = isCancelled || isRejected
+  const cancellationReasonText = String(
+    order?.cancellationReason ||
+    order?.cancellation_reason ||
+    order?.rejectionReason ||
+    order?.rejection_reason ||
+    order?.cancelReason ||
+    order?.cancel_reason ||
+    (isFailed && typeof order?.notes === 'string' && order?.notes.trim() ? order.notes : '') ||
+    ''
+  ).trim()
   const isRescheduled = isRescheduledOrder(String(order?.status || ''))
   const isReplacementOrder = String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
   const isReviewed = Boolean(reviewedOrderIds?.has?.(order.id))
@@ -315,7 +330,7 @@ export function CustomerOrderDetailPage(props: any) {
         <div className="px-3 pt-4 pb-6 md:px-5 md:pt-5 space-y-4">
           {/* ── Title row ── */}
           <div className="flex flex-wrap items-start gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-50 text-emerald-600 md:h-12 md:w-12 shrink-0">
+            <div className={`grid h-10 w-10 place-items-center rounded-full md:h-12 md:w-12 shrink-0 ${isFailed ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
               <Package className="h-5 w-5 md:h-6 md:w-6" />
             </div>
             <div className="min-w-0">
@@ -323,8 +338,8 @@ export function CustomerOrderDetailPage(props: any) {
                 {order.orderNumber}
               </p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <Badge className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-100 md:text-xs">
-                  {formatOrderStatus(order.status, order.paymentStatus)}
+                <Badge className={`text-[10px] md:text-xs font-semibold ${isCancelled || isRejected ? 'bg-rose-100 text-rose-700 hover:bg-rose-100 border border-rose-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'}`}>
+                  {isCancelled ? 'Cancelled' : isRejected ? 'Rejected' : formatOrderStatus(order.status, order.paymentStatus)}
                 </Badge>
                 {isRescheduled && (
                   <Badge className="text-[10px] bg-amber-100 text-amber-700 hover:bg-amber-100 md:text-xs">
@@ -334,12 +349,24 @@ export function CustomerOrderDetailPage(props: any) {
               </div>
               <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-600 md:text-sm">
                 <CalendarDays className="h-3.5 w-3.5 text-slate-500 md:h-4 md:w-4" />
-                {isDelivered ? 'Delivered on ' : 'Ordered on '}
+                {isCancelled ? 'Cancelled on ' : isRejected ? 'Rejected on ' : isDelivered ? 'Delivered on ' : 'Ordered on '}
                 {dt.date}
                 {dt.time !== 'N/A' ? ` | ${dt.time}` : ''}
               </p>
             </div>
           </div>
+
+          {/* ── Cancellation Banner (if cancelled or rejected) ── */}
+          {isFailed && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/90 p-3.5 text-rose-800">
+              <p className="text-xs font-bold uppercase tracking-wider text-rose-900">
+                {isRejected ? 'Reason for Rejection' : 'Reason for Cancellation'}
+              </p>
+              <p className="mt-1 text-sm font-medium text-rose-700 leading-relaxed">
+                {cancellationReasonText || (isRejected ? 'This purchase request was rejected.' : 'This order has been cancelled.')}
+              </p>
+            </div>
+          )}
 
           {/* ── Progress stages ── */}
           <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">

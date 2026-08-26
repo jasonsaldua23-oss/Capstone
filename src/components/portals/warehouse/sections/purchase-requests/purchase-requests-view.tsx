@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import type { WarehousePurchaseRequestsViewProps } from '../shared/types'
 
 type RequestActionState = {
@@ -60,7 +61,8 @@ export function WarehousePurchaseRequestsView({
   const [minAmount, setMinAmount] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
   const [actionState, setActionState] = useState<RequestActionState | null>(null)
-  const [reason, setReason] = useState('')
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([])
+  const [otherReason, setOtherReason] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const warehouseOptions = useMemo(() => {
@@ -105,6 +107,9 @@ export function WarehousePurchaseRequestsView({
   const handleAction = async () => {
     if (!actionState) return
     const { order, action } = actionState
+    const reason = buildOrderActionReason(selectedReasons, otherReason)
+    // Required: both cancellation and rejection use a selected staff reason.
+    if (action !== 'approve' && !reason) return
     const nextStatus = action === 'approve' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
     const nextReason = action === 'approve' ? undefined : reason.trim() || undefined
     try {
@@ -112,7 +117,8 @@ export function WarehousePurchaseRequestsView({
       const updated = await updateWarehouseOrderStatus(order.id, nextStatus, nextReason)
       if (updated !== false) {
         setActionState(null)
-        setReason('')
+        setSelectedReasons([])
+        setOtherReason('')
       }
     } finally {
       setBusyId(null)
@@ -271,7 +277,13 @@ export function WarehousePurchaseRequestsView({
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && !isActionLoading && setActionState(null)}>
+      <AlertDialog open={!!actionState} onOpenChange={(open) => {
+        if (!open && !isActionLoading) {
+          setActionState(null)
+          setSelectedReasons([])
+          setOtherReason('')
+        }
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -290,19 +302,21 @@ export function WarehousePurchaseRequestsView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {actionState?.action !== 'approve' ? (
-            <textarea
-              className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder={actionState?.action === 'reject' ? 'Reason for rejection' : 'Optional cancellation reason'}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
+            <OrderReasonCheckboxes
+              options={WAREHOUSE_ORDER_REASONS}
+              selectedReasons={selectedReasons}
+              otherReason={otherReason}
+              onSelectedReasonsChange={setSelectedReasons}
+              onOtherReasonChange={setOtherReason}
+              label={actionState?.action === 'reject' ? 'Rejection reason (required)' : 'Cancellation reason (required)'}
             />
           ) : null}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isActionLoading} onClick={() => { setActionState(null); setReason('') }}>
+            <AlertDialogCancel disabled={isActionLoading} onClick={() => { setActionState(null); setSelectedReasons([]); setOtherReason('') }}>
               {actionState?.action === 'cancel' ? 'No, Keep Request' : 'Cancel'}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={isActionLoading}
+              disabled={isActionLoading || (actionState?.action !== 'approve' && !buildOrderActionReason(selectedReasons, otherReason))}
               onClick={(event) => {
                 // Keep the dialog visible so staff can see approval progress and cannot submit twice.
                 event.preventDefault()

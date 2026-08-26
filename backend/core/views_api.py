@@ -7366,8 +7366,12 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     }:
         return _err("Purchase request must be approved before processing", 400)
 
-    if is_pending_request and next_status == OrderStatus.REJECTED and not rejection_reason:
+    if next_status == OrderStatus.REJECTED and not rejection_reason:
         return _err("A rejection reason is required", 400)
+
+    # Required: every order cancellation must record the reason supplied by the user.
+    if next_status == OrderStatus.CANCELLED and not rejection_reason:
+        return _err("A cancellation reason is required", 400)
 
     try:
         with transaction.atomic():
@@ -7416,7 +7420,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 o.purchase_order_stage = None
                 o.cancelled_by_user_id = actor_id
                 o.cancelled_by_name = actor_name
-                o.cancellation_reason = rejection_reason or "Cancelled by warehouse staff"
+                o.cancellation_reason = rejection_reason
                 o.cancelled_at = now
                 update_fields.extend(["request_status", "purchase_order_stage", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason", "cancelled_at"])
             elif next_status == OrderStatus.PREPARING:
@@ -7432,7 +7436,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 o.purchase_order_stage = PurchaseOrderStage.CANCELLED
                 o.cancelled_by_user_id = actor_id
                 o.cancelled_by_name = actor_name
-                o.cancellation_reason = rejection_reason or "Cancelled by warehouse staff"
+                o.cancellation_reason = rejection_reason
                 o.cancelled_at = now
                 update_fields.extend(["purchase_order_stage", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason", "cancelled_at"])
             elif next_status == OrderStatus.REJECTED:
@@ -8301,12 +8305,17 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
     p = _require_auth(request)
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
+    body = _json_body(request)
+    cancellation_reason = str(body.get("reason") or "").strip()
     try:
         o = Order.objects.get(id=order_id, customer_id=p.get("userId"))
     except Order.DoesNotExist:
         return _err("Order not found", 404)
     if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
         return _err("Order cannot be cancelled", 400)
+    # Required: reject valid cancellation attempts that omit the reason.
+    if not cancellation_reason:
+        return _err("A cancellation reason is required", 400)
 
     with transaction.atomic():
         _release_order_reservations(o, p.get("userId"))
@@ -8317,7 +8326,7 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
         o.purchase_order_stage = PurchaseOrderStage.CANCELLED
         o.cancelled_by_user_id = str(p.get("userId") or "").strip() or None
         o.cancelled_by_name = actor_name
-        o.cancellation_reason = "Cancelled by customer"
+        o.cancellation_reason = cancellation_reason
         o.cancelled_at = now
         o.save(update_fields=[
             "status",
@@ -9347,6 +9356,10 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     requeued_to_route_pool = False
     requested_status = str(body.get("status") or "").strip().upper()
     next_status = requested_status
+    cancellation_reason = str(body.get("notes") or body.get("failureReason") or "").strip()
+    # Required: driver delivery cancellations must include the selected reason.
+    if requested_status == "CANCELLED" and not cancellation_reason:
+        return _err("A cancellation reason is required", 400)
     reschedule_window = str(body.get("rescheduleWindow") or "").strip().lower()
     reschedule_requested = bool(body.get("rescheduleRequested")) or bool(reschedule_window)
     defer_within_trip_today = next_status == "FAILED" and reschedule_requested and reschedule_window == "today"
@@ -9437,7 +9450,21 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
                 requeued_to_route_pool = True
             else:
                 order.status = OrderStatus.CANCELLED
-                order.save(update_fields=["status", "updated_at"])
+                order.purchase_order_stage = PurchaseOrderStage.CANCELLED
+                order.cancelled_by_user_id = str(p.get("userId") or "").strip() or None
+                order.cancelled_by_name = str(p.get("name") or "Driver").strip() or "Driver"
+                order.cancellation_reason = cancellation_reason
+                order.cancelled_at = now
+                # Fix: retain the driver's selected reason on the cancelled order, not only on the stop.
+                order.save(update_fields=[
+                    "status",
+                    "purchase_order_stage",
+                    "cancelled_by_user_id",
+                    "cancelled_by_name",
+                    "cancellation_reason",
+                    "cancelled_at",
+                    "updated_at",
+                ])
                 if timeline:
                     if not timeline.cancelled_at:
                         timeline.cancelled_at = now

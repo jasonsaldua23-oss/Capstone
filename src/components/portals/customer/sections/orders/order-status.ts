@@ -36,8 +36,19 @@ export const isOrderDelivered = (order: Order | null) => {
   return String(normalizeDeliveryStatus(order.status, order.paymentStatus)) === 'DELIVERED'
 }
 
-export const isOrderCancellable = (status: string, paymentStatus?: string | null) => {
+export const isOrderCancellable = (status: string, paymentStatus?: string | null, order?: any) => {
   const raw = String(status || '').toUpperCase()
+  const isAssignedToDelivery = Boolean(
+    order?.assignedTripId ||
+    order?.progress?.trip?.id ||
+    order?.tripId ||
+    order?.deliveryTripId ||
+    order?.assignedDriver ||
+    order?.driverId ||
+    order?.driverName ||
+    ['CONFIRMED', 'PREPARING', 'READY_FOR_DELIVERY', 'FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'].includes(raw)
+  )
+  if (isAssignedToDelivery) return false
   if (raw === 'PROCESSING') {
     return String(paymentStatus || '').toLowerCase() === 'pending_approval'
   }

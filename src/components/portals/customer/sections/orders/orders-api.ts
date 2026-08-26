@@ -155,10 +155,13 @@ export async function receiveReplacementReturn(
   return { response, data }
 }
 
-export async function cancelCustomerOrder(orderId: string) {
+export async function cancelCustomerOrder(orderId: string, reason: string) {
   const response = await fetch(`/api/customer/orders/${orderId}/cancel`, {
     method: 'PATCH',
     credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    // Required: persist the customer's stated cancellation reason with the order.
+    body: JSON.stringify({ reason }),
   })
   const payload = await response.json().catch(() => ({}))
   return { response, payload }

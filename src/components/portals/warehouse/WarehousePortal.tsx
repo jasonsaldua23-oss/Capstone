@@ -43,6 +43,7 @@ import { WarehouseRetailPosView } from './sections/retail-pos/retail-pos-view'
 import { WarehouseInventoryTransactionsView } from './sections/inventory/transactions-view'
 import { WarehousePurchaseRequestsView } from './sections/purchase-requests/purchase-requests-view'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -673,7 +674,8 @@ export function WarehousePortal() {
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
   const [tripToDelete, setTripToDelete] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
-  const [rejectReason, setRejectReason] = useState('')
+  const [selectedRejectReasons, setSelectedRejectReasons] = useState<string[]>([])
+  const [otherRejectReason, setOtherRejectReason] = useState('')
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [editName, setEditName] = useState('')
   const [editImageUrl, setEditImageUrl] = useState('')
@@ -5967,7 +5969,13 @@ export function WarehousePortal() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!rejectOrder} onOpenChange={(open) => !open && setRejectOrder(null)}>
+      <Dialog open={!!rejectOrder} onOpenChange={(open) => {
+        if (!open) {
+          setRejectOrder(null)
+          setSelectedRejectReasons([])
+          setOtherRejectReason('')
+        }
+      }}>
         <DialogContent>
           {rejectOrder && (
             <>
@@ -5976,19 +5984,26 @@ export function WarehousePortal() {
                 <DialogDescription>Please provide a reason for rejecting order {rejectOrder.orderNumber}.</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
-                <textarea
-                  className="w-full min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="Enter rejection reason..."
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
+                <OrderReasonCheckboxes
+                  options={WAREHOUSE_ORDER_REASONS}
+                  selectedReasons={selectedRejectReasons}
+                  otherReason={otherRejectReason}
+                  onSelectedReasonsChange={setSelectedRejectReasons}
+                  onOtherReasonChange={setOtherRejectReason}
+                  label="Rejection reason (required)"
                 />
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setRejectOrder(null)}>
+                  <Button variant="outline" className="flex-1" onClick={() => { setRejectOrder(null); setSelectedRejectReasons([]); setOtherRejectReason('') }}>
                     Cancel
                   </Button>
                   <Button
                     className="flex-1 bg-red-600 hover:bg-red-700"
                     onClick={async () => {
+                      const rejectReason = buildOrderActionReason(selectedRejectReasons, otherRejectReason)
+                      if (!rejectReason) {
+                        toast.error('Rejection reason is required')
+                        return
+                      }
                       const orderStatus = String(rejectOrder?.status || '').toUpperCase()
                       const paymentStatus = String(rejectOrder?.paymentStatus || '').toLowerCase()
                       const canReject = paymentStatus === 'pending_approval' || orderStatus === 'PENDING'
@@ -5996,10 +6011,12 @@ export function WarehousePortal() {
                         toast.error('Only not-yet-approved orders can be rejected.')
                         return
                       }
-                      await updateWarehouseOrderStatus(rejectOrder.id, 'REJECTED', rejectReason.trim() || undefined)
+                      await updateWarehouseOrderStatus(rejectOrder.id, 'REJECTED', rejectReason)
                       setRejectOrder(null)
+                      setSelectedRejectReasons([])
+                      setOtherRejectReason('')
                     }}
-                    disabled={updatingOrderId === rejectOrder.id}
+                    disabled={updatingOrderId === rejectOrder.id || !buildOrderActionReason(selectedRejectReasons, otherRejectReason)}
                   >
                     Confirm
                   </Button>

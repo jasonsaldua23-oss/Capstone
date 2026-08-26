@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import type { WarehouseOrdersViewProps } from '../shared/types'
 
 type OrderAction = 'processing' | 'assign' | 'delivered' | 'completed' | 'cancel'
@@ -110,7 +111,8 @@ export function WarehouseOrdersView({
   const [minAmount, setMinAmount] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
   const [actionState, setActionState] = useState<{ order: any; action: OrderAction } | null>(null)
-  const [cancelReason, setCancelReason] = useState('')
+  const [selectedCancelReasons, setSelectedCancelReasons] = useState<string[]>([])
+  const [otherCancelReason, setOtherCancelReason] = useState('')
 
   const warehouseOptions = useMemo(() => {
     return Array.from(
@@ -162,11 +164,16 @@ export function WarehouseOrdersView({
   const submitAction = async () => {
     if (!actionState) return
     const { order, action } = actionState
+    const cancelReason = buildOrderActionReason(selectedCancelReasons, otherCancelReason)
+
+    // Required: cancellations must include a reason before the status is updated.
+    if (action === 'cancel' && !cancelReason) return
 
     if (action === 'assign' && !order?.assignedTripId && !order?.progress?.trip?.id) {
       onOpenTransportation()
       setActionState(null)
-      setCancelReason('')
+      setSelectedCancelReasons([])
+      setOtherCancelReason('')
       return
     }
 
@@ -181,9 +188,10 @@ export function WarehouseOrdersView({
                 ? 'COMPLETED'
                 : 'CANCELLED'
 
-    await updateWarehouseOrderStatus(order.id, nextStatus, action === 'cancel' ? cancelReason.trim() || undefined : undefined)
+    await updateWarehouseOrderStatus(order.id, nextStatus, action === 'cancel' ? cancelReason : undefined)
     setActionState(null)
-    setCancelReason('')
+    setSelectedCancelReasons([])
+    setOtherCancelReason('')
   }
 
   return (
@@ -251,6 +259,16 @@ export function WarehouseOrdersView({
                 <tbody>
                   {filteredOrders.map((order) => {
                     const stage = getOrderStage(order)
+                    const isAssignedToDelivery = Boolean(
+                      order?.assignedTripId ||
+                      order?.progress?.trip?.id ||
+                      order?.tripId ||
+                      order?.deliveryTripId ||
+                      order?.assignedDriver ||
+                      order?.driverId ||
+                      ['READY_FOR_DELIVERY', 'FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'].includes(String(order?.status || '').toUpperCase()) ||
+                      ['READY_FOR_DELIVERY', 'FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'].includes(stage)
+                    )
                     const orderItems = Array.isArray(order?.items) ? order.items : []
                     const transactionIds = Array.isArray(order?.inventoryTransactionIds)
                       ? order.inventoryTransactionIds.filter((id: unknown) => String(id || '').trim())
@@ -317,8 +335,15 @@ export function WarehouseOrdersView({
                               </Button>
                             ) : null}
                             {stage === 'PROCESSING' || stage === 'READY_FOR_DELIVERY' ? (
-                              <Button size="sm" variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'assign' })}>
-                                Assign Delivery
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-blue-200 text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                disabled={updatingOrderId === order.id || isAssignedToDelivery}
+                                onClick={() => setActionState({ order, action: 'assign' })}
+                                title={isAssignedToDelivery ? 'Order is already assigned to a delivery trip' : undefined}
+                              >
+                                {isAssignedToDelivery ? 'Assigned' : 'Assign Delivery'}
                               </Button>
                             ) : null}
                             {stage !== 'COMPLETED' && stage !== 'CANCELLED' ? (
@@ -326,8 +351,9 @@ export function WarehouseOrdersView({
                                 size="sm"
                                 variant="outline"
                                 className="border-rose-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                                disabled={updatingOrderId === order.id || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY'].includes(stage)}
+                                disabled={updatingOrderId === order.id || isAssignedToDelivery || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY'].includes(stage)}
                                 onClick={() => setActionState({ order, action: 'cancel' })}
+                                title={isAssignedToDelivery ? 'Cannot cancel order because it is already assigned to delivery' : undefined}
                               >
                                 Cancel Order
                               </Button>
@@ -344,7 +370,7 @@ export function WarehouseOrdersView({
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && updatingOrderId !== actionState?.order?.id && (setActionState(null), setCancelReason(''))}>
+      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && updatingOrderId !== actionState?.order?.id && (setActionState(null), setSelectedCancelReasons([]), setOtherCancelReason(''))}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -365,11 +391,13 @@ export function WarehouseOrdersView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {actionState?.action === 'cancel' ? (
-            <textarea
-              className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Optional cancellation reason"
-              value={cancelReason}
-              onChange={(event) => setCancelReason(event.target.value)}
+            <OrderReasonCheckboxes
+              options={WAREHOUSE_ORDER_REASONS}
+              selectedReasons={selectedCancelReasons}
+              otherReason={otherCancelReason}
+              onSelectedReasonsChange={setSelectedCancelReasons}
+              onOtherReasonChange={setOtherCancelReason}
+              label="Cancellation reason (required)"
             />
           ) : null}
           <AlertDialogFooter>
@@ -377,13 +405,14 @@ export function WarehouseOrdersView({
               disabled={updatingOrderId === actionState?.order?.id}
               onClick={() => {
                 setActionState(null)
-                setCancelReason('')
+                setSelectedCancelReasons([])
+                setOtherCancelReason('')
               }}
             >
               {actionState?.action === 'cancel' ? 'No, Keep Order' : 'Cancel'}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={updatingOrderId === actionState?.order?.id}
+              disabled={updatingOrderId === actionState?.order?.id || (actionState?.action === 'cancel' && !buildOrderActionReason(selectedCancelReasons, otherCancelReason))}
               onClick={(event) => {
                 event.preventDefault()
                 void submitAction()

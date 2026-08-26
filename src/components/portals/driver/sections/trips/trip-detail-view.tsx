@@ -44,6 +44,7 @@ import {
 
 import { formatDistance, getManeuverLabel, NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { buildOrderActionReason, DRIVER_ORDER_REASONS, OrderReasonCheckboxes } from '@/components/portals/shared/order-reason-checkboxes'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -100,6 +101,8 @@ export function TripDetailView({
   const [failedDeliveryDropPointId, setFailedDeliveryDropPointId] = useState<string | null>(null)
   const [isFailedDeliveryActionWarningOpen, setIsFailedDeliveryActionWarningOpen] = useState(false)
   const [failedDeliveryPendingAction, setFailedDeliveryPendingAction] = useState<'reschedule' | 'cancel' | null>(null)
+  const [selectedDriverCancelReasons, setSelectedDriverCancelReasons] = useState<string[]>([])
+  const [otherDriverCancelReason, setOtherDriverCancelReason] = useState('')
   const [isArriveWarningOpen, setIsArriveWarningOpen] = useState(false)
   const [arriveTargetDropPointId, setArriveTargetDropPointId] = useState<string | null>(null)
   const [arriveTargetDropPointName, setArriveTargetDropPointName] = useState('')
@@ -1019,9 +1022,15 @@ export function TripDetailView({
   const closeFailedDeliveryChoice = () => {
     setIsFailedDeliveryChoiceOpen(false)
     setFailedDeliveryDropPointId(null)
+    setSelectedDriverCancelReasons([])
+    setOtherDriverCancelReason('')
   }
 
   const openFailedDeliveryActionWarning = (action: 'reschedule' | 'cancel') => {
+    if (action === 'cancel') {
+      setSelectedDriverCancelReasons([])
+      setOtherDriverCancelReason('')
+    }
     setFailedDeliveryPendingAction(action)
     setIsFailedDeliveryActionWarningOpen(true)
   }
@@ -3086,6 +3095,16 @@ export function TripDetailView({
                 ? 'Proceed only if customer requested another delivery attempt.'
                 : 'Proceed only if delivery must be cancelled and should not be attempted again.'}
             </div>
+            {failedDeliveryPendingAction === 'cancel' ? (
+              <OrderReasonCheckboxes
+                options={DRIVER_ORDER_REASONS}
+                selectedReasons={selectedDriverCancelReasons}
+                otherReason={otherDriverCancelReason}
+                onSelectedReasonsChange={setSelectedDriverCancelReasons}
+                onOtherReasonChange={setOtherDriverCancelReason}
+                label="Cancellation reason (required)"
+              />
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
               <Button
                 type="button"
@@ -3113,10 +3132,11 @@ export function TripDetailView({
                   }
                   setIsFailedDeliverySubmitting(true)
                   try {
+                    const cancellationReason = buildOrderActionReason(selectedDriverCancelReasons, otherDriverCancelReason)
                     const completed = await handleUpdateDropPoint(
                       failedDeliveryDropPointId,
                       'CANCELLED',
-                      deliveryNote || 'Delivery canceled by driver'
+                      cancellationReason
                     )
                     if (completed) {
                       setIsFailedDeliveryActionWarningOpen(false)
@@ -3127,7 +3147,12 @@ export function TripDetailView({
                     setIsFailedDeliverySubmitting(false)
                   }
                 }}
-                disabled={isUpdating || isFailedDeliverySubmitting || !failedDeliveryPendingAction}
+                disabled={
+                  isUpdating
+                  || isFailedDeliverySubmitting
+                  || !failedDeliveryPendingAction
+                  || (failedDeliveryPendingAction === 'cancel' && !buildOrderActionReason(selectedDriverCancelReasons, otherDriverCancelReason))
+                }
               >
                 {isFailedDeliverySubmitting
                   ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</>

@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -84,7 +85,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   const hydrationInFlightRef = useRef<Record<string, boolean>>({})
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
   const [rejectOrder, setRejectOrder] = useState<any | null>(null)
-  const [rejectReason, setRejectReason] = useState('')
+  const [selectedRejectReasons, setSelectedRejectReasons] = useState<string[]>([])
+  const [otherRejectReason, setOtherRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [warehouseFilterId, setWarehouseFilterId] = useState('all')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
@@ -105,7 +107,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   const [requestMinAmount, setRequestMinAmount] = useState('')
   const [requestMaxAmount, setRequestMaxAmount] = useState('')
   const [actionState, setActionState] = useState<RequestActionState | null>(null)
-  const [actionReason, setActionReason] = useState('')
+  const [selectedActionReasons, setSelectedActionReasons] = useState<string[]>([])
+  const [otherActionReason, setOtherActionReason] = useState('')
 
   useEffect(() => {
     setOrderSearchQuery(String(globalSearchQuery || ''))
@@ -852,12 +855,19 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   const handleRequestAction = async () => {
     if (!actionState) return
     const { order, action } = actionState
+    const actionReason = buildOrderActionReason(selectedActionReasons, otherActionReason)
+    // Required: both cancellation and rejection use a selected staff reason.
+    if (action !== 'approve' && !actionReason) {
+      toast.error(action === 'reject' ? 'A rejection reason is required' : 'A cancellation reason is required')
+      return
+    }
     const nextStatus = action === 'approve' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
-    const nextReason = action === 'approve' ? undefined : actionReason.trim() || undefined
+    const nextReason = action === 'approve' ? undefined : actionReason
     const success = await updateOrderStatus(order.id, nextStatus as any, nextReason)
     if (success) {
       setActionState(null)
-      setActionReason('')
+      setSelectedActionReasons([])
+      setOtherActionReason('')
     }
   }
 
@@ -1018,7 +1028,13 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
             </CardContent>
           </Card>
 
-          <AlertDialog open={!!actionState} onOpenChange={(open) => !open && !isRequestActionLoading && setActionState(null)}>
+          <AlertDialog open={!!actionState} onOpenChange={(open) => {
+            if (!open && !isRequestActionLoading) {
+              setActionState(null)
+              setSelectedActionReasons([])
+              setOtherActionReason('')
+            }
+          }}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
@@ -1037,19 +1053,21 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                 </AlertDialogDescription>
               </AlertDialogHeader>
               {actionState?.action !== 'approve' ? (
-                <textarea
-                  className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder={actionState?.action === 'reject' ? 'Reason for rejection' : 'Optional cancellation reason'}
-                  value={actionReason}
-                  onChange={(event) => setActionReason(event.target.value)}
+                <OrderReasonCheckboxes
+                  options={WAREHOUSE_ORDER_REASONS}
+                  selectedReasons={selectedActionReasons}
+                  otherReason={otherActionReason}
+                  onSelectedReasonsChange={setSelectedActionReasons}
+                  onOtherReasonChange={setOtherActionReason}
+                  label={actionState?.action === 'reject' ? 'Rejection reason (required)' : 'Cancellation reason (required)'}
                 />
               ) : null}
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={isRequestActionLoading} onClick={() => { setActionState(null); setActionReason('') }}>
+                <AlertDialogCancel disabled={isRequestActionLoading} onClick={() => { setActionState(null); setSelectedActionReasons([]); setOtherActionReason('') }}>
                   {actionState?.action === 'cancel' ? 'No, Keep Request' : 'Cancel'}
                 </AlertDialogCancel>
                 <AlertDialogAction
-                  disabled={isRequestActionLoading}
+                  disabled={isRequestActionLoading || (actionState?.action !== 'approve' && !buildOrderActionReason(selectedActionReasons, otherActionReason))}
                   onClick={(event) => {
                     // Keep the controlled dialog visible while the approval request is running.
                     event.preventDefault()
@@ -1580,7 +1598,13 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!rejectOrder} onOpenChange={(open) => !open && setRejectOrder(null)}>
+      <Dialog open={!!rejectOrder} onOpenChange={(open) => {
+        if (!open) {
+          setRejectOrder(null)
+          setSelectedRejectReasons([])
+          setOtherRejectReason('')
+        }
+      }}>
         <DialogContent>
           {rejectOrder && (
             <>
@@ -1589,21 +1613,23 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                 <DialogDescription>Please provide a reason for rejecting order {rejectOrder.orderNumber}</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
-                <label className="text-sm font-medium text-gray-700">Rejection Reason</label>
-                <textarea
-                  className="w-full min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="Enter rejection reason..."
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
+                <OrderReasonCheckboxes
+                  options={WAREHOUSE_ORDER_REASONS}
+                  selectedReasons={selectedRejectReasons}
+                  otherReason={otherRejectReason}
+                  onSelectedReasonsChange={setSelectedRejectReasons}
+                  onOtherReasonChange={setOtherRejectReason}
+                  label="Rejection reason (required)"
                 />
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setRejectOrder(null)}>
+                  <Button variant="outline" className="flex-1" onClick={() => { setRejectOrder(null); setSelectedRejectReasons([]); setOtherRejectReason('') }}>
                     Cancel
                   </Button>
                   <Button
                     className="flex-1 bg-red-600 hover:bg-red-700"
                     onClick={async () => {
-                      if (!rejectReason.trim()) {
+                      const rejectReason = buildOrderActionReason(selectedRejectReasons, otherRejectReason)
+                      if (!rejectReason) {
                         toast.error('Rejection reason is required')
                         return
                       }
@@ -1614,10 +1640,12 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
                         toast.error('Only not-yet-approved orders can be rejected')
                         return
                       }
-                      await updateOrderStatus(rejectOrder.id, 'REJECTED', rejectReason.trim())
+                      await updateOrderStatus(rejectOrder.id, 'REJECTED', rejectReason)
                       setRejectOrder(null)
+                      setSelectedRejectReasons([])
+                      setOtherRejectReason('')
                     }}
-                    disabled={updatingOrderId === rejectOrder.id}
+                    disabled={updatingOrderId === rejectOrder.id || !buildOrderActionReason(selectedRejectReasons, otherRejectReason)}
                   >
                     Confirm
                   </Button>

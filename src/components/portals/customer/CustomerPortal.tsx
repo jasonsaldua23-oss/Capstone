@@ -42,6 +42,11 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
+  buildOrderActionReason,
+  CUSTOMER_ORDER_REASONS,
+  OrderReasonCheckboxes,
+} from '@/components/portals/shared/order-reason-checkboxes'
+import {
   cancelCustomerOrder,
   createCustomerOrder,
   fetchAllCustomerOrders,
@@ -113,6 +118,8 @@ const createClientRequestId = () =>
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
   const [pendingCancelOrder, setPendingCancelOrder] = useState<{ id: string; orderNumber: string } | null>(null)
+  const [selectedCancellationReasons, setSelectedCancellationReasons] = useState<string[]>([])
+  const [otherCancellationReason, setOtherCancellationReason] = useState('')
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
   const [isOrderConfirmationOpen, setIsOrderConfirmationOpen] = useState(false)
   const [lastPlacedOrderNumber, setLastPlacedOrderNumber] = useState('')
@@ -1914,15 +1921,23 @@ export function CustomerPortal() {
   const requestCancelOrder = (orderId: string) => {
     const source = orders.find((item) => item.id === orderId) || (selectedOrder?.id === orderId ? selectedOrder : null)
     const orderNumber = String(source?.orderNumber || 'this order')
+    setSelectedCancellationReasons([])
+    setOtherCancellationReason('')
     setPendingCancelOrder({ id: orderId, orderNumber })
   }
 
   const confirmCancelOrder = async () => {
     const orderId = pendingCancelOrder?.id
     if (!orderId) return
+    const reason = buildOrderActionReason(selectedCancellationReasons, otherCancellationReason)
+    // Required: do not send a cancellation without an explanation.
+    if (!reason) {
+      toast.error('A cancellation reason is required')
+      return
+    }
     setIsCancellingOrder(true)
     try {
-      const { response, payload } = await cancelCustomerOrder(orderId)
+      const { response, payload } = await cancelCustomerOrder(orderId, reason)
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to cancel order')
       }
@@ -1937,6 +1952,8 @@ export function CustomerPortal() {
       // Refresh once in background via shared sync channel.
       emitDataSync(['orders'])
       setPendingCancelOrder(null)
+      setSelectedCancellationReasons([])
+      setOtherCancellationReason('')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to cancel order')
     } finally {
@@ -3164,7 +3181,11 @@ export function CustomerPortal() {
           <AlertDialog
             open={Boolean(pendingCancelOrder)}
             onOpenChange={(open) => {
-              if (!open) setPendingCancelOrder(null)
+              if (!open) {
+                setPendingCancelOrder(null)
+                setSelectedCancellationReasons([])
+                setOtherCancellationReason('')
+              }
             }}
           >
             <AlertDialogContent>
@@ -3174,6 +3195,14 @@ export function CustomerPortal() {
                   You are about to cancel {pendingCancelOrder?.orderNumber || 'this order'}. This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              <OrderReasonCheckboxes
+                options={CUSTOMER_ORDER_REASONS}
+                selectedReasons={selectedCancellationReasons}
+                otherReason={otherCancellationReason}
+                onSelectedReasonsChange={setSelectedCancellationReasons}
+                onOtherReasonChange={setOtherCancellationReason}
+                label="Cancellation reason (required)"
+              />
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={isCancellingOrder}>Keep Order</AlertDialogCancel>
                 <AlertDialogAction
@@ -3182,7 +3211,7 @@ export function CustomerPortal() {
                     void confirmCancelOrder()
                   }}
                   className="bg-red-600 hover:bg-red-700"
-                  disabled={isCancellingOrder}
+                  disabled={isCancellingOrder || !buildOrderActionReason(selectedCancellationReasons, otherCancellationReason)}
                 >
                   {isCancellingOrder ? 'Cancelling...' : 'Yes, Cancel Order'}
                 </AlertDialogAction>

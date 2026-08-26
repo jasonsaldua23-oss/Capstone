@@ -502,6 +502,28 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertFalse(bool(self.order.purchase_order_number))
         self.assertEqual(self.order.rejection_reason, "Insufficient stock confirmation")
 
+    def test_cancel_pending_request_requires_and_saves_reason(self) -> None:
+        missing_reason = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data={"status": "CANCELLED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(missing_reason.json()["error"], "A cancellation reason is required")
+
+        response = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data={"status": "CANCELLED", "reason": "Duplicate purchase request"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.CANCELLED)
+        self.assertEqual(self.order.request_status, "CANCELLED")
+        self.assertEqual(self.order.cancellation_reason, "Duplicate purchase request")
+
 class CustomerTrackingApiContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
@@ -800,6 +822,35 @@ class CustomerOrdersApiContractTests(TestCase):
 
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.PREPARING)
+
+    def test_customer_cancellation_requires_and_saves_reason(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-CANCEL-REASON-001",
+            customer=self.customer,
+            status=OrderStatus.PENDING,
+            subtotal=100,
+            total_amount=110,
+        )
+
+        missing_reason = self.client.patch(
+            f"/api/customer/orders/{order.id}/cancel",
+            data={},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(missing_reason.json()["error"], "A cancellation reason is required")
+
+        response = self.client.patch(
+            f"/api/customer/orders/{order.id}/cancel",
+            data={"reason": "Incorrect delivery address"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+        self.assertEqual(order.cancellation_reason, "Incorrect delivery address")
 
     def test_customer_order_create_defaults_to_pending(self) -> None:
         warehouse = Warehouse.objects.create(
@@ -1589,6 +1640,38 @@ class OrderStatusTransitionApiContractTests(TestCase):
 
         timeline = OrderTimeline.objects.get(order=order)
         self.assertIsNotNone(timeline.processed_at)
+
+    def test_staff_cancellation_requires_and_saves_reason(self) -> None:
+        order = self._create_order(status=OrderStatus.PREPARING)
+
+        missing_reason = self._patch_status(order.id, {"status": "CANCELLED"})
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(missing_reason.json()["error"], "A cancellation reason is required")
+
+        response = self._patch_status(
+            order.id,
+            {"status": "CANCELLED", "reason": "Customer requested cancellation"},
+        )
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+        self.assertEqual(order.cancellation_reason, "Customer requested cancellation")
+
+    def test_staff_rejection_requires_and_saves_selected_reason(self) -> None:
+        order = self._create_order(status=OrderStatus.PREPARING)
+
+        missing_reason = self._patch_status(order.id, {"status": "REJECTED"})
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(missing_reason.json()["error"], "A rejection reason is required")
+
+        response = self._patch_status(
+            order.id,
+            {"status": "REJECTED", "reason": "Product out of stock"},
+        )
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.REJECTED)
+        self.assertEqual(order.rejection_reason, "Product out of stock")
 
 
 class TripExecutionApiContractTests(TestCase):
