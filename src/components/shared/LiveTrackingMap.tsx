@@ -430,15 +430,14 @@ function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', number?: n
     html: `
       <div style="position:relative;width:28px;height:44px;display:flex;align-items:flex-start;justify-content:center;">
         <img
-            src="${
-              color === 'green'
-                ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
-                : color === 'red'
-                  ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png'
-                  : color === 'orange'
-                    ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png'
-                    : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
-            }"
+            src="${color === 'green'
+        ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
+        : color === 'red'
+          ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png'
+          : color === 'orange'
+            ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png'
+            : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
+      }"
           alt="pin"
           style="width:25px;height:41px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));"
           onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';"
@@ -866,8 +865,8 @@ function MapResizeSync() {
     const container = map.getContainer();
     const observer = 'ResizeObserver' in window
       ? new ResizeObserver(() => {
-          window.requestAnimationFrame(invalidate);
-        })
+        window.requestAnimationFrame(invalidate);
+      })
       : null;
 
     observer?.observe(container);
@@ -1039,11 +1038,11 @@ export default function LiveTrackingMap({
       restrictToNegrosOccidental
         ? serviceBoundary
           ? rawSafeRouteLines
-              .map((line) => ({
-                ...line,
-                points: line.points.filter((point) => isPointInNegrosBoundary(point, serviceBoundary.geometries)),
-              }))
-              .filter((line) => line.points.length > 1)
+            .map((line) => ({
+              ...line,
+              points: line.points.filter((point) => isPointInNegrosBoundary(point, serviceBoundary.geometries)),
+            }))
+            .filter((line) => line.points.length > 1)
           : rawSafeRouteLines
         : rawSafeRouteLines,
     [rawSafeRouteLines, restrictToNegrosOccidental, serviceBoundary]
@@ -1244,9 +1243,9 @@ export default function LiveTrackingMap({
         const headingPenaltyMeters =
           expectedHeading !== null && typeof candidateForwardHeading === 'number'
             ? Math.min(
-                Math.abs(shortestAngleDelta(expectedHeading, candidateForwardHeading)),
-                Math.abs(shortestAngleDelta(expectedHeading, normalizeAngle(candidateForwardHeading + 180)))
-              ) * 0.2
+              Math.abs(shortestAngleDelta(expectedHeading, candidateForwardHeading)),
+              Math.abs(shortestAngleDelta(expectedHeading, normalizeAngle(candidateForwardHeading + 180)))
+            ) * 0.2
             : 0;
         const score = distanceMeters + headingPenaltyMeters;
 
@@ -1331,9 +1330,9 @@ export default function LiveTrackingMap({
     lastTruckTargetAtRef.current = receivedAt;
     const animationDurationMs = navigationPerspective
       ? Math.max(
-          TRUCK_MIN_SMOOTHING_DURATION_MS,
-          Math.min(TRUCK_MAX_SMOOTHING_DURATION_MS, observedUpdateInterval * 0.9)
-        )
+        TRUCK_MIN_SMOOTHING_DURATION_MS,
+        Math.min(TRUCK_MAX_SMOOTHING_DURATION_MS, observedUpdateInterval * 0.9)
+      )
       : TRUCK_DEFAULT_SMOOTHING_DURATION_MS;
     const previousAcceptedProgress = acceptedRouteProgressRef.current;
     const routeGeometryChanged = Boolean(
@@ -1359,9 +1358,9 @@ export default function LiveTrackingMap({
         );
         const previousVisibleProgress = previousVisibleLocation
           ? projectPointOntoRoute(
-              [previousVisibleLocation.lat, previousVisibleLocation.lng],
-              navigationRouteGeometry
-            )
+            [previousVisibleLocation.lat, previousVisibleLocation.lng],
+            navigationRouteGeometry
+          )
           : null;
         if (
           previousVisibleProgress &&
@@ -1397,18 +1396,20 @@ export default function LiveTrackingMap({
         return distanceMoved > 0.05 || headingChanged || progressChanged;
       });
 
-      if (!hasMovement) {
+      if (!hasAnimatedTruck) {
         const nextLocations = stabilizedTargets.map((targetLocation) => {
           if (targetLocation.markerType !== 'truck') return targetLocation;
           const previous = previousById.get(targetLocation.id);
           return previous
             ? {
-                ...targetLocation,
-                lat: previous.lat,
-                lng: previous.lng,
-                markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
-                routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
-              }
+              ...targetLocation,
+              // On first route load, adopt the projected road point once;
+              // subsequent sub-threshold GPS fixes retain the prior position.
+              lat: hasAcceptedRoadPosition ? previous.lat : targetLocation.lat,
+              lng: hasAcceptedRoadPosition ? previous.lng : targetLocation.lng,
+              markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
+              routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
+            }
             : targetLocation;
         });
         smoothedLocationsRef.current = nextLocations;
@@ -1640,19 +1641,19 @@ export default function LiveTrackingMap({
         ) : null}
         {restrictToNegrosOccidental && serviceMaskRings.length > 0
           ? serviceMaskRings.map((ring, index) => (
-              <PolygonUnsafe
-                key={`service-outline-${index}`}
-                positions={ring}
-                pane="negros-mask-pane"
-                interactive={false}
-                pathOptions={{
-                  color: '#1d4ed8',
-                  weight: 2,
-                  fillOpacity: 0,
-                  opacity: 0.95,
-                }}
-              />
-            ))
+            <PolygonUnsafe
+              key={`service-outline-${index}`}
+              positions={ring}
+              pane="negros-mask-pane"
+              interactive={false}
+              pathOptions={{
+                color: '#1d4ed8',
+                weight: 2,
+                fillOpacity: 0,
+                opacity: 0.95,
+              }}
+            />
+          ))
           : null}
         {navigationDisplayRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
@@ -1676,43 +1677,43 @@ export default function LiveTrackingMap({
 
                 return (
                   <>
-              <PolylineUnsafe
-                key={`${line.id}-outer`}
-                positions={line.points}
-                pathOptions={{
-                  color: outerColor,
-                  weight: outerWeight,
-                  opacity: outerOpacity,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                }}
-              />
-              <PolylineUnsafe
-                key={`${line.id}-base`}
-                positions={line.points}
-                pathOptions={{
-                  color: innerColor,
-                  weight: innerWeight,
-                  opacity: innerOpacity,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                }}
-              >
-                {line.label ? <Popup>{line.label}</Popup> : null}
-              </PolylineUnsafe>
-              <PolylineUnsafe
-                key={`${line.id}-center`}
-                positions={line.points}
-                pathOptions={{
-                  color: '#f8fafc',
-                  weight: centerWeight,
-                  opacity: isUpcoming ? 0.55 : 0.9,
-                  dashArray: centerDash,
-                  dashOffset: centerOffset,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                }}
-              />
+                    <PolylineUnsafe
+                      key={`${line.id}-outer`}
+                      positions={line.points}
+                      pathOptions={{
+                        color: outerColor,
+                        weight: outerWeight,
+                        opacity: outerOpacity,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                      }}
+                    />
+                    <PolylineUnsafe
+                      key={`${line.id}-base`}
+                      positions={line.points}
+                      pathOptions={{
+                        color: innerColor,
+                        weight: innerWeight,
+                        opacity: innerOpacity,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                      }}
+                    >
+                      {line.label ? <Popup>{line.label}</Popup> : null}
+                    </PolylineUnsafe>
+                    <PolylineUnsafe
+                      key={`${line.id}-center`}
+                      positions={line.points}
+                      pathOptions={{
+                        color: '#f8fafc',
+                        weight: centerWeight,
+                        opacity: isUpcoming ? 0.55 : 0.9,
+                        dashArray: centerDash,
+                        dashOffset: centerOffset,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                      }}
+                    />
                   </>
                 );
               })()}
@@ -1739,51 +1740,51 @@ export default function LiveTrackingMap({
                   : markerColor === '#f59e0b'
                     ? 'orange'
                     : (
-                        loc.markerEtaPhase === 'completed' ||
-                        normalizedStatus === 'COMPLETED' ||
-                        normalizedStatus === 'DELIVERED'
-                      )
+                      loc.markerEtaPhase === 'completed' ||
+                      normalizedStatus === 'COMPLETED' ||
+                      normalizedStatus === 'DELIVERED'
+                    )
                       ? 'blue'
                       : 'green';
               return (
-            <MarkerUnsafe
-              key={loc.id}
-              position={[loc.lat, loc.lng]}
-              icon={getStatusPinIcon(pinColor, loc.markerNumber)}
-            >
-              {loc.markerEta ? (
-                <TooltipUnsafe
-                  permanent
-                  direction="top"
-                  offset={[0, -34]}
-                  opacity={1}
-                  interactive={false}
-                  className={`map-eta-tooltip map-eta-${loc.markerEtaPhase || 'upcoming'}`}
+                <MarkerUnsafe
+                  key={loc.id}
+                  position={[loc.lat, loc.lng]}
+                  icon={getStatusPinIcon(pinColor, loc.markerNumber)}
                 >
-                  {loc.markerEta}
-                </TooltipUnsafe>
-              ) : null}
-              <Popup>
-                <div className="text-sm" style={{minWidth: 180, maxWidth: 260}}>
-                  <p className="font-bold text-base mb-1">{loc.popupCustomerName || loc.driverName}</p>
-                  <p className="text-gray-600">{loc.popupAddress || loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
-                  <p className="text-gray-600">
-                    Status: <span className="capitalize">{loc.status.replace(/_/g, ' ').toLowerCase()}</span>
-                  </p>
-                  {Array.isArray(loc.popupOrderItems) && loc.popupOrderItems.length > 0 ? (
-                    <div style={{marginTop: 8, borderTop: '1px solid #e5e7eb', paddingTop: 6}}>
-                      <p style={{fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4}}>Ordered Items</p>
-                      {loc.popupOrderItems.slice(0, 8).map((item, idx) => (
-                        <p key={idx} style={{fontSize: 11, color: '#6b7280', lineHeight: 1.4, margin: 0}}>{item.name} — {item.qty}</p>
-                      ))}
-                      {loc.popupOrderItems.length > 8 ? (
-                        <p style={{fontSize: 10, color: '#9ca3af', marginTop: 3}}>+{loc.popupOrderItems.length - 8} more item(s)</p>
+                  {loc.markerEta ? (
+                    <TooltipUnsafe
+                      permanent
+                      direction="top"
+                      offset={[0, -34]}
+                      opacity={1}
+                      interactive={false}
+                      className={`map-eta-tooltip map-eta-${loc.markerEtaPhase || 'upcoming'}`}
+                    >
+                      {loc.markerEta}
+                    </TooltipUnsafe>
+                  ) : null}
+                  <Popup>
+                    <div className="text-sm" style={{ minWidth: 180, maxWidth: 260 }}>
+                      <p className="font-bold text-base mb-1">{loc.popupCustomerName || loc.driverName}</p>
+                      <p className="text-gray-600">{loc.popupAddress || loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
+                      <p className="text-gray-600">
+                        Status: <span className="capitalize">{loc.status.replace(/_/g, ' ').toLowerCase()}</span>
+                      </p>
+                      {Array.isArray(loc.popupOrderItems) && loc.popupOrderItems.length > 0 ? (
+                        <div style={{ marginTop: 8, borderTop: '1px solid #e5e7eb', paddingTop: 6 }}>
+                          <p style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Ordered Items</p>
+                          {loc.popupOrderItems.slice(0, 8).map((item, idx) => (
+                            <p key={idx} style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.4, margin: 0 }}>{item.name} — {item.qty}</p>
+                          ))}
+                          {loc.popupOrderItems.length > 8 ? (
+                            <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 3 }}>+{loc.popupOrderItems.length - 8} more item(s)</p>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
-                  ) : null}
-                </div>
-              </Popup>
-            </MarkerUnsafe>
+                  </Popup>
+                </MarkerUnsafe>
               )
             })()
           ) : loc.markerType === 'truck' ? (
