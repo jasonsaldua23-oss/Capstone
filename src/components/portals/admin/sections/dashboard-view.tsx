@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, ShoppingCart, Truck, Warehouse, Users, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package, CircleCheck } from 'lucide-react'
+import { Loader2, PackageCheck, ShoppingCart, Truck, Warehouse, Users, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package, CircleCheck } from 'lucide-react'
 import type { DashboardStats } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -78,13 +78,20 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     fetchWarehouseInfo()
   }, [])
 
+  const isApprovedPurchaseOrder = (order: any): boolean => {
+    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+    if (orderNumber.startsWith('RPL-') || Boolean(order?.isScheduledReplacement)) return false
+    const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
+    const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
+    const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
+    return requestStatus === 'APPROVED' && Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
+  }
+
   const dashboardOrderStats = useMemo(() => {
-    const businessOrders = dashboardOrders.filter(
-      (order: any) => !String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
-    )
-    const totalOrders = businessOrders.length
-    const outForDelivery = businessOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'OUT_FOR_DELIVERY').length
-    const delivered = businessOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'DELIVERED').length
+    const approvedPurchaseOrders = dashboardOrders.filter(isApprovedPurchaseOrder)
+    const totalOrders = approvedPurchaseOrders.length
+    const outForDelivery = approvedPurchaseOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'OUT_FOR_DELIVERY').length
+    const delivered = approvedPurchaseOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'DELIVERED').length
 
     return {
       totalOrders,
@@ -98,7 +105,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   const availableDrivers = Number(stats?.availableDrivers || stats?.activeDrivers || 0)
 
   const statCards = [
-    { label: 'Purchase Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: ShoppingCart },
+    { label: 'Purchase Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: PackageCheck },
     { label: 'Warehouse', value: warehouseName, color: 'red', icon: Warehouse },
     { label: 'Vehicles', value: totalVehicles, color: 'green', icon: Truck },
     { label: 'Clients', value: totalClients, color: 'indigo', icon: Users },
@@ -129,7 +136,8 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    for (const order of dashboardOrders) {
+    const approvedOrders = dashboardOrders.filter(isApprovedPurchaseOrder)
+    for (const order of approvedOrders) {
       if (!order?.createdAt) continue
       const orderDate = new Date(order.createdAt)
       if (Number.isNaN(orderDate.getTime())) continue

@@ -636,6 +636,23 @@ def _create_order_from_checkout_payload(
         qty = _int(item.get("quantity"), 0)
         unit = float(item.get("unitPrice") or prod.price)
         line_total = float(item.get("totalPrice") or unit * qty)
+        pkg = (
+            ProductPackaging.objects.filter(product=prod, is_active=True)
+            .select_related("container_type")
+            .order_by("-is_primary", "created_at")
+            .first()
+        )
+        is_returnable = bool(pkg and pkg.is_returnable and _is_returnable_product(prod))
+        empty_returned = max(0, _int(item.get("emptyReturnedQuantity"), 0))
+        containers_per_case = max(1, int(pkg.containers_per_case or 1)) if pkg else 1
+        is_case = str(prod.unit or "").strip().lower() == "case"
+        full_units = qty * containers_per_case if is_case else qty
+        deposit_per_unit = float(pkg.deposit_amount or 0) if is_returnable else 0.0
+        case_deposit = float(pkg.case_deposit_amount or 0) if is_returnable else 0.0
+        deposit_charged = (qty * case_deposit) if is_case else (qty * deposit_per_unit)
+        deposit_refunded = ((empty_returned // containers_per_case) * case_deposit) if is_case else (empty_returned * deposit_per_unit)
+        net_deposit = max(0.0, deposit_charged - deposit_refunded)
+
         order_item = OrderItem.objects.create(
             order=order,
             product=prod,
@@ -645,6 +662,16 @@ def _create_order_from_checkout_payload(
             quantity=qty,
             unit_price=unit,
             total_price=line_total,
+            is_returnable_item=is_returnable,
+            full_quantity=full_units,
+            empty_returned_quantity=empty_returned,
+            deposit_per_unit=deposit_per_unit,
+            deposit_charged=deposit_charged,
+            deposit_refunded=deposit_refunded,
+            net_deposit=net_deposit,
+            deposit_total=net_deposit,
+            container_type_id=pkg.container_type_id if (pkg and is_returnable) else None,
+            container_type_name=pkg.container_type.name if (pkg and is_returnable and pkg.container_type) else None,
             notes=item.get("notes"),
         )
 
@@ -1802,41 +1829,8 @@ def _user_payload(user: User) -> dict[str, Any]:
 
 
 def _customer_payload(customer: Customer) -> dict[str, Any]:
-    balances = []
-    for b in customer.bottle_balances.select_related("container_type").all():
-        associated_packagings = list(
-            ProductPackaging.objects.filter(container_type=b.container_type, is_active=True)
-            .select_related("product")
-            .order_by("-is_primary", "created_at")
-        )
-        prod_names = list(dict.fromkeys(
-            packaging.product.name
-            for packaging in associated_packagings
-            if packaging.product and packaging.product.name
-        ))
-        primary_packaging = associated_packagings[0] if associated_packagings else None
-        containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
-        cases_outstanding, loose_bottles_outstanding = divmod(
-            max(0, int(b.bottles_outstanding or 0)),
-            containers_per_case,
-        )
-        balances.append({
-            "containerTypeId": b.container_type_id,
-            "containerTypeName": b.container_type.name,
-            "productName": ", ".join(prod_names) if prod_names else None,
-            "productNames": prod_names,
-            "bottlesOutstanding": b.bottles_outstanding,
-            "depositAmount": float(b.container_type.deposit_amount),
-            # Full multiples are presented and valued as cases; only the
-            # remainder is a loose-bottle balance.
-            "containersPerCase": containers_per_case,
-            "casesOutstanding": cases_outstanding,
-            "looseBottlesOutstanding": loose_bottles_outstanding,
-            "caseDepositAmount": float(primary_packaging.case_deposit_amount or 0) if primary_packaging else 0.0,
-            "depositBalance": float(b.deposit_balance),
-            "bottlesReturnedTotal": b.bottles_returned_total,
-            "bottlesSoldTotal": b.bottles_sold_total,
-        })
+    from .rgb.services import get_customer_bottle_balances
+    balances = get_customer_bottle_balances(customer)
     return {
         "userId": customer.id,
         "email": customer.email,
@@ -2898,12 +2892,17 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
     row = _serialize_model(item)
     product = getattr(item, "product", None)
     quantity_per_case = _int(getattr(product, "quantity_per_unit", 0), 0)
+    packaging = ProductPackaging.objects.filter(product=product, is_active=True).first() if product else None
+    containers_per_case = int(packaging.containers_per_case) if (packaging and packaging.containers_per_case) else (quantity_per_case or 1)
     snapshot_name = str(getattr(item, "product_name", "") or "").strip()
     snapshot_sku = str(getattr(item, "product_sku", "") or "").strip()
     snapshot_unit = _normalize_product_unit(getattr(item, "product_unit", None))
     product_size_label = _get_product_size_label(product) if product else ""
     product_sizes = list(getattr(product, "sizes", []) or []) if product else []
     row["quantityPerCase"] = quantity_per_case
+    row["containersPerCase"] = containers_per_case
+    row["caseDepositAmount"] = float(packaging.case_deposit_amount or 0) if packaging else 0.0
+    row["depositAmount"] = float(packaging.deposit_amount or 0) if packaging else 0.0
     if include_full_product:
         if product:
             row["product"] = _serialize_model(product)
@@ -3338,6 +3337,8 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
         raise ValueError("Cancelled/rejected orders cannot be marked as delivered")
 
     _finalize_order_inventory_on_delivery(order, performed_by)
+    from .deposit_lifecycle import finalize_order_deposits_on_delivery
+    finalize_order_deposits_on_delivery(order, performed_by)
     _reconcile_replacement_bottle_remainder_on_delivery(order, performed_by)
     order.status = OrderStatus.DELIVERED
     update_fields = ["status", "updated_at"]
@@ -5092,6 +5093,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         return _ok({"success": True})
     body = _json_body(request)
     current_email = str(user.email or "").strip().lower()
+    current_role = str(user.role or "").strip()
     requested_email_raw = body.get("email", None)
     requested_email = current_email
     email_change_requested = False
@@ -5099,8 +5101,9 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         requested_email = str(requested_email_raw).strip().lower()
         email_change_requested = requested_email != current_email
 
-    if email_change_requested:
-        requested_role = str(body.get("roleId") or user.role or "").strip()
+    requested_role = str(body.get("roleId") or current_role).strip()
+    role_change_requested = requested_role != current_role
+    if email_change_requested or role_change_requested:
         existing_message = _staff_email_conflict_message(requested_email, requested_role, exclude_user_id=user.id)
         if existing_message:
             return _err(existing_message, 409)
@@ -5183,9 +5186,11 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         if role_value not in {x for x, _ in RoleType.choices}:
             return _err("Role not found", 404)
         user.role = role_value
-    existing_message = _staff_email_conflict_message(user.email, user.role, exclude_user_id=user.id)
-    if existing_message:
-        return _err(existing_message, 409)
+    if email_change_requested or role_change_requested:
+        # Fix: unchanged legacy emails must not block unrelated profile updates.
+        existing_message = _staff_email_conflict_message(user.email, user.role, exclude_user_id=user.id)
+        if existing_message:
+            return _err(existing_message, 409)
     user.save()
     return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
 
@@ -5261,7 +5266,10 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
     if request.method == "GET":
         if p.get("type") == "customer" and p.get("userId") != c.id:
             return _err("Forbidden", 403)
-        return _ok({"success": True, "customer": _serialize_model(c, exclude={"password"})})
+        cust_data = _serialize_model(c, exclude={"password"})
+        from .rgb.services import get_customer_bottle_balances
+        cust_data["bottleBalances"] = get_customer_bottle_balances(c)
+        return _ok({"success": True, "customer": cust_data})
     if p.get("type") != "staff" and p.get("userId") != c.id:
         return _err("Forbidden", 403)
     if request.method == "DELETE":
@@ -5507,7 +5515,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         return _err("Unauthorized", 401)
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = _real_products(Product.objects.all()).order_by("name")
+        qs = _real_products(Product.objects.filter(is_active=True)).order_by("name")
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(sku__icontains=s))
@@ -5783,6 +5791,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         qs = (
             Inventory.objects.select_related("warehouse", "product")
             .filter(product__in=_real_products(Product.objects.all()))
+            .filter(product__is_active=True)
             .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
             .order_by("-updated_at")
         )
@@ -5961,6 +5970,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         qs = (
             StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
             .filter(inventory__product__in=_real_products(Product.objects.all()))
+            .filter(inventory__product__is_active=True)
             .filter(inventory__warehouse__in=_real_warehouses(Warehouse.objects.all()))
             .filter(quantity__gt=0)
             .order_by("-created_at")
@@ -6233,6 +6243,8 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 reference_id=batch.id,
                 notes="Stock batch added",
             )
+            from .deposit_lifecycle import record_stockin_empty_consumption
+            record_stockin_empty_consumption(inv, batch, qty)
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
                 title="Stock batch added",
@@ -6269,6 +6281,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 
     # Validate all batches before creating any
     validated_batches = []
+    seen_product_ids: set[str] = set()
     for idx, batch_item in enumerate(batches):
         if not isinstance(batch_item, dict):
             return _err(f"Batch {idx} is not a dictionary", 400)
@@ -6287,6 +6300,9 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 
         if not product_id:
             return _err(f"Batch {idx}: productId is required", 400)
+        if product_id in seen_product_ids:
+            return _err(f"Batch {idx}: product is already included in this stock submission", 400)
+        seen_product_ids.add(product_id)
         if qty <= 0:
             return _err(f"Batch {idx}: quantity must be > 0", 400)
 
@@ -6319,6 +6335,8 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
     try:
         with transaction.atomic():
             created_stock_batches = []
+            newly_created_count = 0
+            reused_count = 0
 
             for batch_data in validated_batches:
                 product_id = batch_data["product_id"]
@@ -6326,18 +6344,37 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 qty = batch_data["quantity"]
                 expiry_date = batch_data["expiry_date"]
 
-                # Get or create inventory
-                inv, created = Inventory.objects.select_related("warehouse", "product").get_or_create(
-                    warehouse=warehouse,
-                    product=product,
-                    defaults={
-                        "quantity": 0,
-                        "reserved_quantity": 0,
-                        "threshold": max(1, int(qty * 0.15)),
-                        "last_restocked_at": timezone.now(),
-                    },
+                # Add Stock only accepts products already registered in this warehouse inventory.
+                inv = (
+                    Inventory.objects.select_for_update()
+                    .select_related("warehouse", "product")
+                    .filter(warehouse=warehouse, product=product)
+                    .first()
                 )
-                if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
+                if not inv:
+                    return _err(
+                        f"Batch {batch_data['index']}: selected product is not registered in this warehouse inventory.",
+                        400,
+                    )
+
+                # A retried request reuses its original batch and must not add quantity twice.
+                existing_batch = (
+                    StockBatch.objects.select_related("inventory")
+                    .filter(batch_number=batch_data["batch_number"])
+                    .first()
+                )
+                if existing_batch:
+                    same_submission = (
+                        existing_batch.inventory_id == inv.id
+                        and _int(existing_batch.quantity, 0) == qty
+                    )
+                    if not same_submission:
+                        return _err(f"Batch {batch_data['index']}: batch number is already in use", 409)
+                    created_stock_batches.append(existing_batch)
+                    reused_count += 1
+                    continue
+
+                if _is_inventory_overstocked_for_restock_block(inv, qty):
                     return _err(
                         f"Batch {batch_data['index']}: cannot add stock for product currently flagged as overstocked (latest stock-in is >= 10x threshold).",
                         400,
@@ -6354,6 +6391,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     status=batch_data["status"],
                     created_by=created_by,
                 )
+                newly_created_count += 1
 
                 # Update inventory quantity
                 inv.quantity += qty
@@ -6376,21 +6414,25 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     reference_id=batch.id,
                     notes="Bulk stock batch added",
                 )
+                from .deposit_lifecycle import record_stockin_empty_consumption
+                record_stockin_empty_consumption(inv, batch, qty)
 
                 created_stock_batches.append(batch)
 
             serialized_batches = [_serialize_model(b, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for b in created_stock_batches]
-            actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
-            _create_staff_notifications(
-                title="Bulk Stock In completed",
-                message=f"{actor_name} completed Stock In for {len(created_stock_batches)} batches in {warehouse.name}.",
-                reference_type="stock_batch",
-                reference_id=warehouse.id,
-            )
+            if newly_created_count > 0:
+                actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+                _create_staff_notifications(
+                    title="Bulk Stock In completed",
+                    message=f"{actor_name} completed Stock In for {newly_created_count} batches in {warehouse.name}.",
+                    reference_type="stock_batch",
+                    reference_id=warehouse.id,
+                )
 
             return _ok({
                 "success": True,
                 "created": len(created_stock_batches),
+                "reused": reused_count,
                 "failed": 0,
                 "stockBatches": serialized_batches,
                 "errors": []
@@ -7336,6 +7378,8 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             if next_status == OrderStatus.DELIVERED:
                 _finalize_order_inventory_on_delivery(o, staff.get("userId"))
+                from .deposit_lifecycle import finalize_order_deposits_on_delivery
+                finalize_order_deposits_on_delivery(o, staff.get("userId"))
             elif next_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
                 _release_order_reservations(o, staff.get("userId"))
 
@@ -9043,9 +9087,14 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         # Do not over-restrict by later global order statuses here; split-warehouse orders can have
         # one leg already moving while another leg still needs trip planning. Still exclude
         # orders that are not yet approved / confirmed for delivery planning.
+        route_plan_items = Prefetch(
+            "items",
+            queryset=OrderItem.objects.select_related("product"),
+            to_attr="_route_plan_items",
+        )
         oqs = _real_orders(
             Order.objects.select_related("customer", "timeline")
-            .prefetch_related("items__product")
+            .prefetch_related(route_plan_items)
             .exclude(
                 status__in=[
                     OrderStatus.PENDING,
@@ -9108,6 +9157,8 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         orders = []
         grouped_by_city: dict[str, list[dict[str, Any]]] = {}
         for o in candidate_orders[:300]:
+            # Fix: reuse the batched item list; per-order related queries time out on deployed databases.
+            order_items = list(getattr(o, "_route_plan_items", []))
             city = str((o.shipping_city or None) or "Unknown").strip() or "Unknown"
             latitude = _to_float_or_none((o.shipping_latitude or None) or o.customer.latitude)
             longitude = _to_float_or_none((o.shipping_longitude or None) or o.customer.longitude)
@@ -9120,9 +9171,9 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                     for allocation in order_allocations
                     if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
                 )
-            total_order_qty = sum(max(_int(item.quantity, 0), 0) for item in o.items.all())
+            total_order_qty = sum(max(_int(item.quantity, 0), 0) for item in order_items)
             product_allocations: list[dict[str, Any]] = []
-            for item in o.items.select_related("product").all():
+            for item in order_items:
                 item_id = str(getattr(item, "id", "") or "").strip()
                 item_allocations = (item_allocations_map.get(str(getattr(o, "id", "") or "").strip(), {}) or {}).get(item_id, [])
                 allocated_for_selected_warehouse = 0
@@ -9144,7 +9195,6 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                     }
                 )
             scheduled_replacement = _get_scheduled_replacement_payload(o)
-            order_items = list(o.items.select_related("product").all())
 
             def _format_route_plan_qty_label(item: OrderItem) -> str:
                 raw_qty = max(_int(getattr(item, "quantity", 0), 0), 0)

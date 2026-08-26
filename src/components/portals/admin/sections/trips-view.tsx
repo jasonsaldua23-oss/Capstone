@@ -303,19 +303,20 @@ export function TripsView() {
     setRoutePlans([])
     setSelectedRouteCity('')
     setSelectedRouteOrderIds([])
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
     try {
       const query = new URLSearchParams({
         date: effectiveDate,
         warehouseId: effectiveWarehouseId,
       });
-      const response = await fetch(`/api/trips/route-plan?${query.toString()}`, {
-        signal: controller.signal,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to generate route plan');
+      // Keep Admin trip planning consistent with the production-safe Warehouse request.
+      const result = await safeFetchJson(
+        `/api/trips/route-plan?${query.toString()}`,
+        { cache: 'no-store', credentials: 'include' },
+        { retries: 0, timeoutMs: 60000 }
+      );
+      const data = result.data || {};
+      if (!result.ok) {
+        throw new Error(result.status === 0 ? 'Request timed out. Please try again.' : data?.error || 'Failed to generate route plan');
       }
 
       const rawPlans = getCollection<any>(data, ['routePlans']);
@@ -343,8 +344,7 @@ export function TripsView() {
       }
       return plans.length > 0;
     } catch (error: any) {
-      const message =
-        error?.name === 'AbortError' ? 'Request timed out. Please try again.' : error?.message || 'Failed to generate route plan';
+      const message = error?.message || 'Failed to generate route plan';
       if (!silent) toast.error(message);
       setRoutePlanMessage({ type: 'error', text: message });
       setRoutePlans([]);
@@ -352,7 +352,6 @@ export function TripsView() {
       setSelectedRouteOrderIds([]);
       return false;
     } finally {
-      clearTimeout(timeout);
       setLoadingRoutePlans(false);
     }
   }

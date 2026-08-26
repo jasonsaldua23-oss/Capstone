@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import type { MutableRefObject } from 'react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
-import { Bell, Camera, ChevronRight, Loader2, LogOut, MapPin, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle } from 'lucide-react'
+import { Bell, Camera, ChevronRight, Clock, Loader2, LogOut, MapPin, Package, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function formatFullName(
@@ -75,6 +75,7 @@ type CustomerProfileViewProps = {
   onUnreadCountChange?: (count: number) => void
   onDidMount?: () => void
   onUserUpdate?: (user: any) => void
+  onNavigateNotification?: (notification: any) => void
 }
 
 type NotificationPrefs = {
@@ -136,6 +137,7 @@ export function CustomerProfileView({
   onUnreadCountChange,
   onDidMount,
   onUserUpdate,
+  onNavigateNotification,
 }: CustomerProfileViewProps) {
   const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'security-settings' | 'notifications' | 'real-notifications'>(initialSubView ?? 'menu')
@@ -149,6 +151,52 @@ export function CustomerProfileView({
   const [selectedProductId, setSelectedProductId] = useState('')
   const [recordCases, setRecordCases] = useState(1)
   const [isSubmittingEmpties, setIsSubmittingEmpties] = useState(false)
+  const [emptiesTab, setEmptiesTab] = useState<'available' | 'reserved'>('available')
+  const [reservedOrders, setReservedOrders] = useState<any[]>([])
+  const [isLoadingReserved, setIsLoadingReserved] = useState(false)
+  const lastFetchedReservedRef = useRef<number>(0)
+  const isFetchingReservedRef = useRef<boolean>(false)
+
+  const fetchReservedOrders = useCallback(async (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastFetchedReservedRef.current < 20000 && lastFetchedReservedRef.current > 0) {
+      return
+    }
+    if (isFetchingReservedRef.current) return
+    isFetchingReservedRef.current = true
+    if (reservedOrders.length === 0) {
+      setIsLoadingReserved(true)
+    }
+    try {
+      const res = await fetch('/api/customer/orders', { cache: 'no-store' })
+      const payload = await res.json().catch(() => ({}))
+      if (res.ok && payload.success) {
+        const rows = Array.isArray(payload.orders) ? payload.orders : []
+        const activeWithEmpties = rows.filter((order: any) => {
+          const status = String(order?.status || '').toUpperCase()
+          const reqStatus = String(order?.requestStatus || order?.request_status || '').toUpperCase()
+          if (['CANCELLED', 'CANCELED', 'REJECTED', 'DELIVERED', 'COMPLETED', 'FAILED', 'FAILED_DELIVERY'].includes(status)) return false
+          if (['REJECTED', 'CANCELLED'].includes(reqStatus)) return false
+          const items = Array.isArray(order?.items) ? order.items : []
+          const hasItemEmpties = items.some((item: any) => Number(item?.emptyReturnedQuantity || item?.empty_returned_quantity || 0) > 0)
+          return hasItemEmpties
+        })
+        setReservedOrders(activeWithEmpties)
+        lastFetchedReservedRef.current = Date.now()
+      }
+    } catch (e) {
+      console.error('Failed to fetch reserved deposit orders:', e)
+    } finally {
+      setIsLoadingReserved(false)
+      isFetchingReservedRef.current = false
+    }
+  }, [reservedOrders.length])
+
+  useEffect(() => {
+    if (subView === 'empties-deposits') {
+      void fetchReservedOrders()
+    }
+  }, [subView, fetchReservedOrders])
 
   const fetchEligibleProducts = async () => {
     setIsLoadingEligible(true)
@@ -496,6 +544,8 @@ export function CustomerProfileView({
     if (!canSaveProfile) return
     const success = await saveProfile()
     if (success) {
+      // Added: reopen the profile in read-only mode after a successful save.
+      setIsEditingProfile(false)
       setSubView('menu')
     }
   }
@@ -631,33 +681,67 @@ export function CustomerProfileView({
           </div>
         ) : (
           <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
-            {realNotifications.map((n, idx) => (
-              <div
-                key={n.id || idx}
-                className={`flex gap-3 px-4 py-4 transition-colors ${
-                  !n.isRead ? 'bg-[#f4faf6]' : 'bg-white'
-                } ${idx < realNotifications.length - 1 ? 'border-b border-slate-100' : ''}`}
-              >
-                <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
-                  !n.isRead ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
-                }`}>
-                  <Bell className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={`text-sm ${!n.isRead ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
-                      {n.title || 'Alert'}
-                    </p>
-                    <span className="text-[10px] text-slate-400 font-medium shrink-0 pt-0.5">
-                      {timeAgo(n.createdAt)}
-                    </span>
+            {realNotifications.map((n, idx) => {
+              const handleItemClick = () => {
+                if (!n.isRead) {
+                  setRealNotifications((prev) =>
+                    prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+                  )
+                  if (onUnreadCountChange) {
+                    const nextUnread = Math.max(0, realNotifications.filter((item) => !item.isRead && item.id !== n.id).length)
+                    onUnreadCountChange(nextUnread)
+                  }
+                  if (n.id) {
+                    void fetch('/api/notifications', {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ ids: [n.id] }),
+                    }).catch(() => {})
+                  }
+                }
+                if (onNavigateNotification) {
+                  onNavigateNotification(n)
+                }
+              }
+
+              return (
+                <div
+                  key={n.id || idx}
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleItemClick}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleItemClick()
+                    }
+                  }}
+                  className={`group flex items-center gap-3 px-4 py-4 cursor-pointer select-none transition-all hover:bg-emerald-50/70 active:scale-[0.99] ${
+                    !n.isRead ? 'bg-[#f4faf6]' : 'bg-white'
+                  } ${idx < realNotifications.length - 1 ? 'border-b border-slate-100' : ''}`}
+                >
+                  <div className={`h-10 w-10 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
+                    !n.isRead ? 'bg-emerald-100 text-emerald-800 shadow-xs' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    <Bell className="h-4 w-4" />
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    {n.message || n.content || ''}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className={`text-sm leading-snug group-hover:text-emerald-950 transition-colors ${!n.isRead ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
+                        {n.title || 'Alert'}
+                      </p>
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0 pt-0.5">
+                        {timeAgo(n.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
+                      {n.message || n.content || ''}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-emerald-600 transition-all shrink-0 group-hover:translate-x-0.5" />
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -1194,72 +1278,221 @@ export function CustomerProfileView({
           </Button>
         </div>
 
-        <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
-          <div className="border-b border-slate-100 px-4 py-3.5 flex items-center justify-between">
-            <div>
-              <h3 className="text-[15px] font-bold text-slate-900">Empty Containers On Record</h3>
-              <p className="mt-0.5 text-xs text-slate-500">Available empty containers applied automatically at checkout.</p>
-            </div>
-            <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
-              <Recycle className="h-4 w-4" />
-            </span>
-          </div>
-
-          {bottleBalances.length > 0 ? (
-            <div className="divide-y divide-slate-100">
-              {bottleBalances.map((balance: any) => {
-                const containersPerCase = Math.max(1, Math.floor(Number(balance.containersPerCase || 1)))
-                const bottlesOutstanding = Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)))
-                const casesOutstanding = Number.isFinite(Number(balance.casesOutstanding))
-                  ? Math.max(0, Math.floor(Number(balance.casesOutstanding)))
-                  : Math.floor(bottlesOutstanding / containersPerCase)
-                const looseBottles = Number.isFinite(Number(balance.looseBottlesOutstanding))
-                  ? Math.max(0, Math.floor(Number(balance.looseBottlesOutstanding)))
-                  : bottlesOutstanding % containersPerCase
-                const hasFullCases = casesOutstanding > 0
-                const depositAmount = hasFullCases ? balance.caseDepositAmount : balance.depositAmount
-                const depositUnit = hasFullCases ? 'case' : 'bottle'
-
-                return (
-                <div key={balance.containerTypeId} className="flex items-center justify-between gap-4 px-4 py-3.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-800">
-                      {balance.productName || balance.containerTypeName}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {balance.productName && balance.containerTypeName ? `${balance.containerTypeName} • ` : ''}
-                      Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(depositAmount)}/{depositUnit}</span>
-                      {hasFullCases && looseBottles > 0 ? (
-                        <span> · Loose: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span></span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-lg font-bold text-slate-900">{hasFullCases ? casesOutstanding : looseBottles}</p>
-                    <p className="text-xs text-slate-500">
-                      {hasFullCases ? `empty case${casesOutstanding !== 1 ? 's' : ''}` : `loose bottle${looseBottles !== 1 ? 's' : ''}`}
-                    </p>
-                    {hasFullCases && looseBottles > 0 ? (
-                      <p className="text-[11px] text-slate-500">+ {looseBottles} loose bottle{looseBottles !== 1 ? 's' : ''}</p>
-                    ) : null}
-                    <p className="mt-0.5 text-xs font-semibold text-emerald-700">{formatDeposit(balance.depositBalance)} credit</p>
-                  </div>
-                </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="px-4 py-8 text-center">
-              <div className="mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-2xl bg-slate-50 text-slate-400">
-                <Recycle className="h-5 w-5" />
-              </div>
-              <p className="text-sm font-semibold text-slate-700">No Empty Bottles Recorded</p>
-              <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
-                Have empty cases at home from past purchases? Click <strong>"Record Empties"</strong> to declare them in cases and waive container deposits on your next order.
-              </p>
-            </div>
-          )}
+        {/* Navigation Tabs for Available vs Used/Reserved Deposits */}
+        <div className="mx-4 mb-3 flex rounded-2xl bg-slate-100/80 p-1">
+          <button
+            type="button"
+            onClick={() => setEmptiesTab('available')}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-all ${
+              emptiesTab === 'available'
+                ? 'bg-white text-emerald-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Recycle className="h-3.5 w-3.5 text-emerald-600" />
+            <span>Available Empties</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setEmptiesTab('reserved')}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-all ${
+              emptiesTab === 'reserved'
+                ? 'bg-white text-blue-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Package className="h-3.5 w-3.5 text-blue-600" />
+            <span>Used / Reserved Deposits</span>
+            {reservedOrders.length > 0 && (
+              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+                {reservedOrders.length}
+              </span>
+            )}
+          </button>
         </div>
+
+        {emptiesTab === 'available' ? (
+          <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
+            <div className="border-b border-slate-100 px-4 py-3.5 flex items-center justify-between">
+              <div>
+                <h3 className="text-[15px] font-bold text-slate-900">Available Empty Containers</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Available empty containers applied automatically at checkout.</p>
+              </div>
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+                <Recycle className="h-4 w-4" />
+              </span>
+            </div>
+
+            {bottleBalances.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {bottleBalances.map((balance: any) => {
+                  const containersPerCase = Math.max(1, Math.floor(Number(balance.containersPerCase || 1)))
+                  const bottlesAvailable = Number.isFinite(Number(balance.bottlesAvailable))
+                    ? Math.max(0, Math.floor(Number(balance.bottlesAvailable)))
+                    : Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)))
+                  const casesAvailable = Number.isFinite(Number(balance.casesAvailable))
+                    ? Math.max(0, Math.floor(Number(balance.casesAvailable)))
+                    : Math.floor(bottlesAvailable / containersPerCase)
+                  const looseBottlesAvailable = Number.isFinite(Number(balance.looseBottlesAvailable))
+                    ? Math.max(0, Math.floor(Number(balance.looseBottlesAvailable)))
+                    : bottlesAvailable % containersPerCase
+
+                  const casesReserved = Number(balance.casesReserved || 0)
+                  const looseReserved = Number(balance.looseBottlesReserved || 0)
+                  const hasReserved = casesReserved > 0 || looseReserved > 0
+
+                  const isCaseFormat = casesAvailable > 0 || (casesReserved > 0 && looseBottlesAvailable === 0)
+                  const depositAmount = isCaseFormat ? balance.caseDepositAmount : balance.depositAmount
+                  const depositUnit = isCaseFormat ? 'case' : 'bottle'
+                  const depositAvailable = Number.isFinite(Number(balance.depositAvailable))
+                    ? Number(balance.depositAvailable)
+                    : (Number.isFinite(Number(balance.depositBalance)) ? Number(balance.depositBalance) : 0)
+
+                  return (
+                    <div key={balance.containerTypeId} className="px-4 py-3.5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-800">
+                            {balance.productName || balance.containerTypeName}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {balance.productName && balance.containerTypeName ? `${balance.containerTypeName} • ` : ''}
+                            Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(depositAmount)}/{depositUnit}</span>
+                            {isCaseFormat && looseBottlesAvailable > 0 ? (
+                              <span> · Loose: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span></span>
+                            ) : null}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className={`text-lg font-bold ${casesAvailable > 0 || looseBottlesAvailable > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
+                            {isCaseFormat ? casesAvailable : looseBottlesAvailable}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {isCaseFormat ? `empty case${casesAvailable !== 1 ? 's' : ''}` : `loose bottle${looseBottlesAvailable !== 1 ? 's' : ''}`} available
+                          </p>
+                          {isCaseFormat && looseBottlesAvailable > 0 ? (
+                            <p className="text-[11px] text-slate-500">+ {looseBottlesAvailable} loose bottle{looseBottlesAvailable !== 1 ? 's' : ''}</p>
+                          ) : null}
+                          <p className={`mt-0.5 text-xs font-semibold ${depositAvailable > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                            {formatDeposit(depositAvailable)} credit
+                          </p>
+                        </div>
+                      </div>
+
+                      {hasReserved && (
+                        <div className="mt-2.5 flex items-center justify-between rounded-xl bg-blue-50/70 px-3 py-1.5 text-[11px] text-blue-800">
+                          <span className="flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5 text-blue-600" />
+                            <span>Reserved in active orders:</span>
+                          </span>
+                          <span className="font-bold">
+                            {casesReserved > 0 ? `${casesReserved} case${casesReserved !== 1 ? 's' : ''}` : ''}
+                            {casesReserved > 0 && looseReserved > 0 ? ' + ' : ''}
+                            {looseReserved > 0 ? `${looseReserved} bottle${looseReserved !== 1 ? 's' : ''}` : ''}
+                            {' '}({formatDeposit(balance.depositReserved || 0)})
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <div className="mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-2xl bg-slate-50 text-slate-400">
+                  <Recycle className="h-5 w-5" />
+                </div>
+                <p className="text-sm font-semibold text-slate-700">No Empty Bottles Recorded</p>
+                <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
+                  Have empty cases at home from past purchases? Click <strong>"Record Empties"</strong> to declare them in cases and waive container deposits on your next order.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
+            <div className="border-b border-slate-100 px-4 py-3.5 flex items-center justify-between">
+              <div>
+                <h3 className="text-[15px] font-bold text-slate-900">Used or Reserved Deposits</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Deposits locked in pending and active orders. Released if cancelled.</p>
+              </div>
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-blue-50 text-blue-600">
+                <Package className="h-4 w-4" />
+              </span>
+            </div>
+
+            {isLoadingReserved && reservedOrders.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400">Loading active reservations...</div>
+            ) : reservedOrders.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {reservedOrders.map((order: any) => {
+                  const itemsWithEmpties = (Array.isArray(order?.items) ? order.items : []).filter(
+                    (i: any) => Number(i?.emptyReturnedQuantity || i?.empty_returned_quantity || 0) > 0
+                  )
+                  const totalDepositCovered = itemsWithEmpties.reduce((sum: number, item: any) => {
+                    const refund = Number(item?.depositRefunded || item?.deposit_refunded || 0)
+                    return sum + refund
+                  }, 0) || Number(order?.depositRefundTotal || order?.deposit_refund_total || 0)
+
+                  return (
+                    <div key={order.id} className="p-4 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber || order.order_number}</p>
+                          <p className="text-[11px] text-slate-400">
+                            {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Active Order'}
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-100">
+                          {String(order.requestStatus || order.status || 'PENDING').replace(/_/g, ' ')}
+                        </span>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 p-3 space-y-1.5 text-xs text-slate-600">
+                        {itemsWithEmpties.map((item: any, idx: number) => {
+                          const empties = Number(item?.emptyReturnedQuantity || item?.empty_returned_quantity || 0)
+                          const perCase = Math.max(1, Number(item?.containersPerCase || item?.quantityPerCase || item?.product?.quantityPerCase || 1))
+                          const cases = Math.floor(empties / perCase)
+                          const loose = empties % perCase
+                          const depositRefund = Number(item?.depositRefunded || item?.deposit_refunded || 0) || (totalDepositCovered > 0 && itemsWithEmpties.length === 1 ? totalDepositCovered : 0)
+
+                          return (
+                            <div key={idx} className="flex items-center justify-between">
+                              <span className="font-medium text-slate-800 truncate mr-2">
+                                {item?.productName || item?.product_name || 'Returnable Product'}
+                              </span>
+                              <span className="shrink-0 font-semibold text-slate-700">
+                                {cases > 0 ? `${cases} case${cases !== 1 ? 's' : ''}` : ''}
+                                {cases > 0 && loose > 0 ? ' + ' : ''}
+                                {loose > 0 ? `${loose} loose` : ''}
+                                {depositRefund > 0 ? ` (${formatDeposit(depositRefund)})` : ''}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <span className="text-slate-500 font-medium">Total Locked Deposit Credit</span>
+                        <span className="font-bold text-emerald-700">{formatDeposit(totalDepositCovered || order?.depositRefundTotal || order?.deposit_refund_total || 0)}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <div className="mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-2xl bg-slate-50 text-slate-400">
+                  <Package className="h-5 w-5" />
+                </div>
+                <p className="text-sm font-semibold text-slate-700">No Used or Reserved Deposits</p>
+                <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
+                  You do not have any active orders currently reserving empty containers. All recorded empties are available for checkout.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Record Empty Bottles Dialog */}
         <Dialog open={isRecordModalOpen} onOpenChange={setIsRecordModalOpen}>

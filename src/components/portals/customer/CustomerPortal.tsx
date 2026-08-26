@@ -648,6 +648,17 @@ export function CustomerPortal() {
       if (scopes.some((scope) => ['inventory', 'products', 'stock-batches'].includes(scope))) {
         void fetchProducts()
       }
+      if (scopes.some((scope) => ['customers', 'auth', 'user', 'orders'].includes(scope))) {
+        void (async () => {
+          try {
+            const authMeRes = await fetch('/api/auth/me', { cache: 'no-store' })
+            const authMeData = await authMeRes.json().catch(() => ({}))
+            if (authMeRes.ok && authMeData?.user) {
+              setUser(authMeData.user)
+            }
+          } catch {}
+        })()
+      }
     })
 
     const onFocus = () => {
@@ -1282,7 +1293,7 @@ export function CustomerPortal() {
         : 0,
       casesAffected: isDiscountEligible ? discountCasesAffected : 0,
       totalDiscount,
-      finalTotal: Math.max(0, selectedSubtotal - totalDiscount) + selectedDepositCharged - selectedDepositRefunded,
+      finalTotal: Math.max(0, selectedSubtotal - totalDiscount - selectedDepositRefunded),
     }
   }, [
     customerDiscountOption,
@@ -1640,8 +1651,16 @@ export function CustomerPortal() {
         return next
       })
       // Refresh once in background via shared sync channel.
-      emitDataSync(['orders'])
+      emitDataSync(['orders', 'customers', 'auth', 'user'])
       void fetchProducts()
+      void loadCustomerProfile()
+      try {
+        const authMeRes = await fetch('/api/auth/me', { cache: 'no-store' })
+        const authMeData = await authMeRes.json().catch(() => ({}))
+        if (authMeRes.ok && authMeData?.user) {
+          setUser(authMeData.user)
+        }
+      } catch {}
       setOrdersTab('ALL')
       setOrdersSearch('')
       setActiveView('purchase-requests')
@@ -1661,7 +1680,6 @@ export function CustomerPortal() {
     setSelectedTrackingOrderId(orderId)
     setActiveView('track')
   }
-
 
   const openRatingDialog = (order: Order, initialDeliveryRating = 5) => {
     if (reviewedOrderIds.has(order.id)) {
@@ -2936,7 +2954,52 @@ export function CustomerPortal() {
                     initialSubView={notifInitialSubViewRef.current}
                     onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
                     onDidMount={() => { notifInitialSubViewRef.current = 'menu' }}
-                    onUserUpdate={(updatedUser) => setUser(updatedUser)}
+                    onUserUpdate={setUser}
+                    onNavigateNotification={(n) => {
+                      const refType = String(n?.referenceType || n?.reference_type || '').toLowerCase()
+                      const refId = String(n?.referenceId || n?.reference_id || '').trim()
+                      const notifType = String(n?.type || '').toUpperCase()
+                      const title = String(n?.title || '').toLowerCase()
+                      const message = String(n?.message || '').toLowerCase()
+
+                      if (
+                        title.includes('purchase request') ||
+                        title.includes('request approved') ||
+                        title.includes('request rejected') ||
+                        refType === 'purchase_request' ||
+                        (refType === 'order' && (title.includes('request') || message.includes('request')))
+                      ) {
+                        const matched = orders.find((o) => o.id === refId || o.purchaseRequestNumber === refId || o.orderNumber === refId)
+                        if (matched) {
+                          openPRDetail(matched)
+                        } else {
+                          setActiveView('purchase-requests')
+                        }
+                        return
+                      }
+
+                      if (refType === 'replacement' || notifType === 'REPLACEMENT' || title.includes('replacement') || message.includes('replacement')) {
+                        setActiveView('replacements')
+                        return
+                      }
+
+                      if (refType === 'order' || notifType === 'ORDER' || title.includes('order') || message.includes('order') || title.includes('delivery')) {
+                        const matched = orders.find((o) => o.id === refId || o.orderNumber === refId || o.purchaseOrderNumber === refId)
+                        if (matched) {
+                          openOrderDetail(matched, 'profile')
+                        } else {
+                          setActiveView('orders')
+                        }
+                        return
+                      }
+
+                      if (refType === 'trip' || title.includes('out for delivery') || title.includes('driver')) {
+                        setActiveView('track')
+                        return
+                      }
+
+                      setActiveView('orders')
+                    }}
                   />
                 )}
               </motion.main>

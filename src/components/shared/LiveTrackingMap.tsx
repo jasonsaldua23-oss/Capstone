@@ -1286,9 +1286,25 @@ export default function LiveTrackingMap({
                 : typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading)
                   ? normalizeAngle(loc.markerHeading)
                   : undefined;
-      // The ordered upcoming route is authoritative. GPS heading is already the
-      // final fallback in headingCandidate when no usable forward tangent exists.
-      const snappedHeading = headingCandidate;
+      // Fix: when the driver's actual GPS heading disagrees with the route
+      // tangent by more than 90°, the driver is likely moving a different
+      // direction (e.g. turning around). Use the GPS heading so the truck
+      // icon faces the direction the driver is actually moving.
+      const gpsHeading =
+        typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading) && loc.markerHeading >= 0
+          ? normalizeAngle(loc.markerHeading)
+          : null;
+      const routeDerivedHeading =
+        typeof headingCandidate === 'number' ? headingCandidate : null;
+      const snappedHeading = (() => {
+        if (gpsHeading !== null && routeDerivedHeading !== null) {
+          const delta = Math.abs(shortestAngleDelta(gpsHeading, routeDerivedHeading));
+          // A delta > 90° means the driver is heading roughly opposite to the
+          // route tangent — use the GPS heading so the icon visually matches.
+          if (delta > 90) return gpsHeading;
+        }
+        return headingCandidate;
+      })();
 
       return [{
         ...loc,
@@ -1319,13 +1335,12 @@ export default function LiveTrackingMap({
           Math.min(TRUCK_MAX_SMOOTHING_DURATION_MS, observedUpdateInterval * 0.9)
         )
       : TRUCK_DEFAULT_SMOOTHING_DURATION_MS;
-
     const previousAcceptedProgress = acceptedRouteProgressRef.current;
     const routeGeometryChanged = Boolean(
       previousAcceptedProgress && previousAcceptedProgress.routeKey !== navigationRouteKey
     );
     const stabilizedTargets = snappedLocations.map((location) => {
-      if (location.markerType !== 'truck' || !navigationPerspective || navigationRouteGeometry.length < 2) {
+      if (location.markerType !== 'truck' || navigationRouteGeometry.length < 2) {
         return location;
       }
 
@@ -1335,12 +1350,9 @@ export default function LiveTrackingMap({
       const previousProgress = acceptedRouteProgressRef.current;
       let acceptedDistance = projected.distanceAlongMeters;
       if (previousProgress?.routeKey === navigationRouteKey) {
-        // GPS noise must not move the truck backward on the route. Any forward
-        // movement (even sub-metre) is accepted so the truck visually advances
-        // continuously at walking and slow-driving speeds.
-        acceptedDistance = projected.distanceAlongMeters >= previousProgress.distanceMeters
-          ? projected.distanceAlongMeters
-          : previousProgress.distanceMeters;
+        // Monotonic forward progress: GPS noise or slight off-route deviations
+        // must not move the progress backward on the current route.
+        acceptedDistance = Math.max(previousProgress.distanceMeters, projected.distanceAlongMeters);
       } else if (routeGeometryChanged) {
         const previousVisibleLocation = smoothedLocationsRef.current.find(
           (candidate) => candidate.id === location.id && candidate.markerType === 'truck'
@@ -1364,51 +1376,38 @@ export default function LiveTrackingMap({
       const roadPoint = pointAtRouteDistance(navigationRouteGeometry, acceptedDistance);
       return roadPoint
         ? { ...location, lat: roadPoint[0], lng: roadPoint[1], routeProgressMeters: acceptedDistance }
-        : location;
+        : { ...location, routeProgressMeters: acceptedDistance };
     });
 
     setSmoothedLocations((previousLocations) => {
       const previousById = new Map(previousLocations.map((loc) => [loc.id, loc]));
-      const hasAnimatedTruck = stabilizedTargets.some((loc) => {
+      const hasMovement = stabilizedTargets.some((loc) => {
         if (loc.markerType !== 'truck') return false;
         const previous = previousById.get(loc.id);
-        if (previous && navigationPerspective) {
-          // Any measurable forward movement triggers a smooth animation.
-          // Even sub-metre GPS advances should produce visible truck motion
-          // at slow driving speeds (4 km/h = ~1 m/s).
-          const distanceMoved = approximateDistanceMeters([previous.lat, previous.lng], [loc.lat, loc.lng]);
-          const headingChanged = typeof loc.markerHeading === 'number' && typeof previous.markerHeading === 'number'
-            && Math.abs(shortestAngleDelta(previous.markerHeading, loc.markerHeading)) > 2;
-          return distanceMoved >= 0.5 || headingChanged;
-        }
-        return (
-          previous &&
-          (Math.abs(previous.lat - loc.lat) > 1e-9 ||
-            Math.abs(previous.lng - loc.lng) > 1e-9 ||
-            Math.abs(
-              shortestAngleDelta(previous.markerHeading ?? loc.markerHeading ?? 0, loc.markerHeading ?? previous.markerHeading ?? 0)
-            ) > 1e-6)
-        );
+        if (!previous) return true;
+        const distanceMoved = approximateDistanceMeters([previous.lat, previous.lng], [loc.lat, loc.lng]);
+        const headingChanged =
+          typeof loc.markerHeading === 'number' &&
+          typeof previous.markerHeading === 'number' &&
+          Math.abs(shortestAngleDelta(previous.markerHeading, loc.markerHeading)) > 1;
+        const progressChanged =
+          typeof loc.routeProgressMeters === 'number' &&
+          typeof previous.routeProgressMeters === 'number' &&
+          Math.abs(loc.routeProgressMeters - previous.routeProgressMeters) > 0.05;
+        return distanceMoved > 0.05 || headingChanged || progressChanged;
       });
 
-      if (!hasAnimatedTruck) {
+      if (!hasMovement) {
         const nextLocations = stabilizedTargets.map((targetLocation) => {
           if (targetLocation.markerType !== 'truck') return targetLocation;
           const previous = previousById.get(targetLocation.id);
-          const hasAcceptedRoadPosition = !routeGeometryChanged && typeof previous?.routeProgressMeters === 'number';
           return previous
             ? {
                 ...targetLocation,
-                // On first route load, adopt the projected road point once;
-                // subsequent sub-threshold GPS fixes retain the prior position.
-                lat: hasAcceptedRoadPosition ? previous.lat : targetLocation.lat,
-                lng: hasAcceptedRoadPosition ? previous.lng : targetLocation.lng,
+                lat: previous.lat,
+                lng: previous.lng,
                 markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
-                // A replacement route uses a new distance scale; never attach
-                // the old scale to the newly projected truck coordinate.
-                routeProgressMeters: hasAcceptedRoadPosition
-                  ? previous.routeProgressMeters
-                  : targetLocation.routeProgressMeters,
+                routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
               }
             : targetLocation;
         });
@@ -1456,16 +1455,17 @@ export default function LiveTrackingMap({
                 : movementHeading ?? startHeading;
             // A prior frame may belong to replaced route geometry. Reproject its
             // visible coordinate onto the current road before interpolating.
-            const startRouteProgress = navigationPerspective
-              ? projectPointOntoRoute([previous.lat, previous.lng], navigationRouteGeometry)?.distanceAlongMeters
-              : previous.routeProgressMeters;
+            const startRouteProgress =
+              navigationRouteGeometry.length >= 2
+                ? projectPointOntoRoute([previous.lat, previous.lng], navigationRouteGeometry)?.distanceAlongMeters
+                : previous.routeProgressMeters;
             const endRouteProgress = targetLoc.routeProgressMeters;
             const animatedRouteProgress =
               typeof startRouteProgress === 'number' && typeof endRouteProgress === 'number'
                 ? lerp(startRouteProgress, endRouteProgress, easedProgress)
                 : endRouteProgress;
             const animatedRoadPoint =
-              navigationPerspective && typeof animatedRouteProgress === 'number'
+              navigationRouteGeometry.length >= 2 && typeof animatedRouteProgress === 'number'
                 ? pointAtRouteDistance(navigationRouteGeometry, animatedRouteProgress)
                 : null;
 
@@ -1508,9 +1508,9 @@ export default function LiveTrackingMap({
   }, [navigationPerspective, navigationRouteGeometry, navigationRouteKey, snappedLocations]);
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
-  const navTruck = navigationPerspective && singleTruck.length === 1 ? singleTruck[0] : null;
+  const navTruck = singleTruck.length === 1 ? singleTruck[0] : null;
   const navigationDisplayRouteLines = useMemo(() => {
-    if (!navigationPerspective || navigationRouteGeometry.length < 2 || !navTruck) return renderedRouteLines;
+    if (navigationRouteGeometry.length < 2 || !navTruck) return renderedRouteLines;
 
     const projected = typeof navTruck.routeProgressMeters === 'number'
       ? navTruck.routeProgressMeters
@@ -1542,7 +1542,8 @@ export default function LiveTrackingMap({
       ...(completedLine.points.length > 1 ? [completedLine] : []),
       ...(upcomingLine.points.length > 1 ? [upcomingLine] : []),
     ];
-  }, [navTruck, navigationPerspective, navigationRouteGeometry, renderedRouteLines]);
+  }, [navTruck, navigationRouteGeometry, renderedRouteLines]);
+
   const strictBounds = restrictToNegrosOccidental
     ? serviceBoundary
       ? L.latLngBounds([serviceBoundary.bbox[1], serviceBoundary.bbox[0]], [serviceBoundary.bbox[3], serviceBoundary.bbox[2]])
@@ -1558,9 +1559,11 @@ export default function LiveTrackingMap({
     [serviceBoundary]
   );
   const resolvedCenter =
-    restrictToNegrosOccidental && Array.isArray(center) && center.length === 2
-      ? clampPointToBounds(center, activeBounds)
-      : center;
+    useMemo(() => (
+      restrictToNegrosOccidental && Array.isArray(center) && center.length === 2
+        ? clampPointToBounds(center, activeBounds)
+        : center
+    ), [restrictToNegrosOccidental, center, activeBounds]);
 
   if (navigationPerspective) {
     return (
@@ -1651,7 +1654,7 @@ export default function LiveTrackingMap({
               />
             ))
           : null}
-        {renderedRouteLines.map((line) =>
+        {navigationDisplayRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
             <Fragment key={line.id}>
               {(() => {

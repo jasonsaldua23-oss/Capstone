@@ -1,10 +1,18 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2 } from 'lucide-react'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { subscribeDataSync } from '@/lib/data-sync'
+import {
+  ADMIN_STOCK_BATCH_CACHE_KEY,
+  PORTAL_CACHE_TTL_MS,
+  invalidateInventoryStockCaches,
+  isPortalCacheFresh,
+  readPortalCache,
+  writePortalCache,
+} from '@/lib/portal-data-cache'
 
 function getCollection<T>(payload: unknown, keys: string[]): T[] {
   if (Array.isArray(payload)) return payload as T[]
@@ -24,36 +32,85 @@ export function StocksView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
+  const cacheAtRef = useRef(0)
+  const refreshInFlightRef = useRef<Promise<void> | null>(null)
 
   useEffect(() => {
-    async function fetchStockBatches() {
-      try {
-        const response = await fetch('/api/stock-batches?page=1&pageSize=200')
-        if (!response.ok) throw new Error('Failed stock batch fetch')
-        const data = await response.json()
-        setStockBatches(getCollection<any>(data, ['stockBatches']))
-      } catch (error) {
-        console.error(error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    async function fetchWarehouses() {
-      try {
-        const response = await fetch('/api/warehouses?page=1&pageSize=200', { cache: 'no-store', credentials: 'include' })
-        if (!response.ok) return
-        const data = await response.json().catch(() => ({}))
-        const list = getCollection<any>(data, ['warehouses'])
-        setWarehouses(list)
-        if (selectedWarehouseId !== 'all' && !list.some((warehouse) => warehouse?.id === selectedWarehouseId)) {
-          setSelectedWarehouseId('all')
+    const refreshSharedData = (showLoading = false) => {
+      if (refreshInFlightRef.current) return refreshInFlightRef.current
+      if (showLoading) setIsLoading(true)
+
+      const refresh = (async () => {
+        try {
+          const [batchResponse, warehouseResponse] = await Promise.all([
+            fetch('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store', credentials: 'include' }),
+            fetch('/api/warehouses?page=1&pageSize=200', { cache: 'no-store', credentials: 'include' }),
+          ])
+          if (!batchResponse.ok) throw new Error('Failed stock batch fetch')
+
+          const [batchData, warehouseData] = await Promise.all([
+            batchResponse.json().catch(() => ({})),
+            warehouseResponse.ok ? warehouseResponse.json().catch(() => ({})) : Promise.resolve({}),
+          ])
+          const nextStockBatches = getCollection<any>(batchData, ['stockBatches'])
+          const nextWarehouses = getCollection<any>(warehouseData, ['warehouses'])
+          setStockBatches(nextStockBatches)
+          setWarehouses(nextWarehouses)
+          setSelectedWarehouseId((current) =>
+            current !== 'all' && !nextWarehouses.some((warehouse) => warehouse?.id === current) ? 'all' : current
+          )
+          // Cache batches and their warehouse labels as one consistent Stocks snapshot.
+          writePortalCache(ADMIN_STOCK_BATCH_CACHE_KEY, {
+            stockBatches: nextStockBatches,
+            warehouses: nextWarehouses,
+          })
+          cacheAtRef.current = Date.now()
+        } catch (error) {
+          console.error(error)
+        } finally {
+          if (showLoading) setIsLoading(false)
         }
-      } catch (error) {
-        console.error('Failed to fetch warehouses for stocks filter:', error)
+      })().finally(() => {
+        refreshInFlightRef.current = null
+      })
+      refreshInFlightRef.current = refresh
+      return refresh
+    }
+
+    const cached = readPortalCache<{ stockBatches: any[]; warehouses: any[] }>(ADMIN_STOCK_BATCH_CACHE_KEY)
+    if (cached) {
+      setStockBatches(Array.isArray(cached.data.stockBatches) ? cached.data.stockBatches : [])
+      setWarehouses(Array.isArray(cached.data.warehouses) ? cached.data.warehouses : [])
+      setIsLoading(false)
+      cacheAtRef.current = cached.cachedAt
+    }
+    if (!isPortalCacheFresh(cached)) {
+      void refreshSharedData(!cached)
+    }
+
+    const unsubscribe = subscribeDataSync((message) => {
+      if (message.scopes.some((scope) => ['inventory', 'stock-batches', 'products', 'warehouses'].includes(scope))) {
+        invalidateInventoryStockCaches()
+        void refreshSharedData(false)
+      }
+    })
+
+    const refreshIfStale = () => {
+      if (Date.now() - cacheAtRef.current >= PORTAL_CACHE_TTL_MS) {
+        void refreshSharedData(false)
       }
     }
-    fetchStockBatches()
-    fetchWarehouses()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshIfStale()
+    }
+    window.addEventListener('focus', refreshIfStale)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      unsubscribe()
+      window.removeEventListener('focus', refreshIfStale)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [])
 
   const filteredStockBatches = useMemo(() => {

@@ -213,6 +213,31 @@ export function DriverPortal() {
                   initialSubView={notifInitialSubViewRef.current}
                   onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
                   onDidMount={() => { notifInitialSubViewRef.current = 'menu' }}
+                  onNavigateNotification={(n) => {
+                    const refType = String(n?.referenceType || n?.reference_type || '').toLowerCase()
+                    const refId = String(n?.referenceId || n?.reference_id || '').trim()
+                    const notifType = String(n?.type || '').toUpperCase()
+                    const title = String(n?.title || '').toLowerCase()
+                    const message = String(n?.message || '').toLowerCase()
+
+                    if (title.includes('completed') || title.includes('history') || message.includes('completed')) {
+                      setActiveView('history')
+                      return
+                    }
+
+                    if (refType === 'trip' || notifType === 'TRIP' || title.includes('trip') || message.includes('trip') || title.includes('assigned')) {
+                      const matched = trips.find((t) => t.id === refId || t.tripNumber === refId)
+                      if (matched) {
+                        setSelectedTripId(matched.id)
+                      } else if (refId) {
+                        setSelectedTripId(refId)
+                      }
+                      setActiveView('trips')
+                      return
+                    }
+
+                    setActiveView('trips')
+                  }}
                 />
               )}
             </motion.main>

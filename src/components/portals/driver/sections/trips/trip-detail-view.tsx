@@ -1836,7 +1836,7 @@ export function TripDetailView({
           .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
           .join(';')
         const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=2`,
+          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=3`,
           { signal: controller.signal }
         )
         const payload = await response.json().catch(() => ({}))
@@ -1844,7 +1844,7 @@ export function TripDetailView({
 
         // OSRM may return no native alternatives. Ask it for two modestly shaped
         // road routes while keeping every real delivery coordinate as a waypoint.
-        if (response.ok && rawRoutes.length < 2 && uniqueWaypoints.length >= 2) {
+        if (response.ok && rawRoutes.length < 3 && uniqueWaypoints.length >= 2) {
           const start = uniqueWaypoints[0]
           const firstStop = uniqueWaypoints[1]
           const midpoint = {
@@ -1855,7 +1855,7 @@ export function TripDetailView({
           const dx = (firstStop.lng - start.lng) * longitudeScale
           const dy = firstStop.lat - start.lat
           const straightLength = Math.hypot(dx, dy)
-          const offsetDegrees = Math.min(Math.max(haversineKm(start, firstStop) * 0.12, 0.4), 1.5) / 111
+          const offsetDegrees = Math.min(Math.max(haversineKm(start, firstStop) * 0.18, 0.5), 2.0) / 111
 
           if (straightLength > 0) {
             const detourPoints = [-1, 1].map((direction) => ({
@@ -1871,18 +1871,18 @@ export function TripDetailView({
                 .join(';')
               try {
                 const shapedResponse = await fetch(
-                  `https://router.project-osrm.org/route/v1/driving/${shapedCoordinates}?overview=full&geometries=geojson&steps=true&waypoints=${encodeURIComponent(waypointIndexes)}`,
+                  `https://router.project-osrm.org/route/v1/driving/${shapedCoordinates}?overview=full&geometries=geojson&steps=true&alternatives=true&waypoints=${encodeURIComponent(waypointIndexes)}`,
                   { signal: controller.signal }
                 )
                 const shapedPayload = await shapedResponse.json().catch(() => ({}))
-                return shapedResponse.ok && Array.isArray(shapedPayload?.routes) ? shapedPayload.routes[0] : null
+                return shapedResponse.ok && Array.isArray(shapedPayload?.routes) ? shapedPayload.routes : null
               } catch {
                 return null
               }
             }))
             const recommendedDistance = Math.max(Number(rawRoutes[0]?.distance || 0), 1)
             const routeKeys = new Set(rawRoutes.map((route: any) => JSON.stringify(route?.geometry?.coordinates || [])))
-            shapedRoutes.forEach((route) => {
+            shapedRoutes.flat().filter(Boolean).forEach((route: any) => {
               const routeKey = JSON.stringify(route?.geometry?.coordinates || [])
               const routeDistance = Number(route?.distance || 0)
               if (

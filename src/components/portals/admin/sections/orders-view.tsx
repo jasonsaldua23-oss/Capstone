@@ -801,7 +801,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
 
       const updatedOrder = payload?.order
       mergeOrderState(orderId, updatedOrder, status)
-      emitDataSync(['orders', 'trips'])
+      emitDataSync(['orders', 'trips', 'customers', 'auth', 'user'])
       toast.success('Order status updated')
       return true
     } catch (error: any) {

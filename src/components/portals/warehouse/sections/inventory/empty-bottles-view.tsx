@@ -37,6 +37,7 @@ export function WarehouseEmptyBottlesView({
   openOrderDetail,
   loadingOrders,
 }: WarehouseEmptyBottlesViewProps) {
+  const [activeTab, setActiveTab] = useState<'inventory' | 'reserved' | 'delivered'>('inventory')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
 
@@ -73,7 +74,7 @@ export function WarehouseEmptyBottlesView({
           const prodImg = item.product?.imageUrl || null
           const isCase = String(item.unit || item.product?.unit || '').trim().toLowerCase() === 'case'
           const containersPerCase = Math.max(1, Number(item.quantityPerCase || item.product?.quantityPerCase || 24))
-          const depositPerBottle = 5 // Standard default ₱5 per bottle if not specified
+          const depositPerBottle = 5
 
           if (depositCredit <= 0) {
             depositCredit = emptiesQty * depositPerBottle
@@ -129,8 +130,41 @@ export function WarehouseEmptyBottlesView({
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [orders])
 
-  const filteredRecords = useMemo(() => {
+  // Partition into Active Reserved vs Delivered/Completed
+  const activeReservedRecords = useMemo(() => {
     return records.filter((r) => {
+      const s = String(r.orderStatus).toUpperCase()
+      return !['DELIVERED', 'COMPLETED', 'CANCELLED', 'REJECTED', 'FAILED', 'FAILED_DELIVERY'].includes(s)
+    })
+  }, [records])
+
+  const deliveredRecords = useMemo(() => {
+    return records.filter((r) => {
+      const s = String(r.orderStatus).toUpperCase()
+      return ['DELIVERED', 'COMPLETED'].includes(s)
+    })
+  }, [records])
+
+  // Summary Metrics
+  const totalEmptiesDelivered = useMemo(
+    () => deliveredRecords.reduce((sum, r) => sum + r.emptiesReturned, 0),
+    [deliveredRecords]
+  )
+  const totalEmptiesReserved = useMemo(
+    () => activeReservedRecords.reduce((sum, r) => sum + r.emptiesReturned, 0),
+    [activeReservedRecords]
+  )
+  const totalDepositCredit = useMemo(
+    () => records.reduce((sum, r) => sum + r.depositCredit, 0),
+    [records]
+  )
+
+  const activeDisplayList = useMemo(() => {
+    let source = records
+    if (activeTab === 'reserved') source = activeReservedRecords
+    if (activeTab === 'delivered') source = deliveredRecords
+
+    return source.filter((r) => {
       const matchesSearch =
         !searchQuery.trim() ||
         r.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -144,21 +178,7 @@ export function WarehouseEmptyBottlesView({
 
       return matchesSearch && matchesStatus
     })
-  }, [records, searchQuery, statusFilter])
-
-  // Summary Metrics
-  const totalEmptiesReturned = useMemo(
-    () => records.reduce((sum, r) => sum + r.emptiesReturned, 0),
-    [records]
-  )
-  const totalDepositCredit = useMemo(
-    () => records.reduce((sum, r) => sum + r.depositCredit, 0),
-    [records]
-  )
-  const uniqueOrdersCount = useMemo(
-    () => new Set(records.map((r) => r.orderId)).size,
-    [records]
-  )
+  }, [records, activeReservedRecords, deliveredRecords, activeTab, searchQuery, statusFilter])
 
   const getOrderStatusBadgeClass = (status: string) => {
     const s = String(status || '').toUpperCase()
@@ -177,10 +197,10 @@ export function WarehouseEmptyBottlesView({
           <div>
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Recycle className="h-5 w-5 text-emerald-600" />
-              Empty Bottle Returns (Checkout Tracking)
+              Empty Bottles &amp; Cases Management
             </h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              Live tracking of returnable empty bottles and cases returned by customers during checkout.
+              Track warehouse empty container inventory, active order reservations, and delivered bottle returns.
             </p>
           </div>
         </div>
@@ -193,12 +213,13 @@ export function WarehouseEmptyBottlesView({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Total Empties Returned
+                  Delivered Empty Stock
                 </p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">
-                  {totalEmptiesReturned.toLocaleString()}
+                <p className="text-2xl font-bold text-emerald-700 mt-1">
+                  {totalEmptiesDelivered.toLocaleString()}
                   <span className="text-xs font-normal text-slate-500 ml-1.5">bottles/units</span>
                 </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Ready for production / refill</p>
               </div>
               <div className="rounded-xl p-2.5 bg-emerald-100 text-emerald-600">
                 <Recycle className="h-5 w-5" />
@@ -212,12 +233,13 @@ export function WarehouseEmptyBottlesView({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Orders With Empties
+                  Used / Reserved in Orders
                 </p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">
-                  {uniqueOrdersCount.toLocaleString()}
-                  <span className="text-xs font-normal text-slate-500 ml-1.5">customer orders</span>
+                <p className="text-2xl font-bold text-blue-700 mt-1">
+                  {totalEmptiesReserved.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-500 ml-1.5">bottles/units</span>
                 </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Locked in {activeReservedRecords.length} active orders</p>
               </div>
               <div className="rounded-xl p-2.5 bg-blue-100 text-blue-600">
                 <PackageCheck className="h-5 w-5" />
@@ -231,11 +253,12 @@ export function WarehouseEmptyBottlesView({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Deposit Credit Applied
+                  Total Deposit Value Handled
                 </p>
                 <p className="text-2xl font-bold text-indigo-700 mt-1">
                   {formatPeso(totalDepositCredit)}
                 </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Across all return transactions</p>
               </div>
               <div className="rounded-xl p-2.5 bg-indigo-100 text-indigo-600">
                 <Banknote className="h-5 w-5" />
@@ -245,16 +268,60 @@ export function WarehouseEmptyBottlesView({
         </Card>
       </div>
 
+      {/* Navigation Tabs */}
+      <div className="flex rounded-xl bg-slate-100 p-1 w-full sm:w-auto self-start">
+        <button
+          type="button"
+          onClick={() => setActiveTab('inventory')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+            activeTab === 'inventory'
+              ? 'bg-white text-slate-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Recycle className="h-3.5 w-3.5 text-slate-700" />
+          <span>All Checkout Returns ({records.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('reserved')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+            activeTab === 'reserved'
+              ? 'bg-white text-blue-700 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <PackageCheck className="h-3.5 w-3.5 text-blue-600" />
+          <span>Used / Reserved in Active Orders ({activeReservedRecords.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('delivered')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+            activeTab === 'delivered'
+              ? 'bg-white text-emerald-700 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Recycle className="h-3.5 w-3.5 text-emerald-600" />
+          <span>Delivered &amp; Returned to Stock ({deliveredRecords.length})</span>
+        </button>
+      </div>
+
       {/* Main Records Table Card */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="pb-3 border-b border-slate-100">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <CardTitle className="text-base font-semibold text-slate-900">
-                Customer Checkout Bottle Returns
+                {activeTab === 'inventory' && 'All Customer Empty Returns'}
+                {activeTab === 'reserved' && 'Used / Reserved Empty Deposits in Active Orders'}
+                {activeTab === 'delivered' && 'Delivered Returns Transferred to Warehouse Empty Stock'}
               </CardTitle>
               <CardDescription className="text-xs text-slate-500">
-                Records of empty containers returned by customers upon purchasing returnable goods.
+                {activeTab === 'reserved'
+                  ? 'Empty bottles and cases locked in ongoing orders. Released if cancelled, transferred to stock when delivered.'
+                  : 'Empty container transactions from customer checkouts and deliveries.'}
               </CardDescription>
             </div>
 
@@ -270,17 +337,19 @@ export function WarehouseEmptyBottlesView({
                 />
               </div>
 
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-9 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="ALL">All Order Statuses</option>
-                <option value="PENDING">Pending</option>
-                <option value="PROCESSING">Processing</option>
-                <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
-                <option value="DELIVERED">Delivered</option>
-              </select>
+              {activeTab === 'inventory' && (
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-9 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="ALL">All Order Statuses</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="PROCESSING">Processing</option>
+                  <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+                  <option value="DELIVERED">Delivered</option>
+                </select>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -290,14 +359,16 @@ export function WarehouseEmptyBottlesView({
             <div className="p-12 text-center text-sm text-slate-500">
               Loading empty bottle records...
             </div>
-          ) : filteredRecords.length === 0 ? (
+          ) : activeDisplayList.length === 0 ? (
             <div className="p-12 text-center space-y-2">
               <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
                 <Recycle className="h-6 w-6" />
               </div>
-              <p className="font-medium text-slate-700">No checkout empty bottle returns found</p>
+              <p className="font-medium text-slate-700">No empty container records found</p>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                When customers purchase returnable beverage products and return empty bottles/cases at checkout, they will automatically appear here.
+                {activeTab === 'reserved'
+                  ? 'There are no active orders currently reserving empty bottle deposits.'
+                  : 'Empty containers returned during customer checkout will automatically appear here.'}
               </p>
             </div>
           ) : (
@@ -310,14 +381,14 @@ export function WarehouseEmptyBottlesView({
                     <th className="px-4 py-3">Customer</th>
                     <th className="px-4 py-3">Product / Beverage</th>
                     <th className="px-4 py-3 text-center">Ordered Qty</th>
-                    <th className="px-4 py-3 text-center">Empties Returned</th>
+                    <th className="px-4 py-3 text-center">Empties Reserved/Returned</th>
                     <th className="px-4 py-3 text-right">Deposit Credited</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredRecords.map((record) => (
+                  {activeDisplayList.map((record) => (
                     <tr key={record.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-4 py-3 font-semibold text-slate-900">
                         {record.orderNumber}
@@ -402,3 +473,4 @@ export function WarehouseEmptyBottlesView({
     </div>
   )
 }
+

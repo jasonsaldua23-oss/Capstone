@@ -53,6 +53,18 @@ import { OtpVerificationModal } from '@/components/shared/otp-verification-modal
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import {
+  PORTAL_CACHE_TTL_MS,
+  WAREHOUSE_INVENTORY_STOCK_CACHE_PREFIX,
+  WAREHOUSE_ROUTE_PLAN_CACHE_PREFIX,
+  WAREHOUSE_TRIPS_CACHE_PREFIX,
+  invalidateInventoryStockCaches,
+  isPortalCacheFresh,
+  readPortalCache,
+  removePortalCache,
+  removePortalCachesByPrefix,
+  writePortalCache,
+} from '@/lib/portal-data-cache'
+import {
   Boxes,
   Archive,
   Package,
@@ -181,6 +193,7 @@ interface ProductOption {
   id: string
   name: string
   sku: string
+  isActive?: boolean
   price?: number
   unit?: string
   sizes?: string[]
@@ -596,6 +609,10 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
 
 export function WarehousePortal() {
   const { user, setUser, logout } = useAuth()
+  const cacheOwnerId = String((user as any)?.userId || (user as any)?.id || 'warehouse-staff')
+  const inventoryStockCacheKey = `${WAREHOUSE_INVENTORY_STOCK_CACHE_PREFIX}${cacheOwnerId}`
+  const tripsCacheKey = `${WAREHOUSE_TRIPS_CACHE_PREFIX}${cacheOwnerId}`
+  const routePlanCachePrefix = `${WAREHOUSE_ROUTE_PLAN_CACHE_PREFIX}${cacheOwnerId}:`
   const {
     activeView,
     setActiveView,
@@ -734,6 +751,13 @@ export function WarehousePortal() {
   const isPollingOrderStatusesRef = useRef(false)
   const savedRoutesGetUnsupportedRef = useRef(false)
   const isRefreshingAllRef = useRef(false)
+  const inventoryStockRefreshRef = useRef<Promise<void> | null>(null)
+  const tripsRefreshRef = useRef<Promise<WarehouseTripItem[] | null> | null>(null)
+  const stockInSubmissionRef = useRef(false)
+  const stockInRequestIdRef = useRef('')
+  const inventoryStockCacheAtRef = useRef(0)
+  const tripsCacheAtRef = useRef(0)
+  const assignedWarehouseIdRef = useRef('')
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const openLogoutConfirm = () => setLogoutConfirmOpen(true)
   const hasAssignedWarehouse = warehouses.length > 0
@@ -952,6 +976,8 @@ export function WarehousePortal() {
         setProfileOtpToken('')
         setProfileOtp('')
       }
+      // Added: return the successful profile save to its read-only Edit state.
+      setIsEditingProfile(false)
       toast.success('Profile updated')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update profile')
@@ -2221,8 +2247,9 @@ export function WarehousePortal() {
     return { ok: false as const, data: null, status: lastStatus, error: lastError }
   }
 
-  const fetchInventoryData = async (warehouseId?: string) => {
-    setLoadingInventory(true)
+  const fetchInventoryData = async (warehouseId?: string, options?: { showLoading?: boolean }): Promise<InventoryItem[] | null> => {
+    const showLoading = options?.showLoading !== false
+    if (showLoading) setLoadingInventory(true)
     try {
       const normalizedWarehouseId = String(warehouseId || '').trim()
       const query = new URLSearchParams({ pageSize: '1000' })
@@ -2232,13 +2259,16 @@ export function WarehousePortal() {
       const inventoryUrl = `/api/inventory?${query.toString()}`
       const result = await safeFetchJson(inventoryUrl, { cache: 'no-store' })
       if (!result.ok) {
-        return
+        return null
       }
-      setInventory(getCollection<InventoryItem>(result.data, ['inventory']))
+      const list = getCollection<InventoryItem>(result.data, ['inventory'])
+      setInventory(list)
+      return list
     } catch (error) {
       console.warn('Failed to load inventory:', error)
+      return null
     } finally {
-      setLoadingInventory(false)
+      if (showLoading) setLoadingInventory(false)
     }
   }
 
@@ -2258,6 +2288,7 @@ export function WarehousePortal() {
       setWarehouseLoadError(null)
       setWarehouses(list)
       const firstWarehouse = list[0]
+      assignedWarehouseIdRef.current = String(firstWarehouse?.id || '')
       if (firstWarehouse?.id && !stockInWarehouseId) {
         setStockInWarehouseId(firstWarehouse.id)
       }
@@ -2276,29 +2307,68 @@ export function WarehousePortal() {
 
   const fetchProductsData = async () => {
     try {
-      const result = await safeFetchJson('/api/products?page=1&pageSize=500', { cache: 'no-store' })
+      const result = await safeFetchJson('/api/products?page=1&pageSize=1000', { cache: 'no-store' })
       if (!result.ok) {
         return
       }
-      setProducts(getCollection<ProductOption>(result.data, ['products']))
+      const list = getCollection<ProductOption>(result.data, ['products']).filter((product) => product?.isActive !== false)
+      const activeProductIds = new Set(list.map((product) => String(product?.id || '').trim()).filter(Boolean))
+      setProducts(list)
+      // Remove products that were deleted by Admin from any cached warehouse snapshot.
+      setInventory((current) => current.filter((item) => {
+        const productId = String(item?.product?.id || '').trim()
+        return !productId || activeProductIds.has(productId)
+      }))
+      setStockBatches((current) => current.filter((batch) => {
+        const productId = String(batch?.inventory?.product?.id || '').trim()
+        return !productId || activeProductIds.has(productId)
+      }))
     } catch (error) {
       console.warn('Failed to load products:', error)
     }
   }
 
-  const fetchStockBatchesData = async () => {
-    setLoadingBatches(true)
+  const fetchStockBatchesData = async (options?: { showLoading?: boolean }): Promise<StockBatchItem[] | null> => {
+    const showLoading = options?.showLoading !== false
+    if (showLoading) setLoadingBatches(true)
     try {
       const result = await safeFetchJson('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store' })
       if (!result.ok) {
-        return
+        return null
       }
-      setStockBatches(getCollection<StockBatchItem>(result.data, ['stockBatches']))
+      const list = getCollection<StockBatchItem>(result.data, ['stockBatches'])
+      setStockBatches(list)
+      return list
     } catch (error) {
       console.warn('Failed to load stock-in batches:', error)
+      return null
     } finally {
-      setLoadingBatches(false)
+      if (showLoading) setLoadingBatches(false)
     }
+  }
+
+  const refreshInventoryAndStockData = async (warehouseId?: string, options?: { showLoading?: boolean }) => {
+    if (inventoryStockRefreshRef.current) return inventoryStockRefreshRef.current
+    const normalizedWarehouseId = String(warehouseId || assignedWarehouseIdRef.current || '').trim()
+    const refresh = (async () => {
+      const [nextInventory, nextStockBatches] = await Promise.all([
+        fetchInventoryData(normalizedWarehouseId, options),
+        fetchStockBatchesData(options),
+      ])
+      if (nextInventory && nextStockBatches) {
+        // Shared snapshot prevents Inventory and Stock Batch from caching different stock states.
+        writePortalCache(
+          inventoryStockCacheKey,
+          { inventory: nextInventory, stockBatches: nextStockBatches },
+          normalizedWarehouseId
+        )
+        inventoryStockCacheAtRef.current = Date.now()
+      }
+    })().finally(() => {
+      inventoryStockRefreshRef.current = null
+    })
+    inventoryStockRefreshRef.current = refresh
+    return refresh
   }
 
   const fetchOrderMarker = async () => {
@@ -2445,37 +2515,49 @@ export function WarehousePortal() {
     }
   }
 
-  const fetchTripsData = async (options?: { showLoading?: boolean }) => {
+  const fetchTripsData = (options?: { showLoading?: boolean }): Promise<WarehouseTripItem[] | null> => {
+    // Deduplicate simultaneous refreshes from local mutations and cross-tab sync events.
+    if (tripsRefreshRef.current) return tripsRefreshRef.current
     const showLoading = options?.showLoading !== false
     if (showLoading) setLoadingTrips(true)
-    try {
-      const pageSize = 100
-      let page = 1
-      let totalPages = 1
-      const mergedTrips: WarehouseTripItem[] = []
+    const refresh = (async () => {
+      try {
+        const pageSize = 100
+        let page = 1
+        let totalPages = 1
+        const mergedTrips: WarehouseTripItem[] = []
 
-      while (page <= totalPages) {
-        const query = new URLSearchParams({
-          page: String(page),
-          pageSize: String(pageSize),
-          includeTracking: '1',
-        })
-        const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
-        if (!result.ok) {
-          return
+        while (page <= totalPages) {
+          const query = new URLSearchParams({
+            page: String(page),
+            pageSize: String(pageSize),
+            includeTracking: '1',
+          })
+          const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
+          if (!result.ok) {
+            return null
+          }
+          mergedTrips.push(...getCollection<WarehouseTripItem>(result.data, ['trips']))
+          const payload = (result.data || {}) as Record<string, any>
+          totalPages = Math.max(1, Number(payload.totalPages || 1))
+          page += 1
         }
-        mergedTrips.push(...getCollection<WarehouseTripItem>(result.data, ['trips']))
-        const payload = (result.data || {}) as Record<string, any>
-        totalPages = Math.max(1, Number(payload.totalPages || 1))
-        page += 1
-      }
 
-      setTrips(mergedTrips)
-    } catch (error: any) {
-      console.warn('Failed to load trips:', error)
-    } finally {
-      if (showLoading) setLoadingTrips(false)
-    }
+        setTrips(mergedTrips)
+        writePortalCache(tripsCacheKey, mergedTrips, assignedWarehouseIdRef.current)
+        tripsCacheAtRef.current = Date.now()
+        return mergedTrips
+      } catch (error: any) {
+        console.warn('Failed to load trips:', error)
+        return null
+      } finally {
+        if (showLoading) setLoadingTrips(false)
+      }
+    })().finally(() => {
+      tripsRefreshRef.current = null
+    })
+    tripsRefreshRef.current = refresh
+    return refresh
   }
 
   const fetchInventoryTransactionsData = async () => {
@@ -2664,25 +2746,13 @@ export function WarehousePortal() {
     }
     setLoadingRoutePlans(true)
     setRoutePlanMessage(null)
-    setRoutePlans([])
     setSelectedRouteCity('')
     setSelectedRouteOrderIds(editingTripState ? preservedTripOrderIds : [])
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 20000)
-    try {
-      const query = new URLSearchParams({
-        date: effectiveDate,
-        warehouseId: effectiveWarehouseId,
-      })
-      const response = await fetch(`/api/trips/route-plan?${query.toString()}`, {
-        signal: controller.signal,
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to generate route plan')
-      }
+    const routePlanCacheKey = `${routePlanCachePrefix}${encodeURIComponent(effectiveWarehouseId)}:${effectiveDate}`
+    const cachedRoutePlan = readPortalCache<RoutePlanCityGroup[]>(routePlanCacheKey)
+    if (!cachedRoutePlan) setRoutePlans([])
 
-      const rawPlans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
+    const applyRoutePlanResult = (rawPlans: RoutePlanCityGroup[], notify: boolean) => {
       const eligiblePlans = rawPlans
         .map((group: any) => ({
           ...group,
@@ -2715,20 +2785,55 @@ export function WarehousePortal() {
             ? 'Loaded the current trip contents. No additional eligible orders were found for this delivery date.'
             : `Found ${plans.length} city group(s) for this delivery date.`
         setRoutePlanMessage({ type: 'success', text: baseMessage })
-        if (!silent) toast.success('Filtered scheduled orders by city')
+        if (!silent && notify) toast.success('Filtered scheduled orders by city')
       }
       return plans
+    }
+
+    let cachedPlans: RoutePlanCityGroup[] | null = null
+    if (cachedRoutePlan) {
+      // Show the previously filtered date/warehouse result immediately.
+      cachedPlans = applyRoutePlanResult(cachedRoutePlan.data, isPortalCacheFresh(cachedRoutePlan))
+      if (isPortalCacheFresh(cachedRoutePlan)) {
+        setLoadingRoutePlans(false)
+        return cachedPlans
+      }
+    }
+
+    try {
+      const query = new URLSearchParams({
+        date: effectiveDate,
+        warehouseId: effectiveWarehouseId,
+      })
+      // Production databases can need more than 20 seconds during a cold start; use the shared authenticated timeout handling.
+      const result = await safeFetchJson(
+        `/api/trips/route-plan?${query.toString()}`,
+        { cache: 'no-store', credentials: 'include' },
+        { retries: 0, timeoutMs: 60000 }
+      )
+      const data = result.data || {}
+      if (!result.ok) {
+        throw new Error(result.status === 0 ? 'Request timed out. Please try again.' : data?.error || 'Failed to generate route plan')
+      }
+
+      const rawPlans = getCollection<RoutePlanCityGroup>(data, ['routePlans'])
+      // Cache the unmerged API result so edit mode can safely add its current trip orders later.
+      writePortalCache(routePlanCacheKey, rawPlans, effectiveWarehouseId)
+      const plans = applyRoutePlanResult(rawPlans, true)
+      return plans
     } catch (error: any) {
-      const message =
-        error?.name === 'AbortError' ? 'Request timed out. Please try again.' : error?.message || 'Failed to generate route plan'
+      const message = error?.message || 'Failed to generate route plan'
       if (!silent) toast.error(message)
+      if (cachedPlans) {
+        setRoutePlanMessage({ type: 'info', text: 'Showing cached orders because the latest refresh failed.' })
+        return cachedPlans
+      }
       setRoutePlanMessage({ type: 'error', text: message })
       setRoutePlans([])
       setSelectedRouteCity('')
       setSelectedRouteOrderIds(editingTripState ? preservedTripOrderIds : [])
       return null
     } finally {
-      clearTimeout(timeout)
       setLoadingRoutePlans(false)
     }
   }
@@ -3066,6 +3171,42 @@ export function WarehousePortal() {
   }
 
   useEffect(() => {
+    const loadCachedOperationalData = (warehouseId?: string) => {
+      const normalizedWarehouseId = String(warehouseId || '').trim()
+      const inventoryStockEntry = readPortalCache<{
+        inventory: InventoryItem[]
+        stockBatches: StockBatchItem[]
+      }>(inventoryStockCacheKey)
+      const inventoryCacheMatches = Boolean(
+        inventoryStockEntry &&
+        (!normalizedWarehouseId || !inventoryStockEntry.warehouseId || inventoryStockEntry.warehouseId === normalizedWarehouseId)
+      )
+      if (inventoryCacheMatches && inventoryStockEntry) {
+        setInventory(Array.isArray(inventoryStockEntry.data.inventory) ? inventoryStockEntry.data.inventory : [])
+        setStockBatches(Array.isArray(inventoryStockEntry.data.stockBatches) ? inventoryStockEntry.data.stockBatches : [])
+        setLoadingInventory(false)
+        setLoadingBatches(false)
+        inventoryStockCacheAtRef.current = inventoryStockEntry.cachedAt
+      }
+
+      const tripsEntry = readPortalCache<WarehouseTripItem[]>(tripsCacheKey)
+      const tripsCacheMatches = Boolean(
+        tripsEntry && (!normalizedWarehouseId || !tripsEntry.warehouseId || tripsEntry.warehouseId === normalizedWarehouseId)
+      )
+      if (tripsCacheMatches && tripsEntry) {
+        setTrips(Array.isArray(tripsEntry.data) ? tripsEntry.data : [])
+        setLoadingTrips(false)
+        tripsCacheAtRef.current = tripsEntry.cachedAt
+      }
+
+      return {
+        inventoryStockCached: inventoryCacheMatches,
+        inventoryStockFresh: inventoryCacheMatches && isPortalCacheFresh(inventoryStockEntry),
+        tripsCached: tripsCacheMatches,
+        tripsFresh: tripsCacheMatches && isPortalCacheFresh(tripsEntry),
+      }
+    }
+
     const refreshAllData = async (options?: { initial?: boolean }) => {
       if (isRefreshingAllRef.current) return
       isRefreshingAllRef.current = true
@@ -3073,22 +3214,26 @@ export function WarehousePortal() {
       try {
         const warehouseList = await fetchWarehousesData()
         const effectiveWarehouseId = warehouseList[0]?.id
-        await fetchInventoryData(effectiveWarehouseId)
-        await fetchProductsData()
-        await fetchStockBatchesData()
-        await fetchInventoryTransactionsData()
-        await (initial
-          // Load complete table fields once at startup without expensive allocation maps.
-          ? fetchOrdersData({ showLoading: true, lightweightDetails: true })
-          : fetchOrdersData({ showLoading: false, silent: true }))
-        await fetchTripsData()
-        await fetchReplacementsData()
-        await fetchDriversData()
-        await fetchVehiclesData()
-        await fetchSavedRoutesData()
+        const cacheState = loadCachedOperationalData(effectiveWarehouseId)
+        // Cached sections can render immediately while stale/missing data revalidates in parallel.
+        if (initial) setIsInitialPortalLoading(false)
+        await Promise.all([
+          cacheState.inventoryStockFresh
+            ? Promise.resolve()
+            : refreshInventoryAndStockData(effectiveWarehouseId, { showLoading: !cacheState.inventoryStockCached }),
+          fetchProductsData(),
+          fetchInventoryTransactionsData(),
+          initial
+            ? fetchOrdersData({ showLoading: true, lightweightDetails: true })
+            : fetchOrdersData({ showLoading: false, silent: true }),
+          cacheState.tripsFresh ? Promise.resolve() : fetchTripsData({ showLoading: !cacheState.tripsCached }),
+          fetchReplacementsData(),
+          fetchDriversData(),
+          fetchVehiclesData(),
+          fetchSavedRoutesData(),
+        ])
       } finally {
         isRefreshingAllRef.current = false
-        // Initial portal content is safe to display only after every startup request settles.
         if (initial) setIsInitialPortalLoading(false)
       }
     }
@@ -3096,23 +3241,34 @@ export function WarehousePortal() {
     void refreshAllData({ initial: true })
 
     const unsubscribe = subscribeDataSync((message) => {
-      if (isRefreshingAllRef.current) return
       const scopes = message.scopes
-      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'inventory-transactions', 'warehouses'].includes(scope))) {
-        void (async () => {
-          const warehouseList = await fetchWarehousesData()
-          const effectiveWarehouseId = warehouseList[0]?.id
-          await fetchInventoryData(effectiveWarehouseId)
-          await fetchProductsData()
-          await fetchStockBatchesData()
-          await fetchInventoryTransactionsData()
-        })()
+      if (scopes.some((scope) => ['orders', 'trips', 'warehouses'].includes(scope))) {
+        // Eligible trip orders change whenever an order, trip assignment, or warehouse changes.
+        removePortalCachesByPrefix(routePlanCachePrefix)
+      }
+      if (isRefreshingAllRef.current) return
+      if (scopes.some((scope) => ['inventory', 'stock-batches'].includes(scope))) {
+        invalidateInventoryStockCaches()
+        void refreshInventoryAndStockData(assignedWarehouseIdRef.current, { showLoading: false })
+      }
+      if (scopes.includes('products')) {
+        void fetchProductsData()
+      }
+      if (scopes.includes('inventory-transactions')) {
+        void fetchInventoryTransactionsData()
+      }
+      if (scopes.includes('warehouses')) {
+        void fetchWarehousesData().then((warehouseList) => {
+          invalidateInventoryStockCaches()
+          return refreshInventoryAndStockData(warehouseList[0]?.id, { showLoading: false })
+        })
       }
       if (scopes.includes('orders')) {
         void fetchOrdersData({ showLoading: false, silent: true })
       }
       if (scopes.includes('trips')) {
-        void fetchTripsData()
+        removePortalCache(tripsCacheKey)
+        void fetchTripsData({ showLoading: false })
       }
       if (scopes.includes('replacements')) {
         void fetchReplacementsData()
@@ -3125,10 +3281,19 @@ export function WarehousePortal() {
       }
     })
 
-    const onFocus = () => { void refreshAllData() }
+    const refreshStaleOperationalCaches = () => {
+      const now = Date.now()
+      if (now - inventoryStockCacheAtRef.current >= PORTAL_CACHE_TTL_MS) {
+        void refreshInventoryAndStockData(assignedWarehouseIdRef.current, { showLoading: false })
+      }
+      if (now - tripsCacheAtRef.current >= PORTAL_CACHE_TTL_MS) {
+        void fetchTripsData({ showLoading: false })
+      }
+    }
+    const onFocus = () => refreshStaleOperationalCaches()
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void refreshAllData()
+        refreshStaleOperationalCaches()
       }
     }
 
@@ -3158,7 +3323,18 @@ export function WarehousePortal() {
       return
     }
     if (activeView === 'trips') {
-      void fetchTripsData()
+      // Reuse the Trips snapshot when it is still fresh instead of fetching on every tab visit.
+      if (Date.now() - tripsCacheAtRef.current >= PORTAL_CACHE_TTL_MS) {
+        void fetchTripsData()
+      }
+      return
+    }
+    if (activeView === 'inventory') {
+      // Revalidate once when Inventory is opened so cross-device Admin deletions are reflected.
+      void Promise.all([
+        fetchProductsData(),
+        refreshInventoryAndStockData(assignedWarehouseIdRef.current, { showLoading: false }),
+      ])
     }
   }, [activeView, trackingDate])
 
@@ -3328,10 +3504,7 @@ export function WarehousePortal() {
 
       toast.success('Inventory item updated')
       setEditingItem(null)
-      await fetchInventoryData()
-      await fetchProductsData()
-      await fetchStockBatchesData()
-      await fetchInventoryTransactionsData()
+      // One sync event refreshes the shared stock snapshot and dependent collections.
       emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to save changes')
@@ -3372,9 +3545,6 @@ export function WarehousePortal() {
 
       setEditingBatch(null)
       toast.success('Stock batch updated')
-      await fetchInventoryData()
-      await fetchStockBatchesData()
-      await fetchInventoryTransactionsData()
       emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update stock batch')
@@ -3402,10 +3572,6 @@ export function WarehousePortal() {
       setEditingItem(null)
       setDeleteEditOpen(false)
       toast.success('Product deleted')
-      await fetchInventoryData()
-      await fetchProductsData()
-      await fetchStockBatchesData()
-      await fetchInventoryTransactionsData()
       emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete product')
@@ -3415,6 +3581,7 @@ export function WarehousePortal() {
   }
 
   const resetStockInForm = () => {
+    stockInRequestIdRef.current = ''
     setStockRows([
       { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
     ])
@@ -3566,13 +3733,22 @@ export function WarehousePortal() {
 
     // Validate all rows before submitting
     if (!validateAllStockRows()) return
+    // Prevent a rapid double-click from sending the same stock quantities twice.
+    if (stockInSubmissionRef.current) return
+    stockInSubmissionRef.current = true
+
+    if (!stockInRequestIdRef.current) {
+      stockInRequestIdRef.current = `STOCKIN-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }
 
     // Prepare batches
-    const batches = stockRows.map(row => ({
+    const batches = stockRows.map((row, index) => ({
       productId: row.productId,
       quantity: Number(row.quantity),
       manufacturedDate: row.manufacturedDate || null,
-      expiryDate: row.expiryDate || null
+      expiryDate: row.expiryDate || null,
+      // A stable batch number makes a retry idempotent instead of duplicating stock.
+      batchNumber: `${stockInRequestIdRef.current}-${index}`,
     }))
 
     setIsSubmittingStockIn(true)
@@ -3602,14 +3778,11 @@ export function WarehousePortal() {
 
       setAddStockOpen(false)
       resetStockInForm()
-      await fetchInventoryData()
-      await fetchStockBatchesData()
-      await fetchProductsData()
-      await fetchInventoryTransactionsData()
       emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to add stock')
     } finally {
+      stockInSubmissionRef.current = false
       setIsSubmittingStockIn(false)
     }
   }
@@ -4061,7 +4234,7 @@ export function WarehousePortal() {
       setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status, notes: reason || order.notes } : order)))
       setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...updatedOrder, status, notes: reason || prev.notes } : prev))
       toast.success('Order status updated')
-      emitDataSync(['orders', 'trips'])
+      emitDataSync(['orders', 'trips', 'customers', 'auth', 'user'])
       void Promise.all([
         fetchOrdersData({ showLoading: false, silent: true }),
         fetchTripsData({ showLoading: false }),
@@ -4445,7 +4618,6 @@ export function WarehousePortal() {
       }
       toast.success('Replacement return received successfully')
       emitDataSync(['replacements', 'inventory', 'stock-batches'])
-      void Promise.all([fetchReplacementsData(), fetchInventoryData()])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to process replacement return')
       throw error
@@ -4648,7 +4820,7 @@ export function WarehousePortal() {
             <WarehouseLiveTrackingView
               trackingDate={trackingDate}
               setTrackingDate={setTrackingDate}
-              fetchTripsData={fetchTripsData}
+              fetchTripsData={async () => { await fetchTripsData() }}
               fetchOrdersData={fetchOrdersData}
               loadingTrips={loadingTrips}
               loadingOrders={loadingOrders}
@@ -5929,7 +6101,8 @@ export function WarehousePortal() {
                           const categoryLabel = String((product as any)?.category?.name || (product as any)?.category || '').trim()
                           return (
                             <option key={product.id} value={product.id} disabled={selectedInAnotherRow || Boolean(product.isOverstocked)}>
-                              {product.name}{sizeString}{categoryLabel ? ` - ${categoryLabel}` : ''}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
+                              {/* Added: place the SKU before the name so products are easier to identify while adding stock. */}
+                              {product.sku ? `${product.sku} - ` : ''}{product.name}{sizeString}{categoryLabel ? ` - ${categoryLabel}` : ''}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
                             </option>
                           )
                         })}

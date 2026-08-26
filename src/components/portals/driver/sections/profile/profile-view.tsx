@@ -55,6 +55,7 @@ type ProfileViewProps = {
   initialSubView?: 'real-notifications' | 'menu'
   onUnreadCountChange?: (count: number) => void
   onDidMount?: () => void
+  onNavigateNotification?: (notification: any) => void
 }
 
 const DRIVER_NOTIFICATION_PREFS_KEY = 'driver_portal_notification_preferences'
@@ -111,7 +112,7 @@ function splitProfileName(value: unknown) {
   }
 }
 
-export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChange, onDidMount }: ProfileViewProps) {
+export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChange, onDidMount, onNavigateNotification }: ProfileViewProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
@@ -255,6 +256,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   })
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  // Uses the shared crop hook so avatar selection and saving remain in one state flow.
   const avatarCrop = useAvatarCrop()
 
   const formatDateInputValue = (value: unknown) => {
@@ -500,6 +502,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
 
       setSubView('menu')
       setAvatarFile(null)
+      if (mode === 'profile') {
+        // Added: reopen the profile in read-only mode after a successful save.
+        setIsEditingProfile(false)
+      }
       toast.success(mode === 'profile' ? 'Profile updated' : 'License details updated')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update profile')
@@ -798,33 +804,67 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           </div>
         ) : (
           <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
-            {realNotifications.map((n, idx) => (
-              <div
-                key={n.id || idx}
-                className={`flex gap-3 px-4 py-4 transition-colors ${
-                  !n.isRead ? 'bg-[#f4f8fc]' : 'bg-white'
-                } ${idx < realNotifications.length - 1 ? 'border-b border-slate-100' : ''}`}
-              >
-                <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
-                  !n.isRead ? 'bg-sky-100 text-[#0d61ad]' : 'bg-slate-100 text-slate-400'
-                }`}>
-                  <Bell className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={`text-sm ${!n.isRead ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
-                      {n.title || 'Alert'}
-                    </p>
-                    <span className="text-[10px] text-slate-400 font-medium shrink-0 pt-0.5">
-                      {timeAgo(n.createdAt)}
-                    </span>
+            {realNotifications.map((n, idx) => {
+              const handleItemClick = () => {
+                if (!n.isRead) {
+                  setRealNotifications((prev) =>
+                    prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+                  )
+                  if (onUnreadCountChange) {
+                    const nextUnread = Math.max(0, realNotifications.filter((item) => !item.isRead && item.id !== n.id).length)
+                    onUnreadCountChange(nextUnread)
+                  }
+                  if (n.id) {
+                    void fetch('/api/notifications', {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ ids: [n.id] }),
+                    }).catch(() => {})
+                  }
+                }
+                if (onNavigateNotification) {
+                  onNavigateNotification(n)
+                }
+              }
+
+              return (
+                <div
+                  key={n.id || idx}
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleItemClick}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleItemClick()
+                    }
+                  }}
+                  className={`group flex items-center gap-3 px-4 py-4 cursor-pointer select-none transition-all hover:bg-sky-50/70 active:scale-[0.99] ${
+                    !n.isRead ? 'bg-[#f4f8fc]' : 'bg-white'
+                  } ${idx < realNotifications.length - 1 ? 'border-b border-slate-100' : ''}`}
+                >
+                  <div className={`h-10 w-10 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
+                    !n.isRead ? 'bg-sky-100 text-[#0d61ad] shadow-xs' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    <Bell className="h-4 w-4" />
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    {n.message || n.content || ''}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className={`text-sm leading-snug group-hover:text-sky-950 transition-colors ${!n.isRead ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
+                        {n.title || 'Alert'}
+                      </p>
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0 pt-0.5">
+                        {timeAgo(n.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
+                      {n.message || n.content || ''}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-sky-600 transition-all shrink-0 group-hover:translate-x-0.5" />
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

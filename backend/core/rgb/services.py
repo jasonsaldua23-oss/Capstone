@@ -21,6 +21,7 @@ from ..models import (
     Inventory,
     InventoryQuantityUnit,
     InventoryTransaction,
+    MixedCaseComponent,
     Order,
     OrderItem,
     Product,
@@ -68,38 +69,101 @@ def get_or_create_bottle_balance(
 
 
 def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
-    """Get all bottle balances for a customer, serialized."""
+    """Get all bottle balances for a customer, serialized with reservation tracking."""
+    # Compute active reserved empty containers across pending/in-progress orders
+    active_order_items = (
+        OrderItem.objects.filter(
+            order__customer=customer,
+            empty_returned_quantity__gt=0,
+        )
+        .exclude(order__status__in=["CANCELLED", "CANCELED", "REJECTED", "DELIVERED", "COMPLETED", "FAILED", "FAILED_DELIVERY"])
+        .exclude(order__request_status__in=["REJECTED", "CANCELLED"])
+        .select_related("product", "order")
+    )
+    active_mc_components = (
+        MixedCaseComponent.objects.filter(
+            order_item__order__customer=customer,
+            empty_covered_quantity__gt=0,
+        )
+        .exclude(order_item__order__status__in=["CANCELLED", "CANCELED", "REJECTED", "DELIVERED", "COMPLETED", "FAILED", "FAILED_DELIVERY"])
+        .exclude(order_item__order__request_status__in=["REJECTED", "CANCELLED"])
+        .select_related("order_item__order")
+    )
+    reserved_by_container: dict[str, int] = {}
+    for item in active_order_items:
+        ct_id = item.container_type_id
+        if not ct_id and item.product:
+            pkg = ProductPackaging.objects.filter(product=item.product, is_active=True).first()
+            if pkg:
+                ct_id = pkg.container_type_id
+        if ct_id:
+            ct_key = str(ct_id)
+            reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + max(0, int(item.empty_returned_quantity or 0))
+
+    for mc in active_mc_components:
+        ct_id = mc.container_type_id
+        if ct_id:
+            ct_key = str(ct_id)
+            reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + max(0, int(mc.empty_covered_quantity or 0))
+
     balances = CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type")
     serialized = []
     for balance in balances:
-        packaging = (
+        associated_packagings = list(
             ProductPackaging.objects.filter(container_type=balance.container_type, is_active=True)
+            .select_related("product")
             .order_by("-is_primary", "created_at")
-            .first()
         )
-        containers_per_case = max(1, int(packaging.containers_per_case or 1)) if packaging else 1
-        cases_outstanding, loose_bottles_outstanding = divmod(
-            max(0, int(balance.bottles_outstanding or 0)),
-            containers_per_case,
-        )
+        prod_names = list(dict.fromkeys(
+            packaging.product.name
+            for packaging in associated_packagings
+            if packaging.product and packaging.product.name
+        ))
+        primary_packaging = associated_packagings[0] if associated_packagings else None
+        containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
+        
+        total_bottles = max(0, int(balance.bottles_outstanding or 0))
+        bottles_reserved = max(0, reserved_by_container.get(str(balance.container_type_id), 0))
+        bottles_available = max(0, total_bottles - bottles_reserved)
+
+        cases_total, loose_bottles_total = divmod(total_bottles, containers_per_case)
+        cases_available, loose_bottles_available = divmod(bottles_available, containers_per_case)
+        cases_reserved, loose_bottles_reserved = divmod(bottles_reserved, containers_per_case)
+
+        unit_deposit = float(balance.container_type.deposit_amount or 0)
+        case_deposit = float(primary_packaging.case_deposit_amount or 0) if primary_packaging else (unit_deposit * containers_per_case)
+        deposit_available = float((cases_available * case_deposit) + (loose_bottles_available * unit_deposit))
+        deposit_reserved = float((cases_reserved * case_deposit) + (loose_bottles_reserved * unit_deposit))
+
         serialized.append({
             "containerTypeId": balance.container_type_id,
             "containerTypeName": balance.container_type.name,
             "containerTypeCode": balance.container_type.code,
-            "bottlesOutstanding": balance.bottles_outstanding,
+            "productName": ", ".join(prod_names) if prod_names else None,
+            "productNames": prod_names,
+            "bottlesOutstanding": bottles_available,
+            "bottlesTotalOnRecord": total_bottles,
+            "bottlesReserved": bottles_reserved,
+            "casesReserved": cases_reserved,
+            "looseBottlesReserved": loose_bottles_reserved,
+            "depositReserved": deposit_reserved,
+            "bottlesAvailable": bottles_available,
+            "casesAvailable": cases_available,
+            "looseBottlesAvailable": loose_bottles_available,
+            "depositAvailable": deposit_available,
+            "depositAmount": unit_deposit,
             "containersPerCase": containers_per_case,
-            "casesOutstanding": cases_outstanding,
-            "looseBottlesOutstanding": loose_bottles_outstanding,
+            "casesOutstanding": cases_available,
+            "casesTotalOnRecord": cases_total,
+            "looseBottlesOutstanding": loose_bottles_available,
+            "caseDepositAmount": case_deposit,
+            "depositBalance": deposit_available,
+            "depositBalanceTotal": float(balance.deposit_balance),
             "bottlesReturnedTotal": balance.bottles_returned_total,
             "bottlesSoldTotal": balance.bottles_sold_total,
-            "depositAmount": float(balance.container_type.deposit_amount),
-            "caseDepositAmount": float(packaging.case_deposit_amount or 0) if packaging else 0.0,
-            "depositBalance": float(balance.deposit_balance),
             "lastReturnAt": balance.last_return_at.isoformat() if balance.last_return_at else None,
         })
     return serialized
-
-
 def get_deposit_ledger_transactions(
     customer: Customer, limit: int = 50
 ) -> list[dict[str, Any]]:

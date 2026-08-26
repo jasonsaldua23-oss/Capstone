@@ -146,6 +146,12 @@ export function VehiclesView() {
     return driver?.isActive !== false && status !== 'INACTIVE'
   }
 
+  // Added: drivers already linked to another vehicle stay visible but cannot be selected.
+  const getDriverAssignedVehicle = (driverId: string) => vehicles.find((vehicle) => {
+    const assignedDriverId = vehicle?.driverId || vehicle?.driver?.id || vehicle?.drivers?.[0]?.driver?.id
+    return String(assignedDriverId || '') === String(driverId) && String(vehicle?.id || '') !== String(editingVehicle?.id || '')
+  })
+
   const saveVehicle = async (mode: 'create' | 'edit') => {
     const rawPlate = form.licensePlate.trim()
     const normalizedPlate = rawPlate.toUpperCase()
@@ -177,9 +183,7 @@ export function VehiclesView() {
         toast.error('Selected driver is inactive and cannot be assigned')
         return
       }
-      const existingVehicleWithDriver = vehicles.find(
-        (v) => (v.driverId === form.driverId || v.driver?.id === form.driverId) && (mode === 'create' || v.id !== editingVehicle?.id)
-      )
+      const existingVehicleWithDriver = getDriverAssignedVehicle(form.driverId)
       if (existingVehicleWithDriver) {
         toast.error(`Driver is already assigned to vehicle ${existingVehicleWithDriver.licensePlate || 'another vehicle'}.`)
         return
@@ -506,11 +510,16 @@ export function VehiclesView() {
                       className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">Unassigned</option>
-                      {drivers.map((driver: any) => (
-                        <option key={driver.id} value={driver.id} disabled={!isDriverAssignable(driver)}>
-                          {(driver.user?.name || driver.name || driver.email || driver.id) + (!isDriverAssignable(driver) ? ' (Inactive)' : '')}
-                        </option>
-                      ))}
+                      {drivers.map((driver: any) => {
+                        const assignedVehicle = getDriverAssignedVehicle(driver.id)
+                        const disabled = !isDriverAssignable(driver) || Boolean(assignedVehicle)
+                        const suffix = !isDriverAssignable(driver) ? ' (Inactive)' : assignedVehicle ? ' (Assigned)' : ''
+                        return (
+                          <option key={driver.id} value={driver.id} disabled={disabled}>
+                            {(driver.user?.name || driver.name || driver.email || driver.id) + suffix}
+                          </option>
+                        )
+                      })}
                     </select>
                   </div>
                 </div>

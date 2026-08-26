@@ -107,8 +107,14 @@ export function pointAtRouteDistance(route: [number, number][], distanceMeters: 
 // Splits one routed polyline at an exact distance so the gray and active lines
 // meet at the truck without drawing straight GPS-to-GPS shortcuts.
 export function splitRouteAtDistance(route: [number, number][], distanceMeters: number) {
+  if (!Array.isArray(route) || route.length < 2) {
+    return { completed: [] as [number, number][], remaining: route || [] };
+  }
+
   const projected = pointAtRouteDistance(route, distanceMeters);
-  if (!projected || route.length < 2) return { completed: route, remaining: [] as [number, number][] };
+  if (!projected) {
+    return { completed: route, remaining: [] as [number, number][] };
+  }
 
   let remainingDistance = Math.max(0, distanceMeters);
   let splitIndex = 0;
@@ -118,9 +124,22 @@ export function splitRouteAtDistance(route: [number, number][], distanceMeters: 
     remainingDistance -= segmentLength;
   }
 
+  const rawCompleted: [number, number][] = [...route.slice(0, splitIndex + 1), projected];
+  const rawRemaining: [number, number][] = [projected, ...route.slice(splitIndex + 1)];
+
+  const dedupe = (points: [number, number][]) =>
+    points.filter((point, index, list) => {
+      if (index === 0) return true;
+      const prev = list[index - 1];
+      return !(Math.abs(point[0] - prev[0]) < 1e-7 && Math.abs(point[1] - prev[1]) < 1e-7);
+    });
+
+  const completed = dedupe(rawCompleted);
+  const remaining = dedupe(rawRemaining);
+
   return {
-    completed: [...route.slice(0, splitIndex + 1), projected],
-    remaining: [projected, ...route.slice(splitIndex + 1)],
+    completed: completed.length >= 2 ? completed : [],
+    remaining: remaining.length >= 2 ? remaining : route,
   };
 }
 

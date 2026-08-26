@@ -3545,6 +3545,132 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         self.assertIsNotNone(order_timeline.delivered_at)
 
 
+class BulkStockInExistingProductContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
+        self.warehouse_user = User.objects.create(
+            email="bulk.stock.existing@example.com",
+            password="hashed",
+            name="Bulk Stock User",
+            role=warehouse_role,
+            is_active=True,
+        )
+        self.warehouse = Warehouse.objects.create(
+            name="Bulk Stock Warehouse",
+            code="WH-BULK-STOCK",
+            address="Bulk Stock Address",
+            city="Talisay",
+            province="Negros Occidental",
+            zip_code="6115",
+            manager_id=self.warehouse_user.id,
+            is_active=True,
+        )
+        self.product = Product.objects.create(sku="SKU-BULK-STOCK", name="Bulk Stock Product", price=10)
+        self.inventory = Inventory.objects.create(
+            warehouse=self.warehouse,
+            product=self.product,
+            quantity=10,
+            threshold=1,
+        )
+        self.token = create_token(
+            {
+                "userId": self.warehouse_user.id,
+                "email": self.warehouse_user.email,
+                "name": self.warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+
+    def test_retry_does_not_duplicate_quantity_or_product(self) -> None:
+        product_count_before = Product.objects.count()
+        inventory_count_before = Inventory.objects.count()
+        request_body = {
+            "warehouseId": self.warehouse.id,
+            "batches": [
+                {
+                    "productId": self.product.id,
+                    "quantity": 4,
+                    "manufacturedDate": timezone.now().isoformat(),
+                    "expiryDate": (timezone.now() + timedelta(days=365)).isoformat(),
+                    "batchNumber": "STOCKIN-IDEMPOTENT-001-0",
+                }
+            ],
+        }
+
+        first_response = self.client.post(
+            "/api/stock-batches/bulk",
+            data=json.dumps(request_body),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        retry_response = self.client.post(
+            "/api/stock-batches/bulk",
+            data=json.dumps(request_body),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(first_response.status_code, 201, first_response.content)
+        self.assertEqual(retry_response.status_code, 201, retry_response.content)
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 14)
+        self.assertEqual(Product.objects.count(), product_count_before)
+        self.assertEqual(Inventory.objects.count(), inventory_count_before)
+        batch = StockBatch.objects.get(batch_number="STOCKIN-IDEMPOTENT-001-0")
+        self.assertEqual(batch.quantity, 4)
+        self.assertEqual(
+            InventoryTransaction.objects.filter(reference_type="stock_batch", reference_id=batch.id).count(),
+            1,
+        )
+
+    def test_rejects_product_missing_from_warehouse_inventory(self) -> None:
+        unregistered_product = Product.objects.create(
+            sku="SKU-BULK-UNREGISTERED",
+            name="Unregistered Bulk Product",
+            price=30,
+        )
+        inventory_count_before = Inventory.objects.count()
+
+        response = self.client.post(
+            "/api/stock-batches/bulk",
+            data=json.dumps(
+                {
+                    "warehouseId": self.warehouse.id,
+                    "batches": [
+                        {
+                            "productId": unregistered_product.id,
+                            "quantity": 4,
+                            "expiryDate": (timezone.now() + timedelta(days=365)).isoformat(),
+                            "batchNumber": "STOCKIN-UNREGISTERED-001-0",
+                        }
+                    ],
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(Inventory.objects.count(), inventory_count_before)
+        self.assertFalse(StockBatch.objects.filter(batch_number="STOCKIN-UNREGISTERED-001-0").exists())
+
+    def test_inventory_endpoint_excludes_inactive_product_rows(self) -> None:
+        self.product.is_active = False
+        self.product.save(update_fields=["is_active", "updated_at"])
+
+        response = self.client.get(
+            "/api/inventory",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["inventory"], [])
+
+
 class WarehouseStaffInventoryScopeContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()

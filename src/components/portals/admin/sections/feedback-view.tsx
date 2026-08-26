@@ -8,7 +8,6 @@ import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
@@ -24,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, User, Star, Download, Pencil, Trash2, CalendarDays } from 'lucide-react'
+import { Loader2, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, User, Star, Download, Pencil, Trash2, CalendarDays } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import { resolveClientImageUrl } from '@/lib/client-image'
@@ -380,11 +379,6 @@ export function FeedbackView() {
                             <CalendarDays className="h-3.5 w-3.5 text-slate-500" strokeWidth={1.8} />
                             <span>{createdDate}</span>
                           </div>
-                          <span className="hidden h-5 w-px bg-slate-200 md:block" />
-                          <Badge className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[0.7rem] font-semibold text-emerald-700 hover:bg-emerald-50">
-                            <Truck className="mr-1 h-3 w-3" strokeWidth={2.1} />
-                            Delivery
-                          </Badge>
                         </div>
                       </div>
                     </div>

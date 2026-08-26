@@ -134,14 +134,20 @@ export function CustomerCheckoutView({
                       const categoryLabel = String((item as any)?.category?.name || (item as any)?.category || '').trim()
                       return (
                         <>
-                          <p className="truncate text-sm font-medium text-slate-800">
-                            {item.itemType === 'MIXED_CASE'
-                              ? 'Mixed Case'
-                              : `${item.name} ${sizeLabel}`}
-                          </p>
-                          {categoryLabel ? (
-                            <p className="text-xs text-slate-500">{categoryLabel}</p>
-                          ) : null}
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="truncate text-sm font-medium text-slate-800">
+                              {item.itemType === 'MIXED_CASE'
+                                ? 'Mixed Case'
+                                : `${item.name} ${sizeLabel}`}
+                            </p>
+                            <p className="shrink-0 text-sm font-semibold text-slate-900">
+                              {formatPeso(Number(item.quantity || 1) * Number(item.unitPrice || 0))}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-slate-500">
+                            <span>{categoryLabel || 'Beverage'}</span>
+                            <span>{item.quantity} × {formatPeso(item.unitPrice)}</span>
+                          </div>
                         </>
                       )
                     })()}
@@ -222,7 +228,7 @@ export function CustomerCheckoutView({
               {selectedDepositRefunded > 0 && (
                 <div className="flex items-center justify-between text-[13px] md:text-sm">
                   <span className="text-slate-600">Existing empty deposits applied</span>
-                  <span className="font-medium text-emerald-600">Covers {formatPeso(selectedDepositRefunded)}</span>
+                  <span className="font-semibold text-emerald-600">- Covers {formatPeso(selectedDepositRefunded)}</span>
                 </div>
               )}
               {selectedDepositCharged - selectedDepositRefunded > 0 && (

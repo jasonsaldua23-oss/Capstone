@@ -302,7 +302,8 @@ export function SettingsView() {
           emailVerificationToken: isEmailChanged ? profileOtpToken : undefined,
         }),
       })
-      const data = await response.json()
+      // Fix: an upstream HTML error page must not cause a JSON parsing console overlay.
+      const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
         throw new Error(data?.error || 'Failed to save profile')
       }
@@ -326,6 +327,8 @@ export function SettingsView() {
       setEmail(String(nextUser.email ?? email))
       setPhone(String(nextUser.phone ?? phone))
       setAvatarFile(null)
+      // Added: return the successful profile save to its read-only Edit state.
+      setIsEditingProfile(false)
       toast.success('Profile updated successfully')
       if (isEmailChanged) {
         setProfileOtpSent(false)

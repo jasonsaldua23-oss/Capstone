@@ -27,7 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, Recycle, Store } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, PackageCheck, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, Recycle, Store } from 'lucide-react';
 import { WarehouseEmptyBottlesView } from '../warehouse/sections/inventory/empty-bottles-view';
 import { RetailTransactionsView } from './sections/retail-transactions-view';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
@@ -567,11 +567,12 @@ export function AdminPortal() {
       if (ordersRes.ok) {
         const rows = getCollection<any>(ordersRes.data, ['orders'])
         rows.forEach((row) => {
-          if (!include([row?.orderNumber, row?.customer?.name, row?.customer?.email, row?.shippingName, row?.shippingCity, row?.status])) return
+          if (!include([row?.orderNumber, row?.purchaseRequestNumber, row?.customer?.name, row?.customer?.email, row?.shippingName, row?.shippingCity, row?.status])) return
+          const isApproved = String(row?.requestStatus || '').toUpperCase() === 'APPROVED' && Boolean(row?.purchaseOrderNumber)
           nextResults.push({
-            view: 'orders',
-            label: `Order ${String(row?.orderNumber || row?.id || '').trim() || 'N/A'}`,
-            sublabel: `${String(row?.customer?.name || row?.shippingName || 'N/A')} | ${String(row?.status || 'N/A')}`,
+            view: isApproved ? 'orders' : 'purchaseRequests',
+            label: `${isApproved ? 'Purchase Order' : 'Purchase Request'} ${String(row?.purchaseOrderNumber || row?.purchaseRequestNumber || row?.orderNumber || row?.id || '').trim() || 'N/A'}`,
+            sublabel: `${String(row?.customer?.name || row?.shippingName || 'N/A')} | ${String(row?.status || row?.requestStatus || 'N/A')}`,
           })
         })
       }
@@ -816,8 +817,8 @@ export function AdminPortal() {
   const SidebarContent = () => {
     const navItems = [
       { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-      { id: 'purchaseRequests', label: 'Purchase Requests', icon: ClipboardList },
-      { id: 'orders', label: 'Purchase Orders', icon: ShoppingCart },
+      { id: 'purchaseRequests', label: 'Purchase Requests', icon: ShoppingCart },
+      { id: 'orders', label: 'Purchase Orders', icon: PackageCheck },
       { id: 'transportation', label: 'Transportation', icon: Truck },
       { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
       { id: 'tracking', label: 'Live Tracking', icon: MapPin },
@@ -1058,12 +1059,12 @@ export function AdminPortal() {
     switch (activeView) {
       case 'dashboard':
         return <DashboardView stats={stats} isLoading={isLoading} />
+      case 'purchaseRequests':
+        return <OrdersView mode="requests" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
       case 'orders':
         return <OrdersView mode="orders" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
       case 'retailTransactions':
         return <RetailTransactionsView />
-      case 'purchaseRequests':
-        return <OrdersView mode="requests" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
       case 'trips':
         return <TripsView />
       case 'transportation':
