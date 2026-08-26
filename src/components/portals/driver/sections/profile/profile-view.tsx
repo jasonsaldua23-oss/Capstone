@@ -255,6 +255,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   })
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  // Uses the shared crop hook so avatar selection and saving remain in one state flow.
   const avatarCrop = useAvatarCrop()
 
   const formatDateInputValue = (value: unknown) => {
@@ -500,6 +501,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
 
       setSubView('menu')
       setAvatarFile(null)
+      if (mode === 'profile') {
+        // Added: reopen the profile in read-only mode after a successful save.
+        setIsEditingProfile(false)
+      }
       toast.success(mode === 'profile' ? 'Profile updated' : 'License details updated')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update profile')

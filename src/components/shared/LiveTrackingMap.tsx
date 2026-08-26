@@ -1286,9 +1286,25 @@ export default function LiveTrackingMap({
                 : typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading)
                   ? normalizeAngle(loc.markerHeading)
                   : undefined;
-      // The ordered upcoming route is authoritative. GPS heading is already the
-      // final fallback in headingCandidate when no usable forward tangent exists.
-      const snappedHeading = headingCandidate;
+      // Fix: when the driver's actual GPS heading disagrees with the route
+      // tangent by more than 90°, the driver is likely moving a different
+      // direction (e.g. turning around). Use the GPS heading so the truck
+      // icon faces the direction the driver is actually moving.
+      const gpsHeading =
+        typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading) && loc.markerHeading >= 0
+          ? normalizeAngle(loc.markerHeading)
+          : null;
+      const routeDerivedHeading =
+        typeof headingCandidate === 'number' ? headingCandidate : null;
+      const snappedHeading = (() => {
+        if (gpsHeading !== null && routeDerivedHeading !== null) {
+          const delta = Math.abs(shortestAngleDelta(gpsHeading, routeDerivedHeading));
+          // A delta > 90° means the driver is heading roughly opposite to the
+          // route tangent — use the GPS heading so the icon visually matches.
+          if (delta > 90) return gpsHeading;
+        }
+        return headingCandidate;
+      })();
 
       return [{
         ...loc,
@@ -1392,6 +1408,65 @@ export default function LiveTrackingMap({
       });
 
       if (!hasAnimatedTruck) {
+        // Fix: instead of instantly teleporting the marker for sub-threshold
+        // GPS corrections, apply a short smooth animation. This eliminates
+        // visible jumps while still keeping the marker responsive.
+        const hasMicroMovement = stabilizedTargets.some((loc) => {
+          if (loc.markerType !== 'truck') return false;
+          const previous = previousById.get(loc.id);
+          if (!previous) return false;
+          return (
+            Math.abs(previous.lat - loc.lat) > 1e-9 ||
+            Math.abs(previous.lng - loc.lng) > 1e-9
+          );
+        });
+
+        if (hasMicroMovement) {
+          // Short 200ms ease for sub-threshold GPS jitter so the marker
+          // glides instead of teleporting.
+          const microStartTime = performance.now();
+          const microDuration = 200;
+
+          const microAnimate = (now: number) => {
+            const progress = Math.min(1, (now - microStartTime) / microDuration);
+            const easedProgress = progress * progress * (3 - 2 * progress);
+
+            setSmoothedLocations(() => {
+              const nextLocations = stabilizedTargets.map((targetLocation) => {
+                if (targetLocation.markerType !== 'truck') return targetLocation;
+                const previous = previousById.get(targetLocation.id);
+                if (!previous) return targetLocation;
+                const hasAcceptedRoadPosition = !routeGeometryChanged && typeof previous?.routeProgressMeters === 'number';
+                const targetLat = hasAcceptedRoadPosition && !routeGeometryChanged ? previous.lat : targetLocation.lat;
+                const targetLng = hasAcceptedRoadPosition && !routeGeometryChanged ? previous.lng : targetLocation.lng;
+                // Fix: preserve the last known heading during sub-threshold
+                // moves so the icon does not flicker its rotation.
+                const preservedHeading = previous.markerHeading ?? targetLocation.markerHeading;
+                return {
+                  ...targetLocation,
+                  lat: lerp(previous.lat, targetLat, easedProgress),
+                  lng: lerp(previous.lng, targetLng, easedProgress),
+                  markerHeading: preservedHeading,
+                  routeProgressMeters: hasAcceptedRoadPosition
+                    ? previous.routeProgressMeters
+                    : targetLocation.routeProgressMeters,
+                };
+              });
+              smoothedLocationsRef.current = nextLocations;
+              return nextLocations;
+            });
+
+            if (progress < 1) {
+              animationFrameRef.current = window.requestAnimationFrame(microAnimate);
+            } else {
+              animationFrameRef.current = null;
+            }
+          };
+
+          animationFrameRef.current = window.requestAnimationFrame(microAnimate);
+          return previousLocations;
+        }
+
         const nextLocations = stabilizedTargets.map((targetLocation) => {
           if (targetLocation.markerType !== 'truck') return targetLocation;
           const previous = previousById.get(targetLocation.id);
@@ -1403,6 +1478,8 @@ export default function LiveTrackingMap({
                 // subsequent sub-threshold GPS fixes retain the prior position.
                 lat: hasAcceptedRoadPosition ? previous.lat : targetLocation.lat,
                 lng: hasAcceptedRoadPosition ? previous.lng : targetLocation.lng,
+                // Fix: always preserve heading during sub-threshold movement
+                // so the icon rotation stays synchronized with its position.
                 markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
                 // A replacement route uses a new distance scale; never attach
                 // the old scale to the newly projected truck coordinate.

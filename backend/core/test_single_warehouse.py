@@ -134,6 +134,20 @@ class SingleWarehouseApiContractTests(TestCase):
         self.assertEqual(edit_response.status_code, 409, edit_response.content)
         self.assertEqual(edit_response.json()["error"], "This email address is already registered.")
 
+        # A legacy cross-account duplicate must not block a profile update when email is unchanged.
+        Customer.objects.create(
+            email=self.admin.email,
+            password="hashed",
+            name="Legacy Duplicate Customer",
+        )
+        unchanged_email_response = self.client.put(
+            f"/api/users/{self.admin.id}",
+            data=json.dumps({"name": "Updated Admin Name", "email": self.admin.email}),
+            content_type="application/json",
+            **self.auth(self.admin_token),
+        )
+        self.assertEqual(unchanged_email_response.status_code, 200, unchanged_email_response.content)
+
     def test_admin_can_reset_selected_user_password_without_user_otp(self) -> None:
         target = User.objects.create(
             email="password.reset.target@example.com",

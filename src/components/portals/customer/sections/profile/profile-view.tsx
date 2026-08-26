@@ -496,6 +496,8 @@ export function CustomerProfileView({
     if (!canSaveProfile) return
     const success = await saveProfile()
     if (success) {
+      // Added: reopen the profile in read-only mode after a successful save.
+      setIsEditingProfile(false)
       setSubView('menu')
     }
   }

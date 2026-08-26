@@ -5092,6 +5092,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         return _ok({"success": True})
     body = _json_body(request)
     current_email = str(user.email or "").strip().lower()
+    current_role = str(user.role or "").strip()
     requested_email_raw = body.get("email", None)
     requested_email = current_email
     email_change_requested = False
@@ -5099,8 +5100,9 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         requested_email = str(requested_email_raw).strip().lower()
         email_change_requested = requested_email != current_email
 
-    if email_change_requested:
-        requested_role = str(body.get("roleId") or user.role or "").strip()
+    requested_role = str(body.get("roleId") or current_role).strip()
+    role_change_requested = requested_role != current_role
+    if email_change_requested or role_change_requested:
         existing_message = _staff_email_conflict_message(requested_email, requested_role, exclude_user_id=user.id)
         if existing_message:
             return _err(existing_message, 409)
@@ -5183,9 +5185,11 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         if role_value not in {x for x, _ in RoleType.choices}:
             return _err("Role not found", 404)
         user.role = role_value
-    existing_message = _staff_email_conflict_message(user.email, user.role, exclude_user_id=user.id)
-    if existing_message:
-        return _err(existing_message, 409)
+    if email_change_requested or role_change_requested:
+        # Fix: unchanged legacy emails must not block unrelated profile updates.
+        existing_message = _staff_email_conflict_message(user.email, user.role, exclude_user_id=user.id)
+        if existing_message:
+            return _err(existing_message, 409)
     user.save()
     return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
 

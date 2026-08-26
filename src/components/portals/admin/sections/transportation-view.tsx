@@ -187,6 +187,12 @@ export function TransportationView() {
     return driver?.isActive !== false && status !== 'INACTIVE'
   }
 
+  // Added: drivers already linked to another vehicle stay visible but cannot be selected.
+  const getDriverAssignedVehicle = (driverId: string) => vehicles.find((vehicle) => {
+    const assignedDriverId = vehicle?.driverId || vehicle?.driver?.id || vehicle?.drivers?.[0]?.driver?.id
+    return String(assignedDriverId || '') === String(driverId) && String(vehicle?.id || '') !== String(selectedVehicle?.id || '')
+  })
+
   const isVehicleAssignable = (vehicle: any) => {
     const status = String(vehicle?.status || '').toUpperCase()
     return vehicle?.isActive !== false && !['INACTIVE', 'OUT_OF_SERVICE', 'MAINTENANCE'].includes(status)
@@ -280,9 +286,7 @@ export function TransportationView() {
         toast.error('Selected driver is inactive and cannot be assigned')
         return
       }
-      const existingVehicleWithDriver = vehicles.find(
-        (v) => (v.driverId === vehicleForm.driverId || v.driver?.id === vehicleForm.driverId) && (mode === 'create' || v.id !== selectedVehicle?.id)
-      )
+      const existingVehicleWithDriver = getDriverAssignedVehicle(vehicleForm.driverId)
       if (existingVehicleWithDriver) {
         toast.error(`Driver is already assigned to vehicle ${existingVehicleWithDriver.licensePlate || 'another vehicle'}.`)
         return
@@ -841,11 +845,16 @@ export function TransportationView() {
                           className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="">Unassigned</option>
-                          {drivers.map((driver: any) => (
-                            <option key={driver.id} value={driver.id} disabled={!isDriverAssignable(driver)}>
-                              {(driver.user?.name || driver.name || driver.email || driver.id) + (!isDriverAssignable(driver) ? ' (Inactive)' : '')}
-                            </option>
-                          ))}
+                          {drivers.map((driver: any) => {
+                            const assignedVehicle = getDriverAssignedVehicle(driver.id)
+                            const disabled = !isDriverAssignable(driver) || Boolean(assignedVehicle)
+                            const suffix = !isDriverAssignable(driver) ? ' (Inactive)' : assignedVehicle ? ' (Assigned)' : ''
+                            return (
+                              <option key={driver.id} value={driver.id} disabled={disabled}>
+                                {(driver.user?.name || driver.name || driver.email || driver.id) + suffix}
+                              </option>
+                            )
+                          })}
                         </select>
                       </div>
                     </div>
@@ -1233,29 +1242,52 @@ export function TransportationView() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4">
-              {drivers.map((driver: any) => (
-                <Card key={driver.id}>
-                  <CardContent className="pt-6">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-semibold">{driver.user?.name || driver.name || 'N/A'}</h3>
-                        <p className="text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
-                        <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
-                        <p className="text-sm text-gray-500">License: {driver.licenseNumber}</p>
-                        <p className="text-sm text-gray-500">Restrictions: {driver.licenseType || driver.license_type || 'N/A'}</p>
-                        <p className={`text-sm font-medium ${driver.isActive ? 'text-green-600' : 'text-orange-600'}`}>
-                          {driver.isActive ? 'Active' : 'Inactive'}
-                        </p>
+            /* Restored: match the compact driver cards used by the previous Fleet Management view. */
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {drivers.map((driver: any) => {
+                const driverName = driver.user?.name || driver.name || 'N/A'
+                const driverAvatar = driver.user?.avatar || driver.avatar
+                return (
+                  <Card key={driver.id}>
+                    <CardContent className="pt-6">
+                      <div className="flex items-start gap-4">
+                        <Avatar className="h-12 w-12 border border-slate-200">
+                          {driverAvatar ? <AvatarImage src={driverAvatar} alt={`${driverName} avatar`} className="object-cover" /> : null}
+                          <AvatarFallback className="bg-blue-600 text-white">
+                            {driverName.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate font-semibold">{driverName}</h3>
+                          <p className="truncate text-sm text-gray-500">{driver.user?.email || driver.email || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{driver.phone || driver.user?.phone || driver.phoneNumber || 'N/A'}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Badge variant="outline">License: {driver.licenseNumber || 'N/A'}</Badge>
+                            <Badge variant="outline">Restriction: {driver.licenseType || driver.license_type || 'N/A'}</Badge>
+                            <Badge variant={driver.isActive ? 'default' : 'secondary'}>
+                              {driver.isActive ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => openEditDriver(driver)}>Edit</Button>
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-gray-500">Rating:</span>
+                          <span className="ml-1 font-medium">{Number(driver.rating || 0).toFixed(1)}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Deliveries:</span>
+                          <span className="ml-1 font-medium">{driver.totalDeliveries || 0}</span>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex gap-2">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => openEditDriver(driver)}>Edit</Button>
                         <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )}
         </TabsContent>

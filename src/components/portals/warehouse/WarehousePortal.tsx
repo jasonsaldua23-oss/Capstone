@@ -952,6 +952,8 @@ export function WarehousePortal() {
         setProfileOtpToken('')
         setProfileOtp('')
       }
+      // Added: return the successful profile save to its read-only Edit state.
+      setIsEditingProfile(false)
       toast.success('Profile updated')
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update profile')
