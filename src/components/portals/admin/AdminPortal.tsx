@@ -404,6 +404,8 @@ interface PortalNotification {
   title: string
   message: string
   type: string | null
+  referenceType: string | null
+  referenceId: string | null
   isRead: boolean
   createdAt: string
 }
@@ -439,6 +441,11 @@ export function AdminPortal() {
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [initialNotificationsLoaded, setInitialNotificationsLoaded] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const [notificationTarget, setNotificationTarget] = useState<{
+    referenceType: string
+    referenceId: string
+    focusKey: number
+  } | null>(null)
   const [warehouseReady, setWarehouseReady] = useState<boolean | null>(null)
 
   const fetchAdminOrders = useCallback(async () => {
@@ -515,7 +522,10 @@ export function AdminPortal() {
       text.includes('low stock') ||
       refType === 'inventory' ||
       refType === 'stock_batch'
-    return isOrderOps || isTripOps || isInventory
+    const isReplacement =
+      text.includes('replacement') ||
+      refType === 'replacement'
+    return isOrderOps || isTripOps || isInventory || isReplacement
   }
 
   const filteredNotifications = useMemo(
@@ -730,12 +740,14 @@ export function AdminPortal() {
     }
     try {
       const result = await safeFetchJson('/api/notifications', { cache: 'no-store' })
-      if (!result.ok) return
+      if (!result.ok) return null
 
       const payload = result.data as any
       const list = Array.isArray(payload?.notifications) ? payload.notifications : []
+      const unreadCount = Number(payload?.unreadCount || 0)
       setNotifications(list)
-      setUnreadNotifications(Number(payload?.unreadCount || 0))
+      setUnreadNotifications(unreadCount)
+      return unreadCount
     } catch (error: any) {
       const message = String(error?.message || '')
       const isTransientFetchFailure =
@@ -745,6 +757,7 @@ export function AdminPortal() {
       if (!isTransientFetchFailure) {
         console.error('Failed to fetch notifications:', error)
       }
+      return null
     } finally {
       if (!silent) {
         setNotificationsLoading(false)
@@ -782,15 +795,59 @@ export function AdminPortal() {
 
   const handleNotificationsOpen = async (open: boolean) => {
     if (!open) return
-    await fetchNotifications()
-    if (unreadNotifications > 0) {
+    const currentUnreadCount = await fetchNotifications()
+    if (currentUnreadCount && currentUnreadCount > 0) {
       await markAllNotificationsAsRead()
     }
+  }
+
+  const handleNotificationClick = (notification: PortalNotification) => {
+    const referenceType = String(notification.referenceType || notification.type || '').trim().toLowerCase()
+    const referenceId = String(notification.referenceId || '').trim()
+    const focusKey = Date.now()
+    setNotificationTarget({ referenceType, referenceId, focusKey })
+
+    // Added: route admin alerts to the matching operational view and record.
+    if (referenceType === 'order') {
+      const title = String(notification.title || '').toLowerCase()
+      setActiveView(title.includes('new order') || title.includes('order created') ? 'purchaseRequests' : 'orders')
+      return
+    }
+    if (referenceType === 'replacement') {
+      setActiveView('replacements')
+      return
+    }
+    if (['trip', 'driver', 'vehicle', 'transport'].includes(referenceType)) {
+      setActiveView('transportation')
+      return
+    }
+    if (referenceType === 'warehouse') {
+      setActiveView('warehouses')
+      return
+    }
+    if (['product', 'inventory', 'stock_batch'].includes(referenceType)) {
+      setInventorySubView(referenceType === 'stock_batch' ? 'stocks' : 'inventory')
+      setActiveView('inventory')
+      return
+    }
+    if (referenceType === 'user') setActiveView('users')
   }
 
   useEffect(() => {
     // Keep the portal initialization screen active until notification data settles.
     void fetchNotifications({ silent: true }).finally(() => setInitialNotificationsLoaded(true))
+
+    // Added: keep cross-device admin alerts current while the portal is visible.
+    const refreshNotifications = () => {
+      if (document.visibilityState === 'visible') void fetchNotifications({ silent: true })
+    }
+    const intervalId = window.setInterval(refreshNotifications, 15000)
+    window.addEventListener('focus', refreshNotifications)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshNotifications)
+    }
   }, [])
 
   useEffect(() => {
@@ -1060,15 +1117,15 @@ export function AdminPortal() {
       case 'dashboard':
         return <DashboardView stats={stats} isLoading={isLoading} />
       case 'purchaseRequests':
-        return <OrdersView mode="requests" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
+        return <OrdersView mode="requests" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} notificationReferenceId={notificationTarget?.referenceType === 'order' ? notificationTarget.referenceId : ''} notificationFocusKey={notificationTarget?.focusKey} />
       case 'orders':
-        return <OrdersView mode="orders" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} />
+        return <OrdersView mode="orders" onOpenTransportation={() => setActiveView('transportation')} globalSearchQuery={globalSearchQuery} notificationReferenceId={notificationTarget?.referenceType === 'order' ? notificationTarget.referenceId : ''} notificationFocusKey={notificationTarget?.focusKey} />
       case 'retailTransactions':
         return <RetailTransactionsView />
       case 'trips':
         return <TripsView />
       case 'transportation':
-        return <TransportationView />
+        return <TransportationView notificationReferenceType={notificationTarget?.referenceType} notificationReferenceId={notificationTarget?.referenceId} notificationFocusKey={notificationTarget?.focusKey} />
       case 'warehouses':
         return <WarehousesView onWarehouseChanged={setWarehouseReady} />
       case 'inventoryTransactions':
@@ -1122,7 +1179,7 @@ export function AdminPortal() {
           </Tabs>
         )
       case 'replacements':
-        return <ReplacementsView />
+        return <ReplacementsView notificationReferenceId={notificationTarget?.referenceType === 'replacement' ? notificationTarget.referenceId : ''} notificationFocusKey={notificationTarget?.focusKey} />
       case 'tracking':
         return <TrackingView />
       case 'feedback':
@@ -1233,11 +1290,15 @@ export function AdminPortal() {
                       <div className="px-3 py-3 text-sm text-gray-500">No notifications yet.</div>
                     ) : (
                       filteredNotifications.map((item) => (
-                        <div key={item.id} className="px-3 py-2 border-b last:border-b-0">
+                        <DropdownMenuItem
+                          key={item.id}
+                          className="block cursor-pointer rounded-none border-b px-3 py-2 last:border-b-0"
+                          onSelect={() => handleNotificationClick(item)}
+                        >
                           <p className="text-sm font-medium text-gray-900">{item.title}</p>
-                          <p className="text-xs text-gray-600">{item.message}</p>
+                          <p className="whitespace-normal text-xs text-gray-600">{item.message}</p>
                           <p className="text-[11px] text-gray-500 mt-1">{formatNotificationTime(item.createdAt)}</p>
-                        </div>
+                        </DropdownMenuItem>
                       ))
                     )}
                   </div>

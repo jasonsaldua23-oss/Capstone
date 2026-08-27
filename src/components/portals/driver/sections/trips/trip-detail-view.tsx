@@ -436,14 +436,18 @@ export function TripDetailView({
 
   const getMatchedReplacementLine = (item: any, order?: any): any | null => {
     const scheduledReplacement = order?.scheduledReplacement || null
-    const replacementLines = Array.isArray(scheduledReplacement?.replacementLines) ? scheduledReplacement.replacementLines : []
+    const replacementLines = Array.isArray(scheduledReplacement?.replacementLines)
+      ? scheduledReplacement.replacementLines
+      : Array.isArray(scheduledReplacement?.replacementItems)
+        ? scheduledReplacement.replacementItems
+        : []
     const productId = String(item?.product?.id || item?.productId || '').trim()
     const productName = String(item?.product?.name || item?.productName || '').trim().toLowerCase()
     return replacementLines.find((line: any) => {
       const replacementProductId = String(line?.replacementProductId || line?.originalProductId || '').trim()
       const replacementProductName = String(line?.replacementProductName || line?.originalProductName || line?.productName || '').trim().toLowerCase()
       return (productId && replacementProductId && productId === replacementProductId) || (productName && replacementProductName && productName === replacementProductName)
-    }) || null
+    }) || (replacementLines.length === 1 ? replacementLines[0] : null)
   }
 
   const getOrderQtyWithUnitLabel = (item: any, order?: any): string => {
@@ -454,49 +458,63 @@ export function TripDetailView({
     const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
     const scheduledReplacement = order?.scheduledReplacement || null
     const matchedReplacementLine = getMatchedReplacementLine(item, order)
-    if (orderNumber.startsWith('RPL-') && matchedReplacementLine) {
-      const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
-      const lineQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplace || 0))
-      const lineQtyCases = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0))
-      const lineQtyBottles = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceBottles || 0))
-      const rawUnit = String(
-        matchedReplacementLine?.replacementProductUnit ||
-        matchedReplacementLine?.originalProductUnit ||
-        item?.productUnit ||
-        item?.product?.unit ||
-        ''
-      ).trim().toLowerCase()
-      const unitLabelText =
-        rawUnit.includes('pack') ? 'pack(s)'
-          : rawUnit.includes('bundle') ? 'bundle(s)'
-            : rawUnit.includes('case') ? 'case(s)'
-              : 'unit(s)'
-      if (lineInputMode === 'bottle') {
-        const qty = lineQtyBottles > 0 ? lineQtyBottles : lineQty
-        return `x${qty} bottle(s)`
+
+    const itemNotes = String(item?.notes || '')
+    const isBottleFromNotes = /ReplacementUnitMode=BOTTLE/i.test(itemNotes)
+    const bottlesFromNotesMatch = itemNotes.match(/ReplacementRequestedBottles=(\d+)/i)
+    const bottlesFromNotes = bottlesFromNotesMatch ? parseInt(bottlesFromNotesMatch[1], 10) : 0
+
+    const formatCountUnit = (count: number, rawUnitStr: string) => {
+      const u = String(rawUnitStr || '').toLowerCase()
+      const singular = u.includes('bottle') ? 'bottle' : u.includes('case') ? 'case' : u.includes('pack') ? 'pack' : u.includes('bundle') ? 'bundle' : 'unit'
+      const label = count === 1 ? singular : `${singular}s`
+      return `x${count} ${label}`
+    }
+
+    if (orderNumber.startsWith('RPL-') || Boolean((order as any)?.isScheduledReplacement)) {
+      if (isBottleFromNotes && bottlesFromNotes > 0) {
+        return formatCountUnit(bottlesFromNotes, 'bottle')
       }
-      if (lineQtyCases > 0) {
-        return `x${lineQtyCases} ${unitLabelText}`
+      if (matchedReplacementLine?.quantityToReplaceDisplay) {
+        let display = String(matchedReplacementLine.quantityToReplaceDisplay).trim()
+        const matchNum = display.match(/^(\d+(?:\.\d+)?)/)
+        const numVal = matchNum ? parseFloat(matchNum[1]) : 1
+        display = display.replace(/\(s\)/gi, numVal === 1 ? '' : 's').replace(/\s+/g, ' ')
+        return display.startsWith('x') ? display : `x${display}`
       }
-      const qtyPerUnit = Math.max(1, Number(matchedReplacementLine?.qtyPerUnit || matchedReplacementLine?.quantityPerCase || scheduledReplacement?.qtyPerUnit || 1))
-      if (lineQty > 0) {
-        const unitQty = lineQty / qtyPerUnit
-        const unitLabel = Number.isInteger(unitQty)
-          ? String(unitQty)
-          : unitQty.toFixed(2).replace(/\.00$/, '')
-        return `x${unitLabel} ${unitLabelText}`
+      if (matchedReplacementLine) {
+        const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
+        const lineQtyBottles = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceBottles || 0))
+        const lineQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplace || 0))
+        const lineQtyCases = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0))
+        const rawUnit = String(
+          matchedReplacementLine?.replacementProductUnit ||
+          matchedReplacementLine?.originalProductUnit ||
+          item?.productUnit ||
+          item?.product?.unit ||
+          ''
+        ).trim().toLowerCase()
+
+        if (lineInputMode === 'bottle' || lineQtyBottles > 0 || rawUnit.includes('bottle')) {
+          const qty = lineQtyBottles > 0 ? lineQtyBottles : lineQty
+          return formatCountUnit(qty, 'bottle')
+        }
+        if (lineQtyCases > 0) {
+          return formatCountUnit(lineQtyCases, rawUnit || 'case')
+        }
+        if (lineQty > 0) {
+          return formatCountUnit(lineQty, rawUnit || 'case')
+        }
+      }
+      if (scheduledReplacement) {
+        if (scheduledReplacement.unitMode === 'BOTTLE' && scheduledReplacement.quantityToReplace > 0) {
+          return formatCountUnit(scheduledReplacement.quantityToReplace, 'bottle')
+        }
       }
     }
     const qty = Math.max(0, Number(item?.quantity || 0))
     const rawUnit = String(item?.productUnit || item?.product?.unit || '').trim().toLowerCase()
-    const isBottle = rawUnit.includes('bottle')
-    const isCase = rawUnit.includes('case')
-    const isPack = rawUnit.includes('pack')
-    const isBundle = rawUnit.includes('bundle')
-    const singular = isBottle ? 'bottle' : isCase ? 'case' : isPack ? 'pack' : isBundle ? 'bundle' : 'unit'
-    const plural = `${singular}s`
-    const label = qty === 1 ? singular : plural
-    return `x${qty} ${label}`
+    return formatCountUnit(qty, rawUnit)
   }
 
   const getDisplayOrderTotal = (order?: any): number => {
@@ -2551,11 +2569,26 @@ export function TripDetailView({
                                       {dropPoint.order ? (
                                         <>
                                           <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
-                                          <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
-                                            <p className="text-[11px] font-semibold text-amber-800">
-                                              Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
-                                            </p>
-                                          </div>
+                                          {(() => {
+                                            const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                            const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                            if (isReplacementOrder) {
+                                              return (
+                                                <div className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
+                                                  <p className="text-[11px] font-semibold text-emerald-800">
+                                                    Replacement Delivery • Free / No Collection (₱0.00)
+                                                  </p>
+                                                </div>
+                                              )
+                                            }
+                                            return (
+                                              <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                                <p className="text-[11px] font-semibold text-amber-800">
+                                                  Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
+                                                </p>
+                                              </div>
+                                            )
+                                          })()}
                                           {(dropPoint.order.items || []).length > 0 ? (
                                             <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5">
                                               {(() => {
@@ -2753,11 +2786,26 @@ export function TripDetailView({
                             {dropPoint.order && (
                               <>
                                 <p className="mt-1 text-xs text-sky-700">{dropPoint.order.orderNumber}</p>
-                                <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
-                                  <p className="text-[11px] font-semibold text-amber-800">
-                                    Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
-                                  </p>
-                                </div>
+                                {(() => {
+                                  const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
+                                  const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                                  if (isReplacementOrder) {
+                                    return (
+                                      <div className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
+                                        <p className="text-[11px] font-semibold text-emerald-800">
+                                          Replacement Delivery • Free / No Collection (₱0.00)
+                                        </p>
+                                      </div>
+                                    )
+                                  }
+                                  return (
+                                    <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                      <p className="text-[11px] font-semibold text-amber-800">
+                                        Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
+                                      </p>
+                                    </div>
+                                  )
+                                })()}
                                 {(dropPoint.order.items || []).length > 0 ? (
                                   <div className="mt-1 rounded-md bg-slate-50 px-2 py-1.5 md:mt-2 md:px-3 md:py-2.5">
                                     {(() => {
@@ -3322,7 +3370,17 @@ export function TripDetailView({
                 <p><span className="font-medium text-slate-900">PO Number:</span> {selectedDropPointForDetails?.order?.orderNumber || 'Not set'}</p>
                 <p><span className="font-medium text-slate-900">Order Status:</span> {selectedDropPointForDetails?.order?.status || 'Not set'}</p>
                 <p><span className="font-medium text-slate-900">Created At:</span> {formatDateTime(selectedDropPointForDetails?.order?.createdAt)}</p>
-                <p><span className="font-medium text-slate-900">Total Amount:</span> {formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))}</p>
+                <p>
+                  <span className="font-medium text-slate-900">Total Amount:</span>{' '}
+                  {(() => {
+                    const orderNumberKey = String(selectedDropPointForDetails?.order?.orderNumber || '').trim().toUpperCase()
+                    const isReplacementOrder = Boolean((selectedDropPointForDetails?.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
+                    if (isReplacementOrder) {
+                      return '₱0.00 (Replacement Delivery • No Collection)'
+                    }
+                    return formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))
+                  })()}
+                </p>
               </div>
 
               <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2.5">
@@ -3335,9 +3393,17 @@ export function TripDetailView({
                         {item?.itemType === 'MIXED_CASE' ? (
                           <MixedCaseComponents item={item} showImages={false} compact />
                         ) : null}
-                        <p>Quantity: {Number(item?.quantity || 0)}</p>
-                        <p>Price: {formatCurrency(Number(item?.price || item?.unitPrice || 0))}</p>
-                        <p>Subtotal: {formatCurrency(Number(item?.subtotal || (Number(item?.quantity || 0) * Number(item?.price || item?.unitPrice || 0))))}</p>
+                        <p>Quantity: {getOrderQtyWithUnitLabel(item, selectedDropPointForDetails?.order)}</p>
+                        <p>Price: {(() => {
+                          const isRepl = String(selectedDropPointForDetails?.order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(selectedDropPointForDetails?.order?.isScheduledReplacement)
+                          if (isRepl) return '₱0.00 (Replacement)'
+                          return formatCurrency(Number(item?.price || item?.unitPrice || 0))
+                        })()}</p>
+                        <p>Subtotal: {(() => {
+                          const isRepl = String(selectedDropPointForDetails?.order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(selectedDropPointForDetails?.order?.isScheduledReplacement)
+                          if (isRepl) return '₱0.00'
+                          return formatCurrency(Number(item?.subtotal || (Number(item?.quantity || 0) * Number(item?.price || item?.unitPrice || 0))))
+                        })()}</p>
                       </div>
                     ))
                   ) : (

@@ -1200,7 +1200,7 @@ export function CustomerOrdersView(props: any) {
                             key={`${url}-${index}`}
                             src={url}
                             alt={`Replacement evidence ${index + 1}`}
-                            className="max-h-[320px] w-full rounded-xl border border-slate-200 bg-white object-contain p-2"
+                            className="h-auto w-full rounded-xl border border-slate-200 bg-white object-contain p-2"
                           />
                         ))}
                       </div>
@@ -1244,9 +1244,7 @@ export function CustomerOrdersView(props: any) {
                   ) : null}
                 </div>
                 <div className="flex justify-end gap-3 border-t border-slate-200 px-4 py-4 md:px-5">
-                    <Button variant="outline" className="h-10 rounded-xl border-slate-300 px-5 text-sm text-slate-700" onClick={() => setSelectedReplacementRecord(null)}>
-                      Close
-                    </Button>
+                    {/* Fix: keep one footer action; both previous buttons performed the same close operation. */}
                     <Button className="h-10 rounded-xl bg-emerald-600 px-5 text-sm text-white hover:bg-emerald-500" onClick={() => setSelectedReplacementRecord(null)}>
                       Close
                     </Button>

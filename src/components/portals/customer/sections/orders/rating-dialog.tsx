@@ -120,7 +120,7 @@ export function CustomerRatingDialog(props: any) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback</Label>
+              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback <span className="text-red-600">*</span></Label>
               <div className="grid grid-cols-1 gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2.5">
                 {visibleFeedbackOptions.map((option) => {
                   const checked = selectedFeedbackOptions.includes(option)
@@ -144,6 +144,9 @@ export function CustomerRatingDialog(props: any) {
                   )
                 })}
               </div>
+              {selectedFeedbackOptions.length === 0 ? (
+                <p className="text-xs text-red-600">Select at least one feedback option to submit your review.</p>
+              ) : null}
             </div>
 
             {/* Success message */}
@@ -170,7 +173,7 @@ export function CustomerRatingDialog(props: any) {
               </Button>
               <Button
                 onClick={() => void handleSubmit()}
-                disabled={isSubmittingRating || deliveryRatingValue === 0}
+                disabled={isSubmittingRating || deliveryRatingValue === 0 || selectedFeedbackOptions.length === 0}
                 className="h-9 flex-1 bg-emerald-600 text-xs hover:bg-emerald-700 md:h-10 md:text-sm"
               >
                 {isSubmittingRating ? (

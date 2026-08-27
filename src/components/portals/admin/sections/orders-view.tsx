@@ -75,7 +75,7 @@ function formatRequestStatus(value: string) {
   return String(value || 'PENDING_APPROVAL').replace(/_/g, ' ')
 }
 
-export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' }: { mode?: string; onOpenTransportation?: () => void; globalSearchQuery?: string } = {}) {
+export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '', notificationReferenceId = '', notificationFocusKey }: { mode?: string; onOpenTransportation?: () => void; globalSearchQuery?: string; notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
   const [warehouseDirectory, setWarehouseDirectory] = useState<any[]>([])
@@ -113,6 +113,25 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '' 
   useEffect(() => {
     setOrderSearchQuery(String(globalSearchQuery || ''))
   }, [globalSearchQuery])
+
+  useEffect(() => {
+    if (!notificationReferenceId) return
+
+    // Added: open the exact order referenced by an admin notification.
+    void (async () => {
+      setLoadingOrderDetail(true)
+      try {
+        const response = await fetch(`/api/orders/${notificationReferenceId}`, { cache: 'no-store', credentials: 'include' })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || payload?.success === false || !payload?.order) return
+        setSelectedOrder(payload.order)
+      } catch (error) {
+        console.error('Failed to open notification order:', error)
+      } finally {
+        setLoadingOrderDetail(false)
+      }
+    })()
+  }, [notificationReferenceId, notificationFocusKey])
 
   const getItemSizeLabel = (item: any): string => {
     const fromProductSizes = Array.isArray(item?.product?.sizes) ? item.product.sizes.filter(Boolean) : []

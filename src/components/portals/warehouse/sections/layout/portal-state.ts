@@ -21,6 +21,8 @@ export interface PortalNotification {
   title: string
   message: string
   type: string | null
+  referenceType: string | null
+  referenceId: string | null
   isRead: boolean
   createdAt: string
 }
@@ -37,20 +39,23 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
     toast.success('Logged out')
   }, [logout])
 
-  const fetchNotifications = useCallback(async () => {
-    setNotificationsLoading(true)
+  const fetchNotifications = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setNotificationsLoading(true)
     try {
       const response = await fetch('/api/notifications', { cache: 'no-store' })
-      if (!response.ok) return
+      if (!response.ok) return null
 
       const payload = await response.json().catch(() => ({}))
       const list = Array.isArray(payload?.notifications) ? payload.notifications : []
+      const unreadCount = Number(payload?.unreadCount || 0)
       setNotifications(list)
-      setUnreadNotifications(Number(payload?.unreadCount || 0))
+      setUnreadNotifications(unreadCount)
+      return unreadCount
     } catch (error) {
       console.error('Failed to fetch notifications:', error)
+      return null
     } finally {
-      setNotificationsLoading(false)
+      if (!options?.silent) setNotificationsLoading(false)
     }
   }, [])
 
@@ -86,11 +91,11 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
 
   const handleNotificationsOpen = useCallback(async (open: boolean) => {
     if (!open) return
-    await fetchNotifications()
-    if (unreadNotifications > 0) {
+    const currentUnreadCount = await fetchNotifications()
+    if (currentUnreadCount && currentUnreadCount > 0) {
       await markAllNotificationsAsRead()
     }
-  }, [fetchNotifications, markAllNotificationsAsRead, unreadNotifications])
+  }, [fetchNotifications, markAllNotificationsAsRead])
 
   const formatNotificationTime = useCallback((createdAt: string) => {
     const date = new Date(createdAt)
@@ -100,6 +105,18 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
 
   useEffect(() => {
     void fetchNotifications()
+
+    // Added: poll quietly so the bell shows new cross-device order and replacement alerts.
+    const refreshNotifications = () => {
+      if (document.visibilityState === 'visible') void fetchNotifications({ silent: true })
+    }
+    const intervalId = window.setInterval(refreshNotifications, 15000)
+    window.addEventListener('focus', refreshNotifications)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshNotifications)
+    }
   }, [fetchNotifications])
 
   return {

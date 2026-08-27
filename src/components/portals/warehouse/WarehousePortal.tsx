@@ -30,7 +30,7 @@ import { isValidPhilippineDriverLicense } from '@/lib/driver-license-restriction
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from './WarehouseTripsSection'
 import { WarehouseHeader } from './sections/layout/warehouse-header'
-import { useWarehousePortalLayoutState, type WarehouseView } from './sections/layout/portal-state'
+import { useWarehousePortalLayoutState, type PortalNotification, type WarehouseView } from './sections/layout/portal-state'
 import { WarehouseDashboardView } from './sections/dashboard/dashboard-view'
 import { WarehouseInventoryView } from './sections/inventory/inventory-view'
 import { WarehouseLiveTrackingView } from './sections/live-tracking/live-tracking-view'
@@ -619,6 +619,12 @@ export function WarehousePortal() {
     setActiveView,
     sidebarOpen,
     setSidebarOpen,
+    notifications,
+    notificationsLoading,
+    unreadNotifications,
+    handleNotificationsOpen,
+    clearAllNotifications,
+    formatNotificationTime,
     handleLogout,
   } = useWarehousePortalLayoutState({ logout })
   const [inventory, setInventory] = useState<InventoryItem[]>([])
@@ -3437,6 +3443,44 @@ export function WarehousePortal() {
     }
   }
 
+  const handleNotificationClick = (notification: PortalNotification) => {
+    const referenceType = String(notification.referenceType || notification.type || '').trim().toLowerCase()
+    const referenceId = String(notification.referenceId || '').trim()
+
+    // Added: route each alert to its matching warehouse workflow and open the record when loaded.
+    if (referenceType === 'order') {
+      setActiveView('orders')
+      if (referenceId) {
+        const order = orders.find((item) => item.id === referenceId)
+        void openOrderDetail(order || ({ id: referenceId, orderNumber: notification.title } as WarehouseOrderItem))
+      }
+      return
+    }
+    if (referenceType === 'replacement') {
+      setActiveView('replacements')
+      const replacement = replacements.find((item) => item.id === referenceId)
+      if (replacement) setSelectedReplacement(replacement)
+      return
+    }
+    if (referenceType === 'trip') {
+      setActiveView('trips')
+      const trip = trips.find((item) => item.id === referenceId)
+      if (trip) setSelectedTrip(trip)
+      return
+    }
+    if (referenceType === 'warehouse') {
+      setActiveView('warehouses')
+      return
+    }
+    if (['product', 'inventory', 'stock_batch'].includes(referenceType)) {
+      setActiveView('inventory')
+      return
+    }
+    if (['driver', 'vehicle', 'transport'].includes(referenceType)) {
+      setActiveView('trips')
+    }
+  }
+
   const getAvailableQty = (item: InventoryItem) => getInventoryAvailableQty(item)
 
   const getStockStatus = (item: InventoryItem) => {
@@ -4675,7 +4719,14 @@ export function WarehousePortal() {
           userName={String(user?.name || '')}
           userEmail={String(user?.email || '')}
           userAvatar={String(user?.avatar || '')}
+          notifications={notifications}
+          notificationsLoading={notificationsLoading}
+          unreadNotifications={unreadNotifications}
           onOpenSidebar={() => setSidebarOpen(true)}
+          onNotificationsOpen={(open) => { void handleNotificationsOpen(open) }}
+          onClearNotifications={() => { void clearAllNotifications() }}
+          onNotificationClick={handleNotificationClick}
+          formatNotificationTime={formatNotificationTime}
           onLogout={handleLogout}
         />
 

@@ -1855,6 +1855,18 @@ export function CustomerPortal() {
       toast.error('Please select a rating')
       return false
     }
+    const selectedReasons = Array.from(
+      new Set(
+        selectedFeedbackOptions
+          .map((item) => String(item || '').trim())
+          .filter(Boolean)
+      )
+    )
+    // Added: a star rating cannot be submitted without meaningful feedback.
+    if (selectedReasons.length === 0) {
+      toast.error('Please select at least one feedback option')
+      return false
+    }
     if (reviewedOrderIds.has(ratingDialogOrder.id)) {
       toast.info('You already rated this order')
       setRatingDialogOrder(null)
@@ -1864,13 +1876,6 @@ export function CustomerPortal() {
     setIsSubmittingRating(true)
     try {
       const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
-      const selectedReasons = Array.from(
-        new Set(
-          selectedFeedbackOptions
-            .map((item) => String(item || '').trim())
-            .filter(Boolean)
-        )
-      )
       const composedMessage = selectedReasons.map((reason) => `- ${reason}`).join('\n')
       const { response, payload } = await submitOrderFeedback({
         orderId: ratingDialogOrder.id,

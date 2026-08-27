@@ -142,11 +142,18 @@ export function WarehouseReplacementsView({
     const qtyPerCase = qtyPerCaseMatch ? Number(qtyPerCaseMatch[1]) : NaN
     const qtyPerPack = qtyPerPackMatch ? Number(qtyPerPackMatch[1]) : NaN
     const qtyPerBundle = qtyPerBundleMatch ? Number(qtyPerBundleMatch[1]) : NaN
-    const unitLabel =
-      unitHint.includes('pack') || byPackText ? 'pack(s)'
-        : unitHint.includes('bundle') || byBundleText ? 'bundle(s)'
-          : unitHint.includes('case') || byCaseText ? 'case(s)'
-            : 'unit(s)'
+    const formatQtyWithUnit = (count: number, unitType: string) => {
+      const isPlural = count !== 1
+      const u = String(unitType || '').toLowerCase()
+      const singular = u.includes('pack') ? 'pack' : u.includes('bundle') ? 'bundle' : u.includes('case') ? 'case' : u.includes('bottle') ? 'bottle' : 'unit'
+      return `${count} ${isPlural ? `${singular}s` : singular}`
+    }
+
+    const defaultUnit =
+      unitHint.includes('pack') || byPackText ? 'pack'
+        : unitHint.includes('bundle') || byBundleText ? 'bundle'
+          : unitHint.includes('case') || byCaseText ? 'case'
+            : 'unit'
 
     const caseQty = Number(
       mode === 'toReplace'
@@ -159,17 +166,17 @@ export function WarehouseReplacementsView({
         : (first?.replacedBottles ?? first?.quantityReplacedBottles ?? first?.replacementBottles)
     )
     if (lineInputMode === 'bottle') {
-      if (Number.isFinite(bottleQty) && bottleQty >= 0) return `${bottleQty} bottle(s)`
+      if (Number.isFinite(bottleQty) && bottleQty >= 0) return formatQtyWithUnit(bottleQty, 'bottle')
       const fallbackQty = Number(
         mode === 'toReplace'
           ? (entry?.quantityToReplace ?? meta?.quantityToReplace ?? entry?.replacementQuantity ?? meta?.replacementQuantity ?? 0)
           : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? 0)
       )
       const fallback = Math.max(0, Number.isFinite(fallbackQty) ? fallbackQty : 0)
-      return `${fallback} bottle(s)`
+      return formatQtyWithUnit(fallback, 'bottle')
     }
-    if (Number.isFinite(caseQty) && caseQty > 0) return `${caseQty} ${unitLabel}`
-    if (Number.isFinite(bottleQty) && bottleQty > 0) return `${bottleQty} bottle(s)`
+    if (Number.isFinite(caseQty) && caseQty > 0) return formatQtyWithUnit(caseQty, defaultUnit)
+    if (Number.isFinite(bottleQty) && bottleQty > 0) return formatQtyWithUnit(bottleQty, 'bottle')
 
     const fallbackQty = Number(
       mode === 'toReplace'
@@ -177,12 +184,32 @@ export function WarehouseReplacementsView({
         : (entry?.quantityReplaced ?? meta?.quantityReplaced ?? 0)
     )
     const fallback = Math.max(0, Number.isFinite(fallbackQty) ? fallbackQty : 0)
-    if (byUnitText && Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && fallback > 0) return `${fallback / qtyPerUnit} ${unitLabel}`
-    if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) return `${fallback / qtyPerCase} ${unitLabel}`
-    if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) return `${fallback / qtyPerPack} ${unitLabel}`
-    if (byBundleText && Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 && fallback > 0) return `${fallback / qtyPerBundle} ${unitLabel}`
-    if (!lineInputMode && byBottleText) return `${fallback} bottle(s)`
-    return `${fallback}`
+    if (byUnitText && Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && fallback > 0) {
+      const units = fallback / qtyPerUnit
+      const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+      const numVal = Number(unitsText)
+      return `${unitsText} ${formatQtyWithUnit(numVal, defaultUnit).split(' ')[1]}`
+    }
+    if (byCaseText && Number.isFinite(qtyPerCase) && qtyPerCase > 0 && fallback > 0) {
+      const units = fallback / qtyPerCase
+      const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+      const numVal = Number(unitsText)
+      return `${unitsText} ${formatQtyWithUnit(numVal, 'case').split(' ')[1]}`
+    }
+    if (byPackText && Number.isFinite(qtyPerPack) && qtyPerPack > 0 && fallback > 0) {
+      const units = fallback / qtyPerPack
+      const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+      const numVal = Number(unitsText)
+      return `${unitsText} ${formatQtyWithUnit(numVal, 'pack').split(' ')[1]}`
+    }
+    if (byBundleText && Number.isFinite(qtyPerBundle) && qtyPerBundle > 0 && fallback > 0) {
+      const units = fallback / qtyPerBundle
+      const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
+      const numVal = Number(unitsText)
+      return `${unitsText} ${formatQtyWithUnit(numVal, 'bundle').split(' ')[1]}`
+    }
+    if (!lineInputMode && byBottleText) return formatQtyWithUnit(fallback, 'bottle')
+    return fallback > 0 ? formatQtyWithUnit(fallback, defaultUnit) : '0'
   }
   const getNormalizedQtyLineDisplay = (entry: any, meta: any, mode: 'toReplace' | 'replaced') => {
     const contextText = `${String(entry?.description || '')} ${String(entry?.reason || '')} ${String(entry?.notes || '')}`.toLowerCase()
@@ -205,7 +232,9 @@ export function WarehouseReplacementsView({
         ? (first?.damagedCases ?? first?.quantityToReplaceCases ?? first?.unitsToReplace ?? first?.quantityToReplaceUnits)
         : (first?.replacedCases ?? first?.quantityReplacedCases ?? first?.unitsReplaced ?? first?.quantityReplacedUnits)
     )
-    if (Number.isFinite(directUnits) && directUnits >= 0) return `${directUnits} unit(s)`
+    if (Number.isFinite(directUnits) && directUnits >= 0) {
+      return `${directUnits} ${directUnits === 1 ? 'unit' : 'units'}`
+    }
     const detailsText = `${String(entry?.description || '')} ${String(entry?.notes || '')} ${String(entry?.reason || '')}`
     const qtyPerGenericMatch = detailsText.match(/qty\s*\/\s*(?:unit|case|pack|bundle)\s*[:\-]?\s*(\d+)/i)
     const qtyPerText = qtyPerGenericMatch ? Number(qtyPerGenericMatch[1]) : NaN
@@ -236,7 +265,8 @@ export function WarehouseReplacementsView({
     if (Number.isFinite(perUnit) && perUnit > 0 && Number.isFinite(rawQty) && rawQty >= 0) {
       const units = rawQty / perUnit
       const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
-      return `${unitsText} unit(s)`
+      const numVal = Number(unitsText)
+      return `${unitsText} ${numVal === 1 ? 'unit' : 'units'}`
     }
     return getReplacementQtyDisplay(entry, meta, mode)
   }
@@ -248,13 +278,13 @@ export function WarehouseReplacementsView({
       if (!productNameLookup || !rawDescription) return ''
       const escapedProductName = productNameLookup.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const segmentMatch = rawDescription.match(new RegExp(`\\[${escapedProductName}\\]([\\s\\S]*?)(?=\\s*\\[[^\\]]+\\]|$)`, 'i'))
-      const segmentText = String(segmentMatch?.[1] || '').toLowerCase()
-      if (!segmentText) return ''
-      if (/\bby\s*bottle\b/.test(segmentText)) return 'bottle'
-      if (/\bby\s*pack\b/.test(segmentText)) return 'pack'
-      if (/\bby\s*bundle\b/.test(segmentText)) return 'bundle'
-      if (/\bby\s*case\b/.test(segmentText)) return 'case'
-      if (/\bby\s*unit\b/.test(segmentText)) return 'case'
+      if (!segmentMatch) return ''
+      const segmentText = segmentMatch[1] || ''
+      if (/\bby\s*bottle\b/i.test(segmentText)) return 'bottle'
+      if (/\bby\s*pack\b/i.test(segmentText)) return 'pack'
+      if (/\bby\s*bundle\b/i.test(segmentText)) return 'bundle'
+      if (/\bby\s*case\b/i.test(segmentText)) return 'case'
+      if (/\bby\s*unit\b/i.test(segmentText)) return 'case'
       return ''
     }
     const lineInputMode = String(line?.lineInputMode || line?.replacementInputMode || inferLineModeFromDescription()).trim().toLowerCase()
@@ -270,20 +300,29 @@ export function WarehouseReplacementsView({
     const byBundleText = /\bby\s*bundle\b/.test(contextText)
     const byCaseText = /\bby\s*case\b/.test(contextText)
     const byBottleText = /\bby\s*bottle\b/.test(contextText)
-    const unitLabel =
-      unitHint.includes('pack') || lineInputMode === 'pack' || byPackText ? 'pack(s)'
-        : unitHint.includes('bundle') || lineInputMode === 'bundle' || byBundleText ? 'bundle(s)'
-          : unitHint.includes('case') || lineInputMode === 'case' || byCaseText ? 'case(s)'
-            : 'unit(s)'
+
+    const formatQtyWithUnit = (count: number, unitType: string) => {
+      const isPlural = count !== 1
+      const u = String(unitType || '').toLowerCase()
+      const singular = u.includes('pack') ? 'pack' : u.includes('bundle') ? 'bundle' : u.includes('case') ? 'case' : u.includes('bottle') ? 'bottle' : 'unit'
+      return `${count} ${isPlural ? `${singular}s` : singular}`
+    }
+
+    const defaultUnit =
+      unitHint.includes('pack') || lineInputMode === 'pack' || byPackText ? 'pack'
+        : unitHint.includes('bundle') || lineInputMode === 'bundle' || byBundleText ? 'bundle'
+          : unitHint.includes('case') || lineInputMode === 'case' || byCaseText ? 'case'
+            : 'unit'
+
     if (lineInputMode === 'bottle' || (!lineInputMode && byBottleText)) {
       const bottleQty = Number(
         mode === 'toReplace'
           ? (line?.damagedBottles ?? line?.quantityToReplaceBottles ?? line?.replacementBottles ?? line?.quantityToReplace)
           : (line?.replacedBottles ?? line?.quantityReplacedBottles ?? line?.replacementBottles ?? line?.quantityReplaced)
       )
-      if (Number.isFinite(bottleQty)) return `${bottleQty} bottle(s)`
+      if (Number.isFinite(bottleQty)) return formatQtyWithUnit(bottleQty, 'bottle')
       const fallback = Number(mode === 'toReplace' ? line?.quantityToReplace : line?.quantityReplaced)
-      return Number.isFinite(fallback) ? `${fallback} bottle(s)` : '0'
+      return Number.isFinite(fallback) ? formatQtyWithUnit(fallback, 'bottle') : '0'
     }
 
     const directUnitQty = Number(
@@ -291,7 +330,7 @@ export function WarehouseReplacementsView({
         ? (line?.damagedCases ?? line?.quantityToReplaceCases ?? line?.replacementCases ?? line?.unitsToReplace ?? line?.quantityToReplaceUnits)
         : (line?.replacedCases ?? line?.quantityReplacedCases ?? line?.replacementCases ?? line?.unitsReplaced ?? line?.quantityReplacedUnits)
     )
-    if (Number.isFinite(directUnitQty)) return `${directUnitQty} ${unitLabel}`
+    if (Number.isFinite(directUnitQty)) return formatQtyWithUnit(directUnitQty, defaultUnit)
 
     const qtyPerFromFields = Number(
       line?.qtyPerUnit ??
@@ -315,10 +354,12 @@ export function WarehouseReplacementsView({
     if (Number.isFinite(qtyPerUnit) && qtyPerUnit > 0 && Number.isFinite(rawQty)) {
       const units = rawQty / qtyPerUnit
       const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
-      return `${unitsText} ${unitLabel}`
+      const numVal = Number(unitsText)
+      return `${unitsText} ${formatQtyWithUnit(numVal, defaultUnit).split(' ')[1]}`
     }
-    return Number.isFinite(rawQty) ? `${rawQty} ${unitLabel}` : `0 ${unitLabel}`
+    return Number.isFinite(rawQty) ? formatQtyWithUnit(rawQty, defaultUnit) : `0 ${defaultUnit}s`
   }
+
   const getReplacementDetailsText = (entry: any, meta: any) => {
     const lines = buildReplacementLines(entry, meta)
     const first: any = lines[0] || {}
@@ -358,15 +399,9 @@ export function WarehouseReplacementsView({
       entry?.qtyPerUnit ??
       entry?.quantityPerUnit ??
       entry?.quantityPerCase ??
-      entry?.unitsPerCase ??
-      entry?.bottlesPerUnit ??
-      entry?.bottlesPerCase ??
       meta?.qtyPerUnit ??
       meta?.quantityPerUnit ??
       meta?.quantityPerCase ??
-      meta?.unitsPerCase ??
-      meta?.bottlesPerUnit ??
-      meta?.bottlesPerCase ??
       NaN
     )
     const qtyPerUnitNumeric = Number.isFinite(qtyPerUnitFromText) && qtyPerUnitFromText > 0
@@ -393,13 +428,14 @@ export function WarehouseReplacementsView({
       NaN
     )
     if (!isByBottle && Number.isFinite(directUnitQty) && directUnitQty > 0) {
-      displayQty = `${directUnitQty} unit(s)`
+      displayQty = `${directUnitQty} ${directUnitQty === 1 ? 'unit' : 'units'}`
     }
     if (!isByBottle && Number.isFinite(qtyPerUnitNumeric) && qtyPerUnitNumeric > 0 && Number.isFinite(rawQtyToReplace) && rawQtyToReplace > 0) {
       const units = rawQtyToReplace / qtyPerUnitNumeric
       if (Number.isFinite(units) && units > 0) {
         const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
-        displayQty = `${unitsText} unit(s)`
+        const numVal = Number(unitsText)
+        displayQty = `${unitsText} ${numVal === 1 ? 'unit' : 'units'}`
       }
     }
     if (!isByBottle && (!Number.isFinite(qtyPerUnitNumeric) || qtyPerUnitNumeric <= 0) && Number.isFinite(rawQtyToReplace) && rawQtyToReplace > 0) {
@@ -410,7 +446,8 @@ export function WarehouseReplacementsView({
         const units = rawQtyToReplace / genericPerUnit
         if (Number.isFinite(units) && units > 0) {
           const unitsText = Number.isInteger(units) ? String(units) : units.toFixed(2).replace(/\.00$/, '')
-          displayQty = `${unitsText} unit(s)`
+          const numVal = Number(unitsText)
+          displayQty = `${unitsText} ${numVal === 1 ? 'unit' : 'units'}`
         }
       }
     }
@@ -420,9 +457,12 @@ export function WarehouseReplacementsView({
     if (/\b(?:bottle|unit|case|pack|bundle)s?\b/i.test(summary)) {
       return `Quantity to replace: ${summary}`
     }
-    const label = isByBottle ? 'bottle(s)' : 'unit(s)'
+    const numMatch = summary.match(/^(\d+(?:\.\d+)?)/)
+    const numVal = numMatch ? parseFloat(numMatch[1]) : 1
+    const label = isByBottle ? (numVal === 1 ? 'bottle' : 'bottles') : (numVal === 1 ? 'unit' : 'units')
     return `Quantity to replace: ${summary} ${label}`
   }
+
   const replacementsBySource = useMemo(() => {
     const customerRequests: any[] = []
     const scheduledReplacements: any[] = []
@@ -860,7 +900,7 @@ export function WarehouseReplacementsView({
                         <img
                           src={String(replacementPod.deliveryPhoto || '')}
                           alt="Replacement proof of delivery"
-                          className="max-h-[360px] w-full rounded-md border object-contain"
+                          className="h-auto w-full rounded-md border object-contain"
                         />
                       ) : (
                         <p className="text-xs text-slate-500">No POD uploaded yet.</p>

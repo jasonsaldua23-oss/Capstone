@@ -73,7 +73,7 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
-export function TransportationView() {
+export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
   const [activeTab, setActiveTab] = useState<'vehicles' | 'trips' | 'drivers'>('vehicles')
   const [vehicles, setVehicles] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
@@ -142,6 +142,24 @@ export function TransportationView() {
   useEffect(() => {
     fetchData()
   }, [])
+
+  useEffect(() => {
+    const referenceType = String(notificationReferenceType || '').toLowerCase()
+    if (!referenceType) return
+
+    // Added: select the matching transportation tab and open referenced trips.
+    if (referenceType === 'trip') {
+      setActiveTab('trips')
+      const trip = trips.find((item) => String(item?.id || '') === notificationReferenceId)
+      if (trip) setSelectedTrip(trip)
+      return
+    }
+    if (referenceType === 'driver') {
+      setActiveTab('drivers')
+      return
+    }
+    if (['vehicle', 'transport'].includes(referenceType)) setActiveTab('vehicles')
+  }, [notificationReferenceType, notificationReferenceId, notificationFocusKey, trips])
 
   useEffect(() => {
     let focusPayload: any = null

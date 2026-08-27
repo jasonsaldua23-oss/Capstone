@@ -2515,8 +2515,50 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     } if order else None
     data["replacementMode"] = _normalize_replacement_mode(data.get("replacementMode"))
     data["scheduledDeliveryDate"] = str(meta.get("scheduledDeliveryDate") or "").strip() or None
-    data["replacementOrderId"] = str(meta.get("replacementOrderId") or "").strip() or None
-    data["replacementOrderNumber"] = str(meta.get("replacementOrderNumber") or "").strip() or None
+    linked_replacement_order_id = str(meta.get("replacementOrderId") or "").strip() or None
+    linked_replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip() or None
+    data["replacementOrderId"] = linked_replacement_order_id
+    data["replacementOrderNumber"] = linked_replacement_order_number
+    # Added: retain a permanent link after delivery so replacement POD remains available.
+    data["linkedReplacementOrderId"] = linked_replacement_order_id
+    data["linkedReplacementOrderNumber"] = linked_replacement_order_number
+
+    linked_replacement_order = None
+    if linked_replacement_order_id:
+        linked_replacement_order = Order.objects.filter(id=linked_replacement_order_id).first()
+    elif linked_replacement_order_number:
+        linked_replacement_order = Order.objects.filter(order_number=linked_replacement_order_number).first()
+
+    replacement_drop_point = None
+    if linked_replacement_order:
+        replacement_drop_point = (
+            TripDropPoint.objects.filter(order_id=linked_replacement_order.id)
+            .exclude(Q(delivery_photo__isnull=True) | Q(delivery_photo=""))
+            .order_by("-actual_departure", "-updated_at")
+            .first()
+        )
+    replacement_pod_submitted_at = (
+        getattr(linked_replacement_order, "pod_submitted_at", None)
+        if linked_replacement_order
+        else None
+    ) or (
+        getattr(replacement_drop_point, "actual_departure", None)
+        if replacement_drop_point
+        else None
+    )
+    data["replacementDeliveryPod"] = {
+        "recipientName": (
+            getattr(linked_replacement_order, "pod_recipient_name", None)
+            if linked_replacement_order
+            else None
+        ) or getattr(replacement_drop_point, "recipient_name", None),
+        "deliveryPhoto": (
+            getattr(linked_replacement_order, "pod_photo_url", None)
+            if linked_replacement_order
+            else None
+        ) or getattr(replacement_drop_point, "delivery_photo", None),
+        "submittedAt": replacement_pod_submitted_at.isoformat() if replacement_pod_submitted_at else None,
+    }
     normalized_status = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
     delivered_linked_replacement_order = _is_linked_replacement_order_delivered(entry)
     if delivered_linked_replacement_order:
@@ -2728,6 +2770,8 @@ def _get_scheduled_replacement_payload(order: Order) -> dict[str, Any] | None:
         "quantityRemaining": max(total_qty_to_replace - total_qty_replaced, 0),
         "unitMode": "BOTTLE" if by_bottle else "UNIT",
         "qtyPerUnit": qty_per_unit,
+        "replacementLines": replacement_lines,
+        "replacementItems": replacement_lines,
     }
 
 
@@ -6812,12 +6856,16 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
             return _err("Forbidden", 403)
         if order and Feedback.objects.filter(order_id=order.id, customer_id=customer.id).exists():
             return _err("Feedback already submitted for this order", 409)
+        feedback_message = str(body.get("message") or "").strip()
+        # Added: rated reviews must include feedback, even when the API is called directly.
+        if body.get("rating") is not None and not feedback_message:
+            return _err("Feedback is required when submitting a rating", 400)
         f = Feedback.objects.create(
             customer=customer,
             order=order,
             type=body.get("type") or "SUGGESTION",
             subject=str(body.get("subject") or "General Feedback"),
-            message=str(body.get("message") or ""),
+            message=feedback_message,
             rating=body.get("rating"),
         )
         return _ok({"success": True, "feedback": _serialize_model(f)}, 201)
@@ -7080,15 +7128,20 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             return _err("Unable to create order right now. Please try again.", 409)
         order = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order.id)
         _email_new_order_to_warehouse_staff(order)
-        if p.get("type") == "staff":
-            actor_name = str(p.get("name") or "Staff").strip() or "Staff"
-            _create_staff_notifications(
-                title="Order created",
-                message=f"{actor_name} created order {order.order_number}.",
-                notification_type="ORDER",
-                reference_type="order",
-                reference_id=order.id,
-            )
+        # Added: warehouse staff need an in-app alert for every new order,
+        # including orders submitted directly through the customer portal.
+        actor_name = (
+            str(customer.name or "Customer").strip() or "Customer"
+            if p.get("type") == "customer"
+            else str(p.get("name") or "Staff").strip() or "Staff"
+        )
+        _create_staff_notifications(
+            title="New order received" if p.get("type") == "customer" else "Order created",
+            message=f"{actor_name} created order {order.order_number}.",
+            notification_type="ORDER",
+            reference_type="order",
+            reference_id=order.id,
+        )
         return _ok({"success": True, "duplicate": False, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
     if err:

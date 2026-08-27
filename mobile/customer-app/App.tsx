@@ -381,11 +381,16 @@ export default function App() {
       setError("You already rated this order.");
       return;
     }
+    const selectedReasons = Array.from(new Set(selectedFeedbackOptions.map((item) => String(item || "").trim()).filter(Boolean)));
+    // Added: mobile reviews require at least one feedback reason before submission.
+    if (selectedReasons.length === 0) {
+      setError("Select at least one feedback option before submitting your review.");
+      return;
+    }
     setSubmittingFeedback(true);
     setError(null);
     try {
       const overallRating = Math.max(1, Math.min(5, Math.round(feedbackRatingValue)));
-      const selectedReasons = Array.from(new Set(selectedFeedbackOptions.map((item) => String(item || "").trim()).filter(Boolean)));
       const composedMessage = selectedReasons.map((reason) => `- ${reason}`).join("\n");
       await submitCustomerFeedback({
         orderId: feedbackOrder.id,
@@ -893,7 +898,7 @@ export default function App() {
                         </View>
                       ) : (
                         <>
-                          <Text style={styles.subtle}>Rate delivery, then select optional feedback reasons.</Text>
+                          <Text style={styles.subtle}>Rate delivery, then select at least one required feedback reason.</Text>
                           <View style={styles.ratingRow}>
                             {[1, 2, 3, 4, 5].map((value) => (
                               <Pressable
@@ -928,7 +933,11 @@ export default function App() {
                               );
                             })}
                           </View>
-                          <Pressable style={styles.primaryButton} onPress={handleSubmitFeedback} disabled={submittingFeedback}>
+                          <Pressable
+                            style={[styles.primaryButton, selectedFeedbackOptions.length === 0 ? { opacity: 0.5 } : null]}
+                            onPress={handleSubmitFeedback}
+                            disabled={submittingFeedback || selectedFeedbackOptions.length === 0}
+                          >
                             <Text style={styles.primaryButtonText}>{submittingFeedback ? "Submitting..." : "Submit Review"}</Text>
                           </Pressable>
                         </>

@@ -9,6 +9,7 @@ from .auth import create_token
 from .models import (
     Customer,
     DropPointType,
+    Feedback,
     Inventory,
     InventoryTransaction,
     LocationLog,
@@ -294,6 +295,51 @@ class NotificationsApiContractTests(TestCase):
         n2.refresh_from_db()
         self.assertTrue(n1.is_read)
         self.assertTrue(n2.is_read)
+
+
+class FeedbackRatingContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.customer = Customer.objects.create(
+            email="required.feedback.customer@example.com",
+            password="hashed",
+            name="Required Feedback Customer",
+            is_active=True,
+        )
+        self.order = Order.objects.create(
+            order_number="ORD-REQUIRED-FEEDBACK-001",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=100,
+            total_amount=100,
+        )
+        self.token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+    def test_rating_requires_non_empty_feedback_message(self) -> None:
+        response = self.client.post(
+            "/api/feedback",
+            data={
+                "orderId": self.order.id,
+                "rating": 5,
+                "type": "COMPLIMENT",
+                "subject": f"Order Review - {self.order.order_number}",
+                "message": "   ",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Feedback is required when submitting a rating")
+        self.assertFalse(Feedback.objects.filter(order=self.order, customer=self.customer).exists())
 
 
 class DriverLocationAccuracyContractTests(TestCase):
@@ -1156,6 +1202,13 @@ class CustomerOrdersPostApiContractTests(TestCase):
         )
 
     def test_customer_orders_post_creates_order_for_authenticated_customer_and_reserves_inventory(self) -> None:
+        warehouse_staff = User.objects.create(
+            email="order.alert.warehouse@example.com",
+            password="hashed",
+            name="Order Alert Warehouse Staff",
+            role=Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse staff"),
+            is_active=True,
+        )
         response = self.client.post(
             "/api/customer/orders",
             data={
@@ -1164,6 +1217,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
                 "shippingAddress": "Overridden Shipping Address",
                 "shippingLatitude": 10.67,
                 "shippingLongitude": 122.95,
+                "shippingCity": "Talisay",
                 "shippingProvince": "Negros Occidental",
                 "items": [
                     {
@@ -1177,7 +1231,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
         )
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 201, response.content.decode())
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertIn("order", payload)
@@ -1191,6 +1245,17 @@ class CustomerOrdersPostApiContractTests(TestCase):
 
         created_order = Order.objects.get(id=order_row["id"])
         self.assertEqual(created_order.customer_id, self.customer.id)
+        # Added: customer checkout must create a navigable warehouse notification.
+        self.assertTrue(
+            Notification.objects.filter(
+                user=warehouse_staff,
+                title="New order received",
+                type="ORDER",
+                reference_type="order",
+                reference_id=created_order.id,
+                is_read=False,
+            ).exists()
+        )
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 20)
@@ -4284,6 +4349,55 @@ class CustomerReplacementRequestContractTests(TestCase):
             unit_price=20,
             total_price=20,
         )
+
+    def test_completed_replacement_serializes_linked_order_pod(self) -> None:
+        pod_submitted_at = timezone.now()
+        replacement_order = Order.objects.create(
+            order_number="RPL-REPL-CUSTOMER-POD-001",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=0,
+            total_amount=0,
+            pod_recipient_name="Replacement Receiver",
+            pod_photo_url="https://example.com/replacement-pod-full.jpg",
+            pod_submitted_at=pod_submitted_at,
+        )
+        replacement = Replacement.objects.create(
+            replacement_number="REP-CUSTOMER-POD-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Damaged bottle",
+            status="IN_PROGRESS",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            original_order_item_id=self.order_item_a.id,
+            replacement_product_id=self.product_a.id,
+            replacement_quantity=1,
+            notes=(
+                "Customer-submitted replacement request\nMeta: "
+                + json.dumps(
+                    {
+                        "replacementOrderId": replacement_order.id,
+                        "replacementOrderNumber": replacement_order.order_number,
+                        "quantityToReplace": 1,
+                    }
+                )
+            ),
+        )
+
+        response = self.client.get(
+            "/api/customer/replacements",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        row = next(item for item in response.json()["replacements"] if item["id"] == replacement.id)
+        self.assertEqual(row["status"], "COMPLETED")
+        self.assertEqual(row["linkedReplacementOrderId"], replacement_order.id)
+        self.assertEqual(row["linkedReplacementOrderNumber"], replacement_order.order_number)
+        self.assertEqual(row["replacementDeliveryPod"]["recipientName"], "Replacement Receiver")
+        self.assertEqual(row["replacementDeliveryPod"]["deliveryPhoto"], "https://example.com/replacement-pod-full.jpg")
+        self.assertIsNotNone(row["replacementDeliveryPod"]["submittedAt"])
 
     def test_customer_replacement_request_combines_multiple_order_lines_into_one_case(self) -> None:
         response = self.client.post(
