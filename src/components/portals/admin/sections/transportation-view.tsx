@@ -1519,7 +1519,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
               <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)]">
                 <p className="mb-3 text-sm font-semibold text-slate-900">{itemsLabel}</p>
                 {Array.isArray(selectedDropPointDetail.order?.items) && selectedDropPointDetail.order.items.length > 0 ? (
-                  <div className="space-y-2 text-sm">
+                  <div className="space-y-2 text-sm max-h-[220px] overflow-y-auto pr-1">
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
                       <div key={`dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <p className="font-semibold text-slate-900">{item?.itemType === 'MIXED_CASE' ? `Mixed Case ${item?.caseCapacity || 0} Bottles` : item?.product?.name || 'Item'}</p>

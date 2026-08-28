@@ -1819,6 +1819,8 @@ def _user_payload(user: User) -> dict[str, Any]:
         "middleName": getattr(user, "middle_name", None),
         "lastName": getattr(user, "last_name", None),
         "suffix": getattr(user, "suffix", None),
+        # Fix: hydrate saved staff phone numbers after login and page refresh.
+        "phone": user.phone,
         "avatar": user.avatar,
         "role": user.role,
         "twoFactorEnabled": bool(getattr(user, "two_factor_enabled", False)),

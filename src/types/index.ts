@@ -40,6 +40,7 @@ export interface AuthUser {
   middleName?: string | null
   lastName?: string | null
   suffix?: string | null
+  phone?: string | null
   avatar?: string | null
   role: string
   type: 'staff' | 'customer'

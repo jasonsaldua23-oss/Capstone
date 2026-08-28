@@ -1495,6 +1495,19 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(payload["driver"]["user"]["id"], self.driver_user.id)
         self.assertEqual(payload["driver"]["user"]["email"], self.driver_user.email)
 
+    def test_driver_profile_put_updates_avatar(self) -> None:
+        response = self.client.put(
+            "/api/driver/profile",
+            data={"avatar": "/uploads/customers/driver-avatar.png"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver_user.avatar, "/uploads/customers/driver-avatar.png")
+        self.assertEqual(response.json()["driver"]["avatar"], self.driver_user.avatar)
+
     def test_driver_profile_put_updates_driver_and_user_fields(self) -> None:
         response = self.client.put(
             "/api/driver/profile",
@@ -1588,6 +1601,7 @@ class StaffPhoneValidationContractTests(TestCase):
             email="phone.admin@example.com",
             password="hashed",
             name="Phone Admin",
+            phone="09171234567",
             role="ADMIN",
             is_active=True,
         )
@@ -1595,6 +1609,7 @@ class StaffPhoneValidationContractTests(TestCase):
             email="phone.staff@example.com",
             password="hashed",
             name="Phone Staff",
+            phone="639181234567",
             role="WAREHOUSE_STAFF",
             is_active=True,
         )
@@ -1607,6 +1622,30 @@ class StaffPhoneValidationContractTests(TestCase):
                 "type": "staff",
             }
         )
+        self.staff_token = create_token(
+            {
+                "userId": self.staff.id,
+                "email": self.staff.email,
+                "name": self.staff.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+
+    def test_auth_me_returns_saved_phone_for_admin_and_warehouse_staff(self) -> None:
+        admin_response = self.client.get(
+            "/api/auth/me",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        staff_response = self.client.get(
+            "/api/auth/me",
+            HTTP_AUTHORIZATION=f"Bearer {self.staff_token}",
+        )
+
+        self.assertEqual(admin_response.status_code, 200)
+        self.assertEqual(admin_response.json()["user"]["phone"], self.admin.phone)
+        self.assertEqual(staff_response.status_code, 200)
+        self.assertEqual(staff_response.json()["user"]["phone"], self.staff.phone)
 
     def test_staff_phone_update_persists_valid_philippine_mobile(self) -> None:
         response = self.client.put(
@@ -2687,6 +2726,17 @@ class UploadEndpointsAuthContractTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["success"])
         self.assertIn("/uploads/customers/customer-", payload["imageUrl"])
+
+    def test_upload_customer_avatar_accepts_authenticated_driver_with_image(self) -> None:
+        image_file = SimpleUploadedFile("driver-avatar.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
+        response = self.client.post(
+            "/api/uploads/customer-avatar",
+            data={"file": image_file},
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
 
     def test_upload_driver_license_accepts_driver_image(self) -> None:
         image_file = SimpleUploadedFile("license.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")

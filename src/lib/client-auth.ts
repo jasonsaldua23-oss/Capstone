@@ -3,6 +3,31 @@
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
 const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
 const FETCH_PATCH_FLAG = '__tabAuthFetchPatched__'
+const DEFAULT_API_CACHE_TTL_MS = 15_000
+const REFERENCE_API_CACHE_TTL_MS = 5 * 60_000
+
+type CachedApiResponse = {
+  response: Response
+  expiresAt: number
+}
+
+const apiResponseCache = new Map<string, CachedApiResponse>()
+const inFlightApiReads = new Map<string, Promise<Response>>()
+let apiCacheGeneration = 0
+
+const uncachedApiPrefixes = [
+  '/api/auth/',
+  '/api/notifications',
+  '/api/customer/tracking',
+  '/api/driver/location',
+]
+
+const referenceApiPrefixes = [
+  '/api/products',
+  '/api/warehouses',
+  '/api/roles',
+  '/api/vehicles',
+]
 
 function isApiRequest(input: RequestInfo | URL): boolean {
   if (typeof input === 'string') {
@@ -18,8 +43,39 @@ function isApiRequest(input: RequestInfo | URL): boolean {
   }
 }
 
+function getApiUrl(input: RequestInfo | URL): URL | null {
+  const requestUrl = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url
+  try {
+    return new URL(requestUrl, window.location.origin)
+  } catch {
+    return null
+  }
+}
+
+function getRequestMethod(input: RequestInfo | URL, init?: RequestInit): string {
+  return String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
+}
+
+function getApiCacheTtl(pathname: string): number {
+  if (uncachedApiPrefixes.some((prefix) => pathname.startsWith(prefix))) return 0
+  if (referenceApiPrefixes.some((prefix) => pathname.startsWith(prefix))) return REFERENCE_API_CACHE_TTL_MS
+  return DEFAULT_API_CACHE_TTL_MS
+}
+
+export function clearApiResponseCache() {
+  apiCacheGeneration += 1
+  apiResponseCache.clear()
+  inFlightApiReads.clear()
+}
+
 export function setTabAuthToken(token: string, options?: { persistent?: boolean }) {
   const persistent = Boolean(options?.persistent)
+  // A new account token must never reuse responses from the previous session.
+  clearApiResponseCache()
 
   if (persistent) {
     localStorage.setItem(PERSISTENT_TAB_AUTH_TOKEN_KEY, token)
@@ -42,6 +98,7 @@ export function hasPersistentTabAuthToken(): boolean {
 }
 
 export function clearTabAuthToken() {
+  clearApiResponseCache()
   sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
   localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
@@ -69,24 +126,61 @@ export function installTabAuthFetchInterceptor() {
     }
 
     const token = getTabAuthToken()
-    if (!token) {
-      return originalFetch(input, init)
-    }
-
     const headers = new Headers(
       init?.headers ?? (input instanceof Request ? input.headers : undefined)
     )
     const hasAuthHeader = headers.has('Authorization')
-    if (!hasAuthHeader) {
+    if (token && !hasAuthHeader) {
       headers.set('Authorization', `Bearer ${token}`)
     }
 
-    const response = await originalFetch(input, {
+    const requestInit: RequestInit = {
       ...init,
       headers,
-    })
+    }
+    const method = getRequestMethod(input, init)
 
-    return response
+    // Any write can affect multiple portal views, so invalidate before sending it.
+    if (method !== 'GET') {
+      clearApiResponseCache()
+      return originalFetch(input, requestInit)
+    }
+
+    const apiUrl = getApiUrl(input)
+    const cacheTtl = apiUrl ? getApiCacheTtl(apiUrl.pathname) : 0
+    if (!apiUrl || cacheTtl <= 0 || init?.signal) {
+      return originalFetch(input, requestInit)
+    }
+
+    const cacheKey = `${apiUrl.pathname}${apiUrl.search}`
+    const cached = apiResponseCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.response.clone()
+    }
+    if (cached) apiResponseCache.delete(cacheKey)
+
+    const pending = inFlightApiReads.get(cacheKey)
+    if (pending) return pending.then((response) => response.clone())
+
+    // Cache only successful API responses; failed requests must always be retried.
+    const requestGeneration = apiCacheGeneration
+    const request = originalFetch(input, requestInit)
+      .then((response) => {
+        if (response.ok && requestGeneration === apiCacheGeneration) {
+          apiResponseCache.set(cacheKey, {
+            response: response.clone(),
+            expiresAt: Date.now() + cacheTtl,
+          })
+        }
+        return response
+      })
+      .finally(() => {
+        // Keep a newer request registered if this older request finishes after invalidation.
+        if (inFlightApiReads.get(cacheKey) === request) inFlightApiReads.delete(cacheKey)
+      })
+    inFlightApiReads.set(cacheKey, request)
+
+    return request.then((response) => response.clone())
   }
 
   fetchWindow[FETCH_PATCH_FLAG] = true

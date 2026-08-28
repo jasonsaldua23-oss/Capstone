@@ -1,5 +1,7 @@
 'use client'
 
+import { clearApiResponseCache } from '@/lib/client-auth'
+
 export type DataSyncScope =
   | 'inventory'
   | 'products'
@@ -13,6 +15,9 @@ export type DataSyncScope =
   | 'vehicles'
   | 'stocks'
   | 'feedback'
+  | 'customers'
+  | 'auth'
+  | 'user'
 
 interface DataSyncMessage {
   scopes: DataSyncScope[]
@@ -29,6 +34,8 @@ function normalizeScopes(scopes: DataSyncScope[]): DataSyncScope[] {
 
 export function emitDataSync(scopes: DataSyncScope[]) {
   if (typeof window === 'undefined') return
+  // Cross-module mutations invalidate cached reads before listeners refresh their data.
+  clearApiResponseCache()
   const message: DataSyncMessage = {
     scopes: normalizeScopes(scopes),
     timestamp: Date.now(),
@@ -60,6 +67,7 @@ export function subscribeDataSync(handler: (message: DataSyncMessage) => void) {
     channel = new BroadcastChannel(CHANNEL_NAME)
     channel.onmessage = (event: MessageEvent<DataSyncMessage>) => {
       if (!event.data?.scopes?.length) return
+      clearApiResponseCache()
       handler(event.data)
     }
   }
@@ -69,6 +77,7 @@ export function subscribeDataSync(handler: (message: DataSyncMessage) => void) {
     try {
       const message = JSON.parse(event.newValue) as DataSyncMessage
       if (!message?.scopes?.length) return
+      clearApiResponseCache()
       handler(message)
     } catch {
       // Ignore malformed payloads.
@@ -79,6 +88,7 @@ export function subscribeDataSync(handler: (message: DataSyncMessage) => void) {
     const customEvent = event as CustomEvent<DataSyncMessage>
     const message = customEvent.detail
     if (!message?.scopes?.length) return
+    clearApiResponseCache()
     handler(message)
   }
 

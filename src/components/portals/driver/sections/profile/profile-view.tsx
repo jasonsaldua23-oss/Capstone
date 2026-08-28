@@ -10,7 +10,7 @@ import { PortalProfileSkeleton } from '@/components/portals/shared/loading-skele
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck, Camera, Lock, HelpCircle, MessageSquare, Info, ArrowLeft, KeyRound } from 'lucide-react'
+import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck, Camera, Lock, HelpCircle, MessageSquare, Info, ArrowLeft, KeyRound, Phone } from 'lucide-react'
 import { toast } from 'sonner'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
@@ -888,7 +888,35 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         </div>
 
         <div className="flex flex-col items-center py-4 bg-white border-y border-slate-100 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-          <p className="text-base font-bold text-slate-900">
+          {/* Added: drivers can change their cropped avatar directly from Edit Profile, matching the customer flow. */}
+          <div className="relative">
+            <Avatar className="h-20 w-20 border-2 border-white shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+              {form.avatar ? <AvatarImage src={form.avatar} alt={`${form.name || 'Driver'} avatar`} className="object-cover" /> : null}
+              <AvatarFallback className="bg-[#0d61ad] text-2xl font-bold text-white">{initials || 'D'}</AvatarFallback>
+            </Avatar>
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#0d61ad] text-white shadow-md border-2 border-white hover:bg-[#0a4f8f] active:scale-95 transition"
+              title="Change Avatar"
+              disabled={isSaving}
+            >
+              <Camera className="h-3.5 w-3.5" />
+            </button>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              aria-label="Upload profile photo"
+              title="Upload profile photo"
+              onChange={(event) => {
+                avatarCrop.open(event.target.files?.[0] || null)
+                event.currentTarget.value = ''
+              }}
+            />
+          </div>
+          <p className="mt-2 text-base font-bold text-slate-900">
             {formatFullName(draft.firstName, draft.middleName, draft.lastName, draft.suffix, form.name || 'Driver Name')}
           </p>
         </div>
@@ -1539,8 +1567,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                 {[form.firstName, form.middleName ? `${form.middleName.replace(/\.+$/, '').charAt(0).toUpperCase()}.` : '', form.lastName, form.suffix].filter(Boolean).join(' ') || 'Name details not set'}
               </p>
               <p className="text-sm text-[#5f7390] truncate mt-0.5">{form.email}</p>
+              {/* Show the driver's saved contact number in the same profile position used by customers. */}
               <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-xs font-semibold text-[#0369a1]">
-                Driver
+                <Phone className="h-3 w-3" />
+                {form.phone || 'No phone number'}
               </span>
             </div>
           </div>

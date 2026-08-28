@@ -967,17 +967,9 @@ export function TripDetailView({
       return { granted: false, reason: 'Camera permission denied. Please enable camera access in browser/app settings.' }
     }
 
-    // Explicitly verify/request permission every time camera flow starts.
-    try {
-      const preflightStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-        audio: false,
-      })
-      preflightStream.getTracks().forEach((track) => track.stop())
-      return { granted: true }
-    } catch (error: any) {
-      return { granted: false, reason: mapWebCameraErrorToMessage(error) }
-    }
+    // Fix: the modal requests the real stream once; a second preflight stream made
+    // mobile Safari initialize the camera twice before showing the preview.
+    return { granted: true }
   }
 
   // Stops active camera tracks to release device resources immediately.
