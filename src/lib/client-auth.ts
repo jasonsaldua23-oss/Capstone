@@ -77,13 +77,15 @@ export function setTabAuthToken(token: string, options?: { persistent?: boolean 
   // A new account token must never reuse responses from the previous session.
   clearApiResponseCache()
 
+  // Fix: keep the active credential tab-scoped even when "Remember me" is enabled.
+  // Otherwise another portal login can overwrite localStorage and change this tab's role.
+  sessionStorage.setItem(TAB_AUTH_TOKEN_KEY, token)
+
   if (persistent) {
     localStorage.setItem(PERSISTENT_TAB_AUTH_TOKEN_KEY, token)
-    sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
     return
   }
 
-  sessionStorage.setItem(TAB_AUTH_TOKEN_KEY, token)
   localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
@@ -166,7 +168,9 @@ export function installTabAuthFetchInterceptor() {
     const requestGeneration = apiCacheGeneration
     const request = originalFetch(input, requestInit)
       .then((response) => {
-        if (response.ok && requestGeneration === apiCacheGeneration) {
+        const cacheControl = String(response.headers.get('Cache-Control') || '').toLowerCase()
+        const responseAllowsCache = !cacheControl.includes('no-store') && !cacheControl.includes('private')
+        if (response.ok && responseAllowsCache && requestGeneration === apiCacheGeneration) {
           apiResponseCache.set(cacheKey, {
             response: response.clone(),
             expiresAt: Date.now() + cacheTtl,

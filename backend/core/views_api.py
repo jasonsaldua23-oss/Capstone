@@ -1655,11 +1655,20 @@ def _require_auth(request: HttpRequest) -> dict[str, Any] | None:
 
 def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonResponse | None]:
     p = _payload(request)
+    if p and p.get("type") == "staff":
+        return p, None
+
+    # Fix: a stale cross-portal Bearer token must not mask the valid staff-only
+    # HttpOnly cookie held by this browser session.
+    staff_cookie = request.COOKIES.get(STAFF_TOKEN_NAME)
+    staff_payload = decode_token(staff_cookie) if staff_cookie else None
+    if staff_payload and staff_payload.get("type") == "staff":
+        request._staff_cookie_auth_fallback = True
+        return staff_payload, None
+
     if not p:
         return None, _err("Unauthorized", 401)
-    if p.get("type") != "staff":
-        return None, _err("Forbidden", 403)
-    return p, None
+    return None, _err("Forbidden", 403)
 
 
 def _missing_driver_profile_fields(driver: User) -> list[str]:

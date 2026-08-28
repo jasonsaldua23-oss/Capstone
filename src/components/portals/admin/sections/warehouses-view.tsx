@@ -219,7 +219,8 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
         setInsightInventoryTransactions([])
       }
     } catch (error) {
-      console.error('Failed to fetch warehouses:', error)
+      // Keep handled API failures in the page state; console.error triggers Next's dev overlay.
+      console.warn('Failed to fetch warehouses:', error)
       setLoadError(error instanceof Error ? error.message : 'Failed to load warehouse profile')
     } finally {
       setIsLoading(false)

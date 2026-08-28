@@ -122,6 +122,17 @@ export function UsersView() {
   ]
   const passwordPolicySatisfied = passwordRequirements.every((rule) => rule.met)
   const passwordsMatch = form.password !== '' && form.password === form.confirmPassword
+  const hasResetPassword = newPassword.length > 0
+  const resetPasswordRequirements = [
+    { id: 'length', label: 'At least 8 characters', met: newPassword.length >= 8 },
+    { id: 'upper', label: 'At least 1 uppercase letter', met: hasResetPassword && /[A-Z]/.test(newPassword) },
+    { id: 'lower', label: 'At least 1 lowercase letter', met: hasResetPassword && /[a-z]/.test(newPassword) },
+    { id: 'number', label: 'At least 1 number', met: hasResetPassword && /\d/.test(newPassword) },
+    { id: 'special', label: 'At least 1 special character', met: hasResetPassword && /[^A-Za-z0-9\s]/.test(newPassword) },
+    { id: 'no-spaces', label: 'No spaces', met: hasResetPassword && !/\s/.test(newPassword) },
+  ]
+  const resetPasswordPolicySatisfied = resetPasswordRequirements.every((rule) => rule.met)
+  const resetPasswordsMatch = newPassword !== '' && newPassword === confirmNewPassword
 
   const isValidEmail = useCallback((email: string): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
@@ -881,6 +892,19 @@ export function UsersView() {
                   {showResetPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {/* Added: admin resets use the shared password policy without OTP. */}
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {resetPasswordRequirements.map((rule) => (
+                  <div key={rule.id} className="flex items-center gap-1.5 text-xs">
+                    {rule.met ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                    ) : (
+                      <XCircle className="h-3.5 w-3.5 shrink-0 text-red-400" />
+                    )}
+                    <span className={rule.met ? 'text-emerald-600' : 'text-gray-500'}>{rule.label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Confirm New Password</label>
@@ -892,15 +916,26 @@ export function UsersView() {
                   setConfirmNewPassword(event.target.value)
                   setResetPasswordError('')
                 }}
-                className="h-10"
+                className={`h-10 ${confirmNewPassword && !resetPasswordsMatch ? 'border-red-400 ring-red-200' : ''}`}
               />
+              {confirmNewPassword && !resetPasswordsMatch ? (
+                <p className="text-xs text-red-500">Passwords do not match.</p>
+              ) : confirmNewPassword && resetPasswordsMatch ? (
+                <p className="flex items-center gap-1 text-xs text-emerald-600">
+                  <CheckCircle2 className="h-3 w-3" /> Passwords match
+                </p>
+              ) : null}
             </div>
             {resetPasswordError ? <p className="text-sm text-red-600">{resetPasswordError}</p> : null}
             <div className="flex gap-2 pt-2 border-t border-gray-100">
               <Button variant="outline" className="flex-1" onClick={() => setResetPasswordOpen(false)} disabled={isResettingPassword}>
                 Cancel
               </Button>
-              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={submitPasswordReset} disabled={isResettingPassword}>
+              <Button
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+                onClick={submitPasswordReset}
+                disabled={isResettingPassword || !resetPasswordPolicySatisfied || !resetPasswordsMatch}
+              >
                 {isResettingPassword ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save Password
               </Button>

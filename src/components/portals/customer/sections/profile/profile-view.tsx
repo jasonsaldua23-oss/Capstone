@@ -1352,11 +1352,11 @@ export function CustomerProfileView({
                     <div key={balance.containerTypeId} className="px-4 py-3.5">
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">
+                          {/* Fix: balances belong to a container type, not to each compatible product. */}
                           <p className="truncate text-sm font-semibold text-slate-800">
-                            {balance.productName || balance.containerTypeName}
+                            {balance.containerTypeName || balance.productName || 'Returnable container'}
                           </p>
                           <p className="mt-0.5 text-xs text-slate-500">
-                            {balance.productName && balance.containerTypeName ? `${balance.containerTypeName} • ` : ''}
                             Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(depositAmount)}/{depositUnit}</span>
                             {isCaseFormat && looseBottlesAvailable > 0 ? (
                               <span> · Loose: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span></span>

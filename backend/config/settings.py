@@ -124,6 +124,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "core.auth_response_middleware.StaffAuthFallbackNoStoreMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
