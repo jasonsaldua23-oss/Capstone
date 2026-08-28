@@ -10,6 +10,24 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "plugins": [
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow AAB TRADING SHOP to select profile and replacement evidence photos."
+        }
+      ]
+    ],
+    "android": {
+      "package": "com.logitrack.customer",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.logitrack.customer"
+    },
     "extra": {
       "apiBaseUrl": "http://10.0.2.2:8000"
     }

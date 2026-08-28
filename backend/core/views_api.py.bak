@@ -2008,11 +2008,9 @@ def _serialize_order(
     data["purchaseOrderNumber"] = po_num if is_approved_order else None
     data["orderNumber"] = (po_num if (is_approved_order and po_num) else (pr_num or order.order_number))
 
-    # Added: expose only the real inventory OUT transactions after delivery and
-    # attach each ID to the order item it actually deducted from inventory.
+    # Added: expose only the real inventory OUT transaction IDs after this order was delivered.
     is_delivered = normalized_order_status == OrderStatus.DELIVERED or bool(getattr(timeline, "delivered_at", None))
     delivery_transaction_ids: list[str] = []
-    delivery_transaction_ids_by_item: dict[str, list[str]] = {}
     if is_delivered:
         order_item_ids = [
             str(row.get("id") or "").strip()
@@ -2022,25 +2020,14 @@ def _serialize_order(
         if not order_item_ids:
             order_item_ids = [str(item_id) for item_id in order.items.values_list("id", flat=True)]
         if order_item_ids:
-            order_item_id_set = set(order_item_ids)
-            delivery_transactions = InventoryTransaction.objects.filter(
-                Q(order_item_id__in=order_item_ids)
-                | Q(reference_type="order_item", reference_id__in=order_item_ids),
-                type="OUT",
-            ).order_by("created_at", "id").values("id", "order_item_id", "reference_id")
-            for transaction in delivery_transactions:
-                transaction_id = str(transaction.get("id") or "").strip()
-                item_id = str(transaction.get("order_item_id") or transaction.get("reference_id") or "").strip()
-                if not transaction_id or item_id not in order_item_id_set:
-                    continue
-                delivery_transaction_ids.append(transaction_id)
-                delivery_transaction_ids_by_item.setdefault(item_id, []).append(transaction_id)
-
-    # Keep transaction IDs on every serialized item so the UI does not rely on
-    # unrelated array positions when one item consumes multiple stock batches.
-    for item_row in data.get("items", []):
-        item_id = str(item_row.get("id") or "").strip()
-        item_row["inventoryTransactionIds"] = delivery_transaction_ids_by_item.get(item_id, [])
+            delivery_transaction_ids = [
+                str(transaction_id)
+                for transaction_id in InventoryTransaction.objects.filter(
+                    type="OUT",
+                    reference_type="order_item",
+                    reference_id__in=order_item_ids,
+                ).order_by("created_at", "id").values_list("id", flat=True)
+            ]
     data["inventoryTransactionIds"] = delivery_transaction_ids
     data["inventoryTransactionId"] = delivery_transaction_ids[0] if delivery_transaction_ids else None
     return data
@@ -2740,9 +2727,6 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
 
 
 def _get_scheduled_replacement_payload(order: Order) -> dict[str, Any] | None:
-    return None
-
-def _get_scheduled_replacement_payload_bak(order: Order) -> dict[str, Any] | None:
     order_number_upper = str(getattr(order, "order_number", "") or "").strip().upper()
     if not order_number_upper.startswith("RPL-"):
         return None
@@ -2791,8 +2775,7 @@ def _get_scheduled_replacement_payload_bak(order: Order) -> dict[str, Any] | Non
     }
 
 
-def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None) -> dict[str, Any]:
-    if ctx is None: ctx = {}
+def _serialize_trip(trip: Trip, include_points: bool = True) -> dict[str, Any]:
     data = _serialize_model(trip)
     data["driver"] = _serialize_model(trip.driver, exclude={"password"}) if getattr(trip, "driver", None) else None
     data["vehicle"] = _serialize_model(trip.vehicle)
@@ -2821,38 +2804,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 "order__items__product",
             ).order_by("sequence")
 
-
-        order_ids = [str(dp.order.id) for dp in drop_point_rows if getattr(dp, "order_id", None) and getattr(dp, "order", None)]
-        
-        allocations_map = ctx.get("allocations_map")
-        if allocations_map is None:
-            allocations_map = _build_order_item_warehouse_allocations_map(order_ids) if order_ids else {}
-            
-        trip_assignments_map = ctx.get("trip_assignments_map")
-        if trip_assignments_map is None:
-            trip_assignments_map = _build_order_item_trip_assignments_map(order_ids, trip_id=str(getattr(trip, "id", "") or "").strip() or None) if order_ids else {}
-            
-        all_assignments_map = ctx.get("all_assignments_map")
-        if all_assignments_map is None:
-            all_assignments_map = _build_order_item_trip_assignments_map(order_ids, trip_id=None) if order_ids else {}
-            
-        warehouse_cache = ctx.get("warehouse_cache")
-        if warehouse_cache is None:
-            warehouse_cache = {}
-            wh_ids = {str(dp.order.warehouse_id) for dp in drop_point_rows if getattr(dp, "order", None) and getattr(dp.order, "warehouse_id", None)}
-            if trip.warehouse_id: wh_ids.add(str(trip.warehouse_id))
-            if wh_ids:
-                warehouse_cache = {str(w.id): w for w in Warehouse.objects.filter(id__in=wh_ids)}
-                
-        order_returns_map = ctx.get("order_returns_map")
-        if order_returns_map is None:
-            order_returns_map = {}
-            if order_ids:
-                from core.models import Replacement
-                replacements = Replacement.objects.filter(order_id__in=order_ids)
-                for r in replacements:
-                    order_returns_map.setdefault(str(r.order_id), []).append(r)
-
         for dp in drop_point_rows:
             row = _serialize_model(dp)
             row["address"] = _strip_default_country_suffix(row.get("address"))
@@ -2860,14 +2811,23 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 if getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date:
                     trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
                 order_items = list(dp.order.items.all())
-                item_allocations_by_order = allocations_map.get(str(dp.order.id), {})
+                item_allocations_by_order = _build_order_item_warehouse_allocations_map([str(dp.order.id)]).get(str(dp.order.id), {})
                 # Get trip assignments for current trip (for allocation UI)
-                item_trip_assignments_by_order = trip_assignments_map.get(str(dp.order.id), {})
+                item_trip_assignments_by_order = _build_order_item_trip_assignments_map(
+                    [str(dp.order.id)],
+                    trip_id=str(getattr(trip, "id", "") or "").strip() or None,
+                ).get(str(dp.order.id), {})
                 # Get ALL trip assignments for this order (to detect items assigned to other trips)
-                all_item_trip_assignments_by_order = all_assignments_map.get(str(dp.order.id), {})
-                order_returns = order_returns_map.get(str(dp.order.id), [])
+                all_item_trip_assignments_by_order = _build_order_item_trip_assignments_map(
+                    [str(dp.order.id)],
+                    trip_id=None,  # Don't filter by trip - get all assignments
+                ).get(str(dp.order.id), {})
+                try:
+                    order_returns = list(dp.order.replacements.all())
+                except Exception:
+                    order_returns = []
                 order_warehouse_id = str(getattr(dp.order, "warehouse_id", "") or "").strip() or None
-                order_warehouse = warehouse_cache.get(order_warehouse_id)
+                order_warehouse = Warehouse.objects.filter(id=order_warehouse_id).first() if order_warehouse_id else None
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
                 row["order"] = {
@@ -8341,37 +8301,9 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
             if log.trip_id not in latest_log_by_trip:
                 latest_log_by_trip[log.trip_id] = log
 
-    
-    all_order_ids = []
-    all_wh_ids = set()
+    payload_rows: list[dict[str, Any]] = []
     for trip in rows:
-        if trip.warehouse_id:
-            all_wh_ids.add(str(trip.warehouse_id))
-        prefetched_dp = getattr(trip, "_prefetched_objects_cache", {}).get("drop_points")
-        if prefetched_dp is not None:
-            for dp in prefetched_dp:
-                if getattr(dp, "order", None):
-                    all_order_ids.append(str(dp.order.id))
-                    if dp.order.warehouse_id:
-                        all_wh_ids.add(str(dp.order.warehouse_id))
-                        
-    ctx = {
-        "allocations_map": _build_order_item_warehouse_allocations_map(all_order_ids) if all_order_ids else {},
-        "all_assignments_map": _build_order_item_trip_assignments_map(all_order_ids, trip_id=None) if all_order_ids else {},
-        "warehouse_cache": {str(w.id): w for w in Warehouse.objects.filter(id__in=all_wh_ids)} if all_wh_ids else {},
-        "order_returns_map": {},
-        "trip_assignments_map": None, 
-    }
-    
-    if all_order_ids:
-        from core.models import Replacement
-        replacements = Replacement.objects.filter(order_id__in=all_order_ids)
-        for r in replacements:
-            ctx["order_returns_map"].setdefault(str(r.order_id), []).append(r)
-
-    payload_rows = []
-    for trip in rows:
-        row = _serialize_trip(trip, ctx=ctx)
+        row = _serialize_trip(trip)
         latest_log = latest_log_by_trip.get(trip.id) or latest_driver_log
         row["latestLocation"] = (
             {

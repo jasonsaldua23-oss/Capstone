@@ -13,7 +13,7 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const { token, headers, timeoutMs = 15_000, ...init } = options;
+  const { token, headers, timeoutMs = 30000, ...init } = options;
   const reqHeaders = new Headers(headers || {});
   // FormData must supply its own multipart boundary; only JSON bodies get this header.
   if (!(init.body instanceof FormData) && init.body != null && !reqHeaders.has("Content-Type")) {

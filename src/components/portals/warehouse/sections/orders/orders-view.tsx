@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Eye, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -275,55 +275,49 @@ export function WarehouseOrdersView({
                       : String(order?.inventoryTransactionId || '').trim()
                         ? [order.inventoryTransactionId]
                         : []
+                    const displayItems = orderItems.length > 0 ? orderItems : [null]
                     return (
-                      <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
-                        <td className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}</td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {transactionIds.length > 0
-                            ? transactionIds.map((id: unknown) => {
-                                const fullId = String(id)
-                                return (
-                                  <p key={fullId} title={fullId} className="whitespace-nowrap font-mono text-xs">
-                                    {formatTransactionId(fullId)}
-                                  </p>
-                                )
-                              })
-                            : '----'}
-                        </td>
-                        <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
-                        <td className="max-w-[260px] px-4 py-3 text-slate-600">
-                          <div className="space-y-1">
-                            {orderItems.length > 0
-                              ? orderItems.map((item: any, index: number) => (
-                                  <div key={`${order.id}-product-${item?.id || index}`} className="min-h-12">
+                      <Fragment key={order.id}>
+                        {displayItems.map((item: any, index: number) => {
+                          const itemTransactionIds = Array.isArray(item?.inventoryTransactionIds)
+                            ? item.inventoryTransactionIds.filter((id: unknown) => String(id || '').trim())
+                            : orderItems.length === 1
+                              ? transactionIds
+                              : []
+                          return (
+                            <tr key={`${order.id}-item-${item?.id || index}`} className={`${index === 0 ? 'border-t border-slate-200' : ''} align-top text-sm`}>
+                              {index === 0 ? <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}</td> : null}
+                              <td className="px-4 py-3 text-slate-600">
+                                {/* IDs come from this exact order item, including multiple stock-batch deductions. */}
+                                {itemTransactionIds.length > 0
+                                  ? itemTransactionIds.map((id: unknown) => {
+                                      const fullId = String(id)
+                                      return (
+                                        <p key={fullId} title={fullId} className="whitespace-nowrap font-mono text-xs">
+                                          {formatTransactionId(fullId)}
+                                        </p>
+                                      )
+                                    })
+                                  : '----'}
+                              </td>
+                              {index === 0 ? <td rowSpan={displayItems.length} className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td> : null}
+                              <td className="max-w-[260px] px-4 py-3 text-slate-600">
+                                {item ? (
+                                  <>
                                     <p>{item?.itemType === 'MIXED_CASE' ? 'Mixed Case' : formatProductNameWithSize(item)}</p>
                                     {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
-                                  </div>
-                                ))
-                              : <p>No products</p>}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="space-y-1">
-                            {/* Match each order product slot so wrapped names keep quantities aligned. */}
-                            {orderItems.length > 0
-                              ? orderItems.map((item: any, index: number) => (
-                                  <div key={`${order.id}-quantity-${item?.id || index}`} className={`min-h-12 ${item?.itemType === 'MIXED_CASE' ? 'pt-0.5' : ''}`}>
-                                    <p>{Number(item?.quantity || 0)}</p>
-                                    {item?.itemType === 'MIXED_CASE' && Array.isArray(item?.components) ? item.components.map((_: any, ci: number) => (
-                                      <p key={ci} className="text-[11px] text-slate-400">&nbsp;</p>
-                                    )) : null}
-                                  </div>
-                                ))
-                              : <p>0</p>}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
-                        <td className="px-4 py-3">
-                          <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-2">
+                                  </>
+                                ) : <p>No products</p>}
+                              </td>
+                              <td className="px-4 py-3">{item ? Number(item?.quantity || 0) : 0}</td>
+                              {index === 0 ? (
+                                <>
+                                  <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
+                                  <td rowSpan={displayItems.length} className="px-4 py-3">
+                                    <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
+                                  </td>
+                                  <td rowSpan={displayItems.length} className="px-4 py-3">
+                                    <div className="flex flex-wrap gap-2">
                             <Button variant="outline" size="sm" onClick={() => void openOrderDetail(order)}>
                               <Eye className="mr-2 h-4 w-4" />
                               View Details
@@ -358,9 +352,14 @@ export function WarehouseOrdersView({
                                 Cancel Order
                               </Button>
                             ) : null}
-                          </div>
-                        </td>
-                      </tr>
+                                    </div>
+                                  </td>
+                                </>
+                              ) : null}
+                            </tr>
+                          )
+                        })}
+                      </Fragment>
                     )
                   })}
                 </tbody>

@@ -82,3 +82,7 @@ __pycache__/
 skills/
 dev*.log
 dev_stdout.log
+# Generated only by the customer-app production bundle verification.
+mobile/customer-app/.expo-export-check/
+mobile/customer-app/.expo-export-design-check*/
+mobile/customer-app/.expo/

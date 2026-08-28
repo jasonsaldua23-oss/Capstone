@@ -805,6 +805,15 @@ class CustomerOrdersApiContractTests(TestCase):
             reference_type="order_item",
             reference_id=delivered_item.id,
         )
+        related_delivery_transaction = InventoryTransaction.objects.create(
+            warehouse=warehouse,
+            product=product,
+            type="OUT",
+            quantity=1,
+            order_item=delivered_item,
+            reference_type="mixed_case_component",
+            reference_id="component-transaction",
+        )
 
         pending_order = Order.objects.create(
             order_number="ORD-NOT-DELIVERED-TX",
@@ -830,10 +839,14 @@ class CustomerOrdersApiContractTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         orders_by_id = {row["id"]: row for row in response.json()["orders"]}
-        self.assertEqual(orders_by_id[delivered_order.id]["inventoryTransactionIds"], [delivery_transaction.id])
+        expected_transaction_ids = [delivery_transaction.id, related_delivery_transaction.id]
+        self.assertEqual(orders_by_id[delivered_order.id]["inventoryTransactionIds"], expected_transaction_ids)
         self.assertEqual(orders_by_id[delivered_order.id]["inventoryTransactionId"], delivery_transaction.id)
+        delivered_items_by_id = {row["id"]: row for row in orders_by_id[delivered_order.id]["items"]}
+        self.assertEqual(delivered_items_by_id[delivered_item.id]["inventoryTransactionIds"], expected_transaction_ids)
         self.assertEqual(orders_by_id[pending_order.id]["inventoryTransactionIds"], [])
         self.assertIsNone(orders_by_id[pending_order.id]["inventoryTransactionId"])
+        self.assertEqual(orders_by_id[pending_order.id]["items"][0]["inventoryTransactionIds"], [])
 
     def test_customer_orders_rejects_non_customer_tokens(self) -> None:
         response = self.client.get(
