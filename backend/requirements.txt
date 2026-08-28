@@ -8,3 +8,4 @@ google-auth>=2.35
 requests>=2.32
 gunicorn>=22.0
 Pillow>=10.1
+pywebpush>=2.0,<3.0

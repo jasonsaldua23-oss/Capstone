@@ -88,6 +88,8 @@ interface DropPoint {
       product?: {
         sku?: string | null
         name?: string | null
+        // Added: image URL returned for product thumbnails in driver trip history.
+        imageUrl?: string | null
         unit?: string | null
       } | null
     }>

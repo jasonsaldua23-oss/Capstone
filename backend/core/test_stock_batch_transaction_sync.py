@@ -97,3 +97,22 @@ class StockBatchTransactionSyncTests(TestCase):
         self.inventory.save(update_fields=["reserved_quantity", "updated_at"])
 
         self.assertFalse(_is_inventory_overstocked_flagged_by_stockin(self.inventory))
+
+    def test_inventory_transaction_list_hides_replacement_bottle_remainders(self):
+        InventoryTransaction.objects.create(
+            warehouse=self.warehouse,
+            product=self.product,
+            type="IN",
+            quantity=4,
+            reference_type="replacement_bottle_remainder",
+        )
+
+        response = self.client.get(
+            "/api/inventory-transactions",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["transactions"][0]["id"], self.transaction.id)

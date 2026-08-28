@@ -9,6 +9,7 @@ import { clearTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterc
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
+import { PushNotificationManager } from '@/components/shared/push-notification-manager'
 
 // Auth Context
 interface AuthContextType {
@@ -343,6 +344,8 @@ export default function Home() {
       <AuthContext.Provider value={{ user, setUser, logout, isLoading }}>
         <PortalContext.Provider value={{ portal, setPortal }}>
           <Toaster position="top-right" />
+          {/* Added once here so every authenticated portal can register its device. */}
+          <PushNotificationManager user={user} />
           <PortalErrorBoundary onRecover={recoverToLogin}>
             {portal === 'admin' && <AdminPortal />}
             {portal === 'driver' && <DriverPortal />}

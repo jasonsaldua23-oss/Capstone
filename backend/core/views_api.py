@@ -51,6 +51,7 @@ from .models import (
     Inventory,
     InventoryReservation,
     InventoryTransaction,
+    InventoryQuantityUnit,
     LocationLog,
     MixedCaseComponent,
     Notification,
@@ -63,6 +64,7 @@ from .models import (
     OrderTimeline,
     Product,
     ProductPackaging,
+    PushSubscription,
     Replacement,
     ReplacementStatus,
     ReservationStatus,
@@ -96,6 +98,7 @@ from .mixed_case import (
     reserve_order_item,
     serialize_mixed_component,
 )
+from .push_notifications import get_web_push_public_key, queue_web_push, web_push_is_configured
 
 
 logger = logging.getLogger(__name__)
@@ -1723,6 +1726,15 @@ def _create_staff_notifications(
             for user in recipients
         ]
     )
+    # Added: mirror the existing in-app event to registered staff devices.
+    queue_web_push(
+        user_ids=[user.id for user in recipients],
+        title=title,
+        message=message,
+        notification_type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
+    )
 
 
 def _create_customer_notification(
@@ -1744,6 +1756,15 @@ def _create_customer_notification(
         reference_type=reference_type,
         reference_id=reference_id,
         is_read=False,
+    )
+    # Added: customer status events now reach the device while the portal is closed.
+    queue_web_push(
+        customer_ids=[customer.id],
+        title=title,
+        message=message,
+        notification_type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
     )
 
 
@@ -1767,6 +1788,15 @@ def _create_user_notification(
         reference_type=reference_type,
         reference_id=reference_id,
         is_read=False,
+    )
+    # Added: direct staff events include driver trip assignments.
+    queue_web_push(
+        user_ids=[user.id],
+        title=title,
+        message=message,
+        notification_type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
     )
 
 
@@ -3025,6 +3055,8 @@ def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_p
                 "id": product.id,
                 "sku": product.sku,
                 "name": product.name,
+                # Added: driver trip/history thumbnails need the stored product image.
+                "imageUrl": product.image_url,
                 "unit": _normalize_product_unit(product.unit),
                 "quantityPerCase": quantity_per_case,
                 "sizeLabel": product_size_label or None,
@@ -3502,13 +3534,19 @@ def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_
     if not inventory:
         return
 
-    inventory.loose_bottles = max(0, _int(getattr(inventory, "loose_bottles", 0), 0) + remainder_bottles)
+    previous_loose_bottles = max(0, _int(getattr(inventory, "loose_bottles", 0), 0))
+    inventory.loose_bottles = previous_loose_bottles + remainder_bottles
     inventory.save(update_fields=["loose_bottles", "updated_at"])
     InventoryTransaction.objects.create(
         warehouse=getattr(inventory, "warehouse", None),
         product=product,
         type="IN",
         quantity=remainder_bottles,
+        # Fix: this reconciliation returns loose bottles, not cases, and must retain its stock snapshots.
+        quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+        stock_unit_label="Bottle",
+        previous_stock=previous_loose_bottles,
+        updated_stock=inventory.loose_bottles,
         reference_type="replacement_bottle_remainder",
         reference_id=order.id,
         notes=(
@@ -6010,6 +6048,8 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
         InventoryTransaction.objects.select_related("warehouse", "product")
         .filter(product__in=_real_products(Product.objects.all()))
         .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
+        # Internal loose-bottle reconciliation is not a user-facing stock-in/out movement.
+        .exclude(reference_type="replacement_bottle_remainder")
     )
     staff_role = str(staff.get("role") or "").strip().upper()
     staff_user_id = str(staff.get("userId") or "").strip()
@@ -6701,7 +6741,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         if license_type_value not in DRIVER_RESTRICTIONS:
             return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
         user.license_type = license_type_value
-        user.license_photo_url = body.get("licensePhotoUrl") or None
+        # license images removed; do not accept licensePhotoUrl from client
         if body.get("licenseExpiry"):
             parsed_license_expiry, expiry_error = _validate_future_license_expiry(body.get("licenseExpiry"))
             if expiry_error:
@@ -6737,7 +6777,6 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         d.license_number = lic_number
     mapping = [
         ("licenseType", "license_type"),
-        ("licensePhotoUrl", "license_photo_url"),
         ("emergencyContact", "emergency_contact"),
         ("rating", "rating"),
         ("totalDeliveries", "total_deliveries"),
@@ -6980,6 +7019,56 @@ def notifications_collection(request: HttpRequest) -> JsonResponse:
     qs.update(is_read=True, read_at=timezone.now())
     unread_count = scoped_qs.filter(is_read=False).count()
     return _ok({"success": True, "updated": qs.count(), "unreadCount": unread_count})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST", "DELETE"])
+def push_subscriptions_collection(request: HttpRequest) -> JsonResponse:
+    """Register or remove the current account's browser Web Push endpoint."""
+    p = _require_auth(request)
+    if not p:
+        return _err("Unauthorized", 401)
+
+    if request.method == "GET":
+        return _ok({
+            "success": True,
+            "enabled": web_push_is_configured(),
+            "publicKey": get_web_push_public_key() if web_push_is_configured() else "",
+        })
+
+    body = _json_body(request)
+    endpoint = str(body.get("endpoint") or "").strip()
+    if not endpoint:
+        return _err("endpoint is required")
+
+    owner_filter = (
+        {"user_id": p.get("userId"), "customer_id": None}
+        if p.get("type") == "staff"
+        else {"customer_id": p.get("userId"), "user_id": None}
+    )
+    if request.method == "DELETE":
+        deleted, _ = PushSubscription.objects.filter(endpoint=endpoint, **owner_filter).delete()
+        return _ok({"success": True, "deleted": deleted})
+
+    if not web_push_is_configured():
+        return _err("Web Push is not configured", 503)
+    keys = body.get("keys") if isinstance(body.get("keys"), dict) else {}
+    p256dh = str(keys.get("p256dh") or "").strip()
+    auth_key = str(keys.get("auth") or "").strip()
+    if not p256dh or not auth_key:
+        return _err("subscription keys are required")
+
+    subscription, created = PushSubscription.objects.update_or_create(
+        endpoint=endpoint,
+        **owner_filter,
+        defaults={
+            "p256dh": p256dh,
+            "auth": auth_key,
+            "user_agent": str(request.headers.get("User-Agent") or "")[:1000] or None,
+            "is_active": True,
+        },
+    )
+    return _ok({"success": True, "created": created, "subscriptionId": subscription.id}, 201 if created else 200)
 
 
 @csrf_exempt
@@ -9141,7 +9230,6 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         ("emergencyContact", "emergency_contact"),
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
-        ("licensePhotoUrl", "license_photo_url"),
     ]:
         if key in body:
             next_value = body.get(key)
@@ -9775,16 +9863,6 @@ def upload_damage_image(request: HttpRequest) -> JsonResponse:
     return _handle_image_upload(request, "damages", "damage")
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def upload_driver_license_image(request: HttpRequest) -> JsonResponse:
-    p, err = _require_staff(request)
-    if err:
-        return err
-    if p.get("role") not in {"DRIVER", "ADMIN", "SUPER_ADMIN"}:
-        return _err("Forbidden", 403)
-    # Added: driver and admin editors share one authenticated license-image endpoint.
-    return _handle_image_upload(request, "licenses", "license")
 
 
 @csrf_exempt

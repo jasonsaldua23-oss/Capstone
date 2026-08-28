@@ -2833,6 +2833,7 @@ export function CustomerPortal() {
                       setActiveView(backView)
                     }}
                     setIsReceiptDialogOpen={setIsReceiptDialogOpen}
+                    setSelectedOrder={setSelectedOrder}
                     formatOrderStatus={formatOrderStatus}
                     orderStages={orderStages}
                     getOrderStageIndex={getOrderStageIndex}
@@ -3001,7 +3002,17 @@ export function CustomerPortal() {
                       }
 
                       if (refType === 'replacement' || notifType === 'REPLACEMENT' || title.includes('replacement') || message.includes('replacement')) {
-                        setActiveView('replacements')
+                        // Try to find and open the specific replacement order
+                        const matched = orders.find((o) => {
+                          const isRepl = isReplacementOrder(o)
+                          return isRepl && (o.id === refId || o.orderNumber === refId || String(o.orderNumber || '').includes(refId))
+                        })
+                        if (matched) {
+                          openOrderDetail(matched, 'orders')
+                        } else {
+                          setOrdersTab('REPLACEMENT')
+                          setActiveView('orders')
+                        }
                         return
                       }
 

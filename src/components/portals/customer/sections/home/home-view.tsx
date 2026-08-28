@@ -200,12 +200,12 @@ export function CustomerHomeView({
                           <p className="text-[0.95rem] font-bold leading-tight text-slate-900 md:text-[1.35rem] md:font-bold md:text-slate-900">
                             {p ? formatPeso(p.price || 0) : '$ Price'}
                           </p>
-                          <p className="text-[11px] text-slate-500 md:text-[14px]">Size: {sizeLabel}</p>
+                          <p className="text-[11px] font-semibold text-slate-900 md:text-[14px]">Size: {sizeLabel}</p>
                           <p className="text-[11px] text-slate-500 md:text-[14px]">
                             Qty/Unit: {quantityPerUnit > 0 ? quantityPerUnit : 'N/A'}
                           </p>
                           {categoryLabel ? (
-                            <p className="line-clamp-3 break-words text-[11px] leading-snug text-slate-500 md:line-clamp-2 md:text-[14px]">{categoryLabel}</p>
+                            <p className="line-clamp-3 break-words text-[11px] font-semibold leading-snug text-slate-900 md:line-clamp-2 md:text-[14px]">{categoryLabel}</p>
                           ) : null}
                           <p className="text-[11px] font-medium text-emerald-700 md:text-[14px]">
                             {availableQty > 0 ? `${availableQty} available` : 'Out of stock'}

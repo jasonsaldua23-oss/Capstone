@@ -240,7 +240,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     phone: '',
     licenseNumber: '',
     licenseType: '',
-    licensePhotoUrl: '',
     licenseExpiry: '',
   })
   const [draft, setDraft] = useState({
@@ -253,7 +252,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     phone: '',
     licenseNumber: '',
     licenseType: '',
-    licensePhotoUrl: '',
     licenseExpiry: '',
   })
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
@@ -325,7 +323,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           phone: profile?.phone || profile?.user?.phone || '',
           licenseNumber: resolvedLicenseNumber,
           licenseType: resolvedLicenseType,
-          licensePhotoUrl: String(profile?.licensePhotoUrl ?? profile?.license_photo_url ?? nestedUser?.licensePhotoUrl ?? nestedUser?.license_photo_url ?? ''),
           licenseExpiry: formatDateInputValue(resolvedLicenseExpiry),
         })
       } catch (error) {
@@ -375,7 +372,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
-      licensePhotoUrl: form.licensePhotoUrl,
       licenseExpiry: form.licenseExpiry,
     })
     setSubView('edit')
@@ -392,7 +388,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
-      licensePhotoUrl: form.licensePhotoUrl,
       licenseExpiry: form.licenseExpiry,
     })
     setSubView('license')
@@ -463,7 +458,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         ? {
             licenseNumber: draft.licenseNumber,
             licenseType: draft.licenseType,
-            licensePhotoUrl: draft.licensePhotoUrl,
             licenseExpiry: draft.licenseExpiry ? `${draft.licenseExpiry}T00:00:00Z` : '',
           }
         : {
@@ -510,7 +504,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
-        licensePhotoUrl: draft.licensePhotoUrl,
         licenseExpiry: draft.licenseExpiry,
       }))
 
@@ -528,20 +521,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     }
   }
 
-  const uploadLicensePhoto = async (file: File) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch('/api/uploads/driver-license-image', {
-      method: 'POST',
-      credentials: 'include',
-      body: formData,
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok || payload?.success === false || !payload?.imageUrl) {
-      throw new Error(payload?.error || 'Failed to upload driver license')
-    }
-    return String(payload.imageUrl).trim()
-  }
+  // License image uploads have been disabled. License metadata (number/type/expiry)
+  // remains editable but image uploading is no longer supported.
 
   const openChangePassword = () => {
     setNewPassword('')
@@ -1003,7 +984,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                 setIsEditingProfile(true)
               }
             }}
-            disabled={isSaving || !draft.firstName.trim() || !draft.lastName.trim()}
+            // Fix: keep Edit Profile clickable even when legacy records do not yet have structured name fields.
+            disabled={isSaving || (isEditingProfile && (!draft.firstName.trim() || !draft.lastName.trim()))}
             className="w-full h-12 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c] transition-colors shadow-[0_4px_12px_rgba(13,97,173,0.12)]"
           >
             {isSaving ? (
@@ -1086,33 +1068,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           </div>
 
           <div className="space-y-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5">
-            <Label htmlFor="driver-license-photo" className="text-sm font-semibold text-slate-700">Driver's License Upload</Label>
-            <Input
-              id="driver-license-photo"
-              type="file"
-              accept="image/*"
-              onChange={async (event) => {
-                const file = event.target.files?.[0]
-                if (!file) return
-                setIsSaving(true)
-                try {
-                  const imageUrl = await uploadLicensePhoto(file)
-                  // Added: retain the uploaded license URL until Save License persists the profile.
-                  onChange('licensePhotoUrl', imageUrl)
-                  toast.success('Driver license uploaded')
-                } catch (error: any) {
-                  toast.error(error?.message || 'Failed to upload driver license')
-                } finally {
-                  setIsSaving(false)
-                  event.currentTarget.value = ''
-                }
-              }}
-            />
-            {draft.licensePhotoUrl ? (
-              <a href={draft.licensePhotoUrl} target="_blank" rel="noreferrer" className="text-sm font-medium text-blue-700 hover:underline">View uploaded license</a>
-            ) : (
-              <p className="text-xs text-slate-400">Upload a clear image of the driver's license.</p>
-            )}
+            <p className="text-sm font-semibold text-slate-700">Driver's License Image</p>
+            <p className="text-xs text-slate-400">Image uploads have been disabled. You can still edit license number, restriction, and expiry.</p>
           </div>
         </div>
 

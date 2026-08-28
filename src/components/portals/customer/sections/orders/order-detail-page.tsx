@@ -34,6 +34,7 @@ export function CustomerOrderDetailPage(props: any) {
     order,
     onBack,
     setIsReceiptDialogOpen,
+    setSelectedOrder,
     formatOrderStatus,
     orderStages,
     getOrderStageIndex,
@@ -320,7 +321,10 @@ export function CustomerOrderDetailPage(props: any) {
               variant="outline"
               size="sm"
               className="h-8 rounded-lg border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50"
-              onClick={() => setIsReceiptDialogOpen?.(true)}
+              onClick={() => {
+                if (typeof setSelectedOrder === 'function') setSelectedOrder(order)
+                setIsReceiptDialogOpen?.(true)
+              }}
             >
               View Receipt
             </Button>

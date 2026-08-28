@@ -185,6 +185,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
       }
       const rows = Array.isArray(data?.transactions ?? data?.data ?? data) ? (data?.transactions ?? data?.data ?? data) : []
       const stockInOutOnly = (rows as TransactionRow[]).filter((tx) => {
+        // Internal loose-bottle remainders are reconciliation records, not stock-in rows for this screen.
+        if (String(tx.referenceType || '').toLowerCase() === 'replacement_bottle_remainder') return false
         const t = String(tx.stockType || tx.type || '').toUpperCase()
         return ['STOCK_IN', 'IN', 'RETURN'].includes(t) || ['STOCK_OUT', 'OUT', 'RESERVE_CONSUMED'].includes(t)
       })

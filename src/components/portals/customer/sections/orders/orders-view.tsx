@@ -669,12 +669,11 @@ export function CustomerOrdersView(props: any) {
                     </div>
 
                     <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
-                    {isDelivered && (
-                      <div className="mt-2">
+                      {isDelivered && (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 text-[11px] rounded-md border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          className="h-7 w-full text-[11px] rounded-md border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                           onClick={() => {
                             if (typeof setSelectedOrder === 'function') setSelectedOrder(o)
                             setIsReceiptDialogOpen?.(true)
@@ -682,12 +681,8 @@ export function CustomerOrdersView(props: any) {
                         >
                           View Receipt
                         </Button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
-                    <Button
+                      )}
+                      <Button
                         variant="outline"
                         className="h-8 w-full rounded-md border-slate-300 text-[11px]"
                         onClick={() => {
@@ -715,7 +710,7 @@ export function CustomerOrdersView(props: any) {
                           Track Replacement
                         </Button>
                       ) : null}
-                  </div>
+                    </div>
                 
                   </div>
                 </div>

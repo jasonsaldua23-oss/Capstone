@@ -2752,18 +2752,6 @@ class UploadEndpointsAuthContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["success"])
 
-    def test_upload_driver_license_accepts_driver_image(self) -> None:
-        image_file = SimpleUploadedFile("license.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
-        response = self.client.post(
-            "/api/uploads/driver-license-image",
-            data={"file": image_file},
-            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
-        )
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        self.assertIn("/uploads/licenses/license-", payload["imageUrl"])
-
 
 class TripsCollectionTrackingContractTests(TestCase):
     def setUp(self) -> None:
@@ -3575,7 +3563,7 @@ class PaginationGuardsContractTests(TestCase):
             subtotal=100,
             total_amount=110,
         )
-        product = Product.objects.create(sku="RET-COKE-001", name="coke", price=10)
+        product = Product.objects.create(sku="PEPS-CAS-12OZ-N94CX", name="Pepsi", price=10)
         order_item = OrderItem.objects.create(
             order=order,
             product=product,

@@ -15,6 +15,16 @@ REPO_ROOT = BASE_DIR.parent
 load_dotenv(REPO_ROOT / ".env", override=True)
 load_dotenv(BASE_DIR / ".env", override=True)
 
+# Web Push uses an ignored local key on localhost; deployments can override it
+# with environment variables without committing private credentials.
+local_vapid_private_key = BASE_DIR / ".webpush_private.pem"
+WEB_PUSH_VAPID_PRIVATE_KEY = os.getenv(
+    "WEB_PUSH_VAPID_PRIVATE_KEY",
+    str(local_vapid_private_key) if local_vapid_private_key.exists() else "",
+).strip()
+WEB_PUSH_VAPID_PUBLIC_KEY = os.getenv("WEB_PUSH_VAPID_PUBLIC_KEY", "").strip()
+WEB_PUSH_VAPID_SUBJECT = os.getenv("WEB_PUSH_VAPID_SUBJECT", "mailto:admin@aabtrading.local").strip()
+
 # Ensure Python uses a CA bundle for outbound TLS (SMTP/HTTPS).
 # Production default: certifi. Local override: set CUSTOM_CA_BUNDLE explicitly.
 custom_ca_bundle = os.getenv("CUSTOM_CA_BUNDLE", "").strip()

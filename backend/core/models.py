@@ -641,6 +641,36 @@ class Notification(models.Model):
         db_table = "Notification"
 
 
+class PushSubscription(models.Model):
+    """A browser push endpoint owned by exactly one authenticated account."""
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name="push_subscriptions")
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, blank=True, null=True, related_name="push_subscriptions")
+    endpoint = models.TextField()
+    p256dh = models.TextField()
+    auth = models.TextField()
+    user_agent = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "PushSubscription"
+        constraints = [
+            # Fix: prevent a device endpoint from belonging to both account types.
+            models.CheckConstraint(
+                check=(
+                    models.Q(user__isnull=False, customer__isnull=True)
+                    | models.Q(user__isnull=True, customer__isnull=False)
+                ),
+                name="push_subscription_has_one_owner",
+            ),
+            models.UniqueConstraint(fields=["endpoint", "user"], name="unique_push_endpoint_user"),
+            models.UniqueConstraint(fields=["endpoint", "customer"], name="unique_push_endpoint_customer"),
+        ]
+
+
 class MixedCaseComponent(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order_item = models.ForeignKey("OrderItem", on_delete=models.CASCADE, related_name="mixed_case_components")

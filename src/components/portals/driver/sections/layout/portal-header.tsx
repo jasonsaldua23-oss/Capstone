@@ -41,7 +41,10 @@ export function DriverPortalHeader({
           >
             <Bell className="h-4.5 w-4.5" />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white animate-pulse" />
+              // Changed: show the unread total as a stable badge without a flickering animation.
+              <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white">
+                {unreadCount}
+              </span>
             )}
           </Button>
         </div>

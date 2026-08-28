@@ -82,7 +82,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   const tripsPageSize = 10
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isUploadingLicense, setIsUploadingLicense] = useState(false)
+  
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
   const [addDriverOpen, setAddDriverOpen] = useState(false)
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null)
@@ -113,7 +113,6 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     phoneNumber: '',
     licenseNumber: '',
     licenseType: '',
-    licensePhotoUrl: '',
     licenseExpiry: '',
     vehicleId: '',
     status: 'Active',
@@ -424,7 +423,6 @@ export function TransportationView({ notificationReferenceType = '', notificatio
           id: selectedDriver.id,
           licenseNumber: (driverForm.licenseNumber || '').trim() || null,
           licenseType: (driverForm.licenseType || '').trim() || null,
-          licensePhotoUrl: driverForm.licensePhotoUrl || null,
           phone: phoneNumber,
           licenseExpiry: driverForm.licenseExpiry || null,
           vehicleId: driverForm.vehicleId || null,
@@ -508,7 +506,6 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       phoneNumber: '',
       licenseNumber: '',
       licenseType: '',
-      licensePhotoUrl: '',
       licenseExpiry: '',
       vehicleId: '',
       status: 'Active',
@@ -528,7 +525,6 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '',
       licenseNumber: driver.licenseNumber || driver.license_number || '',
       licenseType: driver.licenseType || driver.license_type || '',
-      licensePhotoUrl: driver.licensePhotoUrl || driver.license_photo_url || '',
       licenseExpiry,
       vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '',
       status: driver.isActive ? 'Active' : 'Inactive',
@@ -537,25 +533,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     setAddDriverOpen(true)
   }
 
-  const uploadDriverLicense = async (file: File) => {
-    setIsUploadingLicense(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const response = await fetch('/api/uploads/driver-license-image', { method: 'POST', body: formData })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false || !payload?.imageUrl) {
-        throw new Error(payload?.error || 'Failed to upload driver license')
-      }
-      // Added: keep the uploaded URL in the driver form so Update Driver persists it.
-      setDriverForm((current) => ({ ...current, licensePhotoUrl: String(payload.imageUrl) }))
-      toast.success('Driver license uploaded')
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to upload driver license')
-    } finally {
-      setIsUploadingLicense(false)
-    }
-  }
+  // Driver license image uploads disabled — keep license metadata only.
 
   const TransportationSkeleton = () => (
     <div className="space-y-6 animate-pulse">
@@ -1199,21 +1177,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                       <Input type="date" min={new Date().toISOString().slice(0, 10)} placeholder="License Expiry" value={driverForm.licenseExpiry} onChange={(e) => setDriverForm({...driverForm, licenseExpiry: e.target.value})} />
                     </div>
                     <div className="col-span-2 space-y-1">
-                      <label className="text-sm font-medium text-gray-700">Driver's License Upload</label>
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        disabled={isUploadingLicense}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) void uploadDriverLicense(file)
-                          e.currentTarget.value = ''
-                        }}
-                      />
-                      {isUploadingLicense ? <p className="text-xs text-slate-500">Uploading license...</p> : null}
-                      {driverForm.licensePhotoUrl ? (
-                        <a href={driverForm.licensePhotoUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-blue-700 hover:underline">View uploaded license</a>
-                      ) : null}
+                      <label className="text-sm font-medium text-gray-700">Driver's License Image</label>
+                      <p className="text-xs text-slate-400">Image uploads have been disabled. You can still edit license number, restriction, and expiry.</p>
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Status</label>

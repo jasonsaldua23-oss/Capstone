@@ -204,9 +204,9 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                         : item.name}
                     </p>
 
-                    <p className={item.itemType === 'MIXED_CASE' ? 'hidden' : 'text-[11px] text-slate-500 line-clamp-1'}>
+                    <p className={item.itemType === 'MIXED_CASE' ? 'hidden' : 'text-[11px] text-slate-900 font-semibold line-clamp-1'}>
                       {String((item as any)?.category || '').trim() ? `${String((item as any).category).trim()} · ` : ''}
-                      <span className="font-medium text-sky-700">
+                      <span className="font-semibold text-slate-900">
                         {String(item.sizeLabel || item.unit || '').trim() || 'case'}
                       </span>
                     </p>

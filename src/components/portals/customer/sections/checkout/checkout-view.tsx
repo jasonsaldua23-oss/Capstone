@@ -144,9 +144,9 @@ export function CustomerCheckoutView({
                               {formatPeso(Number(item.quantity || 1) * Number(item.unitPrice || 0))}
                             </p>
                           </div>
-                          <div className="flex items-center justify-between text-xs text-slate-500">
-                            <span>{categoryLabel || 'Beverage'}</span>
-                            <span>{item.quantity} × {formatPeso(item.unitPrice)}</span>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-900">{categoryLabel || 'Beverage'}</span>
+                            <span className="text-slate-500">{item.quantity} × {formatPeso(item.unitPrice)}</span>
                           </div>
                         </>
                       )
