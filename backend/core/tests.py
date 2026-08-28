@@ -1508,6 +1508,20 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(self.driver_user.avatar, "/uploads/customers/driver-avatar.png")
         self.assertEqual(response.json()["driver"]["avatar"], self.driver_user.avatar)
 
+    def test_driver_profile_put_updates_gmail_and_refreshes_token(self) -> None:
+        response = self.client.put(
+            "/api/driver/profile",
+            data={"email": "updated.profile.driver@gmail.com"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver_user.email, "updated.profile.driver@gmail.com")
+        self.assertEqual(response.json()["driver"]["email"], self.driver_user.email)
+        self.assertTrue(response.json().get("token"))
+
     def test_driver_profile_put_updates_driver_and_user_fields(self) -> None:
         response = self.client.put(
             "/api/driver/profile",
@@ -4102,7 +4116,7 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         self.assertEqual(tx.updated_stock, 14)
         self.assertEqual(tx.performed_by, self.warehouse_user.id)
 
-    def test_stock_batch_quantity_edit_appends_adjustment_transaction_without_mutating_original_entry(self) -> None:
+    def test_stock_batch_quantity_edit_syncs_or_deletes_linked_transaction(self) -> None:
         self.primary_inventory.quantity = 10
         self.primary_inventory.save(update_fields=["quantity", "updated_at"])
         batch = StockBatch.objects.create(
@@ -4132,20 +4146,23 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
         original_tx.refresh_from_db()
-        self.assertEqual(original_tx.quantity, 10)
+        self.assertEqual(original_tx.quantity, 6)
 
         self.primary_inventory.refresh_from_db()
         self.assertEqual(self.primary_inventory.quantity, 6)
 
-        adjustment_tx = InventoryTransaction.objects.filter(
-            reference_type="stock_batch_adjustment",
-            reference_id=batch.id,
-        ).latest("created_at")
-        self.assertEqual(adjustment_tx.type, "OUT")
-        self.assertEqual(adjustment_tx.quantity, 4)
-        self.assertEqual(adjustment_tx.previous_stock, 10)
-        self.assertEqual(adjustment_tx.updated_stock, 6)
-        self.assertEqual(adjustment_tx.performed_by, self.warehouse_user.id)
+        depleted_response = self.client.put(
+            "/api/stock-batches",
+            data=json.dumps({"batchId": batch.id, "quantity": 0}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+        self.assertEqual(depleted_response.status_code, 200)
+        self.assertFalse(StockBatch.objects.filter(id=batch.id).exists())
+        self.assertFalse(InventoryTransaction.objects.filter(id=original_tx.id).exists())
+
+        self.primary_inventory.refresh_from_db()
+        self.assertEqual(self.primary_inventory.quantity, 0)
 
     def test_orders_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_orders(self) -> None:
         Order.objects.create(

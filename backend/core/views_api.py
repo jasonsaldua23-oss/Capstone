@@ -4377,6 +4377,14 @@ def _is_inventory_overstocked_flagged_by_stockin(inventory: Inventory) -> bool:
     threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
     if threshold <= 0:
         return False
+    available_quantity = max(
+        0,
+        _int(getattr(inventory, "quantity", 0), 0)
+        - _int(getattr(inventory, "reserved_quantity", 0), 0),
+    )
+    # Fix: reserved stock is not available excess stock and must not keep an item overstocked.
+    if available_quantity < (threshold * 10):
+        return False
     latest_stockin = (
         InventoryTransaction.objects.filter(
             warehouse_id=getattr(inventory, "warehouse_id", None),
@@ -4397,7 +4405,7 @@ def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_r
     """
     Overstock guard for stock-in:
     - block only when product is currently flagged overstocked
-    - overstock flag is based on latest stock-in batch quantity >= 10x threshold
+    - latest stock-in and current available quantity must both be >= 10x threshold
     """
     return _is_inventory_overstocked_flagged_by_stockin(inventory)
 
@@ -6181,29 +6189,30 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     update_fields.insert(1, "threshold")
                 inv.save(update_fields=update_fields)
 
-                tx = (
-                    InventoryTransaction.objects.filter(
-                        reference_type="stock_batch",
-                        reference_id=batch_id,
-                        type="IN",
-                    )
-                    .order_by("created_at")
-                    .first()
+                linked_transactions = InventoryTransaction.objects.filter(
+                    reference_type="stock_batch",
+                    reference_id=batch_id,
+                    type="IN",
                 )
-                if tx:
-                    tx.quantity = next_qty
-                    tx.notes = "Stock batch added (edited quantity)"
-                    tx.save(update_fields=["quantity", "notes"])
+                if next_qty == 0:
+                    # Fix: a depleted batch is deleted, so its zero-value stock-in history must also be removed.
+                    linked_transactions.delete()
                 else:
-                    InventoryTransaction.objects.create(
-                        warehouse=inv.warehouse,
-                        product=inv.product,
-                        type="IN",
-                        quantity=next_qty,
-                        reference_type="stock_batch",
-                        reference_id=batch_id,
-                        notes="Stock batch added (edited quantity)",
-                    )
+                    tx = linked_transactions.order_by("created_at").first()
+                    if tx:
+                        tx.quantity = next_qty
+                        tx.notes = "Stock batch added (edited quantity)"
+                        tx.save(update_fields=["quantity", "notes"])
+                    else:
+                        InventoryTransaction.objects.create(
+                            warehouse=inv.warehouse,
+                            product=inv.product,
+                            type="IN",
+                            quantity=next_qty,
+                            reference_type="stock_batch",
+                            reference_id=batch_id,
+                            notes="Stock batch added (edited quantity)",
+                        )
 
         updated_batch = (
             StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
@@ -9184,6 +9193,18 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         if not normalized_phone:
             return _err(PHILIPPINE_PHONE_ERROR)
         d.phone = normalized_phone
+    email_changed = False
+    if "email" in body:
+        next_email = _normalize_email(body.get("email"))
+        if not _is_gmail_email(next_email):
+            return _err("Please enter a valid Gmail address", 400)
+        if next_email != _normalize_email(d.email):
+            conflict = _staff_email_conflict_message(next_email, d.role, exclude_user_id=d.id)
+            if conflict:
+                return _err(conflict, 409)
+            # Added: persist the driver's new Gmail while preventing cross-account duplicates.
+            d.email = next_email
+            email_changed = True
     if "avatar" in body:
         d.avatar = body.get("avatar")
     if "twoFactorEnabled" in body:
@@ -9206,7 +9227,19 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
     row = _serialize_model(d, exclude={"password"})
     row["phone"] = d.phone
     row["user"] = _serialize_model(d, exclude={"password"})
-    return _ok({"success": True, "driver": row})
+    response_payload: dict[str, Any] = {"success": True, "driver": row}
+    response = _ok(response_payload)
+    if email_changed:
+        # Fix: refresh signed claims so later email-sensitive actions use the new Gmail address.
+        remember_me = bool(p.get("rememberMe", False))
+        token = create_token(
+            {**_user_payload(d), "rememberMe": remember_me},
+            REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
+        )
+        response_payload["token"] = token
+        response = _ok(response_payload)
+        _set_auth_cookie(response, token, remember_me)
+    return response
 
 
 @csrf_exempt

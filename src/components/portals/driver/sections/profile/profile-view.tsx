@@ -14,6 +14,7 @@ import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck,
 import { toast } from 'sonner'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
+import { setTabAuthToken } from '@/lib/client-auth'
 import {
   DRIVER_LICENSE_RESTRICTIONS,
   isValidDriverLicenseRestriction,
@@ -248,6 +249,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     middleName: '',
     lastName: '',
     suffix: '',
+    email: '',
     phone: '',
     licenseNumber: '',
     licenseType: '',
@@ -369,6 +371,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       middleName: form.middleName,
       lastName: form.lastName,
       suffix: form.suffix,
+      email: form.email,
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
@@ -385,6 +388,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       middleName: form.middleName,
       lastName: form.lastName,
       suffix: form.suffix,
+      email: form.email,
       phone: form.phone,
       licenseNumber: form.licenseNumber,
       licenseType: form.licenseType,
@@ -422,6 +426,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const onSave = async (mode: 'profile' | 'license' = 'profile') => {
     if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim())) {
       toast.error('Name is required')
+      return
+    }
+    if (mode === 'profile' && !/^[^\s@]+@gmail\.com$/i.test(draft.email.trim())) {
+      toast.error('Please enter a valid Gmail address')
       return
     }
     if (mode === 'profile' && !isValidPhilippinePhone(draft.phone)) {
@@ -463,6 +471,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             middleName: draft.middleName,
             lastName: draft.lastName,
             suffix: draft.suffix,
+            email: draft.email.trim().toLowerCase(),
             phone: draft.phone,
           }
       if (mode === 'profile' && avatarFile) {
@@ -484,6 +493,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to update profile')
       }
+      if (payload?.token) {
+        // Fix: keep the active driver session aligned with the changed login email.
+        setTabAuthToken(String(payload.token), { persistent: Boolean(user?.rememberMe) })
+      }
 
       setForm((prev) => ({
         ...prev,
@@ -493,6 +506,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         middleName: draft.middleName,
         lastName: draft.lastName,
         suffix: draft.suffix,
+        email: mode === 'profile' ? draft.email.trim().toLowerCase() : prev.email,
         phone: draft.phone,
         licenseNumber: draft.licenseNumber,
         licenseType: draft.licenseType,
@@ -966,9 +980,12 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             <Label htmlFor="driver-email" className="text-sm font-semibold text-slate-700">Email Address</Label>
             <Input
               id="driver-email"
-              value={form.email}
-              disabled
-              className="h-11 rounded-xl border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+              type="email"
+              value={isEditingProfile ? draft.email : form.email}
+              onChange={(e) => onChange('email', e.target.value)}
+              placeholder="Enter your Gmail address"
+              disabled={!isEditingProfile}
+              className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
             />
           </div>
           <p className="rounded-xl border border-sky-100 bg-[#f0f9ff]/60 px-3 py-2 text-xs text-sky-800">
