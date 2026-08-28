@@ -89,7 +89,7 @@ import {
   orderStages,
 } from './sections/orders/order-status'
 import { downloadOrderReceipt } from './sections/orders/receipt-utils'
-import { isWithinNegrosOccidental } from './sections/checkout/location-utils'
+import { SERVICE_AREA_MESSAGE, useServiceArea } from '@/lib/service-area'
 import { isValidPhilippinePhone } from '@/lib/philippine-phone'
 
 const poppins = { className: '' }
@@ -113,6 +113,34 @@ const createClientRequestId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+type ManualAddressParts = {
+  house?: string
+  street?: string
+  subdivision?: string
+  barangay?: string
+  city?: string
+  province?: string
+  zip?: string
+  country?: string
+}
+
+// Single source of truth for the geocoding query, so a pin-driven auto-fill and a
+// manually typed address that describe the same place produce the same string.
+const buildManualAddressQuery = (parts: ManualAddressParts) =>
+  [
+    parts.house,
+    parts.street,
+    parts.subdivision,
+    parts.barangay,
+    parts.city,
+    parts.province,
+    parts.zip,
+    parts.country || 'Philippines',
+  ]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(', ')
 
 
 export function CustomerPortal() {
@@ -169,6 +197,9 @@ export function CustomerPortal() {
   const manualAddressPinDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const manualAddressPinAbortRef = useRef<AbortController | null>(null)
   const lastManualAddressQueryRef = useRef('')
+  const wasAddressEditorOpenRef = useRef(false)
+  const lastOutsideServiceAreaQueryRef = useRef('')
+  const { isInServiceArea } = useServiceArea()
   const checkoutRequestRef = useRef<{ payloadKey: string; requestId: string } | null>(null)
   const {
     activeView,
@@ -440,8 +471,26 @@ export function CustomerPortal() {
     setShippingProvince(state)
     setShippingZipCode(zipCode)
     setShippingCountry('Philippines')
-    setShippingLatitude(typeof customer?.latitude === 'number' ? customer.latitude : null)
-    setShippingLongitude(typeof customer?.longitude === 'number' ? customer.longitude : null)
+    const hydratedLatitude = typeof customer?.latitude === 'number' ? customer.latitude : null
+    const hydratedLongitude = typeof customer?.longitude === 'number' ? customer.longitude : null
+    setShippingLatitude(hydratedLatitude)
+    setShippingLongitude(hydratedLongitude)
+
+    // The saved fields and the saved pin belong together, so record them as synced and
+    // let the map keep the exact coordinates the customer saved.
+    lastManualAddressQueryRef.current =
+      hydratedLatitude !== null && hydratedLongitude !== null
+        ? buildManualAddressQuery({
+            house: houseNumber,
+            street: streetName,
+            subdivision,
+            barangay,
+            city,
+            province: state,
+            zip: zipCode,
+            country: 'Philippines',
+          })
+        : ''
     setProfileName(String(customer?.name || '').trim())
     setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
     setProfileMiddleName(String(customer?.middleName || '').trim())
@@ -1576,8 +1625,8 @@ export function CustomerPortal() {
       setIsAddressDialogOpen(true)
       return
     }
-    if (!isWithinNegrosOccidental(shippingLatitude, shippingLongitude)) {
-      toast.error('Delivery address must be within Negros Occidental, Philippines')
+    if (!isInServiceArea(shippingLatitude, shippingLongitude)) {
+      toast.error(SERVICE_AREA_MESSAGE)
       setIsAddressDialogOpen(true)
       return
     }
@@ -1984,8 +2033,8 @@ export function CustomerPortal() {
       toast.error('Please pin your address on the map before saving')
       return false
     }
-    if (!isWithinNegrosOccidental(shippingLatitude, shippingLongitude)) {
-      toast.error('Pinned location must be within Negros Occidental, Philippines')
+    if (!isInServiceArea(shippingLatitude, shippingLongitude)) {
+      toast.error(SERVICE_AREA_MESSAGE)
       return false
     }
     const normalizedShippingPhone = String(shippingPhone || '').replace(/\D/g, '')
@@ -2035,8 +2084,8 @@ export function CustomerPortal() {
       async (position) => {
         const lat = position.coords.latitude
         const lng = position.coords.longitude
-        if (!isWithinNegrosOccidental(lat, lng)) {
-          toast.error('Current location is outside Negros Occidental, Philippines')
+        if (!isInServiceArea(lat, lng)) {
+          toast.error(`Your current location is outside our delivery area. ${SERVICE_AREA_MESSAGE}`)
           return
         }
         await handlePinnedLocation(lat, lng)
@@ -2048,7 +2097,18 @@ export function CustomerPortal() {
     )
   }
 
+  const handleOutsideServiceArea = () => {
+    toast.error(SERVICE_AREA_MESSAGE)
+  }
+
   const handlePinnedLocation = async (lat: number, lng: number) => {
+    // Last line of defence for callers that do not pre-check (saved-address picks,
+    // search results), so a pin can never land outside the delivery area.
+    if (!isInServiceArea(lat, lng)) {
+      toast.error(SERVICE_AREA_MESSAGE)
+      return
+    }
+
     setShippingLatitude(lat)
     setShippingLongitude(lng)
     setIsResolvingPinnedAddress(true)
@@ -2276,33 +2336,109 @@ export function CustomerPortal() {
       setShippingProvince(province)
       setShippingZipCode(postcode)
       setShippingCountry(country)
+
+      // These fields describe the coordinates we were just handed, so mark them as
+      // already synced — otherwise the manual-typing effect geocodes them right back
+      // and drags the pin off the spot the user chose.
+      lastManualAddressQueryRef.current = buildManualAddressQuery({
+        house: houseNumber,
+        street: streetName,
+        subdivision,
+        barangay,
+        city,
+        province,
+        zip: postcode,
+        country,
+      })
     } catch {
+      // Auto-fill failed, but the pin is still where the customer put it. Freeze whatever
+      // is already typed against it so the manual-typing sync does not move it away.
+      lastManualAddressQueryRef.current = buildManualAddressQuery({
+        house: shippingHouseNumber,
+        street: shippingStreetName,
+        subdivision: shippingSubdivision,
+        barangay: shippingBarangay,
+        city: shippingCity,
+        province: shippingProvince,
+        zip: shippingZipCode,
+        country: shippingCountry,
+      })
       toast.error('Pinned location set, but address auto-fill failed. You can fill fields manually.')
     } finally {
       setIsResolvingPinnedAddress(false)
     }
   }
 
+  // The address form lives in the dialog on some flows and on its own page on others;
+  // both need the map pin kept in step with the fields.
+  const isAddressEditorOpen = isAddressDialogOpen || activeView === 'edit-address'
+
   useEffect(() => {
-    if (!isAddressDialogOpen) return
+    if (!isAddressEditorOpen) {
+      wasAddressEditorOpenRef.current = false
+      return
+    }
+    if (wasAddressEditorOpenRef.current) return
+    wasAddressEditorOpenRef.current = true
+    lastOutsideServiceAreaQueryRef.current = ''
+
+    // A saved address opens with its own saved pin. Treat it as already synced so
+    // opening the form never re-geocodes it and nudges the pin somewhere new.
+    if (shippingLatitude !== null && shippingLongitude !== null) {
+      lastManualAddressQueryRef.current = buildManualAddressQuery({
+        house: shippingHouseNumber,
+        street: shippingStreetName,
+        subdivision: shippingSubdivision,
+        barangay: shippingBarangay,
+        city: shippingCity,
+        province: shippingProvince,
+        zip: shippingZipCode,
+        country: shippingCountry,
+      })
+    } else {
+      lastManualAddressQueryRef.current = ''
+    }
+  }, [
+    isAddressEditorOpen,
+    shippingHouseNumber,
+    shippingStreetName,
+    shippingSubdivision,
+    shippingBarangay,
+    shippingCity,
+    shippingProvince,
+    shippingZipCode,
+    shippingCountry,
+    shippingLatitude,
+    shippingLongitude,
+  ])
+
+  useEffect(() => {
+    if (!isAddressEditorOpen) return
     if (isResolvingPinnedAddress) return
 
     const street = String(shippingStreetName || '').trim()
-    const barangay = String(shippingBarangay || '').trim()
     const city = String(shippingCity || '').trim()
     const province = String(shippingProvince || '').trim()
-    const zip = String(shippingZipCode || '').trim()
-    const country = String(shippingCountry || 'Philippines').trim()
-    const house = String(shippingHouseNumber || '').trim()
-    const subdivision = String(shippingSubdivision || '').trim()
 
     if (!street || !city || !province) return
 
-    const addressParts = [house, street, subdivision, barangay, city, province, zip, country]
-      .map((part) => String(part || '').trim())
-      .filter(Boolean)
-    const query = addressParts.join(', ')
-    if (!query || query === lastManualAddressQueryRef.current) return
+    const query = buildManualAddressQuery({
+      house: shippingHouseNumber,
+      street: shippingStreetName,
+      subdivision: shippingSubdivision,
+      barangay: shippingBarangay,
+      city: shippingCity,
+      province: shippingProvince,
+      zip: shippingZipCode,
+      country: shippingCountry,
+    })
+    if (!query) return
+    // Already resolved outside the delivery area; re-asking would only repeat the warning.
+    if (query === lastOutsideServiceAreaQueryRef.current) return
+    // With no pin on the map there is nothing in sync yet, so geocode even a query we
+    // have seen before (e.g. the user cleared the form and retyped the same address).
+    const hasPin = shippingLatitude !== null && shippingLongitude !== null
+    if (hasPin && query === lastManualAddressQueryRef.current) return
 
     if (manualAddressPinDebounceRef.current) {
       clearTimeout(manualAddressPinDebounceRef.current)
@@ -2327,7 +2463,22 @@ export function CustomerPortal() {
         const lat = Number(top?.lat)
         const lng = Number(top?.lon)
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-        if (!isWithinNegrosOccidental(lat, lng)) return
+
+        if (!isInServiceArea(lat, lng)) {
+          // Drop the pin rather than leave it pointing at a previous, valid address while
+          // the fields describe somewhere we do not deliver.
+          setShippingLatitude(null)
+          setShippingLongitude(null)
+          lastManualAddressQueryRef.current = ''
+          // Typing is noisy, so warn once per settled address instead of per keystroke.
+          if (lastOutsideServiceAreaQueryRef.current !== query) {
+            lastOutsideServiceAreaQueryRef.current = query
+            toast.error(`That address is outside our delivery area. ${SERVICE_AREA_MESSAGE}`)
+          }
+          return
+        }
+
+        lastOutsideServiceAreaQueryRef.current = ''
 
         const sameLat = shippingLatitude !== null && Math.abs(shippingLatitude - lat) < 0.00001
         const sameLng = shippingLongitude !== null && Math.abs(shippingLongitude - lng) < 0.00001
@@ -2351,7 +2502,7 @@ export function CustomerPortal() {
       }
     }
   }, [
-    isAddressDialogOpen,
+    isAddressEditorOpen,
     isResolvingPinnedAddress,
     shippingHouseNumber,
     shippingStreetName,
@@ -2449,14 +2600,14 @@ export function CustomerPortal() {
           (item) =>
             Number.isFinite(item.latitude) &&
             Number.isFinite(item.longitude) &&
-            isWithinNegrosOccidental(item.latitude, item.longitude)
+            isInServiceArea(item.latitude, item.longitude)
         )
         .filter((item, index, arr) => arr.findIndex((x) => x.latitude === item.latitude && x.longitude === item.longitude) === index)
         .slice(0, 10)
 
       setAddressSearchResults(results)
       if (results.length === 0) {
-        toast.error('No matching address found in Negros Occidental')
+        toast.error(`No matching address found. ${SERVICE_AREA_MESSAGE}`)
       }
     } catch {
       toast.error('Failed to search address')
@@ -2874,6 +3025,7 @@ export function CustomerPortal() {
                     shippingPhone={shippingPhone}
                     setShippingPhone={setShippingPhone}
                     handlePinnedLocation={handlePinnedLocation}
+                    handleOutsideServiceArea={handleOutsideServiceArea}
                     shippingHouseNumber={shippingHouseNumber}
                     shippingStreetName={shippingStreetName}
                     shippingSubdivision={shippingSubdivision}
@@ -3123,6 +3275,7 @@ export function CustomerPortal() {
               searchAddressInNegrosOccidental={searchAddressInNegrosOccidental}
               addressSearchResults={addressSearchResults}
               handlePinnedLocation={handlePinnedLocation}
+              handleOutsideServiceArea={handleOutsideServiceArea}
               shippingHouseNumber={shippingHouseNumber}
               shippingStreetName={shippingStreetName}
               shippingSubdivision={shippingSubdivision}

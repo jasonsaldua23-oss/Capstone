@@ -594,6 +594,40 @@ export function TripDetailView({
     return radiusKm * c
   }
 
+  // Shortest distance in meters from a point to a routed polyline — used to
+  // detect when the driver has left the planned road (a missed turn, a
+  // detour) so navigation can reroute immediately instead of waiting for the
+  // periodic recompute distance.
+  const distanceFromRouteMeters = (
+    point: { lat: number; lng: number },
+    routePoints: [number, number][]
+  ) => {
+    if (!Array.isArray(routePoints) || routePoints.length < 2) return null
+    const longitudeScale = Math.cos((point.lat * Math.PI) / 180)
+    const px = point.lng * longitudeScale
+    const py = point.lat
+    let bestDegrees = Infinity
+    for (let index = 0; index < routePoints.length - 1; index += 1) {
+      const [aLat, aLng] = routePoints[index]
+      const [bLat, bLng] = routePoints[index + 1]
+      const ax = aLng * longitudeScale
+      const ay = aLat
+      const bx = bLng * longitudeScale
+      const by = bLat
+      const vx = bx - ax
+      const vy = by - ay
+      const length2 = vx * vx + vy * vy
+      const t = length2 > 1e-12 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / length2)) : 0
+      const projectedX = ax + vx * t
+      const projectedY = ay + vy * t
+      const dx = px - projectedX
+      const dy = py - projectedY
+      const distanceDegrees = Math.sqrt(dx * dx + dy * dy)
+      if (distanceDegrees < bestDegrees) bestDegrees = distanceDegrees
+    }
+    return bestDegrees * 111320
+  }
+
   const speakNavigationPrompt = (message: string) => {
     const text = String(message || '').trim()
     if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return
@@ -1540,32 +1574,6 @@ export function TripDetailView({
     )
     : false
   const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
-  const tripLocationHistory = (() => {
-    const logs = Array.isArray((trip as any)?.locationLogs) ? (trip as any).locationLogs : []
-    return [...logs]
-      .map((log: any) => {
-        const lat = toCoordinate(log?.latitude ?? log?.lat)
-        const lng = toCoordinate(log?.longitude ?? log?.lng)
-        const recordedAt = toRecordedAtMs(
-          log?.recordedAt ||
-          log?.recorded_at ||
-          log?.createdAt ||
-          log?.created_at ||
-          0
-        )
-        if (lat === null || lng === null || !isValidDeviceCoordinate(lat, lng)) return null
-        return {
-          lat,
-          lng,
-          accuracy: toCoordinate(log?.accuracy),
-          heading: toCoordinate(log?.heading),
-          speed: toCoordinate(log?.speed),
-          recordedAt,
-        }
-      })
-      .filter(Boolean)
-      .sort((a: any, b: any) => Number(a?.recordedAt || 0) - Number(b?.recordedAt || 0)) as any[]
-  })()
   const latestTripLocationAny = (() => {
     const src = (trip as any)?.latestLocation
     if (!src) return null
@@ -1773,7 +1781,16 @@ export function TripDetailView({
       if (!previous || previous.tripId !== trip.id) return nextOrigin
       const movedMeters = haversineKm(previous, nextOrigin) * 1000
       // Fix: ignore normal GPS jitter so the instruction and ETA panel does not flicker.
-      return movedMeters >= 20 ? nextOrigin : previous
+      // Threshold raised from 20m: at driving speed a 20m gate re-fetched OSRM
+      // (up to 3 requests per recompute) every ~1-2s, which routinely hit the
+      // public OSRM server's rate limit — the failed fetch used to wipe the
+      // displayed route, which is what made the truck appear to jump/vanish.
+      const activeRoutePoints = routeOptions[activeRouteOptionIndex]?.points
+      const deviationMeters = activeRoutePoints ? distanceFromRouteMeters(nextOrigin, activeRoutePoints) : null
+      // A missed turn or detour should reroute immediately — same as Google
+      // Maps — instead of waiting for the periodic 60m recompute distance.
+      const isOffRoute = typeof deviationMeters === 'number' && deviationMeters > 45
+      return movedMeters >= 60 || isOffRoute ? nextOrigin : previous
     })
   }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng])
 
@@ -1803,23 +1820,6 @@ export function TripDetailView({
     if (stableNavigationOrigin) return [stableNavigationOrigin, ...pendingCoords]
     return pendingCoords
   })()
-  const completedRouteWaypoints = (() => {
-    const start = warehouseRouteStart ? [warehouseRouteStart] : []
-    const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    if (driverLocationMarker) {
-      const recordedTrail = tripLocationHistory.map((point) => ({ lat: point.lat, lng: point.lng }))
-      // The taken line uses chronological GPS history. The endpoint uses the
-      // stabilized navigation origin (20m threshold) instead of raw GPS so
-      // OSRM refetches are rare. LiveTrackingMap's animation engine handles
-      // the real-time truck position between these stable checkpoints.
-      const stableEnd = stableNavigationOrigin || { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
-      if (recordedTrail.length > 0) {
-        return [...start, ...recordedTrail, stableEnd]
-      }
-      return [...start, ...completedCoords, stableEnd]
-    }
-    return [...start, ...completedCoords]
-  })()
   const navigationRouteWaypoints = stableNavigationOrigin && pendingDropPoints.length > 0
     ? [
       stableNavigationOrigin,
@@ -1846,10 +1846,12 @@ export function TripDetailView({
     }
 
     let cancelled = false
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 12000)
+    let retryTimeoutId: number | null = null
+    const hadRouteBeforeThisFetch = routeOptions.length > 0
 
-    const run = async () => {
+    const run = async (attemptNumber: number) => {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 12000)
       try {
         const coordinates = uniqueWaypoints
           .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
@@ -1949,27 +1951,37 @@ export function TripDetailView({
           })
           .filter((route: DriverRouteOption) => route.points.length > 1)
 
-        if (!cancelled) {
+        // Keep the last known-good route on an empty/failed response instead of
+        // wiping it — a transient OSRM hiccup should not blank the driver's map
+        // or make the vehicle marker disappear mid-trip.
+        if (!cancelled && normalizedOptions.length > 0) {
           setRouteOptions(normalizedOptions)
           setActiveRouteOptionIndex((previous) => Math.min(previous, Math.max(normalizedOptions.length - 1, 0)))
           setCurrentStepIndex(0)
+        } else if (!cancelled && !hadRouteBeforeThisFetch && attemptNumber === 0) {
+          // First-ever route request for this trip came back empty (rate limit,
+          // transient OSRM error). Retry once shortly after so opening the map
+          // reliably shows a planned route instead of staying blank.
+          retryTimeoutId = window.setTimeout(() => {
+            if (!cancelled) void run(1)
+          }, 2500)
         }
       } catch {
-        if (!cancelled) {
-          setRouteOptions([])
-          setActiveRouteOptionIndex(0)
-          setRouteSteps([])
-          setCurrentStepIndex(0)
+        if (!cancelled && !hadRouteBeforeThisFetch && attemptNumber === 0) {
+          retryTimeoutId = window.setTimeout(() => {
+            if (!cancelled) void run(1)
+          }, 2500)
         }
+      } finally {
+        window.clearTimeout(timeout)
       }
     }
 
-    void run()
+    void run(0)
 
     return () => {
       cancelled = true
-      window.clearTimeout(timeout)
-      controller.abort()
+      if (retryTimeoutId !== null) window.clearTimeout(retryTimeoutId)
     }
   }, [navigationWaypointsKey])
 
@@ -1980,9 +1992,6 @@ export function TripDetailView({
     spokenNavigationPromptsRef.current.clear()
   }, [activeRouteOptionIndex, routeOptions])
 
-  const completedRoutePoints = completedRouteWaypoints.map(
-    (point) => [point.lat, point.lng] as [number, number]
-  )
   const upcomingRoutePoints = upcomingRouteWaypoints.map(
     (point) => [point.lat, point.lng] as [number, number]
   )
@@ -1998,21 +2007,8 @@ export function TripDetailView({
     setActiveRouteOptionIndex(selectedIndex)
   }, [activeRouteOptionIndex, routeOptions, trip.id])
   const mapRouteLines = [
-    ...(completedRoutePoints.length > 1
-      ? [
-        {
-          id: `trip-${trip.id}-route-completed`,
-          points: completedRoutePoints,
-          color: '#6b7280',
-          label: `${trip.tripNumber} completed path`,
-          opacity: 0.95,
-          weight: 9,
-          snapToRoad: true,
-          // Fix: keep the completed endpoint on OSRM's nearest road so the truck is never pulled to raw off-road GPS.
-          preserveExactEndpoints: false,
-        },
-      ]
-      : []),
+    // Matches Google Maps navigation: the traveled portion of the route is not drawn
+    // behind the vehicle. Only the remaining path ahead is shown.
     ...routeOptions
       .filter((_, optionIndex) => optionIndex !== activeRouteOptionIndex)
       .map((option) => ({

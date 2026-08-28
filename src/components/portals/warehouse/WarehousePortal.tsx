@@ -5982,15 +5982,20 @@ export function WarehousePortal() {
                 {(() => {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
                   const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
+                  const isAlreadyApproved = ['CONFIRMED', 'APPROVED'].includes(selectedOrderStatus)
                   return (
                     <div className="grid grid-cols-2 gap-2">
-                      {isPendingApproval || ['PENDING', 'CONFIRMED'].includes(selectedOrderStatus) ? (
+                      {isAlreadyApproved ? (
+                        <Button variant="outline" disabled>
+                          Order Approved
+                        </Button>
+                      ) : isPendingApproval || selectedOrderStatus === 'PENDING' ? (
                         <Button
                           className="bg-emerald-600 text-white hover:bg-emerald-700"
                           onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
-                          Confirm Order
+                          Approve Order
                         </Button>
                       ) : selectedOrderStatus === 'RESCHEDULED' ? (
                         <Button

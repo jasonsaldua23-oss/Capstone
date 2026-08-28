@@ -413,9 +413,12 @@ const NAV_CAMERA_LOOKAHEAD_METERS = 95;
 const NAV_CAMERA_ANIMATION_SECONDS = 0.35;
 const TRUCK_DEFAULT_SMOOTHING_DURATION_MS = 1000;
 const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
-const TRUCK_MAX_SMOOTHING_DURATION_MS = 4500;
+// Matches the animation span to the real elapsed time between GPS fixes (see
+// the *1 factor below) instead of a short cap, so fast movement over a long
+// update gap plays out as continuous travel rather than a dash-then-freeze.
+const TRUCK_MAX_SMOOTHING_DURATION_MS = 9000;
 const TRUCK_STATIONARY_THRESHOLD_METERS = 1.5;
-const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 35;
+const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 120;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 
@@ -1218,7 +1221,10 @@ export default function LiveTrackingMap({
 
     return safeLocations.flatMap((loc) => {
       if (loc.markerType !== 'truck') return [loc];
-      if (snapTargetPolylines.length === 0) return navigationPerspective ? [] : [loc];
+      // Fix: never hide the truck while route geometry is briefly unavailable
+      // (initial load, reroute in flight, OSRM hiccup) — that read as the
+      // vehicle "jumping" when it reappeared moments later at a new spot.
+      if (snapTargetPolylines.length === 0) return [loc];
 
       // Fix: every GPS fix is independently map-matched. Using the prior route
       // junction here made the marker lag behind instead of following the driver.
@@ -1257,7 +1263,7 @@ export default function LiveTrackingMap({
       }
 
       if (!bestSnap || !bestPolyline) {
-        return navigationPerspective ? [] : [loc];
+        return [loc];
       }
 
       // Prefer a short local lookahead so orientation follows each turn on the active route.

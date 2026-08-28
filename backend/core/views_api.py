@@ -7674,9 +7674,11 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
 
     updated = Order.objects.select_related("customer", "timeline").get(id=o.id)
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    # Display the business-facing approval label without changing the internal status enum.
+    notification_status = "APPROVED" if next_status == OrderStatus.CONFIRMED else next_status
     _create_staff_notifications(
         title="Order status updated",
-        message=f"{actor_name} changed order {updated.order_number} status to {next_status}.",
+        message=f"{actor_name} changed order {updated.order_number} status to {notification_status}.",
         notification_type="ORDER",
         reference_type="order",
         reference_id=updated.id,

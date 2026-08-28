@@ -31,6 +31,7 @@ export function CustomerEditAddressPage(props: any) {
     shippingPhone,
     setShippingPhone,
     handlePinnedLocation,
+    handleOutsideServiceArea,
     shippingHouseNumber,
     shippingStreetName,
     shippingSubdivision,
@@ -263,6 +264,7 @@ export function CustomerEditAddressPage(props: any) {
             latitude={shippingLatitude}
             longitude={shippingLongitude}
             onChange={handlePinnedLocation}
+            onOutsideServiceArea={handleOutsideServiceArea}
           />
 
           <p className="text-xs text-slate-600">

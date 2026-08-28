@@ -34,6 +34,7 @@ export function CustomerAddressDialog(props: any) {
     shippingPhone,
     setShippingPhone,
     handlePinnedLocation,
+    handleOutsideServiceArea,
     shippingHouseNumber,
     shippingStreetName,
     shippingSubdivision,
@@ -193,7 +194,12 @@ export function CustomerAddressDialog(props: any) {
                   Use Current Location
                 </Button>
               </div>
-              <AddressMapPicker latitude={shippingLatitude} longitude={shippingLongitude} onChange={handlePinnedLocation} />
+              <AddressMapPicker
+                latitude={shippingLatitude}
+                longitude={shippingLongitude}
+                onChange={handlePinnedLocation}
+                onOutsideServiceArea={handleOutsideServiceArea}
+              />
               <p className="text-xs text-slate-600">
                 {shippingLatitude !== null && shippingLongitude !== null
                   ? `Pinned: ${shippingLatitude.toFixed(6)}, ${shippingLongitude.toFixed(6)}`
