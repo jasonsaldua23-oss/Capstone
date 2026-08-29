@@ -107,7 +107,7 @@ class EmptyCaseInventoryTests(TestCase):
         self.assertEqual(balance["availableCases"], 2)
         self.assertEqual(balance["looseBottles"], 12)
 
-    def test_stock_in_consumes_and_synchronizes_exact_product_empty_cases(self) -> None:
+    def test_stock_in_consumes_available_cases_without_requiring_the_full_restock_amount(self) -> None:
         self._create_order_item(
             order_number="DELIVERED-STOCK-IN",
             status=OrderStatus.DELIVERED,
@@ -133,9 +133,8 @@ class EmptyCaseInventoryTests(TestCase):
         self.assertEqual(transaction.quantity, 2)
         self.assertEqual(get_product_empty_case_balance(self.inventory)["availableBottles"], 12)
 
-        # Increasing to three cases is blocked because only loose bottles remain.
-        with self.assertRaisesRegex(ValueError, "Insufficient empty cases"):
-            record_stockin_empty_consumption(self.inventory, batch, 3)
+        # Fix: the third restocked case is allowed even though no full empty case remains.
+        record_stockin_empty_consumption(self.inventory, batch, 3)
         transaction.refresh_from_db()
         self.assertEqual(transaction.quantity, 2)
 

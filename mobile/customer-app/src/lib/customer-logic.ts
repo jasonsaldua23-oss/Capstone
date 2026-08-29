@@ -1,4 +1,13 @@
 import type { CustomerOrder, Product } from "../types";
+import {
+  getOrderStageIndex as sharedGetOrderStageIndex,
+  isOrderCancellable as sharedIsOrderCancellable,
+  isOrderTrackable as sharedIsOrderTrackable,
+  normalizeDeliveryStatus,
+} from "./shared.ts";
+
+// Re-exported so screens have one import site for shared formatting.
+export { formatPeso, formatOrderStatus, isRescheduledOrder } from "./shared.ts";
 
 export const CUSTOMER_ORDER_REASONS = [
   "Ordered by mistake",
@@ -16,13 +25,6 @@ export const REPLACEMENT_REASONS = [
   "Expired product",
 ] as const;
 
-export function formatPeso(value: number): string {
-  return `₱${Math.max(0, Number(value || 0)).toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 export function getAvailableQuantity(product: Product): number {
   const explicit = Number(product.availableQuantity);
   if (Number.isFinite(explicit)) return Math.max(0, Math.floor(explicit));
@@ -32,11 +34,9 @@ export function getAvailableQuantity(product: Product): number {
   );
 }
 
+// Delegates to the web portal's rules so the two clients cannot disagree.
 export function normalizeOrderStatus(order: CustomerOrder): string {
-  const status = String(order.status || "").trim().toUpperCase();
-  if (status === "APPROVED") return "PROCESSING";
-  if (status === "SHIPPED" || status === "IN_TRANSIT") return "OUT_FOR_DELIVERY";
-  return status || "PENDING";
+  return normalizeDeliveryStatus(String(order.status || ""), order.paymentStatus);
 }
 
 export function isPurchaseRequest(order: CustomerOrder): boolean {
@@ -46,19 +46,15 @@ export function isPurchaseRequest(order: CustomerOrder): boolean {
 }
 
 export function isOrderCancellable(order: CustomerOrder): boolean {
-  return !["PREPARING", "DELIVERED", "CANCELLED", "REJECTED"].includes(normalizeOrderStatus(order));
+  return sharedIsOrderCancellable(String(order.status || ""), order.paymentStatus, order);
 }
 
 export function isOrderTrackable(order: CustomerOrder): boolean {
-  return ["PROCESSING", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED"].includes(normalizeOrderStatus(order));
+  return sharedIsOrderTrackable(String(order.status || ""));
 }
 
 export function getOrderStageIndex(order: CustomerOrder): number {
-  const status = normalizeOrderStatus(order);
-  if (status === "DELIVERED") return 3;
-  if (status === "OUT_FOR_DELIVERY") return 2;
-  if (["PROCESSING", "PREPARING"].includes(status)) return 1;
-  return 0;
+  return sharedGetOrderStageIndex(String(order.status || ""), order.paymentStatus);
 }
 
 export function validatePasswordPolicy(password: string): string | null {

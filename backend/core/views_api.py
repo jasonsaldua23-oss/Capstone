@@ -6444,13 +6444,8 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         with transaction.atomic():
             if delta != 0:
                 from .deposit_lifecycle import record_stockin_empty_consumption
-                try:
-                    # Fix: batch edits must consume or release the same product's
-                    # empty cases together with the stock quantity change.
-                    record_stockin_empty_consumption(inv, batch, next_qty)
-                except ValueError as exc:
-                    transaction.set_rollback(True)
-                    return _err(str(exc), 400)
+                # Fix: consume available empties while allowing any remaining stock quantity.
+                record_stockin_empty_consumption(inv, batch, next_qty)
                 batch.quantity = next_qty
                 _persist_stock_batch_quantity(batch)
 
@@ -6642,6 +6637,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 notes="Stock batch added",
             )
             from .deposit_lifecycle import record_stockin_empty_consumption
+            # Fix: consume available empties without requiring them for the full restock.
             record_stockin_empty_consumption(inv, batch, qty)
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
@@ -6820,6 +6816,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     notes="Bulk stock batch added",
                 )
                 from .deposit_lifecycle import record_stockin_empty_consumption
+                # Fix: consume available empties without requiring them for the full restock.
                 record_stockin_empty_consumption(inv, batch, qty)
 
                 created_stock_batches.append(batch)
@@ -7550,7 +7547,11 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             logger.exception("Order create integrity error")
             return _err("Unable to create order right now. Please try again.", 409)
         order = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order.id)
-        _email_new_order_to_warehouse_staff(order)
+        try:
+            # Fix: notification delivery is best-effort after the purchase request commits.
+            _email_new_order_to_warehouse_staff(order)
+        except Exception:
+            logger.exception("Failed to email warehouse staff for committed order %s", order.id)
         # Added: warehouse staff need an in-app alert for every new order,
         # including orders submitted directly through the customer portal.
         actor_name = (
@@ -7558,13 +7559,17 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             if p.get("type") == "customer"
             else str(p.get("name") or "Staff").strip() or "Staff"
         )
-        _create_staff_notifications(
-            title="New order received" if p.get("type") == "customer" else "Order created",
-            message=f"{actor_name} created order {order.order_number}.",
-            notification_type="ORDER",
-            reference_type="order",
-            reference_id=order.id,
-        )
+        try:
+            # Fix: a notification failure must not turn a committed request into HTTP 500.
+            _create_staff_notifications(
+                title="New order received" if p.get("type") == "customer" else "Order created",
+                message=f"{actor_name} created order {order.order_number}.",
+                notification_type="ORDER",
+                reference_type="order",
+                reference_id=order.id,
+            )
+        except Exception:
+            logger.exception("Failed to notify staff for committed order %s", order.id)
         return _ok({"success": True, "duplicate": False, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
     if err:

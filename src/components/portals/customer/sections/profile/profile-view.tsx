@@ -594,18 +594,23 @@ export function CustomerProfileView({
   const markAllAsRead = async () => {
     try {
       const response = await fetch('/api/notifications', {
-        method: 'POST',
+        // Fix: the notifications endpoint marks records read through PATCH.
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markAll: true }),
       })
       const payload = await response.json().catch(() => ({}))
       if (response.ok && payload.success) {
         setUnreadCount(0)
+        onUnreadCountChange?.(0)
         setRealNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
         toast.success('Marked all as read')
+      } else {
+        toast.error(payload?.error || 'Failed to mark notifications as read')
       }
     } catch (error) {
       console.error(error)
+      toast.error('Failed to mark notifications as read')
     }
   }
 
@@ -648,6 +653,7 @@ export function CustomerProfileView({
             <div className="flex items-center gap-3">
               {unreadCount > 0 && (
                 <button
+                  type="button"
                   onClick={markAllAsRead}
                   className="text-xs font-bold text-[#14532d] hover:underline"
                 >

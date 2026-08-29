@@ -1,4 +1,4 @@
-import type { Order } from '../shared/customer-types'
+import type { Order } from './customer-types'
 
 export const orderStages = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered']
 

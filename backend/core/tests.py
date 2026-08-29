@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from .auth import create_token
 from .models import (
+    ContainerType,
     Customer,
     DropPointType,
     Feedback,
@@ -20,6 +21,7 @@ from .models import (
     OrderTimeline,
     OrderStatus,
     Product,
+    ProductPackaging,
     Replacement,
     StockBatch,
     Trip,
@@ -1280,6 +1282,33 @@ class CustomerOrdersPostApiContractTests(TestCase):
             type="RESERVE",
         ).count()
         self.assertEqual(reserve_count, 1)
+
+    @patch("core.views_api._create_staff_notifications", side_effect=RuntimeError("notification unavailable"))
+    @patch("core.views_api._email_new_order_to_warehouse_staff", side_effect=RuntimeError("email unavailable"))
+    def test_customer_orders_post_succeeds_when_post_commit_notifications_fail(
+        self,
+        _mock_email,
+        _mock_staff_notifications,
+    ) -> None:
+        # Fix: a committed purchase request must never be reported to the customer as failed.
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "warehouseId": self.warehouse.id,
+                "shippingAddress": "Notification Failure Address",
+                "shippingLatitude": 10.67,
+                "shippingLongitude": 122.95,
+                "shippingCity": "Talisay",
+                "shippingProvince": "Negros Occidental",
+                "items": [{"productId": self.product.id, "quantity": 2}],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertTrue(response.json()["success"])
+        self.assertEqual(Order.objects.filter(customer=self.customer).count(), 1)
 
     def test_customer_orders_post_requires_items(self) -> None:
         response = self.client.post(
@@ -3838,6 +3867,68 @@ class BulkStockInExistingProductContractTests(TestCase):
             InventoryTransaction.objects.filter(reference_type="stock_batch", reference_id=batch.id).count(),
             1,
         )
+
+    def test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount(self) -> None:
+        self.product.packaging_type = "RETURNABLE"
+        self.product.save(update_fields=["packaging_type", "updated_at"])
+        container = ContainerType.objects.create(
+            code="BULK-STOCK-RETURNABLE-BOTTLE",
+            name="Bulk Stock Returnable Bottle",
+            category=ContainerType.Category.BOTTLE,
+            material=ContainerType.Material.GLASS,
+            is_returnable=True,
+        )
+        ProductPackaging.objects.create(
+            product=self.product,
+            container_type=container,
+            containers_per_case=12,
+            is_primary=True,
+            is_returnable=True,
+        )
+        returned_order = Order.objects.create(
+            order_number="DELIVERED-BULK-STOCK-EMPTIES",
+            status=OrderStatus.DELIVERED,
+            warehouse_id=self.warehouse.id,
+            subtotal=0,
+            total_amount=0,
+        )
+        OrderItem.objects.create(
+            order=returned_order,
+            product=self.product,
+            quantity=1,
+            unit_price=0,
+            total_price=0,
+            empty_returned_quantity=24,
+        )
+
+        response = self.client.post(
+            "/api/stock-batches/bulk",
+            data=json.dumps(
+                {
+                    "warehouseId": self.warehouse.id,
+                    "batches": [
+                        {
+                            "productId": self.product.id,
+                            "quantity": 4,
+                            "expiryDate": (timezone.now() + timedelta(days=365)).isoformat(),
+                            "batchNumber": "STOCKIN-RETURNABLE-NO-EMPTIES-001",
+                        }
+                    ],
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        # Fix: two available cases are consumed, while all four cases are restocked.
+        self.assertEqual(response.status_code, 201, response.content)
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 14)
+        consumption = InventoryTransaction.objects.get(
+            type="CONSUME_EMPTY",
+            reference_type="stock_batch_empty_consumed",
+        )
+        self.assertEqual(consumption.quantity, 2)
 
     def test_rejects_product_missing_from_warehouse_inventory(self) -> None:
         unregistered_product = Product.objects.create(

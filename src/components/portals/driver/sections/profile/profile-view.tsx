@@ -712,18 +712,23 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const markAllAsRead = async () => {
     try {
       const response = await fetch('/api/notifications', {
-        method: 'POST',
+        // Fix: the notifications endpoint marks records read through PATCH.
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markAll: true }),
       })
       const payload = await response.json().catch(() => ({}))
       if (response.ok && payload.success) {
         setUnreadCount(0)
+        onUnreadCountChange?.(0)
         setRealNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
         toast.success('Marked all as read')
+      } else {
+        toast.error(payload?.error || 'Failed to mark notifications as read')
       }
     } catch (error) {
       console.error(error)
+      toast.error('Failed to mark notifications as read')
     }
   }
 
@@ -766,6 +771,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             <div className="flex items-center gap-3">
               {unreadCount > 0 && (
                 <button
+                  type="button"
                   onClick={markAllAsRead}
                   className="text-xs font-bold text-[#0d61ad] hover:underline"
                 >
@@ -969,9 +975,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
             />
           </div>
-          <p className="rounded-xl border border-sky-100 bg-[#f0f9ff]/60 px-3 py-2 text-xs text-sky-800">
-            Driver license editing is managed in the separate Driver License section.
-          </p>
         </div>
 
         <div className="px-4 pt-2">

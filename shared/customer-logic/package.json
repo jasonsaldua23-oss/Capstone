@@ -1,0 +1,7 @@
+{
+  "name": "@logitrack/customer-logic",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Order status, money, item-label and deposit logic shared by the web customer portal and the Expo customer app."
+}

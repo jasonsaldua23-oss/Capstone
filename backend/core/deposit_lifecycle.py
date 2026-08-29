@@ -183,24 +183,30 @@ def record_stockin_empty_consumption(inventory: Inventory, batch: Any, qty: int)
         .first()
     )
     previously_consumed_cases = max(0, int(getattr(existing, "quantity", 0) or 0))
-    additional_cases = requested_cases - previously_consumed_cases
     balance = get_product_empty_case_balance(locked_inventory)
-
-    if additional_cases > 0 and additional_cases > balance["availableCases"]:
-        raise ValueError(
-            f"Insufficient empty cases for {product.name}: "
-            f"{balance['availableCases']} available, {additional_cases} additional required"
-        )
-
     available_before = balance["availableCases"]
-    available_after = max(0, available_before - additional_cases)
-    if requested_cases == 0:
+
+    if requested_cases >= previously_consumed_cases:
+        # Fix: consume only the matching empties currently available; any remainder
+        # is ordinary new stock and must not block the stock-in operation.
+        additional_consumed = min(
+            requested_cases - previously_consumed_cases,
+            available_before,
+        )
+        consumed_cases = previously_consumed_cases + additional_consumed
+    else:
+        # Reducing a batch releases any previously consumed cases above its new size.
+        consumed_cases = requested_cases
+
+    consumption_delta = consumed_cases - previously_consumed_cases
+    available_after = max(0, available_before - consumption_delta)
+    if consumed_cases == 0:
         if existing:
             existing.delete()
         return
 
     defaults = {
-        "quantity": requested_cases,
+        "quantity": consumed_cases,
         "quantity_unit": InventoryQuantityUnit.CASE,
         "stock_unit_label": "Empty case",
         "previous_stock": available_before,
@@ -208,8 +214,8 @@ def record_stockin_empty_consumption(inventory: Inventory, batch: Any, qty: int)
         "case_capacity_snapshot": containers_per_case,
         "case_count_snapshot": requested_cases,
         "notes": (
-            f"Consumed {requested_cases} empty case(s) ({requested_cases * containers_per_case} bottles) "
-            f"for stock-in batch {getattr(batch, 'batch_number', 'N/A')}"
+            f"Consumed {consumed_cases} available empty case(s) ({consumed_cases * containers_per_case} bottles) "
+            f"for stock-in batch {getattr(batch, 'batch_number', 'N/A')} with {requested_cases} case(s) restocked"
         ),
     }
     if existing:
