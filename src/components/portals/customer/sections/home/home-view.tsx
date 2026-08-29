@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -87,7 +87,19 @@ export function CustomerHomeView({
     setCardQtyByProductId((prev) => ({ ...prev, [productId]: clamped }))
   }
 
-  const sortedProducts = useMemo(() => [...filteredProducts], [filteredProducts])
+  // Sold-out products stay in the catalog but sink below everything buyable.
+  const { sortedProducts, firstSoldOutKey } = useMemo(() => {
+    const inStock: any[] = []
+    const soldOut: any[] = []
+    for (const product of filteredProducts) {
+      if (product && getAvailableQty(product) <= 0) soldOut.push(product)
+      else inStock.push(product)
+    }
+    return {
+      sortedProducts: [...inStock, ...soldOut],
+      firstSoldOutKey: soldOut.length > 0 ? String(soldOut[0]?.id ?? '') : null,
+    }
+  }, [filteredProducts, getAvailableQty])
 
   return (
     <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f5f8f6] pb-5 md:mx-0 md:min-h-[calc(100dvh-9rem)] md:pb-4">
@@ -172,10 +184,19 @@ export function CustomerHomeView({
                   ? String((p as any)?.category?.name || (p as any)?.category || '').trim()
                   : ''
                 const currentQty = p ? getCardQty(p.id, availableQty) : 12
+                const isSoldOut = Boolean(p) && availableQty <= 0
+                const startsSoldOutGroup = firstSoldOutKey !== null && String(p?.id ?? '') === firstSoldOutKey
                 return (
+                  <Fragment key={p?.id || `placeholder-${index}`}>
+                  {startsSoldOutGroup ? (
+                    <h3 className="col-span-full mt-2 text-sm font-semibold text-slate-700 md:text-base">Sold Out</h3>
+                  ) : null}
                   <Card
-                    key={p?.id || `placeholder-${index}`}
-                    className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_8px_20px_rgba(16,24,40,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(16,24,40,0.12)] md:rounded-2xl"
+                    className={`overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_8px_20px_rgba(16,24,40,0.08)] transition-all duration-200 md:rounded-2xl ${
+                      isSoldOut
+                        ? 'opacity-75'
+                        : 'hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(16,24,40,0.12)]'
+                    }`}
                   >
                     <CardContent className="relative p-1.5 pb-5 md:p-6 md:pb-10">
                       <div className="flex gap-1.5 md:gap-5">
@@ -191,6 +212,13 @@ export function CustomerHomeView({
                               <Package className="h-8 w-8 text-slate-400/60 md:h-12 md:w-12" />
                             </div>
                           )}
+                          {isSoldOut ? (
+                            <div className="absolute inset-0 grid place-items-center rounded-lg bg-white/45 md:rounded-xl">
+                              <span className="grid h-14 w-14 place-items-center rounded-full bg-slate-900/70 text-center text-[10px] font-semibold leading-tight text-white md:h-20 md:w-20 md:text-xs">
+                                Sold Out
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="min-w-0 flex-1 space-y-0.5 leading-tight">
@@ -274,6 +302,7 @@ export function CustomerHomeView({
                       </div>
                     </CardContent>
                   </Card>
+                  </Fragment>
                 )
               })}
             </div>

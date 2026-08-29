@@ -21,6 +21,7 @@ type CustomerCartViewProps = {
   updateCartQty: (productId: string, qty: number) => void
   removeFromCart: (productId: string) => void
   removeSelectedFromCart: () => void
+  getCartItemAvailable: (item: any) => number | null
   allCartSelected: boolean
   selectedCount: number
   selectedSubtotal: number
@@ -42,6 +43,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
     updateCartQty,
     removeFromCart,
     removeSelectedFromCart,
+    getCartItemAvailable,
     allCartSelected,
     selectedCount,
     selectedSubtotal,
@@ -272,6 +274,42 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                     </div>
                   </div>
                 </div>
+
+                {/* Stock shortfall is named on the line so the customer can fix it
+                    here instead of discovering it when the order is rejected. */}
+                {(() => {
+                  const available = getCartItemAvailable(item)
+                  if (available === null || (available > 0 && item.quantity <= available)) return null
+                  const unitLabel = String(item.unit || 'case').trim() || 'case'
+                  return (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2">
+                      <p className="text-[11px] font-semibold text-rose-700">
+                        {available <= 0
+                          ? 'Out of stock — remove this item to check out.'
+                          : `Only ${available} ${unitLabel}${available !== 1 ? 's' : ''} available.`}
+                      </p>
+                      {available > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 rounded-lg border-rose-300 bg-white px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                          onClick={() => updateCartQty(item.productId, available)}
+                        >
+                          Use {available}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 rounded-lg border-rose-300 bg-white px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                          onClick={() => removeFromCart(item.productId)}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Returnable Empty Bottles / Deposit Box (Glass Bottles Only) */}
                 {(() => {

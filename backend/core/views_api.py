@@ -8,6 +8,7 @@ import os
 import requests
 import re
 import secrets
+import threading
 from html import escape
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -1475,6 +1476,7 @@ def _normalize_replacement_status(value: Any, replacement_mode: Any = None) -> s
         ReplacementStatus.UNDER_REVIEW,
         ReplacementStatus.APPROVED,
         ReplacementStatus.REJECTED,
+        ReplacementStatus.CANCELLED,
         ReplacementStatus.REPORTED,
         ReplacementStatus.IN_PROGRESS,
         ReplacementStatus.NEEDS_FOLLOW_UP,
@@ -1521,7 +1523,11 @@ def _is_replacement_closed(entry: Replacement) -> bool:
     if _is_linked_replacement_order_delivered(entry):
         return True
     normalized = _normalize_replacement_status(entry.status, entry.replacement_mode)
-    return normalized in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}
+    return normalized in {
+        ReplacementStatus.CANCELLED,
+        ReplacementStatus.RESOLVED_ON_DELIVERY,
+        ReplacementStatus.COMPLETED,
+    }
 
 
 def _serialize_value(value: Any) -> Any:
@@ -3647,6 +3653,7 @@ def _allocate_inventory_for_order_item(
                 consume_loose = min(loose_available, remaining_bottles)
                 if consume_loose <= 0:
                     continue
+                previous_loose_stock = loose_available
                 inventory.loose_bottles = loose_available - consume_loose
                 inventory.save(update_fields=["loose_bottles", "updated_at"])
                 InventoryTransaction.objects.create(
@@ -3654,6 +3661,11 @@ def _allocate_inventory_for_order_item(
                     product=product,
                     type="OUT",
                     quantity=consume_loose,
+                    quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+                    stock_unit_label="Bottle",
+                    # Fix: retain the actual loose-stock change shown in transaction details.
+                    previous_stock=previous_loose_stock,
+                    updated_stock=inventory.loose_bottles,
                     reference_type="order_item",
                     reference_id=order_item.id,
                     notes=f"Replacement bottle allocation from loose stock for order {order.order_number}",
@@ -3722,6 +3734,11 @@ def _allocate_inventory_for_order_item(
             product=product,
             type="OUT",
             quantity=take_qty,
+            quantity_unit=InventoryQuantityUnit.CASE,
+            stock_unit_label="Case",
+            # Fix: the FEFO/FIFO path must persist the stock values used by the details dialog.
+            previous_stock=previous_qty,
+            updated_stock=inventory.quantity,
             reference_type="order_item",
             reference_id=order_item.id,
             notes=f"{allocation_policy} allocation for order {order.order_number}; batch {batch.batch_number}",
@@ -6064,6 +6081,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         product=product,
         defaults={"quantity": qty, "reserved_quantity": 0, "threshold": max(1, int(qty * 0.15)), "last_restocked_at": timezone.now()},
     )
+    previous_stock = 0 if created else max(0, _int(item.quantity, 0))
     if not created and _is_inventory_overstocked_for_restock_block(item, qty):
         return _err("Cannot add stock: product is currently flagged as overstocked (latest stock-in is >= 10x threshold).", 400)
     if not created:
@@ -6084,6 +6102,10 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         product=product,
         type=str(body.get("type") or "IN"),
         quantity=qty,
+        quantity_unit=InventoryQuantityUnit.CASE,
+        stock_unit_label="Case",
+        previous_stock=previous_stock,
+        updated_stock=item.quantity,
         reference_type=body.get("referenceType"),
         reference_id=body.get("referenceId"),
         notes=body.get("notes"),
@@ -6163,6 +6185,100 @@ def empty_case_inventory(request: HttpRequest) -> JsonResponse:
     return _ok({"success": True, "emptyCaseInventory": rows})
 
 
+_PHYSICAL_STOCK_IN_TYPES = {"IN", "STOCK_IN", "RETURN"}
+_PHYSICAL_STOCK_OUT_TYPES = {"OUT", "STOCK_OUT"}
+
+
+def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTransaction]) -> list[dict[str, Any]]:
+    """Serialize transactions and reconstruct missing snapshots for legacy physical movements."""
+    data = [
+        _serialize_model(
+            row,
+            include={
+                "warehouse": lambda obj: _serialize_model(obj.warehouse),
+                "product": lambda obj: _serialize_model(obj.product),
+            },
+        )
+        for row in rows
+    ]
+    target_ids = {
+        row.id
+        for row in rows
+        if (row.previous_stock is None or row.updated_stock is None)
+        and str(row.type or "").upper() in (_PHYSICAL_STOCK_IN_TYPES | _PHYSICAL_STOCK_OUT_TYPES)
+    }
+    if not target_ids:
+        return data
+
+    group_keys = {(row.warehouse_id, row.product_id) for row in rows if row.id in target_ids and row.warehouse_id}
+    warehouse_ids = {warehouse_id for warehouse_id, _ in group_keys}
+    product_ids = {product_id for _, product_id in group_keys}
+    inventories = Inventory.objects.select_related("product").filter(
+        warehouse_id__in=warehouse_ids,
+        product_id__in=product_ids,
+    )
+    states: dict[tuple[str, str, str], int] = {}
+    for inventory in inventories:
+        pair = (inventory.warehouse_id, inventory.product_id)
+        if pair not in group_keys:
+            continue
+        states[(*pair, InventoryQuantityUnit.CASE)] = max(0, _int(inventory.quantity, 0))
+        per_case = max(1, _int(getattr(inventory.product, "quantity_per_unit", 0), 1))
+        states[(*pair, InventoryQuantityUnit.BASE_UNIT)] = (
+            max(0, _int(inventory.quantity, 0)) * per_case
+            + max(0, _int(inventory.loose_bottles, 0))
+        )
+
+    inferred: dict[str, tuple[int, int]] = {}
+    timeline = (
+        InventoryTransaction.objects.filter(
+            warehouse_id__in=warehouse_ids,
+            product_id__in=product_ids,
+            type__in=sorted(_PHYSICAL_STOCK_IN_TYPES | _PHYSICAL_STOCK_OUT_TYPES),
+        )
+        .order_by("-created_at", "-id")
+    )
+    for transaction_row in timeline:
+        pair = (transaction_row.warehouse_id, transaction_row.product_id)
+        if pair not in group_keys:
+            continue
+        unit = str(transaction_row.quantity_unit or InventoryQuantityUnit.CASE).upper()
+        if unit not in {InventoryQuantityUnit.CASE, InventoryQuantityUnit.BASE_UNIT}:
+            unit = InventoryQuantityUnit.CASE
+        state_key = (*pair, unit)
+        if state_key not in states:
+            continue
+
+        quantity = max(0, _int(transaction_row.quantity, 0))
+        movement = quantity if str(transaction_row.type or "").upper() in _PHYSICAL_STOCK_IN_TYPES else -quantity
+        if transaction_row.previous_stock is not None and transaction_row.updated_stock is not None:
+            previous = _int(transaction_row.previous_stock, 0)
+            updated = _int(transaction_row.updated_stock, 0)
+        elif transaction_row.previous_stock is not None:
+            previous = _int(transaction_row.previous_stock, 0)
+            updated = previous + movement
+        elif transaction_row.updated_stock is not None:
+            updated = _int(transaction_row.updated_stock, 0)
+            previous = updated - movement
+        else:
+            # Walk backward from current inventory, reversing each physical movement.
+            updated = states[state_key]
+            previous = updated - movement
+
+        inferred[transaction_row.id] = (max(0, previous), max(0, updated))
+        states[state_key] = max(0, previous)
+
+    for payload in data:
+        values = inferred.get(str(payload.get("id") or ""))
+        if not values:
+            continue
+        if payload.get("previousStock") is None:
+            payload["previousStock"] = values[0]
+        if payload.get("updatedStock") is None:
+            payload["updatedStock"] = values[1]
+    return data
+
+
 @require_GET
 def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
     staff, err = _require_staff(request)
@@ -6223,7 +6339,7 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
     qs = qs.order_by("-created_at")
     total = qs.count()
     rows = list(qs[off : off + size])
-    data = [_serialize_model(x, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)}) for x in rows]
+    data = _serialize_inventory_transactions_with_stock_changes(rows)
     return _ok({"success": True, "transactions": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
 
 
@@ -6501,6 +6617,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 created_by=created_by,
             )
 
+            previous_stock = max(0, _int(inv.quantity, 0))
             inv.quantity += qty
             should_update_threshold = not _stockin_would_flag_overstock(inv, qty)
             if should_update_threshold:
@@ -6516,6 +6633,10 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 product=inv.product,
                 type="IN",
                 quantity=qty,
+                quantity_unit=InventoryQuantityUnit.CASE,
+                stock_unit_label="Case",
+                previous_stock=previous_stock,
+                updated_stock=inv.quantity,
                 reference_type="stock_batch",
                 reference_id=batch.id,
                 notes="Stock batch added",
@@ -6673,6 +6794,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 newly_created_count += 1
 
                 # Update inventory quantity
+                previous_stock = max(0, _int(inv.quantity, 0))
                 inv.quantity += qty
                 should_update_threshold = not _stockin_would_flag_overstock(inv, qty)
                 if should_update_threshold:
@@ -6689,6 +6811,10 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     product=inv.product,
                     type="IN",
                     quantity=qty,
+                    quantity_unit=InventoryQuantityUnit.CASE,
+                    stock_unit_label="Case",
+                    previous_stock=previous_stock,
+                    updated_stock=inv.quantity,
                     reference_type="stock_batch",
                     reference_id=batch.id,
                     notes="Bulk stock batch added",
@@ -7484,6 +7610,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     is_warehouse_role = staff_role == RoleType.WAREHOUSE_STAFF
 
     current_status_normalized = str(_normalize_replacement_status(getattr(r, "status", None), r.replacement_mode) or "").upper()
+    if current_status_normalized == ReplacementStatus.CANCELLED:
+        return _err("Cancelled replacement requests cannot be updated", 409)
     allowed_schedule_targets = {ReplacementStatus.APPROVED, ReplacementStatus.IN_PROGRESS}
     if create_replacement_order and normalized_status not in allowed_schedule_targets:
         return _err("Replacement is not eligible for scheduling delivery", 400)
@@ -8822,18 +8950,17 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     if normalized_order_status != OrderStatus.DELIVERED:
         return _err("Replacement request is only allowed for delivered orders", 400)
 
-    delivered_at = getattr(getattr(order, "timeline", None), "delivered_at", None)
-    if delivered_at is None:
-        delivered_at = getattr(order, "updated_at", None) or getattr(order, "created_at", None)
-    if delivered_at is not None and timezone.now() > (delivered_at + timedelta(days=3)):
-        return _err("Replacement request is only allowed within 3 days after delivery", 400)
-
     existing_customer_replacements = (
         Replacement.objects.filter(order_id=order.id, customer_id=order.customer_id, replacement_mode="CUSTOMER_SUBMITTED")
         .only("id", "status", "replacement_mode", "notes")
+        .order_by("-created_at")
     )
+    active_customer_replacement = None
     for existing in existing_customer_replacements:
         normalized_existing_status = _normalize_replacement_status(existing.status, existing.replacement_mode)
+        if normalized_existing_status == ReplacementStatus.CANCELLED:
+            # A customer-cancelled pending request does not block a new request.
+            continue
         if normalized_existing_status in {
             ReplacementStatus.REJECTED,
             ReplacementStatus.COMPLETED,
@@ -8848,6 +8975,39 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
                 "You cannot request another replacement for this order after a rejected or completed replacement case",
                 400,
             )
+        if active_customer_replacement is None:
+            active_customer_replacement = existing
+    if active_customer_replacement is not None:
+        # Fix: a timed-out client may retry after the first request was already saved.
+        # Return that active case as success instead of creating a duplicate request.
+        return _ok(
+            {
+                "success": True,
+                "replacement": _serialize_replacement(active_customer_replacement),
+                "reused": True,
+            }
+        )
+
+    # Fix: calculate the deadline only from an actual delivery event. Order update
+    # and creation timestamps are unrelated and caused valid production requests
+    # to be rejected when legacy timeline data was incomplete.
+    delivered_at = (
+        getattr(getattr(order, "timeline", None), "delivered_at", None)
+        or getattr(order, "pod_submitted_at", None)
+    )
+    if delivered_at is None:
+        delivered_at = (
+            TripDropPoint.objects.filter(
+                order_id=order.id,
+                status__in=["COMPLETED", "DELIVERED"],
+                actual_departure__isnull=False,
+            )
+            .order_by("-actual_departure")
+            .values_list("actual_departure", flat=True)
+            .first()
+        )
+    if delivered_at is not None and timezone.now() > (delivered_at + timedelta(days=3)):
+        return _err("Replacement request is only allowed within 3 days after delivery", 400)
 
     order_items = list(order.items.select_related("product").all())
     order_items_by_id = {
@@ -9099,21 +9259,110 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         reference_type="replacement",
         reference_id=replacement.id,
     )
-    _send_transactional_email(
-        subject=f"New Replacement Request: {replacement.replacement_number}",
-        message=(
-            f"A customer submitted a replacement request.\n\n"
-            f"Replacement: {replacement.replacement_number}\n"
-            f"Order: {order.order_number}\n"
-            f"Customer: {customer_name}\n"
-            f"Product: {product_hint}\n"
-            f"Damaged items: {number_damaged_items}\n"
-            f"Damage type: {damage_type}\n"
-            f"Details: {description_hint}\n"
-        ),
-        recipients=_ops_staff_emails(),
-    )
+    # Fix: email provider retries are best-effort and must not turn a saved request
+    # into a client-side submission failure while the API waits on network I/O.
+    threading.Thread(
+        target=_send_transactional_email,
+        kwargs={
+            "subject": f"New Replacement Request: {replacement.replacement_number}",
+            "message": (
+                f"A customer submitted a replacement request.\n\n"
+                f"Replacement: {replacement.replacement_number}\n"
+                f"Order: {order.order_number}\n"
+                f"Customer: {customer_name}\n"
+                f"Product: {product_hint}\n"
+                f"Damaged items: {number_damaged_items}\n"
+                f"Damage type: {damage_type}\n"
+                f"Details: {description_hint}\n"
+            ),
+            "recipients": _ops_staff_emails(),
+        },
+        name=f"replacement-email-{replacement.id}",
+        daemon=True,
+    ).start()
     return _ok({"success": True, "replacement": _serialize_replacement(replacement)}, 201)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def customer_replacement_cancel(request: HttpRequest, replacement_id: str) -> JsonResponse:
+    p = _require_auth(request)
+    if not p or p.get("type") != "customer":
+        return _err("Unauthorized", 401)
+
+    with transaction.atomic():
+        replacement = (
+            Replacement.objects.select_for_update()
+            .filter(
+                id=replacement_id,
+                customer_id=p.get("userId"),
+                replacement_mode="CUSTOMER_SUBMITTED",
+            )
+            .first()
+        )
+        if not replacement:
+            return _err("Replacement request not found", 404)
+
+        current_status = _normalize_replacement_status(replacement.status, replacement.replacement_mode)
+        if current_status == ReplacementStatus.CANCELLED:
+            # A repeated cancel request is safe and returns the existing state.
+            return _ok({
+                "success": True,
+                "replacement": _serialize_replacement(replacement),
+                "reused": True,
+            })
+        if current_status != ReplacementStatus.PENDING:
+            return _err(
+                "Replacement request can no longer be cancelled because it is already under review",
+                409,
+            )
+
+        now = timezone.now()
+        meta = _extract_replacement_meta(replacement.notes)
+        status_timeline = list(meta.get("statusTimeline") or [])
+        status_timeline.append(
+            {
+                "status": ReplacementStatus.CANCELLED,
+                "at": now.isoformat(),
+                "by": str(p.get("userId") or ""),
+            }
+        )
+        replacement.notes = _upsert_replacement_meta(
+            replacement.notes,
+            {
+                "statusTimeline": status_timeline,
+                "cancelledAt": now.isoformat(),
+                "cancelledBy": str(p.get("userId") or ""),
+            },
+        )
+        replacement.notes = _append_replacement_note_line(
+            replacement.notes,
+            "CANCELLED: Cancelled by customer before review",
+        )
+        replacement.status = ReplacementStatus.CANCELLED
+        replacement.save(update_fields=["status", "notes", "updated_at"])
+
+    cancellation_customer_name = str(
+        getattr(getattr(getattr(replacement, "order", None), "customer", None), "name", "")
+        or "Customer"
+    ).strip() or "Customer"
+    _create_staff_notifications(
+        title="Replacement request cancelled",
+        message=(
+            f"{cancellation_customer_name} "
+            f"cancelled replacement request {replacement.replacement_number} before review."
+        ),
+        notification_type="REPLACEMENT",
+        reference_type="replacement",
+        reference_id=replacement.id,
+    )
+    return _ok(
+        {
+            "success": True,
+            "replacement": _serialize_replacement(replacement),
+            "message": "Replacement request cancelled",
+        }
+    )
 
 
 @require_GET

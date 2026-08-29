@@ -64,6 +64,7 @@ urlpatterns = [
     path("customer/orders", v.customer_orders),
     path("customer/orders/<str:order_id>/cancel", v.customer_order_cancel),
     path("customer/replacements", v.customer_replacements),
+    path("customer/replacements/<str:replacement_id>/cancel", v.customer_replacement_cancel),
     path("customer/tracking", v.customer_tracking),
     path("customer/empty-bottles/eligible", v.customer_empty_bottles_eligible),
     path("customer/empty-bottles/record", v.customer_record_empty_bottles),

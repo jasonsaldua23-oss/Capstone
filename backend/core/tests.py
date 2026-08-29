@@ -4527,6 +4527,161 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
 
+    def test_customer_replacement_retry_reuses_active_request(self) -> None:
+        OrderTimeline.objects.create(
+            order=self.order,
+            delivered_at=timezone.now() - timedelta(days=4),
+        )
+        existing = Replacement.objects.create(
+            replacement_number="RPL-RETRY-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Broken seal",
+            description="Previously saved request",
+            status="PENDING",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=1,
+            original_order_item_id=self.order_item_a.id,
+            replacement_product_id=self.product_a.id,
+            damage_photo_url="https://example.com/original-proof.jpg",
+            damage_photo_urls=json.dumps(["https://example.com/original-proof.jpg"]),
+        )
+
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={"orderId": self.order.id},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["reused"])
+        self.assertEqual(payload["replacement"]["id"], existing.id)
+        self.assertEqual(Replacement.objects.filter(order=self.order).count(), 1)
+
+    def test_customer_replacement_request_does_not_use_order_timestamp_as_delivery_time(self) -> None:
+        # A legacy delivered order without a recorded delivery event must not be
+        # rejected based on its unrelated creation/update timestamp.
+        Order.objects.filter(id=self.order.id).update(
+            created_at=timezone.now() - timedelta(days=10),
+            updated_at=timezone.now() - timedelta(days=10),
+        )
+
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Broken seal",
+                "evidence": ["https://example.com/legacy-delivery-proof.jpg"],
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        "inputMode": "case",
+                        "quantityPerCase": 6,
+                        "quantityToReplace": 6,
+                        "quantityToReplaceCases": 1,
+                        "reason": "Broken seal",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertTrue(response.json()["success"])
+        self.assertEqual(Replacement.objects.filter(order=self.order).count(), 1)
+
+    def test_customer_can_cancel_pending_replacement_before_review(self) -> None:
+        replacement = Replacement.objects.create(
+            replacement_number="RPL-CANCEL-PENDING-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Broken seal",
+            status="PENDING",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=1,
+            notes=(
+                "Customer-submitted replacement request\nMeta: "
+                + json.dumps({"statusTimeline": [{"status": "PENDING", "at": timezone.now().isoformat()}]})
+            ),
+        )
+
+        response = self.client.post(
+            f"/api/customer/replacements/{replacement.id}/cancel",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        replacement.refresh_from_db()
+        self.assertEqual(replacement.status, "CANCELLED")
+        meta = json.loads(replacement.notes.split("Meta:", 1)[1].strip())
+        self.assertEqual(meta["statusTimeline"][-1]["status"], "CANCELLED")
+        self.assertIsNotNone(meta.get("cancelledAt"))
+
+    def test_customer_cannot_cancel_replacement_that_is_under_review(self) -> None:
+        replacement = Replacement.objects.create(
+            replacement_number="RPL-CANCEL-REVIEW-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Broken seal",
+            status="UNDER_REVIEW",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=1,
+        )
+
+        response = self.client.post(
+            f"/api/customer/replacements/{replacement.id}/cancel",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 409, response.content.decode())
+        self.assertIn("already under review", response.json()["error"])
+        replacement.refresh_from_db()
+        self.assertEqual(replacement.status, "UNDER_REVIEW")
+
+    def test_cancelled_replacement_does_not_block_a_new_request(self) -> None:
+        Replacement.objects.create(
+            replacement_number="RPL-CANCELLED-OLD-001",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Broken seal",
+            status="CANCELLED",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=1,
+        )
+
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Leaking",
+                "evidence": ["https://example.com/new-proof.jpg"],
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        "inputMode": "case",
+                        "quantityPerCase": 6,
+                        "quantityToReplace": 6,
+                        "quantityToReplaceCases": 1,
+                        "reason": "Leaking",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertEqual(response.json()["replacement"]["status"], "PENDING")
+        self.assertEqual(Replacement.objects.filter(order=self.order).count(), 2)
+
     def test_scheduled_bottle_replacement_prices_only_requested_bottles(self) -> None:
         warehouse = Warehouse.objects.create(
             name="Bottle Replacement Warehouse",

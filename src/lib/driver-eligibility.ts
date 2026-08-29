@@ -56,3 +56,45 @@ export function getDriverAssignmentIssue(driver: any): string {
 export function isDriverAssignable(driver: any): boolean {
   return !getDriverAssignmentIssue(driver)
 }
+
+/**
+ * Explains an empty "Assign Driver" dropdown. `getIssue` returns '' for a driver
+ * that can be picked, so callers pass whichever eligibility rule applies to the
+ * surface (vehicle assignment or trip assignment).
+ */
+export function summarizeDriverAvailability(
+  drivers: any[],
+  getIssue: (driver: any) => string,
+  options?: { loadFailed?: boolean }
+): { hasSelectable: boolean; message: string } {
+  if (options?.loadFailed) {
+    return {
+      hasSelectable: false,
+      message: 'Drivers could not be loaded. Check your connection and refresh, then try again.',
+    }
+  }
+
+  const list = Array.isArray(drivers) ? drivers : []
+  if (list.length === 0) {
+    return {
+      hasSelectable: false,
+      message:
+        'No drivers are registered yet. Add a driver with a complete license profile and an available assigned vehicle.',
+    }
+  }
+
+  const issues = list.map((driver) => getIssue(driver) || '')
+  if (issues.some((issue) => !issue)) return { hasSelectable: true, message: '' }
+
+  const counts = new Map<string, number>()
+  for (const issue of issues) counts.set(issue, (counts.get(issue) ?? 0) + 1)
+  const breakdown = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${count} ${count === 1 ? 'driver' : 'drivers'} — ${reason}`)
+    .join('; ')
+
+  return {
+    hasSelectable: false,
+    message: `No driver can be assigned right now. ${breakdown}.`,
+  }
+}

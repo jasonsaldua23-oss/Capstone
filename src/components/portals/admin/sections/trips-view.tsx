@@ -3,7 +3,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
-import { getDriverProfileCompletenessIssue as getDriverProfileIssue } from '@/lib/driver-eligibility'
+import {
+  getDriverProfileCompletenessIssue as getDriverProfileIssue,
+  summarizeDriverAvailability,
+} from '@/lib/driver-eligibility'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -63,6 +66,7 @@ export function TripsView() {
   const tripsPageSize = 10
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
+  const [driversLoadFailed, setDriversLoadFailed] = useState(false)
   const [vehicles, setVehicles] = useState<any[]>([])
   const [routePlans, setRoutePlans] = useState<any[]>([])
   const [savedRoutes, setSavedRoutes] = useState<any[]>([])
@@ -138,6 +142,16 @@ export function TripsView() {
     if (!availableVehicleIdSet.has(String(assignedVehicle.id).trim())) return 'Assigned vehicle unavailable'
     return ''
   }
+  // Added: an empty driver dropdown now states why, instead of looking broken.
+  const driverAvailability = useMemo(
+    () =>
+      summarizeDriverAvailability(
+        drivers,
+        (driver) => getDriverTripEligibilityLabel(driver) || (isDriverSelectableForTrip(driver) ? '' : 'Not available'),
+        { loadFailed: driversLoadFailed }
+      ),
+    [drivers, driversLoadFailed, availableVehicleIdSet]
+  )
   const selectedDriverEligibilityIssue = useMemo(() => {
     const selectedDriver = drivers.find((driver) => driver.id === selectedRouteDriverId)
     if (!selectedDriver) return ''
@@ -197,6 +211,7 @@ export function TripsView() {
           }
         }
 
+        setDriversLoadFailed(!driversResult.ok)
         if (driversResult.ok) {
           const list = getCollection<any>(driversResult.data, ['drivers'])
           setDrivers(list)
@@ -997,6 +1012,11 @@ export function TripsView() {
                     </option>
                   ))}
                 </select>
+                {!driverAvailability.hasSelectable ? (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                    {driverAvailability.message}
+                  </p>
+                ) : null}
                 <Input
                   readOnly
                   className="h-8 text-xs"
@@ -1164,6 +1184,11 @@ export function TripsView() {
                   </option>
                 ))}
               </select>
+              {!driverAvailability.hasSelectable ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                  {driverAvailability.message}
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-1">

@@ -1067,10 +1067,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             />
           </div>
 
-          <div className="space-y-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5">
-            <p className="text-sm font-semibold text-slate-700">Driver's License Image</p>
-            <p className="text-xs text-slate-400">Image uploads have been disabled. You can still edit license number, restriction, and expiry.</p>
-          </div>
         </div>
 
         <div className="px-4 pt-2">

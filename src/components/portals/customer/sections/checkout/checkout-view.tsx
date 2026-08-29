@@ -37,6 +37,7 @@ type CustomerCheckoutViewProps = {
   placeOrder: () => void
   isPlacingOrder: boolean
   canPlaceOrder: boolean
+  insufficientStockItems: any[]
 }
 
 export function CustomerCheckoutView({
@@ -66,6 +67,7 @@ export function CustomerCheckoutView({
   placeOrder,
   isPlacingOrder,
   canPlaceOrder,
+  insufficientStockItems,
 }: CustomerCheckoutViewProps) {
   const today = new Date()
   const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
@@ -272,6 +274,24 @@ export function CustomerCheckoutView({
       {selectedCartItems.length > 0 ? (
         /* Fix: keep the action bar in the checkout flow so the animated page container cannot position it over the product list. */
         <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 mt-2 border-t bg-white px-2.5 py-1 md:static md:mt-3 md:rounded-b-xl md:border md:border-slate-200 md:py-2">
+          {/* Say why the order is blocked instead of letting the server reject it. */}
+          {insufficientStockItems.length > 0 ? (
+            <div className="mb-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5">
+              <p className="text-[11px] font-semibold text-rose-700 md:text-xs">
+                {insufficientStockItems.length === 1
+                  ? `${insufficientStockItems[0]?.name || 'One item'} no longer has enough stock.`
+                  : `${insufficientStockItems.length} items no longer have enough stock.`}{' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={() => setActiveView('cart')}
+                >
+                  Review your cart
+                </button>{' '}
+                to continue.
+              </p>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 md:text-sm">Total ({selectedCartItems.length} item{selectedCartItems.length > 1 ? 's' : ''})</p>

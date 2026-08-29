@@ -26,7 +26,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
-import { getDriverProfileCompletenessIssue as getDriverProfileIssue } from '@/lib/driver-eligibility'
+import {
+  getDriverProfileCompletenessIssue as getDriverProfileIssue,
+  summarizeDriverAvailability,
+} from '@/lib/driver-eligibility'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from './WarehouseTripsSection'
 import { WarehouseHeader } from './sections/layout/warehouse-header'
@@ -636,6 +639,7 @@ export function WarehousePortal() {
   const [trips, setTrips] = useState<WarehouseTripItem[]>([])
   const [replacements, setReplacements] = useState<WarehouseReplacementItem[]>([])
   const [drivers, setDrivers] = useState<DriverOption[]>([])
+  const [driversLoadFailed, setDriversLoadFailed] = useState(false)
   const [vehicles, setVehicles] = useState<VehicleOption[]>([])
   const [routePlans, setRoutePlans] = useState<RoutePlanCityGroup[]>([])
   const [savedRoutes, setSavedRoutes] = useState<SavedRouteDraft[]>([])
@@ -1131,6 +1135,16 @@ export function WarehousePortal() {
     if (!isDriverSelectableForTrip(driver, options)) return 'Assigned vehicle unavailable'
     return ''
   }
+  // Added: an empty driver dropdown now states why, instead of looking broken.
+  const driverAvailability = useMemo(
+    () =>
+      summarizeDriverAvailability(
+        drivers,
+        (driver) => getDriverTripEligibilityLabel(driver) || (isDriverSelectableForTrip(driver) ? '' : 'Not available'),
+        { loadFailed: driversLoadFailed }
+      ),
+    [drivers, driversLoadFailed, availableVehicleIdSet]
+  )
   const selectedDriverAssignedVehicle = useMemo(() => {
     const driver = drivers.find((d) => d.id === selectedRouteDriverId)
     return getDriverAssignedVehicle(driver, {
@@ -2587,9 +2601,13 @@ export function WarehousePortal() {
     try {
       const result = await safeFetchJson('/api/drivers?includeSample=true')
       if (!result.ok) {
+        // A failed load used to leave the dropdown silently empty, which reads
+        // identically to "no drivers exist".
+        setDriversLoadFailed(true)
         return
       }
       const list = getCollection<DriverOption>(result.data, ['drivers'])
+      setDriversLoadFailed(false)
       setDrivers(list)
       const preferredDriver = list.find((driver) => isDriverSelectableForTrip(driver))
 
@@ -2598,6 +2616,7 @@ export function WarehousePortal() {
       }
     } catch (error) {
       console.warn('Failed to load drivers:', error)
+      setDriversLoadFailed(true)
     }
   }
 
@@ -5385,6 +5404,11 @@ export function WarehousePortal() {
                         </option>
                       ))}
                     </select>
+                    {!driverAvailability.hasSelectable ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                        {driverAvailability.message}
+                      </p>
+                    ) : null}
                     <Input
                       readOnly
                       className="h-8 text-xs"
@@ -5414,6 +5438,11 @@ export function WarehousePortal() {
                         </option>
                       ))}
                     </select>
+                    {!driverAvailability.hasSelectable ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                        {driverAvailability.message}
+                      </p>
+                    ) : null}
                     <Input
                       readOnly
                       className="h-8 text-xs"
@@ -5613,6 +5642,11 @@ export function WarehousePortal() {
                   </option>
                 ))}
               </select>
+              {!driverAvailability.hasSelectable ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                  {driverAvailability.message}
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Assigned Vehicle</label>

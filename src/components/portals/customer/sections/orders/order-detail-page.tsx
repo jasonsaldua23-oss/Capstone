@@ -54,6 +54,7 @@ export function CustomerOrderDetailPage(props: any) {
     reviewedOrderIds,
     openReviewDetails,
     submitReplacementRequest,
+    requestCancelReplacement,
   } = props
 
   const [isReplacementRequestOpen, setIsReplacementRequestOpen] = useState(false)
@@ -69,6 +70,7 @@ export function CustomerOrderDetailPage(props: any) {
   >([{ key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' }])
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
   const [isSubmittingReplacement, setIsSubmittingReplacement] = useState(false)
+  const [replacementError, setReplacementError] = useState('')
 
   const evidencePreviewUrls = useMemo(
     () => evidenceFiles.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
@@ -98,7 +100,7 @@ export function CustomerOrderDetailPage(props: any) {
     () =>
       selectedOrderReplacementRecords.some((record: any) => {
         const rawStatus = String(record?.status || '').toUpperCase()
-        return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)
+        return ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REPORTED', 'IN_PROGRESS', 'NEEDS_FOLLOW_UP', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)
       }),
     [selectedOrderReplacementRecords]
   )
@@ -109,6 +111,7 @@ export function CustomerOrderDetailPage(props: any) {
     // Fix: honor the order-card action after navigating to the full-page order details.
     if (!(order as any)?.__openReplacementRequest) return
     if (hasCompletedReplacementRequest || hasActiveReplacementRequest) return
+    setReplacementError('')
     setIsReplacementRequestOpen(true)
   }, [order, hasCompletedReplacementRequest, hasActiveReplacementRequest])
 
@@ -542,7 +545,18 @@ export function CustomerOrderDetailPage(props: any) {
                               </p>
                             ))}
                           </div>
-                          <Badge className={getReplacementBadgeClass?.(label)}>{label}</Badge>
+                          <div className="flex shrink-0 flex-col items-end gap-1.5">
+                            <Badge className={getReplacementBadgeClass?.(label)}>{label}</Badge>
+                            {String(record?.status || '').toUpperCase() === 'PENDING' ? (
+                              <button
+                                type="button"
+                                className="text-[11px] font-medium text-rose-600 hover:text-rose-700 hover:underline"
+                                onClick={() => requestCancelReplacement?.(record)}
+                              >
+                                Cancel Replacement
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     )
@@ -583,7 +597,10 @@ export function CustomerOrderDetailPage(props: any) {
       {/* ── Replacement request dialog (small sub-form, stays as dialog) ── */}
       <Dialog
         open={isReplacementRequestOpen}
-        onOpenChange={(open) => setIsReplacementRequestOpen(open)}
+        onOpenChange={(open) => {
+          setIsReplacementRequestOpen(open)
+          if (!open) setReplacementError('')
+        }}
       >
         <DialogContent className="w-[95vw] max-w-[720px] rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-base font-semibold text-slate-900">Request Replacement</p>
@@ -593,6 +610,11 @@ export function CustomerOrderDetailPage(props: any) {
               A replacement request is already in progress or completed for this order.
             </p>
           )}
+          {replacementError ? (
+            <p role="alert" className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-medium text-rose-700">
+              {replacementError}
+            </p>
+          ) : null}
           <div className="mt-3 space-y-2">
             {replacementLines.map((line, index) => (
               <div key={line.key} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
@@ -725,7 +747,11 @@ export function CustomerOrderDetailPage(props: any) {
               onClick={async () => {
                 if (hasCompletedReplacementRequest || hasActiveReplacementRequest) return
                 const validLines = replacementLines.filter((l) => l.productId && Number(l.quantity) > 0)
-                if (validLines.length === 0) return alert('Add at least one valid damaged product line')
+                if (validLines.length === 0) {
+                  setReplacementError('Add at least one valid damaged product line')
+                  return
+                }
+                setReplacementError('')
                 setIsSubmittingReplacement(true)
                 try {
                   const submittedLines = validLines.map((line) => {
@@ -784,9 +810,10 @@ export function CustomerOrderDetailPage(props: any) {
                   await submitReplacementRequest?.(order.id, totalDamagedItems, combinedReason, combinedDescription, evidenceFiles, submittedLines)
                   setReplacementLines([{ key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' }])
                   setEvidenceFiles([])
+                  setReplacementError('')
                   setIsReplacementRequestOpen(false)
                 } catch (error: any) {
-                  alert(error?.message || 'Failed to submit replacement request')
+                  setReplacementError(error?.message || 'Failed to submit replacement request')
                 } finally {
                   setIsSubmittingReplacement(false)
                 }

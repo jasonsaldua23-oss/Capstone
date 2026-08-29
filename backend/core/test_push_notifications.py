@@ -60,8 +60,9 @@ class PushNotificationTests(TestCase):
         self.assertEqual(customer_response.status_code, 201)
         self.assertEqual(PushSubscription.objects.filter(endpoint=subscription["endpoint"]).count(), 2)
 
+    @patch("core.push_notifications._start_web_push_delivery", side_effect=lambda deliver: deliver())
     @patch("core.push_notifications.webpush")
-    def test_push_is_sent_after_commit_to_the_target_account(self, mocked_webpush):
+    def test_push_is_sent_after_commit_to_the_target_account(self, mocked_webpush, mocked_start_delivery):
         PushSubscription.objects.create(
             user=self.user,
             endpoint="https://push.example.test/device-2",
@@ -79,13 +80,15 @@ class PushNotificationTests(TestCase):
                 reference_id="trip-1",
             )
 
+        mocked_start_delivery.assert_called_once()
         mocked_webpush.assert_called_once()
         sent_payload = json.loads(mocked_webpush.call_args.kwargs["data"])
         self.assertEqual(sent_payload["title"], "New trip assigned")
         self.assertEqual(sent_payload["data"]["referenceId"], "trip-1")
 
+    @patch("core.push_notifications._start_web_push_delivery", side_effect=lambda deliver: deliver())
     @patch("core.push_notifications.webpush")
-    def test_expired_endpoint_is_removed(self, mocked_webpush):
+    def test_expired_endpoint_is_removed(self, mocked_webpush, mocked_start_delivery):
         response = Mock(status_code=410)
         from pywebpush import WebPushException
 
@@ -105,4 +108,5 @@ class PushNotificationTests(TestCase):
                 notification_type="ORDER",
             )
 
+        mocked_start_delivery.assert_called_once()
         self.assertFalse(PushSubscription.objects.filter(id=subscription.id).exists())

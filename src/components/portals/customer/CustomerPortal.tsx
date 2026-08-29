@@ -47,6 +47,7 @@ import {
   OrderReasonCheckboxes,
 } from '@/components/portals/shared/order-reason-checkboxes'
 import {
+  cancelCustomerReplacementRequest,
   cancelCustomerOrder,
   createCustomerOrder,
   fetchAllCustomerOrders,
@@ -149,6 +150,11 @@ export function CustomerPortal() {
   const [selectedCancellationReasons, setSelectedCancellationReasons] = useState<string[]>([])
   const [otherCancellationReason, setOtherCancellationReason] = useState('')
   const [isCancellingOrder, setIsCancellingOrder] = useState(false)
+  const [pendingCancelReplacement, setPendingCancelReplacement] = useState<{
+    id: string
+    replacementNumber: string
+  } | null>(null)
+  const [isCancellingReplacement, setIsCancellingReplacement] = useState(false)
   const [isOrderConfirmationOpen, setIsOrderConfirmationOpen] = useState(false)
   const [lastPlacedOrderNumber, setLastPlacedOrderNumber] = useState('')
   const [reviewByOrderId, setReviewByOrderId] = useState<Record<string, any>>({})
@@ -628,23 +634,9 @@ export function CustomerPortal() {
         : Array.isArray(payload?.data)
           ? payload.data
           : []
-      const visibleProducts = sourceProducts.filter((p) => {
-        if ((p as any)?.isActive === false) return false
-        const rawAvailable = (p as any)?.availableQuantity
-        const rawBaseUnits = (p as any)?.availableBaseUnits
-        const explicitAvailable = Number(rawAvailable)
-        const explicitBaseUnits = Number(rawBaseUnits)
-        const hasExplicitAvailable = rawAvailable !== undefined && rawAvailable !== null && Number.isFinite(explicitAvailable)
-        const hasExplicitBaseUnits = rawBaseUnits !== undefined && rawBaseUnits !== null && Number.isFinite(explicitBaseUnits)
-        if (hasExplicitAvailable || hasExplicitBaseUnits) {
-          return (hasExplicitAvailable && explicitAvailable > 0) ||
-            (hasExplicitBaseUnits && explicitBaseUnits > 0)
-        }
-        const inventory = Array.isArray(p.inventory) ? p.inventory : []
-        if (inventory.length === 0) return true
-        const available = inventory.reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
-        return available > 0
-      })
+      // Out-of-stock products stay in the catalog: the storefront shows them last
+      // with a Sold Out label rather than hiding what the warehouse still carries.
+      const visibleProducts = sourceProducts.filter((p) => (p as any)?.isActive !== false)
       setProducts(visibleProducts)
       return visibleProducts
     } catch (error) {
@@ -809,6 +801,49 @@ export function CustomerPortal() {
     emitDataSync(['replacements'])
     toast.success('Replacement request submitted')
   }, [fetchOrderMeta])
+
+  const requestCancelReplacement = useCallback((replacement: DeliveryIssueRecord) => {
+    const replacementId = String(replacement?.id || '').trim()
+    if (!replacementId) {
+      toast.error('Unable to identify this replacement request')
+      return
+    }
+    setPendingCancelReplacement({
+      id: replacementId,
+      replacementNumber: String(replacement?.replacementNumber || 'this replacement request'),
+    })
+  }, [])
+
+  const confirmCancelReplacement = useCallback(async () => {
+    const replacementId = pendingCancelReplacement?.id
+    if (!replacementId) return
+    setIsCancellingReplacement(true)
+    try {
+      const { response, data } = await cancelCustomerReplacementRequest(replacementId)
+      if (!response.ok || data?.success === false) {
+        if (response.status === 409) {
+          // Fix: refresh immediately if admin moved the request to Under Review first.
+          await fetchOrderMeta()
+          setPendingCancelReplacement(null)
+        }
+        throw new Error(data?.error || 'Failed to cancel replacement request')
+      }
+      const cancelled = data?.replacement as DeliveryIssueRecord | undefined
+      if (cancelled?.id) {
+        setDeliveryIssueRecords((previous) =>
+          previous.map((record) => (record.id === cancelled.id ? { ...record, ...cancelled } : record))
+        )
+      }
+      await fetchOrderMeta()
+      emitDataSync(['replacements'])
+      toast.success('Replacement request cancelled')
+      setPendingCancelReplacement(null)
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to cancel replacement request')
+    } finally {
+      setIsCancellingReplacement(false)
+    }
+  }, [fetchOrderMeta, pendingCancelReplacement?.id])
 
   useEffect(() => {
     if (activeView !== 'track') return
@@ -979,6 +1014,13 @@ export function CustomerPortal() {
     toast.success('Logged out successfully')
   }
 
+  // Returns the stock a cart line is limited to, or null when the line carries
+  // no availability figure at all (the server stays the final authority there).
+  const getCartItemAvailable = (item: any): number | null => {
+    const raw = Number(item?.available)
+    return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : null
+  }
+
   const getAvailableQty = (product: Product) => {
     const explicitAvailable = Number((product as any)?.availableQuantity)
     if (Number.isFinite(explicitAvailable)) {
@@ -1116,6 +1158,9 @@ export function CustomerPortal() {
         }
         const refreshedItem = {
           ...item,
+          // Availability has to track the live catalog; a frozen snapshot let an
+          // over-quantity cart reach checkout and fail server-side.
+          available: getAvailableQty(product),
           sizeLabel: currentSize && currentSize.toUpperCase() !== 'N/A' ? currentSize : getProductSizeLabel(product),
           category: nextCategory,
           containerPackagingType: product.containerPackagingType,
@@ -1379,15 +1424,31 @@ export function CustomerPortal() {
     selectedDepositRefunded,
   ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
+  // Stock is checked in the browser so an order that the server would reject is
+  // blocked before it is submitted, with the shortfall named on the line item.
+  const insufficientStockItems = useMemo(
+    () =>
+      selectedCartItems.filter((item) => {
+        const available = getCartItemAvailable(item)
+        if (available === null) return false
+        return available <= 0 || Math.max(0, Math.floor(Number(item?.quantity || 0))) > available
+      }),
+    [selectedCartItems]
+  )
+  const insufficientStockProductIds = useMemo(
+    () => new Set(insufficientStockItems.map((item) => String(item.productId))),
+    [insufficientStockItems]
+  )
   const canPlaceOrder = useMemo(
     () => {
       const deliveryDateText = String(deliveryDate || '').trim()
       if (!deliveryDateText) return false
       const parsedDate = parseDateOnly(deliveryDateText)
       if (!parsedDate) return false
+      if (insufficientStockItems.length > 0) return false
       return parsedDate >= getLocalDateOnly() && selectedCartItems.length > 0
     },
-    [selectedCartItems.length, deliveryDate]
+    [selectedCartItems.length, deliveryDate, insufficientStockItems.length]
   )
   const allCartSelected = useMemo(
     () => cart.length > 0 && cart.every((item) => selectedCartIds.has(item.productId)),
@@ -1621,6 +1682,17 @@ export function CustomerPortal() {
     }
     if (selectedCartItems.length === 0) {
       toast.error('Your cart is empty')
+      return
+    }
+    if (insufficientStockItems.length > 0) {
+      const first = insufficientStockItems[0]
+      const available = getCartItemAvailable(first) ?? 0
+      toast.error(
+        available <= 0
+          ? `${first.name || 'An item'} is out of stock. Remove it to continue.`
+          : `Only ${available} ${first.unit || 'case'}(s) of ${first.name || 'an item'} are available. Lower the quantity to continue.`
+      )
+      setActiveView('cart')
       return
     }
     if (!String(deliveryDate || '').trim()) {
@@ -2925,6 +2997,7 @@ export function CustomerPortal() {
                     updateCartQty={updateCartQty}
                     removeFromCart={removeFromCart}
                     removeSelectedFromCart={removeSelectedFromCart}
+                    getCartItemAvailable={getCartItemAvailable}
                     allCartSelected={allCartSelected}
                     selectedCount={selectedCount}
                     selectedSubtotal={selectedSubtotal}
@@ -2961,6 +3034,7 @@ export function CustomerPortal() {
                     placeOrder={placeOrder}
                     isPlacingOrder={isPlacingOrder}
                     canPlaceOrder={canPlaceOrder}
+                    insufficientStockItems={insufficientStockItems}
                   />
                 )}
 
@@ -3021,6 +3095,7 @@ export function CustomerPortal() {
                     openRatingDialog={openRatingDialog}
                     openReviewDetails={(order: Order) => setReviewDetailsOrder(order)}
                     submitReplacementRequest={submitReplacementRequest}
+                    requestCancelReplacement={requestCancelReplacement}
                   />
                 )}
 
@@ -3083,6 +3158,7 @@ export function CustomerPortal() {
                     formatOrderStatus={formatOrderStatus}
                     isOrderCancellable={isOrderCancellable}
                     cancelOrder={requestCancelOrder}
+                    requestCancelReplacement={requestCancelReplacement}
                     openRatingDialog={openRatingDialog}
                     reviewByOrderId={reviewByOrderId}
                     openReviewDetails={(order: Order) => setReviewDetailsOrder(order)}
@@ -3401,6 +3477,35 @@ export function CustomerPortal() {
                   disabled={isCancellingOrder || !buildOrderActionReason(selectedCancellationReasons, otherCancellationReason)}
                 >
                   {isCancellingOrder ? 'Cancelling...' : 'Yes, Cancel Order'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={Boolean(pendingCancelReplacement)}
+            onOpenChange={(open) => {
+              if (!open && !isCancellingReplacement) setPendingCancelReplacement(null)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel Replacement Request?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You can cancel {pendingCancelReplacement?.replacementNumber || 'this replacement request'} only while it is still pending. Once it is under review, cancellation is no longer allowed.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isCancellingReplacement}>Keep Request</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(event) => {
+                    event.preventDefault()
+                    void confirmCancelReplacement()
+                  }}
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={isCancellingReplacement}
+                >
+                  {isCancellingReplacement ? 'Cancelling...' : 'Yes, Cancel Replacement'}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

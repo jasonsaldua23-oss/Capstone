@@ -94,6 +94,7 @@ class ReplacementStatus(models.TextChoices):
     UNDER_REVIEW = "UNDER_REVIEW", "Under Review"
     APPROVED = "APPROVED", "Approved"
     REJECTED = "REJECTED", "Rejected"
+    CANCELLED = "CANCELLED", "Cancelled"
     REPORTED = "REPORTED", "Reported"
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     RESOLVED_ON_DELIVERY = "RESOLVED_ON_DELIVERY", "Resolved On Delivery"

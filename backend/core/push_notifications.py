@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -14,6 +15,18 @@ from .models import PushSubscription
 
 
 logger = logging.getLogger(__name__)
+
+
+def _start_web_push_delivery(deliver) -> None:
+    """Run best-effort Web Push I/O without delaying the originating API response."""
+
+    # Fix: push endpoints can take several seconds to time out, so delivery must not
+    # keep an already-successful order or replacement request waiting for a response.
+    threading.Thread(
+        target=deliver,
+        name="web-push-delivery",
+        daemon=True,
+    ).start()
 
 
 def get_web_push_public_key() -> str:
@@ -113,4 +126,4 @@ def queue_web_push(
             subscriptions = subscriptions.filter(customer_id__in=normalized_customer_ids)
         _send_to_subscriptions(subscriptions, payload)
 
-    transaction.on_commit(deliver)
+    transaction.on_commit(lambda: _start_web_push_delivery(deliver))

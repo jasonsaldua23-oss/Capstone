@@ -1,5 +1,21 @@
 import { fetchJsonWithRetry } from '../shared/api-shared'
 
+async function readReplacementApiResponse(response: Response, fallbackMessage: string) {
+  const responseText = await response.text()
+  if (responseText) {
+    try {
+      return JSON.parse(responseText)
+    } catch {
+      // Fix: preserve a useful message when a proxy or backend returns non-JSON.
+      return { success: false, error: responseText.trim() || fallbackMessage }
+    }
+  }
+  return {
+    success: response.ok,
+    error: response.ok ? undefined : `${fallbackMessage}${response.status ? ` (${response.status})` : ''}`,
+  }
+}
+
 export function fetchCustomerOrders(page = 1, pageSize = 100) {
   const params = new URLSearchParams({
     page: String(page),
@@ -63,7 +79,7 @@ export async function uploadReplacementEvidence(file: File) {
     credentials: 'include',
     body: formData,
   })
-  const data = await response.json().catch(() => ({}))
+  const data = await readReplacementApiResponse(response, 'Failed to upload replacement evidence')
   return { response, data }
 }
 
@@ -102,7 +118,16 @@ export async function submitCustomerReplacementRequest(body: {
     credentials: 'include',
     body: JSON.stringify(body),
   })
-  const data = await response.json().catch(() => ({}))
+  const data = await readReplacementApiResponse(response, 'Failed to submit replacement request')
+  return { response, data }
+}
+
+export async function cancelCustomerReplacementRequest(replacementId: string) {
+  const response = await fetch(`/api/customer/replacements/${encodeURIComponent(replacementId)}/cancel`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  const data = await readReplacementApiResponse(response, 'Failed to cancel replacement request')
   return { response, data }
 }
 
