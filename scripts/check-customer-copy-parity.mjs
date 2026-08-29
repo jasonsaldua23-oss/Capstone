@@ -41,53 +41,17 @@ const ALLOWED_APP_ONLY = new Set([
   "Decrease quantity",
   "Select all",
   "Starting customer app...", // native splash; the web has no cold-start state
+  "Preparing PDF...", // expo-print export; the web downloads a PNG via html-to-image
+  "Uploading...", // the app uploads to the server; the web file input is instant
 ]);
 
 // Known drift in screens that have not been rebuilt yet, tagged with the phase that
 // closes it. Delete entries as their phase lands; the check fails on anything new, so
 // a finished screen cannot quietly regress. An entry left here after its phase ships
 // is itself a bug — the phase did not finish.
-const PENDING_BY_PHASE = new Map([
-  ["Phase 4 — Orders & Purchase Requests", [
-    "Order details",
-    "Enter your reason",
-  ]],
-  ["Phase 7 — Profile & Address", [
-    "Account & Security",
-    "Address details are managed in the separate Address section.",
-    "bottles/case",
-    "case(s) ·",
-    "Change Photo",
-    "Change your password using the OTP sent to your account email.",
-    "Choose which customer alerts you want to receive.",
-    "Delivery address",
-    "Get notified when your order status changes.",
-    "Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces.",
-    "Receive driver and delivery progress updates.",
-    "Receive important customer system announcements.",
-    "Record eligible returnable containers from products you purchased.",
-    "Update your basic customer information.",
-    "Uploading...",
-  ]],
-  ["Phase 8 — Feedback & Receipt", [
-    "Download or Share Receipt",
-    "Feedback history",
-    "Order feedback",
-    "Order Review",
-    "Preparing PDF...",
-    "Rate delivery, then select at least one required feedback reason.",
-    "Select a delivered order from Orders to open feedback.",
-  ]],
-  // The plan has no phase for the login/register screen; these need one.
-  ["Unscheduled — auth screen", [
-    "Account email",
-    "Already have an account?",
-    "Don't have an account?",
-    "Please wait...",
-    "Verify your email with OTP, then choose a new password.",
-    "Verifying...",
-  ]],
-]);
+//
+// Empty as of Phase 9: every screen has been rebuilt, so any finding is new drift.
+const PENDING_BY_PHASE = new Map([]);
 
 const PENDING = new Map();
 for (const [phase, items] of PENDING_BY_PHASE) {

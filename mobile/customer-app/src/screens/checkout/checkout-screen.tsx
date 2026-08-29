@@ -261,40 +261,67 @@ export function CheckoutScreen() {
         </View>
       )}
 
-      {itemCount > 0 ? (
-        <View style={styles.checkoutActionBar}>
-          {insufficientStockItems.length > 0 ? (
-            <View style={styles.checkoutStockWarning}>
-              <Text style={styles.checkoutStockWarningText}>
-                {insufficientStockItems.length === 1
-                  ? `${insufficientStockItems[0]?.name || "One item"} no longer has enough stock.`
-                  : `${insufficientStockItems.length} items no longer have enough stock.`}{" "}
-                <Text style={styles.checkoutStockWarningLink} onPress={() => setActiveTab("cart")}>
-                  Review your cart
-                </Text>{" "}
-                to continue.
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.checkoutActionRow}>
-            <View style={styles.flex}>
-              <Text style={styles.checkoutActionLabel}>
-                Total ({itemCount} item{itemCount > 1 ? "s" : ""})
-              </Text>
-              <Text style={styles.checkoutActionTotal}>{formatPeso(checkoutTotal)}</Text>
-            </View>
-            <Pressable
-              style={[styles.checkoutPlaceButton, placingOrder || !canPlaceOrder ? styles.disabledButton : null]}
-              onPress={handlePlaceOrder}
-              disabled={placingOrder || !canPlaceOrder}
-              accessibilityRole="button"
-            >
-              {placingOrder ? <ActivityIndicator size="small" color={theme.colors.white} /> : null}
-              <Text style={styles.checkoutPlaceButtonText}>Place order</Text>
-            </Pressable>
-          </View>
+    </View>
+  );
+}
+
+
+// Rendered by the shell outside the shared ScrollView so it stays pinned.
+export function CheckoutActionBar() {
+  const {
+    products,
+    setActiveTab,
+    selectedUnifiedCartItems,
+    checkoutTotal,
+    handlePlaceOrder,
+    placingOrder,
+    deliveryDate,
+  } = useCustomerPortal();
+
+  const itemCount = selectedUnifiedCartItems.length;
+  if (itemCount === 0) return null;
+
+  const minDeliveryDate = localDateInput();
+  const insufficientStockItems = selectedUnifiedCartItems.filter((item) => {
+    if (item.isMixedCase) return false;
+    const product = products.find((entry) => entry.id === item.id);
+    if (!product) return false;
+    return item.quantity > getAvailableQuantity(product);
+  });
+  const canPlaceOrder = itemCount > 0 && insufficientStockItems.length === 0 && deliveryDate >= minDeliveryDate;
+
+  return (
+    <View style={styles.checkoutActionBar}>
+      {insufficientStockItems.length > 0 ? (
+        <View style={styles.checkoutStockWarning}>
+          <Text style={styles.checkoutStockWarningText}>
+            {insufficientStockItems.length === 1
+              ? `${insufficientStockItems[0]?.name || "One item"} no longer has enough stock.`
+              : `${insufficientStockItems.length} items no longer have enough stock.`}{" "}
+            <Text style={styles.checkoutStockWarningLink} onPress={() => setActiveTab("cart")}>
+              Review your cart
+            </Text>{" "}
+            to continue.
+          </Text>
         </View>
       ) : null}
+      <View style={styles.checkoutActionRow}>
+        <View style={styles.flex}>
+          <Text style={styles.checkoutActionLabel}>
+            Total ({itemCount} item{itemCount > 1 ? "s" : ""})
+          </Text>
+          <Text style={styles.checkoutActionTotal}>{formatPeso(checkoutTotal)}</Text>
+        </View>
+        <Pressable
+          style={[styles.checkoutPlaceButton, placingOrder || !canPlaceOrder ? styles.disabledButton : null]}
+          onPress={handlePlaceOrder}
+          disabled={placingOrder || !canPlaceOrder}
+          accessibilityRole="button"
+        >
+          {placingOrder ? <ActivityIndicator size="small" color={theme.colors.white} /> : null}
+          <Text style={styles.checkoutPlaceButtonText}>Place order</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }

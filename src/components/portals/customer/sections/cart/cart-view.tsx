@@ -93,6 +93,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
 
         <Button
           disabled={selectedCount === 0}
+          onClick={() => setActiveView('checkout')}
           className="h-10 rounded-xl bg-emerald-600 px-5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400"
         >
           Check out ({selectedCount})

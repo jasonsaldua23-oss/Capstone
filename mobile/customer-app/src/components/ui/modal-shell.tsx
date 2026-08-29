@@ -13,7 +13,7 @@ export function ModalShell({
 }: {
   visible: boolean;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   onClose: () => void;
   children: React.ReactNode;
 }) {

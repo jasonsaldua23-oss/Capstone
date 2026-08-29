@@ -268,49 +268,68 @@ export function CartScreen() {
         {unifiedCartItems.length === 0 ? <Text style={styles.cartEmptyText}>Your cart is empty.</Text> : null}
       </View>
 
-      {unifiedCartItems.length > 0 ? (
-        <View style={styles.cartCheckoutBar}>
-          <View style={styles.cartCheckoutLeft}>
-            <Pressable
-              style={[styles.cartCheckbox, allCartSelected ? styles.cartCheckboxChecked : null]}
-              onPress={() =>
-                setSelectedCartIds(allCartSelected ? new Set() : new Set(unifiedCartItems.map((item) => item.id)))
-              }
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: allCartSelected }}
-              accessibilityLabel="Select all"
-            >
-              {allCartSelected ? <CheckCircle size={14} color={theme.colors.white} /> : null}
-            </Pressable>
-            <View>
-              <Text style={styles.cartCheckoutAllLabel}>All ({unifiedCartItems.length})</Text>
-              <Text style={styles.cartCheckoutSelected}>{selectedCount} selected</Text>
-            </View>
-          </View>
+    </View>
+  );
+}
 
-          <View style={styles.cartCheckoutRight}>
-            <View style={styles.cartCheckoutTotalWrap}>
-              <Text style={styles.cartCheckoutTotalLabel}>Total</Text>
-              <Text style={styles.cartCheckoutTotalValue}>{formatPeso(selectedSubtotal)}</Text>
-            </View>
-            <Pressable
-              style={[styles.cartCheckoutButton, selectedCount === 0 ? styles.cartCheckoutButtonDisabled : null]}
-              disabled={selectedCount === 0}
-              onPress={() => setActiveTab("checkout")}
-              accessibilityRole="button"
-            >
-              <Text
-                style={[
-                  styles.cartCheckoutButtonText,
-                  selectedCount === 0 ? styles.cartCheckoutButtonTextDisabled : null,
-                ]}
-              >
-                Check out ({selectedCount})
-              </Text>
-            </Pressable>
-          </View>
+
+// Rendered by the shell outside the shared ScrollView so it stays pinned, as the
+// web's `sticky` bar does.
+export function CartActionBar() {
+  const {
+    setActiveTab,
+    unifiedCartItems,
+    selectedCartIds,
+    setSelectedCartIds,
+    selectedSubtotal,
+  } = useCustomerPortal();
+
+  if (unifiedCartItems.length === 0) return null;
+
+  const allCartSelected = unifiedCartItems.every((item) => selectedCartIds.has(item.id));
+  const selectedCount = unifiedCartItems.filter((item) => selectedCartIds.has(item.id)).length;
+
+  return (
+    <View style={styles.cartCheckoutBar}>
+      <View style={styles.cartCheckoutLeft}>
+        <Pressable
+          style={[styles.cartCheckbox, allCartSelected ? styles.cartCheckboxChecked : null]}
+          onPress={() =>
+            setSelectedCartIds(allCartSelected ? new Set() : new Set(unifiedCartItems.map((item) => item.id)))
+          }
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: allCartSelected }}
+          accessibilityLabel="Select all"
+        >
+          {allCartSelected ? <CheckCircle size={14} color={theme.colors.white} /> : null}
+        </Pressable>
+        <View>
+          <Text style={styles.cartCheckoutAllLabel}>All ({unifiedCartItems.length})</Text>
+          <Text style={styles.cartCheckoutSelected}>{selectedCount} selected</Text>
         </View>
-      ) : null}
+      </View>
+
+      <View style={styles.cartCheckoutRight}>
+        <View style={styles.cartCheckoutTotalWrap}>
+          <Text style={styles.cartCheckoutTotalLabel}>Total</Text>
+          <Text style={styles.cartCheckoutTotalValue}>{formatPeso(selectedSubtotal)}</Text>
+        </View>
+        <Pressable
+          style={[styles.cartCheckoutButton, selectedCount === 0 ? styles.cartCheckoutButtonDisabled : null]}
+          disabled={selectedCount === 0}
+          onPress={() => setActiveTab("checkout")}
+          accessibilityRole="button"
+        >
+          <Text
+            style={[
+              styles.cartCheckoutButtonText,
+              selectedCount === 0 ? styles.cartCheckoutButtonTextDisabled : null,
+            ]}
+          >
+            Check out ({selectedCount})
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }

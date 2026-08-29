@@ -860,10 +860,15 @@ function useCustomerPortalState() {
     setSubmittingFeedback(true);
     setError(null);
     try {
+      // Same payload the web builds: type derived from the rating, reasons as a
+      // bullet list, subject naming the order.
+      const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)));
       await submitCustomerFeedback({
         orderId: order.id,
-        rating: deliveryRatingValue,
-        message: selectedFeedbackOptions.join(", "),
+        rating: overallRating,
+        type: overallRating <= 2 ? "COMPLAINT" : overallRating === 3 ? "SUGGESTION" : "COMPLIMENT",
+        subject: `Order Review - ${order.orderNumber}`,
+        message: selectedFeedbackOptions.map((reason) => `- ${reason}`).join("\n"),
       });
       if (user) await refreshData(false, user.userId);
       return true;

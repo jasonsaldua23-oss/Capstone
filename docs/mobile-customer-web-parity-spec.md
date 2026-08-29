@@ -20,14 +20,38 @@ to make before starting.
 
 ### Parity standard
 
-React Native cannot reproduce the DOM/Tailwind layer exactly (no CSS grid, no `backdrop-blur`,
-different shadow and text-metrics models, native pickers instead of `<select>` / `<input type=date>`).
-"1 to 1" is therefore defined as:
+**Revised 2026-08-30, at the user's direction.** The original standard was "identical,
+string-for-string". It is now **structural similarity, with the app free to look better**:
 
-- **Identical** information architecture, screen order, element order, copy, empty/loading/error
-  states, colors, spacing scale, typography scale, iconography, and behavior.
-- **Equivalent** rendering: the same design tokens expressed with native primitives.
-- Any element the web portal does not have MUST be removed from the app, and vice versa.
+- **Structure must match.** Same screens, same sections within a screen, same order, same
+  entry points and navigation model. Every capability the web offers a customer must be
+  reachable in the app.
+- **Behaviour must match.** Status rules, money, deposits, discounts, validation and every
+  submitted payload stay identical — these are shared code, not styling, and a divergence
+  is a bug rather than a design choice.
+- **Copy and visual design may improve.** Wording, spacing, colour and native affordances
+  can differ where the app is genuinely better for a phone. The app may exceed the web.
+- Platform affordances (native pickers, sheets, OS cropper, `tel:` links) are preferred
+  over reproducing a browser workaround.
+
+What this changes in practice: the copy-parity gate is now **advisory**, not a hard
+contract. It still earns its place — it catches accidental divergence, and it found real
+bugs in seven of nine phases — but a deliberate improvement is now a legitimate reason to
+allowlist a string rather than revert it. What must not drift is structure and behaviour.
+
+### Checking structure
+
+`scripts/check-customer-structure.mjs` pairs each web view with the app components that
+render it and reports the sections present on each side. It answers the question the
+revised standard actually asks — *does the app show the same things, in the same order?* —
+and says nothing about styling or exact wording.
+
+Its limits are worth knowing, because two of them produced false findings before being
+fixed: it originally excluded ALL-CAPS headings, and it compared one file to one file when
+the app deliberately splits a web view across several components. Copy that only exists
+inside a function call (`formatDiscountLabel(...)`) is still invisible to it, so a small
+number of "absent" lines are extraction artifacts rather than gaps. Read its output as a
+prompt to check, not as a verdict.
 
 ## 2. Current gap analysis
 
@@ -202,8 +226,8 @@ screens with back affordances, matching the web `activeView` model.
 | **5. Replacements & POD** ✅ **done** | replacement tab, replacement detail, POD display, request/cancel replacement, receive-return; new endpoints | full replacement lifecycle works from the app |
 | **6. Track** ✅ **done** | gradient strip, rescheduled badge, warehouse marker + guards, Delivery Journey, Delivery Details, driver card + call | live-delivery walkthrough matches |
 | **7. Profile & Address** ✅ **done** | avatar crop, 2FA / login alerts / remember device, empties tabs + deposit credit, structured Edit Address page, map pin + current location + service-area check | every profile subview matches |
-| **8. Feedback & Receipt** | rating dialog with stars, feedback list copy, full receipt layout | copy diff clean |
-| **9. Polish** | skeletons everywhere, toast layer, pull-to-refresh, accessibility labels, 44pt targets | audit checklist signed off |
+| **8. Feedback & Receipt** ✅ **done** | rating dialog with stars, feedback list copy, full receipt layout | copy diff clean |
+| **9. Polish** ⚠️ **screenshots outstanding** | skeletons everywhere, toast layer, pull-to-refresh, accessibility labels, 44pt targets | audit checklist signed off |
 
 Phases 1–8 are independently shippable; 0 must land first.
 
@@ -736,6 +760,96 @@ picker and the category sheet. No custom cropper was built.
 **New dependency:** `expo-location`, for `Use Current Location`.
 
 **Verified** — typecheck, 9 tests, copy gate (28 known / 0 new; twelve baseline entries cleared across the phase), `expo export`, web `tsc`.
+
+## 4k. Phase 8 outcome (2026-08-30)
+
+**Rating moved into a dialog, where the web has it.** The app had a whole Feedback *tab*
+for composing a review, with numeric 1–5 buttons. The web reviews an order through a dialog
+opened by `Rate Order` on the order card. That dialog now exists: five tappable stars with
+their `Poor`…`Excellent!` labels, the feedback-option set that changes with the rating,
+`Select at least one feedback option to submit your review.`, and the
+`Your feedback helps us improve our service` confirmation that shows for 1.5s before the
+dialog closes itself.
+
+**The submitted payload was wrong.** The app was sending `{ orderId, rating, message }` with
+the reasons comma-joined. The web sends a `type` derived from the rating
+(`≤2 COMPLAINT`, `3 SUGGESTION`, else `COMPLIMENT`), a `subject` of
+`Order Review - {orderNumber}`, and the reasons as a newline-separated bullet list. The
+app's payload was missing two required fields outright — TypeScript caught it the moment the
+call was pointed at the real signature. Now matched.
+
+**Feedback screen is now a list only**, matching `feedback-view.tsx`: the `Your Feedback`
+card, `Use delivered orders to submit feedback.`, per-item type badges
+(COMPLAINT/SUGGESTION/COMPLIMENT with the web's three colour pairs), star strings, and
+`No feedback submitted yet.`
+
+**Receipt rebuilt** against `receipt-dialog.tsx`: the logo and `Ann Ann's Beverages Trading`
+header, the `ORDER RECEIPT` kicker with its green rule, the `Receipt No.` / `Order No.`
+panel, the `DELIVERY ADDRESS` / `SOLD BY` / `ORDER DETAILS` / `RECIPIENT` / `PHONE` block,
+a `Product / Qty / Unit Price / Amount` table, `Subtotal`, `TOTAL PRICE`, and both closing
+lines. The old five-row `InfoRow` summary is gone.
+
+`Preparing PDF...` joined `ALLOWED_APP_ONLY`: the app exports through `expo-print`, where
+the web downloads a PNG via `html-to-image` — no shared wording exists.
+
+**Verified** — typecheck, 9 tests, copy gate (21 known / 0 new; six baseline entries
+cleared), `expo export`.
+
+## 4l. Phase 9 outcome (2026-08-30)
+
+**Copy parity reached zero.** The baseline in `check-customer-copy-parity.mjs` is now
+empty: every screen has been rebuilt, so any finding is new drift. Re-verified by injecting
+a changed string into the Track screen — the gate exited 1 — then restoring it.
+
+**The cancellation reasons were entirely different lists.** This was the last substantive
+find. The web offers `Changed mind / Wrong product or quantity ordered / Duplicate order /
+Unable to receive delivery / Unable to complete payment / Incorrect delivery address /
+Other reason`, uses `Other reason` as its sentinel, and composes the submitted string as
+`reason; reason; Other reason: {text}`. The app offered `Ordered by mistake / Need to change
+the order / Delivery date is no longer suitable / Found another supplier / Other` and
+joined differently — so **every cancellation submitted from the app carried a reason the web
+has no concept of**. `shared/customer-logic/order-reasons.ts` now holds the list, the
+sentinel and `buildOrderActionReason`; both clients import it.
+
+**Profile modals finished.** Phase 7 rebuilt the profile *menu*, security *toggles* and
+empties *tabs* but left three modal bodies untouched — that is why 15 strings survived it,
+and why marking Phase 7 done was premature. Edit Profile now uses the web's field labels
+(`First Name`, `Middle Name`, `Last Name`, `Suffix`, `Phone Number`, `Email Address`),
+Account Security is titled correctly with the web's `OTP verification is required to change
+password.`, and Notification Settings carries the web's three row descriptions. `ModalShell`
+gained an optional subtitle so modals the web gives no subtitle can omit it.
+
+**Auth screen scheduled and closed.** The login button no longer swaps its label to
+"Please wait..." — it shows a spinner and keeps `Log In` / `Create Account`, as the web
+does. OTP wording is now `Send Verification OTP` / `Verify Code` / `Verifying Code...`,
+matching `otp-verification-modal.tsx`, and the email placeholder is `you@example.com`.
+
+**Dead code removed:** `order-detail-card.tsx`, unreferenced since the detail screens
+replaced it in Phase 4, was still being imported.
+
+**Sticky action bars — done.** The cart and checkout bars are now exported separately
+(`CartActionBar`, `CheckoutActionBar`) and rendered by the shell *outside* the shared
+`ScrollView`, pinned above the bottom nav, as the web's `sticky` bars are. They sit inside
+the animated column rather than `portalBody`, which is a row — the bottom nav escapes that
+row through `position: absolute`, but the bars do not, so placing them there put them beside
+the content instead of below it.
+
+### Still open
+
+- **Screenshots.** AC-1 has never been signed off for any phase. Everything in this document
+  is verified against the web *source*, the copy gate, `tsc`, the unit tests and a successful
+  bundle — never against two rendered screens side by side. The screenshot sweep in §4g found
+  seven defects that all of those checks had passed, so this remains the single largest gap
+  in the verification story.
+
+### An attempted cleanup that was reverted
+
+61 stylesheet entries have gone unused across the rebuild. A scripted prune removed 38 of
+them, but its multi-line pattern over-matched and took `subtle` and `appHeader` with them.
+`tsc` failed immediately, and the stylesheet was restored from backup. The dead entries are
+still there — harmless, but worth removing by hand rather than by regex.
+
+**Verified** — app typecheck, 9 tests, copy gate (0 known / 0 new), `expo export`.
 
 ## 5. Functional requirements
 

@@ -221,6 +221,7 @@ interface StockBatchItem {
   locationLabel: string | null
   inventory: {
     product?: {
+      id?: string
       sku?: string
       name?: string
     }
@@ -707,6 +708,7 @@ export function WarehousePortal() {
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [selectedRejectReasons, setSelectedRejectReasons] = useState<string[]>([])
   const [otherRejectReason, setOtherRejectReason] = useState('')
+  const [orderStatusErrorModal, setOrderStatusErrorModal] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [editName, setEditName] = useState('')
   const [editImageUrl, setEditImageUrl] = useState('')
@@ -4343,12 +4345,10 @@ export function WarehousePortal() {
         const backendError =
           payload?.error ||
           payload?.message ||
-          safeRawError
-        throw new Error(
-          backendError
-            ? `Failed to update status (HTTP ${response.status}): ${backendError}`
-            : `Failed to update status (HTTP ${response.status})`
-        )
+          safeRawError ||
+          'Failed to update order status'
+        setOrderStatusErrorModal(backendError)
+        return false
       }
 
       const updatedOrder = payload?.order || {}
@@ -4362,7 +4362,8 @@ export function WarehousePortal() {
       ])
       return true
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to update order status')
+      const msg = error?.message || 'Failed to update order status'
+      setOrderStatusErrorModal(msg)
       return false
     } finally {
       setUpdatingOrderId(null)
@@ -6559,7 +6560,27 @@ export function WarehousePortal() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
+      <AlertDialog open={!!orderStatusErrorModal} onOpenChange={(open) => !open && setOrderStatusErrorModal(null)}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-rose-600">
+              <AlertTriangle className="h-5 w-5 text-rose-600" />
+              Unable to Process Request
+            </AlertDialogTitle>
+            <AlertDialogDescription className="pt-2 text-sm font-medium text-slate-700">
+              {orderStatusErrorModal}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => setOrderStatusErrorModal(null)}
+              className="bg-slate-900 hover:bg-slate-800 text-white"
+            >
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

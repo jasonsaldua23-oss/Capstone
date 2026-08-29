@@ -1,16 +1,14 @@
 'use client'
 
-export const OTHER_ORDER_REASON = 'Other reason'
-
-export const CUSTOMER_ORDER_REASONS = [
-  'Changed mind',
-  'Wrong product or quantity ordered',
-  'Duplicate order',
-  'Unable to receive delivery',
-  'Unable to complete payment',
-  'Incorrect delivery address',
+// Customer reasons and the composer moved to shared/customer-logic so the Expo
+// customer app offers the same list.
+export {
   OTHER_ORDER_REASON,
-] as const
+  CUSTOMER_ORDER_REASONS,
+  buildOrderActionReason,
+} from '@shared/customer-logic/order-reasons'
+
+import { OTHER_ORDER_REASON } from '@shared/customer-logic/order-reasons'
 
 export const DRIVER_ORDER_REASONS = [
   'Customer unavailable',
@@ -35,18 +33,6 @@ export const WAREHOUSE_ORDER_REASONS = [
   OTHER_ORDER_REASON,
 ] as const
 
-export function buildOrderActionReason(selectedReasons: string[], otherReason: string): string {
-  const reasons = selectedReasons
-    .filter((reason) => reason !== OTHER_ORDER_REASON)
-    .map((reason) => reason.trim())
-    .filter(Boolean)
-
-  // Preserve the custom explanation only when the explicit Other option is selected.
-  if (selectedReasons.includes(OTHER_ORDER_REASON) && otherReason.trim()) {
-    reasons.push(`Other reason: ${otherReason.trim()}`)
-  }
-  return reasons.join('; ')
-}
 
 export function OrderReasonCheckboxes({
   options,

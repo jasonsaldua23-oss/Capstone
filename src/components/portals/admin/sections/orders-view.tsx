@@ -100,6 +100,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   const latestOrderMarkerRef = useRef('')
   const latestOrderUpdatedAtRef = useRef('')
 
+
   // Purchase Requests dedicated state (aligned with Warehouse Staff)
   const [requestSearch, setRequestSearch] = useState('')
   const [requestStatusFilter, setRequestStatusFilter] = useState('all')
@@ -109,6 +110,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   const [actionState, setActionState] = useState<RequestActionState | null>(null)
   const [selectedActionReasons, setSelectedActionReasons] = useState<string[]>([])
   const [otherActionReason, setOtherActionReason] = useState('')
+  const [errorModalMessage, setErrorModalMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setOrderSearchQuery(String(globalSearchQuery || ''))
@@ -813,12 +815,10 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
         const backendError =
           payload?.error ||
           payload?.message ||
-          safeRawError
-        throw new Error(
-          backendError
-            ? `Failed to update status (HTTP ${response.status}): ${backendError}`
-            : `Failed to update status (HTTP ${response.status})`
-        )
+          safeRawError ||
+          'Failed to update order status'
+        setErrorModalMessage(backendError)
+        return false
       }
 
       const updatedOrder = payload?.order
@@ -827,7 +827,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       toast.success('Order status updated')
       return true
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to update order status')
+      const msg = error?.message || 'Failed to update order status'
+      setErrorModalMessage(msg)
       return false
     } finally {
       setUpdatingOrderId(null)
@@ -882,12 +883,10 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     }
     const nextStatus = action === 'approve' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
     const nextReason = action === 'approve' ? undefined : actionReason
-    const success = await updateOrderStatus(order.id, nextStatus as any, nextReason)
-    if (success) {
-      setActionState(null)
-      setSelectedActionReasons([])
-      setOtherActionReason('')
-    }
+    await updateOrderStatus(order.id, nextStatus as any, nextReason)
+    setActionState(null)
+    setSelectedActionReasons([])
+    setOtherActionReason('')
   }
 
   const isRequestActionLoading = Boolean(actionState && updatingOrderId === actionState.order.id)
@@ -1674,6 +1673,27 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
           )}
         </DialogContent>
       </Dialog>
+      <AlertDialog open={!!errorModalMessage} onOpenChange={(open) => !open && setErrorModalMessage(null)}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-rose-600">
+              <AlertTriangle className="h-5 w-5 text-rose-600" />
+              Unable to Process Request
+            </AlertDialogTitle>
+            <AlertDialogDescription className="pt-2 text-sm font-medium text-slate-700">
+              {errorModalMessage}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => setErrorModalMessage(null)}
+              className="bg-slate-900 hover:bg-slate-800 text-white"
+            >
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

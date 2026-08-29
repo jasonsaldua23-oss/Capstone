@@ -34,7 +34,6 @@ import { ConfirmationModal } from "./src/components/ui/confirmation-modal";
 import { InfoRow } from "./src/components/ui/info-row";
 import { MenuRow } from "./src/components/ui/menu-row";
 import { ModalShell } from "./src/components/ui/modal-shell";
-import { OrderDetailCard } from "./src/components/ui/order-detail-card";
 import { SideNavigation } from "./src/components/ui/side-navigation";
 import { StatusBadge } from "./src/components/ui/status-badge";
 import { ToggleRow } from "./src/components/ui/toggle-row";
@@ -57,8 +56,8 @@ import { OrderDetailScreen } from "./src/screens/orders/order-detail-screen";
 import { ReplacementDetailScreen } from "./src/screens/orders/replacement-detail-screen";
 import { PurchaseRequestDetailScreen } from "./src/screens/purchase-requests/request-detail-screen";
 import { HomeScreen } from "./src/screens/home/home-screen";
-import { CartScreen } from "./src/screens/cart/cart-screen";
-import { CheckoutScreen } from "./src/screens/checkout/checkout-screen";
+import { CartScreen, CartActionBar } from "./src/screens/cart/cart-screen";
+import { CheckoutScreen, CheckoutActionBar } from "./src/screens/checkout/checkout-screen";
 import { PurchaseRequestsScreen } from "./src/screens/purchase-requests/requests-screen";
 import { OrdersScreen } from "./src/screens/orders/orders-screen";
 import { TrackScreen } from "./src/screens/track/track-screen";
@@ -314,6 +313,18 @@ function CustomerPortalScreens() {
               </>
             )}
             </ScrollView>
+
+            {/* Pinned above the bottom nav, matching the web's sticky bars. */}
+            {!currentRoute && activeTab === "cart" ? (
+              <View style={isDesktop ? null : styles.pinnedBarOffset}>
+                <CartActionBar />
+              </View>
+            ) : null}
+            {!currentRoute && activeTab === "checkout" ? (
+              <View style={isDesktop ? null : styles.pinnedBarOffset}>
+                <CheckoutActionBar />
+              </View>
+            ) : null}
           </Animated.View>
 
           {!isDesktop ? <BottomNavigation activeId={activeNavId} onSelect={handleNav} /> : null}

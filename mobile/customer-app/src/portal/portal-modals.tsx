@@ -16,6 +16,7 @@ import { ReplacementRequestForm } from "../components/ui/replacement-request-for
 import { StatusSelect } from "../components/ui/status-select";
 import { ConfirmationModal } from "../components/ui/confirmation-modal";
 import { MixedCaseBuilder } from "../components/MixedCaseBuilder";
+import { OTHER_ORDER_REASON } from "../lib/customer-logic";
 import { styles } from "../styles/app-styles";
 import { theme } from "../theme";
 import { useCustomerPortal } from "./portal-context";
@@ -179,37 +180,64 @@ export function PortalModals() {
       <ModalShell
         visible={activeProfileModal === "edit"}
         title="Edit Profile"
-        subtitle="Update your basic customer information."
         onClose={closeProfileModal}
       >
         <View style={styles.avatarEditor}>
           <Image source={{ uri: resolveImageUrl(profileForm.avatar) }} style={styles.profileEditAvatarImage} />
           <Pressable style={styles.secondaryButtonCompact} onPress={handlePickAvatar} disabled={uploadingAvatar}>
-            <Text style={styles.secondaryButtonText}>{uploadingAvatar ? "Uploading..." : "Change Photo"}</Text>
+            <Text style={styles.secondaryButtonText}>{uploadingAvatar ? "Uploading..." : "Change Avatar"}</Text>
           </Pressable>
         </View>
-        <View style={styles.row}>
-          <TextInput style={[styles.input, styles.flexInput]} value={profileForm.firstName || ""} onChangeText={(value) => setProfileForm((current) => ({ ...current, firstName: value }))} placeholder="First name" />
-          <TextInput style={[styles.input, styles.flexInput]} value={profileForm.lastName || ""} onChangeText={(value) => setProfileForm((current) => ({ ...current, lastName: value }))} placeholder="Last name" />
-        </View>
-        <View style={styles.row}>
-          <TextInput style={[styles.input, styles.flexInput]} value={profileForm.middleName || ""} onChangeText={(value) => setProfileForm((current) => ({ ...current, middleName: value }))} placeholder="Middle name" />
-          <TextInput style={[styles.input, styles.shortInput]} value={profileForm.suffix || ""} onChangeText={(value) => setProfileForm((current) => ({ ...current, suffix: value }))} placeholder="Suffix" />
-        </View>
+
+        <Text style={styles.addressFieldLabel}>First Name</Text>
         <TextInput
-          style={styles.input}
-          value={profileForm.name}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, name: value }))}
-          placeholder="Full name"
+          style={styles.addressInput}
+          value={profileForm.firstName || ""}
+          onChangeText={(value) => setProfileForm((current) => ({ ...current, firstName: value }))}
+          placeholder="First name"
+          placeholderTextColor={theme.colors.textFaint}
         />
+        <Text style={styles.addressFieldLabel}>Middle Name</Text>
         <TextInput
-          style={styles.input}
+          style={styles.addressInput}
+          value={profileForm.middleName || ""}
+          onChangeText={(value) => setProfileForm((current) => ({ ...current, middleName: value }))}
+          placeholder="Middle name"
+          placeholderTextColor={theme.colors.textFaint}
+        />
+        <Text style={styles.addressFieldLabel}>Last Name</Text>
+        <TextInput
+          style={styles.addressInput}
+          value={profileForm.lastName || ""}
+          onChangeText={(value) => setProfileForm((current) => ({ ...current, lastName: value }))}
+          placeholder="Last name"
+          placeholderTextColor={theme.colors.textFaint}
+        />
+        <Text style={styles.addressFieldLabel}>Suffix</Text>
+        <TextInput
+          style={styles.addressInput}
+          value={profileForm.suffix || ""}
+          onChangeText={(value) => setProfileForm((current) => ({ ...current, suffix: value }))}
+          placeholder="e.g. Jr., Sr., III"
+          placeholderTextColor={theme.colors.textFaint}
+        />
+        <Text style={styles.addressFieldLabel}>Phone Number</Text>
+        <TextInput
+          style={styles.addressInput}
           value={profileForm.phone}
           onChangeText={(value) => setProfileForm((current) => ({ ...current, phone: value }))}
-          placeholder="Phone"
+          placeholder="09XX XXX XXXX"
+          placeholderTextColor={theme.colors.textFaint}
+          keyboardType="phone-pad"
         />
-        <TextInput style={[styles.input, styles.disabledInput]} value={profile?.email || user?.email || ""} editable={false} placeholder="Email" />
-        <Text style={styles.modalHelpText}>Address details are managed in the separate Address section.</Text>
+        <Text style={styles.addressFieldLabel}>Email Address</Text>
+        <TextInput
+          style={[styles.addressInput, styles.disabledInput]}
+          value={profile?.email || user?.email || ""}
+          editable={false}
+          placeholder="Enter your email"
+          placeholderTextColor={theme.colors.textFaint}
+        />
         <View style={styles.modalActions}>
           <Pressable style={styles.modalGhostButton} onPress={closeProfileModal}>
             <Text style={styles.modalGhostButtonText}>Cancel</Text>
@@ -222,8 +250,8 @@ export function PortalModals() {
 
       <ModalShell
         visible={activeProfileModal === "security"}
-        title="Account & Security"
-        subtitle="Change your password using the OTP sent to your account email."
+        title="Account Security"
+        subtitle="Update your password with OTP verification"
         onClose={closeProfileModal}
       >
         <TextInput style={[styles.input, styles.disabledInput]} value={profile?.email || user?.email || ""} editable={false} placeholder="Email" />
@@ -242,7 +270,7 @@ export function PortalModals() {
           </Pressable>
         </View>
         <Pressable style={styles.modalOutlineButton} onPress={handleVerifyOtp} disabled={verifyingOtp || !securityForm.otp.trim()}>
-          <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying..." : otpVerified ? "OTP Verified" : "Verify OTP"}</Text>
+          <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying Code..." : "Verify Code"}</Text>
         </Pressable>
         <TextInput
           style={styles.input}
@@ -259,7 +287,7 @@ export function PortalModals() {
           secureTextEntry
         />
         <Text style={styles.modalHelpText}>
-          Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces.
+          OTP verification is required to change password.
         </Text>
         <View style={styles.modalActions}>
           <Pressable style={styles.modalGhostButton} onPress={closeProfileModal}>
@@ -320,7 +348,7 @@ export function PortalModals() {
       <ModalShell
         visible={activeProfileModal === "notifications"}
         title="Notifications"
-        subtitle="Choose which customer alerts you want to receive."
+        subtitle="Notification Settings"
         onClose={closeProfileModal}
       >
         <View style={styles.sectionHeadingRow}>
@@ -341,7 +369,7 @@ export function PortalModals() {
         <Text style={styles.sectionTitle}>Notification Settings</Text>
         <ToggleRow
           label="Order Updates"
-          description="Get notified when your order status changes."
+          description="Receive changes to request and order status."
           value={notificationPrefs.orderUpdates}
           onValueChange={(value) =>
             void persistNotificationPreferences({
@@ -352,7 +380,7 @@ export function PortalModals() {
         />
         <ToggleRow
           label="Delivery Updates"
-          description="Receive driver and delivery progress updates."
+          description="Receive delivery and live tracking updates."
           value={notificationPrefs.deliveryUpdates}
           onValueChange={(value) =>
             void persistNotificationPreferences({
@@ -363,7 +391,7 @@ export function PortalModals() {
         />
         <ToggleRow
           label="System Alerts"
-          description="Receive important customer system announcements."
+          description="Receive important customer announcements."
           value={notificationPrefs.systemAlerts}
           onValueChange={(value) =>
             void persistNotificationPreferences({
@@ -377,7 +405,6 @@ export function PortalModals() {
       <ModalShell
         visible={activeProfileModal === "empties"}
         title="Empties & Deposits"
-        subtitle="Record eligible returnable containers from products you purchased."
         onClose={closeProfileModal}
       >
         <EmptiesDeposits />
@@ -438,8 +465,8 @@ export function PortalModals() {
             </Pressable>
           );
         })}
-        {selectedCancellationReasons.includes("Other") ? (
-          <TextInput style={[styles.input, styles.multilineInput]} value={otherCancellationReason} onChangeText={setOtherCancellationReason} multiline placeholder="Enter your reason" />
+        {selectedCancellationReasons.includes(OTHER_ORDER_REASON) ? (
+          <TextInput style={[styles.input, styles.multilineInput]} value={otherCancellationReason} onChangeText={setOtherCancellationReason} multiline placeholder="Type your reason" />
         ) : null}
         <Text style={styles.modalHelpText}>This action cannot be undone.</Text>
         <View style={styles.modalActions}>

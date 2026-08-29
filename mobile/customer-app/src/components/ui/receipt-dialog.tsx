@@ -7,7 +7,7 @@ import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 
 import { formatPeso } from "../../lib/customer-logic";
 import { formatDate, resolveImageUrl } from "../../lib/format";
-import { getOrderItemDisplayName } from "../../lib/shared";
+import { formatDiscountLabel, getEffectiveDiscountPercent, getOrderItemDisplayName } from "../../lib/shared";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
@@ -27,6 +27,7 @@ export function ReceiptDialog() {
         0
       )
   );
+  const orderDiscount = Number((receiptOrder as any).discountDetails?.totalDiscount ?? receiptOrder.discount ?? 0);
   const deliveryLines = [
     receiptOrder.shippingAddress,
     receiptOrder.shippingCity,
@@ -140,6 +141,16 @@ export function ReceiptDialog() {
                 <Text style={styles.receiptSummaryLabel}>Subtotal</Text>
                 <Text style={styles.receiptSummaryLabel}>{formatPeso(orderSubtotal)}</Text>
               </View>
+              {orderDiscount > 0 ? (
+                <View style={styles.receiptSummaryRow}>
+                  <Text style={styles.receiptSummaryLabel}>
+                    {formatDiscountLabel(
+                      formatPeso(orderDiscount),
+                      getEffectiveDiscountPercent(orderSubtotal, orderDiscount)
+                    )}
+                  </Text>
+                </View>
+              ) : null}
               <View style={styles.receiptTotalRow}>
                 <Text style={styles.receiptTotalLabel}>TOTAL PRICE</Text>
                 <Text style={styles.receiptTotalValue}>{formatPeso(Number(receiptOrder.totalAmount || 0))}</Text>

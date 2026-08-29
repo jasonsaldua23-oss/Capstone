@@ -210,7 +210,7 @@ export function HomeScreen() {
                         </View>
                       </View>
 
-                      <Text style={styles.quantityLabel}>Quantity (cases)</Text>
+                      <Text style={styles.quantityLabel}>Quantity ({String(product.unit || "cases")})</Text>
                       <View style={styles.qtyControls}>
                         <Pressable
                           style={styles.qtyButton}

@@ -10,6 +10,8 @@ import { MixedCaseComponents } from "../../components/ui/mixed-case-components";
 import { formatPeso, isOrderCancellable, isOrderTrackable } from "../../lib/customer-logic";
 import { resolveImageUrl } from "../../lib/format";
 import {
+  formatDiscountLabel,
+  getEffectiveDiscountPercent,
   formatCardDateTime,
   formatOrderStatus,
   getOrderItemDisplayName,
@@ -28,6 +30,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
     replacements,
     setPendingCancellationOrder,
     setReceiptOrder,
+    setReplacementOrder,
     handleBuyAgain,
     setSelectedOrderId,
     setActiveTab,
@@ -62,6 +65,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
       )
   );
   const orderTotal = Number(order.totalAmount || 0);
+  const orderDiscount = Number((order as any).discountDetails?.totalDiscount ?? order.discount ?? 0);
   const cancellationReasonText = String(order.cancellationReason || order.notes || "").trim();
   const podUrl = String(order.proofOfDeliveryUrl || "").trim();
   const hasReplacementCase = replacements.some(
@@ -200,6 +204,16 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
             <Text style={styles.checkoutSummaryLabel}>Subtotal</Text>
             <Text style={styles.checkoutSummaryValue}>{formatPeso(orderSubtotal)}</Text>
           </View>
+          {orderDiscount > 0 ? (
+            <View style={styles.detailSummaryRow}>
+              <Text style={styles.checkoutDiscountLine}>
+                {formatDiscountLabel(
+                  formatPeso(orderDiscount),
+                  getEffectiveDiscountPercent(orderSubtotal, orderDiscount)
+                )}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.detailSummaryRow}>
             <Text style={styles.checkoutTotalLabel}>Total</Text>
             <Text style={styles.checkoutSummaryValue}>{formatPeso(orderTotal)}</Text>
@@ -263,6 +277,15 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
               accessibilityRole="button"
             >
               <Text style={styles.listCardOutlineButtonText}>Buy Again</Text>
+            </Pressable>
+          ) : null}
+          {isDelivered && !hasReplacementCase ? (
+            <Pressable
+              style={styles.listCardOutlineButton}
+              onPress={() => setReplacementOrder(order)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.listCardOutlineButtonText}>Request Replacement</Text>
             </Pressable>
           ) : null}
           {isOrderCancellable(order) ? (

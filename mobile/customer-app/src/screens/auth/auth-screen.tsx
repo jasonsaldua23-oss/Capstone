@@ -2,10 +2,11 @@
 // Customer login and registration.
 import React from "react";
 import { Check, Eye, EyeOff, Leaf, Lock, Mail } from "lucide-react-native";
-import { Image, ImageBackground, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, ImageBackground, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { ModalShell } from "../../components/ui/modal-shell";
 import { LinearGradient } from "expo-linear-gradient";
 import { styles } from "../../styles/app-styles";
+import { theme } from "../../theme";
 import { useCustomerPortal } from "../../portal/portal-context";
 
 export function AuthScreen() {
@@ -117,11 +118,11 @@ export function AuthScreen() {
             <View style={styles.inlineActionRow}>
               <TextInput style={[styles.authInput, styles.inlineInput]} value={emailOtp} onChangeText={(value) => setEmailOtp(value.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="6-digit OTP" placeholderTextColor="#8a99b3" />
               <Pressable style={styles.secondaryButtonCompact} onPress={emailVerificationToken ? undefined : handleRequestRegistrationOtp} disabled={sendingEmailOtp || Boolean(emailVerificationToken)}>
-                <Text style={styles.secondaryButtonText}>{emailVerificationToken ? "Verified" : sendingEmailOtp ? "Sending..." : "Send OTP"}</Text>
+                <Text style={styles.secondaryButtonText}>{emailVerificationToken ? "Verified" : sendingEmailOtp ? "Sending..." : "Send Verification OTP"}</Text>
               </Pressable>
               {!emailVerificationToken && emailOtp.length === 6 ? (
                 <Pressable style={styles.secondaryButtonCompact} onPress={handleVerifyRegistrationOtp} disabled={verifyingEmailOtp}>
-                  <Text style={styles.secondaryButtonText}>{verifyingEmailOtp ? "Verifying..." : "Verify"}</Text>
+                  <Text style={styles.secondaryButtonText}>{verifyingEmailOtp ? "Verifying Code..." : "Verify Code"}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -152,7 +153,10 @@ export function AuthScreen() {
           {!!error && <Text style={styles.error}>{error}</Text>}
           <Pressable onPress={authMode === "login" ? handleLogin : handleRegister} disabled={loading}>
             <LinearGradient colors={["#3ca232", "#4aac35"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.authPrimaryButton, loading ? styles.disabledButton : null]}>
-              <Text style={styles.authPrimaryButtonText}>{loading ? "Please wait..." : authMode === "login" ? "Log In" : "Create Account"}</Text>
+              {loading ? <ActivityIndicator size="small" color={theme.colors.white} /> : null}
+              <Text style={styles.authPrimaryButtonText}>
+                {authMode === "login" ? "Log In" : "Create Account"}
+              </Text>
             </LinearGradient>
           </Pressable>
           {authMode === "login" ? (
@@ -190,13 +194,12 @@ export function AuthScreen() {
         <ModalShell
           visible={forgotPasswordVisible}
           title="Reset Password"
-          subtitle="Verify your email with OTP, then choose a new password."
           onClose={() => {
             setForgotPasswordVisible(false);
             resetSecurityState();
           }}
         >
-          <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Account email" />
+          <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="you@example.com" />
           <View style={styles.inlineActionRow}>
             <TextInput
               style={[styles.input, styles.inlineInput]}
@@ -209,11 +212,11 @@ export function AuthScreen() {
               placeholder="6-digit OTP"
             />
             <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
-              <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : "Send OTP"}</Text>
+              <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : otpVerified ? "Resend Verification OTP" : "Send Verification OTP"}</Text>
             </Pressable>
           </View>
           <Pressable style={styles.modalOutlineButton} onPress={handleVerifyOtp} disabled={verifyingOtp || securityForm.otp.length !== 6}>
-            <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying..." : otpVerified ? "OTP Verified" : "Verify OTP"}</Text>
+            <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying Code..." : "Verify Code"}</Text>
           </Pressable>
           <TextInput style={styles.input} value={securityForm.newPassword} onChangeText={(value) => setSecurityForm((current) => ({ ...current, newPassword: value }))} secureTextEntry placeholder="New password" />
           <TextInput style={styles.input} value={securityForm.confirmPassword} onChangeText={(value) => setSecurityForm((current) => ({ ...current, confirmPassword: value }))} secureTextEntry placeholder="Confirm password" />

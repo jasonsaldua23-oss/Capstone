@@ -112,10 +112,8 @@ export function EmptiesDeposits() {
               const cases = Math.max(1, emptyCasesByProductId[item.productId] || 1);
               return (
                 <View key={item.productId} style={styles.emptiesBalanceCard}>
+                  <Text style={styles.emptiesSectionTitle}>Select Purchased Beverage</Text>
                   <Text style={styles.emptiesBalanceName}>{item.productName}</Text>
-                  <Text style={styles.emptiesBalanceMeta}>
-                    Up to {item.availableCasesToReturn} case(s) · {item.containersPerCase} bottles/case
-                  </Text>
                   <Text style={styles.emptiesBalanceMeta}>
                     Number of Cases to Return
                   </Text>

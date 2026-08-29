@@ -244,7 +244,9 @@ export function CustomerHomeView({
                       </div>
 
                       <div className="mt-0.5 pt-0.5">
-                        <p className="mb-1 text-[11px] font-semibold text-slate-700 md:text-xs">Quantity (cases)</p>
+                        <p className="mb-1 text-[11px] font-semibold text-slate-700 md:text-xs">
+                          {`Quantity (${p ? String((p as any).unit || 'cases') : 'cases'})`}
+                        </p>
                         <div className="mb-0.5 flex items-center justify-between rounded-md border border-emerald-100 bg-white px-1 py-0.5">
                           <button
                             type="button"
@@ -265,7 +267,7 @@ export function CustomerHomeView({
                           </button>
                         </div>
                         <div className="relative z-10 mb-0.5 grid grid-cols-4 gap-1">
-                          {['1', '2', '3', '4'].map((qty) => {
+                          {['12', '24', '36', '48'].map((qty) => {
                             const parsed = Number(qty)
                             const isActive = currentQty === parsed
                             const exceedsAvailable = parsed > Math.max(0, Number(availableQty || 0))

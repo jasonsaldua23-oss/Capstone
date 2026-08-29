@@ -102,3 +102,9 @@ export {
   composeShippingAddress,
   type PolygonGeometry,
 } from "../../../../shared/customer-logic/src/service-area.ts";
+
+export {
+  OTHER_ORDER_REASON,
+  CUSTOMER_ORDER_REASONS,
+  buildOrderActionReason,
+} from "../../../../shared/customer-logic/src/order-reasons.ts";

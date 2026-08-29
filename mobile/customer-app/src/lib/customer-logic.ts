@@ -8,14 +8,8 @@ import {
 
 // Re-exported so screens have one import site for shared formatting.
 export { formatPeso, formatOrderStatus, isRescheduledOrder } from "./shared.ts";
-
-export const CUSTOMER_ORDER_REASONS = [
-  "Ordered by mistake",
-  "Need to change the order",
-  "Delivery date is no longer suitable",
-  "Found another supplier",
-  "Other",
-] as const;
+// The customer cancellation reasons live in shared/customer-logic.
+export { CUSTOMER_ORDER_REASONS, OTHER_ORDER_REASON, buildOrderActionReason } from "./shared.ts";
 
 export const REPLACEMENT_REASONS = [
   "Damaged unit",

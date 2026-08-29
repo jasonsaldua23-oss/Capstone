@@ -10,6 +10,8 @@ import { MixedCaseComponents } from "../../components/ui/mixed-case-components";
 import { formatPeso } from "../../lib/customer-logic";
 import { resolveImageUrl } from "../../lib/format";
 import {
+  formatDiscountLabel,
+  getEffectiveDiscountPercent,
   formatCardDateTime,
   getPRStatusText,
   getRequestItemDisplayName,
@@ -57,6 +59,10 @@ export function PurchaseRequestDetailScreen({ orderId }: { orderId: string }) {
   );
   const orderTotal = Number(order.totalAmount || 0);
   const orderNotes = String(order.notes || "").trim();
+  const orderDiscount = Number((order as any).discountDetails?.totalDiscount ?? order.discount ?? 0);
+  const reasonText = String(
+    (order as any).rejectionReason || order.cancellationReason || ""
+  ).trim();
 
   return (
     <View style={styles.detailSection}>
@@ -89,6 +95,20 @@ export function PurchaseRequestDetailScreen({ orderId }: { orderId: string }) {
           </View>
           <Text style={styles.detailStatusCalloutText}>{text.message}</Text>
         </View>
+
+        {status === "REJECTED" || status === "CANCELLED" ? (
+          <View style={styles.detailFailureBanner}>
+            <Text style={styles.detailFailureTitle}>
+              {status === "REJECTED" ? "Rejection Reason" : "Cancellation Reason"}
+            </Text>
+            <Text style={styles.detailFailureText}>
+              {reasonText ||
+                (status === "REJECTED"
+                  ? "Purchase request was rejected."
+                  : "Purchase request was cancelled.")}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.detailInfoCard}>
           <View style={styles.detailInfoHeadRow}>
@@ -151,6 +171,16 @@ export function PurchaseRequestDetailScreen({ orderId }: { orderId: string }) {
             <View style={styles.detailSummaryRow}>
               <Text style={styles.checkoutSummaryLabel}>Returnable-container deposit</Text>
               <Text style={styles.checkoutSummaryValue}>+{formatPeso(orderDeposit)}</Text>
+            </View>
+          ) : null}
+          {orderDiscount > 0 ? (
+            <View style={styles.detailSummaryRow}>
+              <Text style={styles.checkoutDiscountLine}>
+                {formatDiscountLabel(
+                  formatPeso(orderDiscount),
+                  getEffectiveDiscountPercent(orderSubtotal, orderDiscount)
+                )}
+              </Text>
             </View>
           ) : null}
           <View style={styles.detailSummaryRow}>
