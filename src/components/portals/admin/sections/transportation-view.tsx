@@ -45,6 +45,7 @@ import {
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
 } from '@/lib/driver-license-restrictions'
+import { getDriverAssignmentIssue } from '@/lib/driver-eligibility'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -199,10 +200,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     return trips.slice(start, start + tripsPageSize)
   }, [trips, safeTripsPage, tripsPageSize])
 
-  const isDriverAssignable = (driver: any) => {
-    const status = String(driver?.status || '').toUpperCase()
-    return driver?.isActive !== false && status !== 'INACTIVE'
-  }
+  // Added: a driver with an incomplete or invalid license profile cannot be
+  // assigned to a truck, so the problem is caught before a delivery is accepted.
+  const getDriverAssignmentBlocker = (driver: any) => getDriverAssignmentIssue(driver)
+  const isDriverAssignable = (driver: any) => !getDriverAssignmentBlocker(driver)
 
   // Added: drivers already linked to another vehicle stay visible but cannot be selected.
   const getDriverAssignedVehicle = (driverId: string) => vehicles.find((vehicle) => {
@@ -299,8 +300,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
 
     if (vehicleForm.driverId) {
       const selectedDriverRecord = drivers.find((driver) => driver.id === vehicleForm.driverId)
-      if (selectedDriverRecord && !isDriverAssignable(selectedDriverRecord)) {
-        toast.error('Selected driver is inactive and cannot be assigned')
+      const driverBlocker = selectedDriverRecord ? getDriverAssignmentBlocker(selectedDriverRecord) : ''
+      if (driverBlocker) {
+        toast.error(`Selected driver cannot be assigned: ${driverBlocker}.`)
         return
       }
       const existingVehicleWithDriver = getDriverAssignedVehicle(vehicleForm.driverId)
@@ -843,8 +845,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                           <option value="">Unassigned</option>
                           {drivers.map((driver: any) => {
                             const assignedVehicle = getDriverAssignedVehicle(driver.id)
-                            const disabled = !isDriverAssignable(driver) || Boolean(assignedVehicle)
-                            const suffix = !isDriverAssignable(driver) ? ' (Inactive)' : assignedVehicle ? ' (Assigned)' : ''
+                            const blocker = getDriverAssignmentBlocker(driver)
+                            const disabled = Boolean(blocker) || Boolean(assignedVehicle)
+                            const suffix = blocker ? ` (${blocker})` : assignedVehicle ? ' (Assigned)' : ''
                             return (
                               <option key={driver.id} value={driver.id} disabled={disabled}>
                                 {(driver.user?.name || driver.name || driver.email || driver.id) + suffix}

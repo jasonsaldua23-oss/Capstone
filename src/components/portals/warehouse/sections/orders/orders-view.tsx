@@ -29,6 +29,18 @@ function formatStage(value: string) {
   return String(value || 'APPROVED').replace(/_/g, ' ')
 }
 
+// Added: staff need the customer's scheduled delivery date on the PO itself.
+function formatScheduledDelivery(order: any): string {
+  const raw = String(order?.deliveryDate || order?.timeline?.deliveryDate || '').trim()
+  if (!raw) return 'Not scheduled'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const dateOnly = new Date(`${raw}T00:00:00`)
+    return Number.isNaN(dateOnly.getTime()) ? raw : dateOnly.toLocaleDateString()
+  }
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString()
+}
+
 // Keep long database IDs readable in the table while exposing the full value on hover.
 function formatTransactionId(value: unknown): string {
   const id = String(value || '').trim()
@@ -243,7 +255,7 @@ export function WarehouseOrdersView({
             </div>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="min-w-[980px] w-full">
+              <table className="min-w-[1100px] w-full">
                 <thead className="bg-slate-50 text-left text-sm text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Purchase Order ID</th>
@@ -251,6 +263,7 @@ export function WarehouseOrdersView({
                     <th className="px-4 py-3 font-semibold">Customer Name</th>
                     <th className="px-4 py-3 font-semibold">Products</th>
                     <th className="px-4 py-3 font-semibold">Quantity Ordered</th>
+                    <th className="px-4 py-3 font-semibold">Delivery Date</th>
                     <th className="px-4 py-3 font-semibold">Total Amount</th>
                     <th className="px-4 py-3 font-semibold">Order Status</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
@@ -312,6 +325,7 @@ export function WarehouseOrdersView({
                               <td className="px-4 py-3">{item ? Number(item?.quantity || 0) : 0}</td>
                               {index === 0 ? (
                                 <>
+                                  <td rowSpan={displayItems.length} className="px-4 py-3 whitespace-nowrap text-slate-700">{formatScheduledDelivery(order)}</td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3">
                                     <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>

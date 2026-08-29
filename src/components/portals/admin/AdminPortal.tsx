@@ -433,8 +433,6 @@ export function AdminPortal() {
   const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
   const [inventoryMenuExpanded, setInventoryMenuExpanded] = useState(true)
   const [ordersMenuExpanded, setOrdersMenuExpanded] = useState(true)
-  const [adminOrders, setAdminOrders] = useState<any[]>([])
-  const [adminOrdersLoading, setAdminOrdersLoading] = useState(false)
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [notifications, setNotifications] = useState<PortalNotification[]>([])
@@ -447,27 +445,6 @@ export function AdminPortal() {
     focusKey: number
   } | null>(null)
   const [warehouseReady, setWarehouseReady] = useState<boolean | null>(null)
-
-  const fetchAdminOrders = useCallback(async () => {
-    setAdminOrdersLoading(true)
-    try {
-      const res = await fetch('/api/orders?pageSize=500&includeItems=full', { cache: 'no-store' })
-      const payload = await res.json().catch(() => ({}))
-      if (res.ok) {
-        setAdminOrders(getCollection<any>(payload, ['orders']))
-      }
-    } catch {
-      // ignore
-    } finally {
-      setAdminOrdersLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (inventorySubView === 'empties' && adminOrders.length === 0) {
-      void fetchAdminOrders()
-    }
-  }, [inventorySubView, adminOrders.length, fetchAdminOrders])
 
   useEffect(() => {
     let cancelled = false
@@ -1163,18 +1140,7 @@ export function AdminPortal() {
               <StocksView />
             </TabsContent>
             <TabsContent value="empties" className="mt-0">
-              <WarehouseEmptyBottlesView
-                orders={adminOrders}
-                formatPeso={(val) =>
-                  new Intl.NumberFormat('en-PH', {
-                    style: 'currency',
-                    currency: 'PHP',
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }).format(val || 0)
-                }
-                loadingOrders={adminOrdersLoading}
-              />
+              <WarehouseEmptyBottlesView />
             </TabsContent>
           </Tabs>
         )
@@ -1265,7 +1231,12 @@ export function AdminPortal() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-white/45 hover:text-slate-950">
                     <Bell className="h-5 w-5" />
-                    {unreadFilteredNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>}
+                    {unreadFilteredNotifications > 0 && (
+                      // Changed: show the unread total instead of a status-only dot.
+                      <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white">
+                        {unreadFilteredNotifications > 9 ? '9+' : unreadFilteredNotifications}
+                      </span>
+                    )}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-[min(26rem,calc(100vw-1rem))] p-0">

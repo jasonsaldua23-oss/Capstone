@@ -8,6 +8,7 @@ import {
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
 } from '@/lib/driver-license-restrictions'
+import { getDriverAssignmentIssue } from '@/lib/driver-eligibility'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -98,10 +99,10 @@ export function DriversView() {
     { id: 'no-spaces', label: 'No spaces', met: hasDriverPassword && !/\s/.test(driverForm.password) },
   ]
 
-  const isDriverAssignable = (driver: any) => {
-    const status = String(driver?.status || '').toUpperCase()
-    return driver?.isActive !== false && status !== 'INACTIVE'
-  }
+  // Added: block vehicle assignment while the driver's license profile is
+  // incomplete or invalid, not just when the account is inactive.
+  const getDriverAssignmentBlocker = (driver: any) => getDriverAssignmentIssue(driver)
+  const isDriverAssignable = (driver: any) => !getDriverAssignmentBlocker(driver)
 
   const isVehicleAssignable = (vehicle: any) => {
     const status = String(vehicle?.status || '').toUpperCase()
@@ -263,8 +264,9 @@ export function DriversView() {
       return
     }
 
-    if (!isDriverAssignable(assignDriver)) {
-      toast.error('Selected driver is inactive and cannot be assigned')
+    const driverBlocker = getDriverAssignmentBlocker(assignDriver)
+    if (driverBlocker) {
+      toast.error(`Selected driver cannot be assigned: ${driverBlocker}.`)
       return
     }
 
@@ -368,15 +370,15 @@ export function DriversView() {
                   <Button
                     variant="outline"
                     size="sm"
-                    title={!isDriverAssignable(driver) ? 'Inactive driver cannot be assigned' : 'Assign vehicle'}
+                    title={getDriverAssignmentBlocker(driver) ? `Cannot assign: ${getDriverAssignmentBlocker(driver)}` : 'Assign vehicle'}
                     disabled={!isDriverAssignable(driver)}
                     onClick={() => { setAssignDriver(driver); setAssignVehicleId('') }}
                   >
                     Assign
                   </Button>
                 </div>
-                {!isDriverAssignable(driver) ? (
-                  <p className="mt-2 text-xs text-amber-600">Inactive driver cannot be assigned.</p>
+                {getDriverAssignmentBlocker(driver) ? (
+                  <p className="mt-2 text-xs text-amber-600">Cannot be assigned: {getDriverAssignmentBlocker(driver)}.</p>
                 ) : null}
               </CardContent>
             </Card>

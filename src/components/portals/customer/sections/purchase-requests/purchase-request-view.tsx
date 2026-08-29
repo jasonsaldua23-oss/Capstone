@@ -11,6 +11,7 @@ import {
   MapPin,
   Package2,
   Search,
+  Truck,
   XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -281,6 +282,8 @@ export function CustomerPurchaseRequestView(props: any) {
             const rawId = String(o.purchaseRequestNumber || o.orderNumber || '').trim()
             const displayId = rawId.startsWith('PR-') ? rawId : (rawId.startsWith('PO-') ? `PR-${rawId.slice(3)}` : (rawId || 'PR'))
             const submittedDt = formatDateTime(o.createdAt)
+            // Added: customers need to see when their order is scheduled for delivery.
+            const scheduledDeliveryDt = formatDateTime(o.deliveryDate || (o as any)?.timeline?.deliveryDate)
             const orderItems = Array.isArray(o.items) ? o.items : []
             const depositTotal = orderItems.reduce(
               (sum: number, item: any) => sum + Math.max(0, Number(item?.netDeposit ?? item?.depositTotal ?? item?.depositCharged ?? 0)),
@@ -315,6 +318,16 @@ export function CustomerPurchaseRequestView(props: any) {
                       <CalendarDays className="h-4 w-4 text-slate-400" />
                       Submitted on {submittedDt.date}
                       {submittedDt.time ? ` · ${submittedDt.time}` : ''}
+                    </p>
+
+                    <p className="flex items-center gap-1.5 text-xs text-slate-700">
+                      <Truck className="h-4 w-4 text-emerald-600" />
+                      <span>
+                        Scheduled delivery:{' '}
+                        <span className="font-semibold text-slate-900">
+                          {scheduledDeliveryDt.date === 'N/A' ? 'Not scheduled' : scheduledDeliveryDt.date}
+                        </span>
+                      </span>
                     </p>
 
                     <div className="flex items-start gap-1.5 text-xs text-slate-700">

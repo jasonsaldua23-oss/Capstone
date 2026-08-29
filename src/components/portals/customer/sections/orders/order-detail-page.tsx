@@ -8,6 +8,7 @@ import {
   Loader2,
   MapPin,
   Package,
+  Truck,
   Upload,
   Wallet,
 } from 'lucide-react'
@@ -298,6 +299,16 @@ export function CustomerOrderDetailPage(props: any) {
     return { date: 'N/A', time: 'N/A' }
   }
 
+  // Added: the scheduled delivery date is distinct from the ordered/delivered
+  // date above, and the customer needs to see it on the purchase order.
+  const scheduledDeliveryLabel = (() => {
+    const raw = String(order?.deliveryDate || (order as any)?.timeline?.deliveryDate || '').trim()
+    if (!raw) return ''
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00`) : new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  })()
+
   const dt = getOrderDisplayDateTime(order)
   const podUrl = getPodUrl(order)
 
@@ -356,6 +367,13 @@ export function CustomerOrderDetailPage(props: any) {
                 {isCancelled ? 'Cancelled on ' : isRejected ? 'Rejected on ' : isDelivered ? 'Delivered on ' : 'Ordered on '}
                 {dt.date}
                 {dt.time !== 'N/A' ? ` | ${dt.time}` : ''}
+              </p>
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-700 md:text-sm">
+                <Truck className="h-3.5 w-3.5 text-emerald-600 md:h-4 md:w-4" />
+                Scheduled delivery:{' '}
+                <span className="font-semibold text-slate-900">
+                  {scheduledDeliveryLabel || 'Not scheduled'}
+                </span>
               </p>
             </div>
           </div>

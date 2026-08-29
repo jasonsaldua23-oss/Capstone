@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, CheckCircle, Minus, Pencil, Plus, Recycle, MapPin } from 'lucide-react'
+import { ArrowLeft, CheckCircle, Minus, Pencil, Plus, Recycle, MapPin, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
@@ -19,6 +19,8 @@ type CustomerCartViewProps = {
   setSelectedCartIds: (updater: any) => void
   getProductImage: (imageUrl?: string | null) => string
   updateCartQty: (productId: string, qty: number) => void
+  removeFromCart: (productId: string) => void
+  removeSelectedFromCart: () => void
   allCartSelected: boolean
   selectedCount: number
   selectedSubtotal: number
@@ -38,6 +40,8 @@ export function CustomerCartView(props: CustomerCartViewProps) {
     setSelectedCartIds,
     getProductImage,
     updateCartQty,
+    removeFromCart,
+    removeSelectedFromCart,
     allCartSelected,
     selectedCount,
     selectedSubtotal,
@@ -76,6 +80,18 @@ export function CustomerCartView(props: CustomerCartViewProps) {
           <p className="text-xs font-semibold text-slate-800">All ({cart.length})</p>
           <p className="text-[10px] text-slate-500">{selectedCount} selected</p>
         </div>
+        {selectedCount > 0 ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 rounded-xl px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            onClick={removeSelectedFromCart}
+            title="Remove selected items"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-3">
@@ -218,25 +234,39 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                         {formatPeso(item.unitPrice)}
                       </p>
 
-                      <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-2xs">
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-2xs">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6.5 w-6.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900"
+                            onClick={() => updateCartQty(item.productId, item.quantity - 1)}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="min-w-[1.8rem] text-center text-xs font-bold text-slate-900">
+                            {item.quantity}
+                          </span>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6.5 w-6.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900"
+                            onClick={() => updateCartQty(item.productId, item.quantity + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        {/* Added: explicit per-item remove, so customers are not forced
+                            to step the quantity down to clear a line. */}
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-6.5 w-6.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900"
-                          onClick={() => updateCartQty(item.productId, item.quantity - 1)}
+                          className="h-7 w-7 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          onClick={() => removeFromCart(item.productId)}
+                          title="Remove from cart"
+                          aria-label={`Remove ${item.itemType === 'MIXED_CASE' ? 'mixed case' : item.name} from cart`}
                         >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="min-w-[1.8rem] text-center text-xs font-bold text-slate-900">
-                          {item.quantity}
-                        </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6.5 w-6.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900"
-                          onClick={() => updateCartQty(item.productId, item.quantity + 1)}
-                        >
-                          <Plus className="h-3 w-3" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>

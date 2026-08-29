@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
-import { isValidPhilippineDriverLicense } from '@/lib/driver-license-restrictions'
+import { getDriverProfileCompletenessIssue as getDriverProfileIssue } from '@/lib/driver-eligibility'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -121,23 +121,7 @@ export function TripsView() {
     toArray<any>(driver?.vehicles)
       .map((entry) => entry?.vehicle)
       .find((vehicle) => vehicle?.id)
-  const getDriverProfileCompletenessIssue = (driver: any) => {
-    if (!driver) return 'Driver not found'
-    const phone = String(driver?.phone || driver?.user?.phone || '').trim()
-    const licenseNumber = String(driver?.licenseNumber || driver?.license_number || '').trim()
-    const licenseType = String(driver?.licenseType || driver?.license_type || '').trim()
-    const licenseExpiry = String(driver?.licenseExpiry || driver?.license_expiry || '').trim()
-    if (!phone || !licenseNumber || !licenseType || !licenseExpiry) {
-      return 'Incomplete driver license profile'
-    }
-    if (!isValidPhilippineDriverLicense(licenseNumber)) {
-      return 'Invalid driver license format (LTO: X00-00-000000)'
-    }
-    if (licenseExpiry && licenseExpiry < new Date().toISOString().slice(0, 10)) {
-      return 'Driver license has expired'
-    }
-    return ''
-  }
+  const getDriverProfileCompletenessIssue = (driver: any) => getDriverProfileIssue(driver)
   const isDriverSelectableForTrip = (driver: any) => {
     if (!driver || driver?.isActive === false) return false
     if (getDriverProfileCompletenessIssue(driver)) return false

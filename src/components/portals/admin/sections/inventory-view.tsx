@@ -434,8 +434,11 @@ export function InventoryView() {
     setEditSize(Array.isArray(item.product?.sizes) ? String(item.product.sizes[0] || '').trim() : '')
     setEditQuantityPerUnit(String(item.product?.quantityPerUnit ?? item.product?.quantity_per_unit ?? ''))
     setEditPrice(String(item.product?.price ?? 0))
-    setEditBottleDeposit(item.product?.bottleDeposit != null ? String(item.product.bottleDeposit) : '')
-    setEditCaseDeposit(item.product?.caseDeposit != null ? String(item.product.caseDeposit) : '')
+    // The API reports stored deposits as depositAmount / caseDepositAmount.
+    const storedBottleDeposit = item.product?.depositAmount ?? item.product?.bottleDeposit
+    const storedCaseDeposit = item.product?.caseDepositAmount ?? item.product?.caseDeposit
+    setEditBottleDeposit(Number(storedBottleDeposit) > 0 ? String(storedBottleDeposit) : '')
+    setEditCaseDeposit(Number(storedCaseDeposit) > 0 ? String(storedCaseDeposit) : '')
     setEditImageFile(null)
   }
 
@@ -469,8 +472,12 @@ export function InventoryView() {
           price: nextPrice,
           retailUnitPrice: nextQuantityPerUnit > 0 ? Number((nextPrice / nextQuantityPerUnit).toFixed(2)) : nextPrice,
           casePrice: nextPrice,
-          bottleDeposit: editBottleDeposit !== '' ? Number(editBottleDeposit) : (editingGlassDeposit?.bottle ?? null),
-          caseDeposit: editCaseDeposit !== '' ? Number(editCaseDeposit) : (editingGlassDeposit?.case ?? null),
+          bottleDeposit: !editingCategorySpec?.depositAllowed
+            ? null
+            : editBottleDeposit !== '' ? Number(editBottleDeposit) : (editingGlassDeposit?.bottle ?? null),
+          caseDeposit: !editingCategorySpec?.depositAllowed
+            ? null
+            : editCaseDeposit !== '' ? Number(editCaseDeposit) : (editingGlassDeposit?.case ?? null),
         }),
       })
       const productPayload = await productResponse.json().catch(() => ({}))
@@ -557,8 +564,12 @@ export function InventoryView() {
           price: nextPrice,
           retailUnitPrice: nextQuantityPerUnit > 0 ? Number((nextPrice / nextQuantityPerUnit).toFixed(2)) : nextPrice,
           casePrice: nextPrice,
-          bottleDeposit: productBottleDeposit !== '' ? Number(productBottleDeposit) : (selectedGlassDeposit?.bottle ?? null),
-          caseDeposit: productCaseDeposit !== '' ? Number(productCaseDeposit) : (selectedGlassDeposit?.case ?? null),
+          bottleDeposit: !selectedCategorySpec?.depositAllowed
+            ? null
+            : productBottleDeposit !== '' ? Number(productBottleDeposit) : (selectedGlassDeposit?.bottle ?? null),
+          caseDeposit: !selectedCategorySpec?.depositAllowed
+            ? null
+            : productCaseDeposit !== '' ? Number(productCaseDeposit) : (selectedGlassDeposit?.case ?? null),
           warehouseId: productWarehouseId || warehouses[0]?.id,
           sizes: productSizes,
           imageUrl: uploadedImageUrl,
@@ -745,7 +756,14 @@ export function InventoryView() {
                       aria-label="Product category"
                       className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       value={editCategory}
-                      onChange={(event) => setEditCategory(event.target.value)}
+                      onChange={(event) => {
+                        const nextCategory = event.target.value
+                        setEditCategory(nextCategory)
+                        if (!getBeverageCategorySpec(nextCategory)?.depositAllowed) {
+                          setEditBottleDeposit('')
+                          setEditCaseDeposit('')
+                        }
+                      }}
                     >
                       <option value="">Select a category</option>
                       {BEVERAGE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -802,32 +820,38 @@ export function InventoryView() {
                       ))}
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                    <div className="space-y-1">
-                      <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={editBottleDeposit}
-                        onChange={(e) => setEditBottleDeposit(e.target.value)}
-                        placeholder={editingGlassDeposit ? editingGlassDeposit.bottle.toFixed(2) : '0.00'}
-                        className="bg-white"
-                      />
+                  {editingCategorySpec?.depositAllowed ? (
+                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editBottleDeposit}
+                          onChange={(e) => setEditBottleDeposit(e.target.value)}
+                          placeholder={editingGlassDeposit ? editingGlassDeposit.bottle.toFixed(2) : '0.00'}
+                          className="bg-white"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editCaseDeposit}
+                          onChange={(e) => setEditCaseDeposit(e.target.value)}
+                          placeholder={editingGlassDeposit ? editingGlassDeposit.case.toFixed(2) : '0.00'}
+                          className="bg-white"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={editCaseDeposit}
-                        onChange={(e) => setEditCaseDeposit(e.target.value)}
-                        placeholder={editingGlassDeposit ? editingGlassDeposit.case.toFixed(2) : '0.00'}
-                        className="bg-white"
-                      />
-                    </div>
-                  </div>
+                  ) : (
+                    <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                      Container deposits do not apply to {editingCategorySpec.category}.
+                    </p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2 flex gap-3 pt-3 border-t">
@@ -912,7 +936,16 @@ export function InventoryView() {
                   aria-label="Product category"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={productCategory}
-                  onChange={(e) => setProductCategory(e.target.value)}
+                  onChange={(e) => {
+                    const nextCategory = e.target.value
+                    setProductCategory(nextCategory)
+                    // Drop any deposit typed under a returnable category so it is
+                    // not carried into a category that has no deposit.
+                    if (!getBeverageCategorySpec(nextCategory)?.depositAllowed) {
+                      setProductBottleDeposit('')
+                      setProductCaseDeposit('')
+                    }
+                  }}
                 >
                   <option value="">Select a category</option>
                   {BEVERAGE_CATEGORIES.map((category) => (
@@ -1008,33 +1041,41 @@ export function InventoryView() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-emerald-900">Deposit / Bottle (PHP)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={productBottleDeposit}
-                    onChange={(e) => setProductBottleDeposit(e.target.value)}
-                    placeholder={selectedGlassDeposit ? selectedGlassDeposit.bottle.toFixed(2) : '0.00'}
-                    className="bg-white"
-                  />
+              {/* Container deposits only apply to returnable (glass) categories;
+                  every other category has nothing to deposit against. */}
+              {selectedCategorySpec?.depositAllowed ? (
+                <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-emerald-900">Deposit / Bottle (PHP)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={productBottleDeposit}
+                      onChange={(e) => setProductBottleDeposit(e.target.value)}
+                      placeholder={selectedGlassDeposit ? selectedGlassDeposit.bottle.toFixed(2) : '0.00'}
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-emerald-900">Deposit / Case (PHP)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={productCaseDeposit}
+                      onChange={(e) => setProductCaseDeposit(e.target.value)}
+                      placeholder={selectedGlassDeposit ? selectedGlassDeposit.case.toFixed(2) : '0.00'}
+                      className="bg-white"
+                    />
+                  </div>
+                  <p className="col-span-2 text-xs text-emerald-800">Enter custom deposit amounts or leave blank to use defaults.</p>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-emerald-900">Deposit / Case (PHP)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={productCaseDeposit}
-                    onChange={(e) => setProductCaseDeposit(e.target.value)}
-                    placeholder={selectedGlassDeposit ? selectedGlassDeposit.case.toFixed(2) : '0.00'}
-                    className="bg-white"
-                  />
-                </div>
-                <p className="col-span-2 text-xs text-emerald-800">Enter custom deposit amounts or leave blank to use defaults.</p>
-              </div>
+              ) : productCategory ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  Container deposits do not apply to {selectedCategorySpec.category}.
+                </p>
+              ) : null}
             </div>
 
             {/* Bottom Actions spanning full width */}

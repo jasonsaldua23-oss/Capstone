@@ -10,6 +10,7 @@ import re
 import secrets
 from html import escape
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
+from .beverage_categories import category_spec
 from .auth import (
     REMEMBER_ME_EXP_HOURS,
     TOKEN_EXP_HOURS,
@@ -382,6 +384,31 @@ def _validate_philippine_driver_license(value: Any) -> tuple[str | None, str | N
     if not PHILIPPINE_DRIVER_LICENSE_REGEX.match(raw):
         return None, "Driver's license number must follow the format X00-00-000000 (e.g. D09-22-000984)."
     return raw, None
+
+
+def _driver_assignment_blocker(driver: User) -> str | None:
+    """Reason a driver cannot be assigned to a vehicle, or None when assignable.
+
+    Mirrors src/lib/driver-eligibility.ts so an incomplete or invalid license
+    profile is rejected server-side too, not just hidden in the UI.
+    """
+    if driver is None:
+        return "Driver not found"
+    if getattr(driver, "is_active", True) is False:
+        return "Driver account is inactive"
+    phone = str(getattr(driver, "phone", "") or "").strip()
+    license_number = str(getattr(driver, "license_number", "") or "").strip().upper()
+    license_type = str(getattr(driver, "license_type", "") or "").strip().upper()
+    license_expiry = getattr(driver, "license_expiry", None)
+    if not phone or not license_number or not license_type or not license_expiry:
+        return "Driver profile is incomplete (phone, license number, restriction and expiry are required)"
+    if not PHILIPPINE_DRIVER_LICENSE_REGEX.match(license_number):
+        return "Driver's license number must follow the format X00-00-000000 (e.g. D09-22-000984)."
+    if license_type not in DRIVER_RESTRICTIONS:
+        return "Driver's license restriction must be one of: A, A1, B, B1, B2, C, D, BE, CE"
+    if timezone.localtime(license_expiry).date() < timezone.localdate():
+        return "Driver's license has expired"
+    return None
 
 
 def _validate_future_license_expiry(value: Any) -> tuple[datetime | None, str | None]:
@@ -5787,9 +5814,12 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 reference_id=prod.id,
             )
 
-            # Create or update packaging / deposit if specified
-            bottle_deposit = float(body.get("bottleDeposit") or body.get("depositAmount") or 0)
-            case_deposit = float(body.get("caseDeposit") or body.get("caseDepositAmount") or 0)
+            # Create or update packaging / deposit if specified.
+            # Container deposits only exist for returnable (glass) categories, so
+            # ignore any amounts sent for a category that does not allow them.
+            deposit_allowed = bool((category_spec(category_value) or {}).get("depositAllowed"))
+            bottle_deposit = float(body.get("bottleDeposit") or body.get("depositAmount") or 0) if deposit_allowed else 0.0
+            case_deposit = float(body.get("caseDeposit") or body.get("caseDepositAmount") or 0) if deposit_allowed else 0.0
             if bottle_deposit > 0 or case_deposit > 0 or _is_returnable_product(prod):
                 pkg_obj, ct_obj = _get_or_create_product_packaging(prod)
                 if bottle_deposit > 0:
@@ -5908,6 +5938,37 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
     if "isActive" in body:
         prod.is_active = bool(body.get("isActive"))
     prod.save()
+
+    # Deposits are evaluated against the category the product now has, so moving a
+    # product off a returnable (glass) category clears any deposit it carried.
+    if "bottleDeposit" in body or "caseDeposit" in body:
+        bottle_deposit, bottle_error = _coerce_deposit_amount(body.get("bottleDeposit"))
+        if bottle_error:
+            return _err(bottle_error, 400)
+        case_deposit, case_error = _coerce_deposit_amount(body.get("caseDeposit"))
+        if case_error:
+            return _err(case_error, 400)
+        deposit_allowed = bool((category_spec(prod.category) or {}).get("depositAllowed"))
+        if not deposit_allowed:
+            # Zero the stored amounts rather than tearing down packaging records,
+            # which historical orders and bottle balances still reference.
+            ProductPackaging.objects.filter(product=prod, is_active=True).update(
+                deposit_amount=Decimal("0.00"), case_deposit_amount=Decimal("0.00")
+            )
+        elif bottle_deposit is not None or case_deposit is not None:
+            pkg_obj, ct_obj = _get_or_create_product_packaging(prod)
+            updated_fields: list[str] = []
+            if bottle_deposit is not None:
+                pkg_obj.deposit_amount = Decimal(str(bottle_deposit))
+                ct_obj.deposit_amount = Decimal(str(bottle_deposit))
+                ct_obj.save(update_fields=["deposit_amount"])
+                updated_fields.append("deposit_amount")
+            if case_deposit is not None:
+                pkg_obj.case_deposit_amount = Decimal(str(case_deposit))
+                updated_fields.append("case_deposit_amount")
+            if updated_fields:
+                pkg_obj.save(update_fields=updated_fields)
+
     actor_name = str(p.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
         title="Product updated",
@@ -5964,12 +6025,25 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             qs = qs.filter(warehouse_id=requested_warehouse_id)
         total = qs.count()
         rows = list(qs[off : off + size])
+        # Current container deposits live on ProductPackaging; fetch the page's
+        # packagings in one query so the edit form can show what is stored today.
+        deposits_by_product = {
+            pkg.product_id: pkg
+            for pkg in ProductPackaging.objects.filter(
+                product_id__in=[item.product_id for item in rows if item.product_id],
+                is_active=True,
+            )
+        }
         data = []
         for item in rows:
             row = _serialize_model(
                 item,
                 include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)},
             )
+            pkg = deposits_by_product.get(item.product_id)
+            if isinstance(row.get("product"), dict):
+                row["product"]["depositAmount"] = float(pkg.deposit_amount or 0) if pkg else 0.0
+                row["product"]["caseDepositAmount"] = float(pkg.case_deposit_amount or 0) if pkg else 0.0
             row["overstockedFlag"] = _is_inventory_overstocked_flagged_by_stockin(item)
             data.append(row)
         return _ok({"success": True, "inventory": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
@@ -6036,6 +6110,57 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
             setattr(item, attr, _int(body.get(key), getattr(item, attr)))
     item.save()
     return _ok({"success": True, "inventory": _serialize_model(item, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)})})
+
+
+@require_GET
+def empty_case_inventory(request: HttpRequest) -> JsonResponse:
+    """Return current product-specific empty stock, excluding customer reservations and history rows."""
+    staff, err = _require_staff(request)
+    if err:
+        return err
+
+    qs = (
+        Inventory.objects.select_related("warehouse", "product")
+        .filter(product__packaging_options__is_active=True, product__packaging_options__is_returnable=True)
+        .filter(product__in=_real_products(Product.objects.all()))
+        .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
+        .distinct()
+        .order_by("product__name", "warehouse__name")
+    )
+    staff_role = str(staff.get("role") or "").strip().upper()
+    staff_user_id = str(staff.get("userId") or "").strip()
+    allowed_warehouse_ids: set[str] | None = None
+    if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+        allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(staff_user_id)
+        if not allowed_warehouse_ids:
+            return _ok({"success": True, "emptyCaseInventory": []})
+        qs = qs.filter(warehouse_id__in=allowed_warehouse_ids)
+
+    requested_warehouse_id = str(request.GET.get("warehouseId") or "").strip()
+    if requested_warehouse_id:
+        if allowed_warehouse_ids is not None and requested_warehouse_id not in allowed_warehouse_ids:
+            return _err("Forbidden", 403)
+        qs = qs.filter(warehouse_id=requested_warehouse_id)
+
+    from .deposit_lifecycle import get_product_empty_case_balance
+
+    rows: list[dict[str, Any]] = []
+    for inventory in qs:
+        balance = get_product_empty_case_balance(inventory)
+        # Empty products with no current physical balance do not belong on this warehouse view.
+        if balance["availableBottles"] <= 0:
+            continue
+        rows.append({
+            "inventoryId": inventory.id,
+            "warehouseId": inventory.warehouse_id,
+            "warehouseName": inventory.warehouse.name,
+            "productId": inventory.product_id,
+            "productName": inventory.product.name,
+            "productSku": inventory.product.sku,
+            "productImage": inventory.product.image_url,
+            **balance,
+        })
+    return _ok({"success": True, "emptyCaseInventory": rows})
 
 
 @require_GET
@@ -6202,6 +6327,14 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
 
         with transaction.atomic():
             if delta != 0:
+                from .deposit_lifecycle import record_stockin_empty_consumption
+                try:
+                    # Fix: batch edits must consume or release the same product's
+                    # empty cases together with the stock quantity change.
+                    record_stockin_empty_consumption(inv, batch, next_qty)
+                except ValueError as exc:
+                    transaction.set_rollback(True)
+                    return _err(str(exc), 400)
                 batch.quantity = next_qty
                 _persist_stock_batch_quantity(batch)
 
@@ -6398,6 +6531,8 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             )
 
             return _ok({"success": True, "stockBatch": _serialize_model(batch)}, 201)
+    except ValueError as e:
+        return _err(str(e), 400)
     except Exception as e:
         return _err(str(e), 500)
 
@@ -6567,7 +6702,8 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
             if newly_created_count > 0:
                 actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
                 _create_staff_notifications(
-                    title="Bulk Stock In completed",
+                    # Changed: keep the customer-facing action name as "Stock In".
+                    title="Stock In completed",
                     message=f"{actor_name} completed Stock In for {newly_created_count} batches in {warehouse.name}.",
                     reference_type="stock_batch",
                     reference_id=warehouse.id,
@@ -6581,6 +6717,8 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 "stockBatches": serialized_batches,
                 "errors": []
             }, 201)
+    except ValueError as e:
+        return _err(str(e), 400)
     except Exception as e:
         return _err(str(e), 500)
 
@@ -6616,6 +6754,9 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             driver = User.objects.filter(id=driver_id, role="DRIVER").first()
             if not driver:
                 return _err("Driver not found", 404)
+            blocker = _driver_assignment_blocker(driver)
+            if blocker:
+                return _err(f"Driver cannot be assigned: {blocker}", 400)
             existing_veh = Vehicle.objects.filter(driver=driver).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
@@ -6662,6 +6803,9 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             driver = User.objects.filter(id=driver_id, role="DRIVER").first()
             if not driver:
                 return _err("Driver not found", 404)
+            blocker = _driver_assignment_blocker(driver)
+            if blocker:
+                return _err(f"Driver cannot be assigned: {blocker}", 400)
             existing_veh = Vehicle.objects.filter(driver=driver).exclude(id=v.id).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
@@ -6796,27 +6940,31 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         if expiry_error:
             return _err(expiry_error, 400)
         d.license_expiry = parsed_license_expiry
+    # Phone and status are applied before the vehicle check so the eligibility
+    # guard below sees the values this request is actually saving.
+    if "phone" in body:
+        normalized_phone = _normalize_philippine_phone(body.get("phone"))
+        if not normalized_phone:
+            return _err(PHILIPPINE_PHONE_ERROR)
+        d.phone = normalized_phone
+    if "isActive" in body:
+        d.is_active = bool(body.get("isActive"))
     if "vehicleId" in body:
         vehicle_id = str(body.get("vehicleId") or "").strip()
         if vehicle_id:
             vehicle = Vehicle.objects.filter(id=vehicle_id).first()
             if not vehicle:
                 return _err("Vehicle not found", 404)
+            blocker = _driver_assignment_blocker(d)
+            if blocker:
+                return _err(f"Driver cannot be assigned: {blocker}", 400)
             existing_veh = Vehicle.objects.filter(driver=d).exclude(id=vehicle.id).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
             _assign_vehicle_to_driver(d, vehicle)
         else:
             _assign_vehicle_to_driver(d, None)
-    if "isActive" in body:
-        d.is_active = bool(body.get("isActive"))
     d.save()
-    if "phone" in body:
-        normalized_phone = _normalize_philippine_phone(body.get("phone"))
-        if not normalized_phone:
-            return _err(PHILIPPINE_PHONE_ERROR)
-        d.phone = normalized_phone
-        d.save(update_fields=["phone", "updated_at"])
     driver_payload = _serialize_model(d, exclude={"password"})
     driver_payload["user"] = _serialize_model(d, exclude={"password"})
     return _ok({"success": True, "driver": driver_payload})
@@ -10181,6 +10329,25 @@ def ensure_demo_accounts() -> None:
     )
 
 
+def _coerce_deposit_amount(value: Any) -> tuple[float | None, str | None]:
+    """Parse a deposit amount from a request body value.
+
+    Returns (amount, error). ``None`` means "no amount supplied" (null/blank),
+    which callers treat as "leave the stored deposit alone".
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, None
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None, "Deposit amounts must be numbers."
+    if amount != amount or amount in (float("inf"), float("-inf")):
+        return None, "Deposit amounts must be numbers."
+    if amount < 0:
+        return None, "Deposit amounts cannot be negative."
+    return round(amount, 2), None
+
+
 def _is_returnable_product(product: Product) -> bool:
     if not product:
         return False
@@ -10195,7 +10362,6 @@ def _is_returnable_product(product: Product) -> bool:
 
 def _get_or_create_product_packaging(product: Product) -> tuple[ProductPackaging, ContainerType]:
     """Ensure a returnable glass product has active ProductPackaging and ContainerType records."""
-    from decimal import Decimal
     is_1l = any("1l" in str(sz).lower() or "1 liter" in str(sz).lower() for sz in (product.sizes or []))
     container_code = "RGB-GLASS-1L" if is_1l else "RGB-GLASS-330"
     container_name = "1L Returnable Glass Bottle" if is_1l else "330ml Returnable Glass Bottle"
@@ -10309,7 +10475,6 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
-    from decimal import Decimal
     from .models import DepositTransaction
 
     p = _require_auth(request)

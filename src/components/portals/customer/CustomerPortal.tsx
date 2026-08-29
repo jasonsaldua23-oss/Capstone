@@ -1188,6 +1188,22 @@ export function CustomerPortal() {
     )
   }
 
+  // Added: customers can drop a line item from the cart outright, not only by
+  // stepping the quantity down to zero.
+  const removeFromCart = (productId: string) => {
+    setCart((prev) => prev.filter((item) => item.productId !== productId))
+    setSelectedCartIds((prev) => {
+      const next = new Set(prev)
+      next.delete(productId)
+      return next
+    })
+  }
+
+  const removeSelectedFromCart = () => {
+    setCart((prev) => prev.filter((item) => !selectedCartIds.has(item.productId)))
+    setSelectedCartIds(new Set())
+  }
+
   const openMixedCaseBuilder = (item: CartItem | null = null) => {
     setEditingMixedCase(item)
     setIsMixedCaseBuilderOpen(true)
@@ -2907,6 +2923,8 @@ export function CustomerPortal() {
                     setSelectedCartIds={setSelectedCartIds}
                     getProductImage={getProductImage}
                     updateCartQty={updateCartQty}
+                    removeFromCart={removeFromCart}
+                    removeSelectedFromCart={removeSelectedFromCart}
                     allCartSelected={allCartSelected}
                     selectedCount={selectedCount}
                     selectedSubtotal={selectedSubtotal}

@@ -63,7 +63,10 @@ export function WarehouseHeader({
               <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-white/45 hover:text-slate-950" title="Notifications">
                 <Bell className="h-5 w-5" />
                 {unreadNotifications > 0 ? (
-                  <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
+                  // Changed: show the unread total instead of a status-only dot.
+                  <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white">
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                  </span>
                 ) : null}
               </Button>
             </DropdownMenuTrigger>

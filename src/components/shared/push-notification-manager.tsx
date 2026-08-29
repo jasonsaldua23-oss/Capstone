@@ -67,7 +67,9 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
           setShowPrompt(true)
         }
       } catch (pushError) {
-        console.error('Push notification setup failed:', pushError)
+        // Fix: background push registration is best-effort; avoid promoting a
+        // caught failure into Next.js's blocking development error overlay.
+        console.warn('Push notification setup failed:', pushError)
       }
     }
 
@@ -89,7 +91,8 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
       await registerSubscription(publicKey)
       setShowPrompt(false)
     } catch (pushError) {
-      console.error('Push notification enable failed:', pushError)
+      // The prompt already reports this recoverable failure to the user inline.
+      console.warn('Push notification enable failed:', pushError)
       setError('Could not enable device notifications. Please try again.')
     } finally {
       setIsEnabling(false)

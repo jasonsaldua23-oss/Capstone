@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
-import { isValidPhilippineDriverLicense } from '@/lib/driver-license-restrictions'
+import { getDriverProfileCompletenessIssue as getDriverProfileIssue } from '@/lib/driver-eligibility'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from './WarehouseTripsSection'
 import { WarehouseHeader } from './sections/layout/warehouse-header'
@@ -1077,23 +1077,7 @@ export function WarehousePortal() {
     }
     return availableVehicleIdSet.has(assignedId) ? assigned : undefined
   }
-  const getDriverProfileCompletenessIssue = (driver: DriverOption | undefined) => {
-    if (!driver) return 'Driver not found'
-    const phone = String((driver as any)?.phone || (driver as any)?.user?.phone || '').trim()
-    const licenseNumber = String((driver as any)?.licenseNumber || (driver as any)?.license_number || '').trim()
-    const licenseType = String((driver as any)?.licenseType || (driver as any)?.license_type || '').trim()
-    const licenseExpiry = String((driver as any)?.licenseExpiry || (driver as any)?.license_expiry || '').trim()
-    if (!phone || !licenseNumber || !licenseType || !licenseExpiry) {
-      return 'Incomplete driver license profile'
-    }
-    if (!isValidPhilippineDriverLicense(licenseNumber)) {
-      return 'Invalid driver license format (LTO: X00-00-000000)'
-    }
-    if (licenseExpiry && licenseExpiry < new Date().toISOString().slice(0, 10)) {
-      return 'Driver license has expired'
-    }
-    return ''
-  }
+  const getDriverProfileCompletenessIssue = (driver: DriverOption | undefined) => getDriverProfileIssue(driver)
 
   const saveSecuritySettings = async () => {
     const userId = String((user as any)?.userId || (user as any)?.id || '').trim()
@@ -4150,6 +4134,14 @@ export function WarehousePortal() {
     return 'text-slate-700'
   }
   const isWarehouseRescheduledOrder = (order: any) => String(order?.status || '').trim().toUpperCase() === 'RESCHEDULED'
+  // Added: surface the customer's scheduled delivery date on the purchase order.
+  const formatScheduledDeliveryDate = (order: any): string => {
+    const raw = String(order?.deliveryDate || order?.timeline?.deliveryDate || '').trim()
+    if (!raw) return ''
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00`) : new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return raw
+    return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
 
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
@@ -4934,12 +4926,7 @@ export function WarehousePortal() {
               </TabsContent>
 
               <TabsContent value="empties" className="mt-0">
-                <WarehouseEmptyBottlesView
-                  orders={orders}
-                  formatPeso={formatPeso}
-                  openOrderDetail={openOrderDetail}
-                  loadingOrders={loadingOrders}
-                />
+                <WarehouseEmptyBottlesView warehouseId={assignedWarehouse?.id} />
               </TabsContent>
             </Tabs>
           )}
@@ -5680,7 +5667,7 @@ export function WarehousePortal() {
                 <DialogDescription>{loadingOrderDetail ? 'Loading latest order details...' : undefined}</DialogDescription>
               </DialogHeader>
               <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4 sm:space-y-4 sm:px-7 sm:py-5">
-                <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 sm:gap-4 sm:grid-cols-3">
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4.5">
                     <div className="mb-2 flex items-center justify-between">
                       <p className="text-sm font-medium text-slate-600">Order Status</p>
@@ -5709,6 +5696,25 @@ export function WarehousePortal() {
                     ) : (
                       <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
                         Not Assigned
+                      </div>
+                    )}
+                  </div>
+                  {/* Added: the customer's scheduled delivery date belongs on the PO
+                      so warehouse staff know when the order is expected out. */}
+                  <div className="rounded-2xl border border-violet-200 bg-violet-50/45 p-3.5 sm:p-4.5">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">Scheduled Delivery</p>
+                      <div className="grid h-10 w-10 place-items-center rounded-full bg-violet-100 text-violet-700 sm:h-11 sm:w-11">
+                        <CalendarClock className="h-5 w-5" />
+                      </div>
+                    </div>
+                    {formatScheduledDeliveryDate(selectedOrder) ? (
+                      <p className="text-[0.8rem] font-bold leading-tight text-violet-700 sm:text-[0.98rem]">
+                        {formatScheduledDeliveryDate(selectedOrder)}
+                      </p>
+                    ) : (
+                      <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                        Not Scheduled
                       </div>
                     )}
                   </div>

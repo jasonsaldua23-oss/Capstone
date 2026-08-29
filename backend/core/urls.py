@@ -31,6 +31,7 @@ urlpatterns = [
     path("products", v.products_collection),
     path("products/<str:product_id>", v.product_detail),
     path("inventory", v.inventory_collection),
+    path("inventory/empty-cases", v.empty_case_inventory),
     path("inventory/<str:inventory_id>", v.inventory_detail),
     path("inventory-transactions", v.inventory_transactions_list),
     path("stock-batches", v.stock_batches_collection),

@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from .models import (
@@ -16,6 +17,7 @@ from .models import (
     CustomerDepositLedger,
     DepositTransaction,
     Inventory,
+    InventoryQuantityUnit,
     InventoryTransaction,
     MixedCaseComponent,
     Order,
@@ -149,20 +151,145 @@ def finalize_order_deposits_on_delivery(order: Order, performed_by: str | None =
 
 
 def record_stockin_empty_consumption(inventory: Inventory, batch: Any, qty: int) -> None:
-    """When staff stocks in returnable beverages, record the required empty cases consumed."""
+    """Synchronize the exact product's empty-case consumption for a stock batch."""
     product = inventory.product
-    pkg = ProductPackaging.objects.filter(product=product, is_active=True).first()
-    containers_per_case = max(1, int(pkg.containers_per_case or 1)) if pkg else 24
-    is_returnable = bool(pkg and pkg.is_returnable) or str(getattr(product, "packaging_type", "")).upper() == "RETURNABLE"
-    if not is_returnable:
+    packaging = (
+        ProductPackaging.objects.filter(product=product, is_active=True, is_returnable=True)
+        .order_by("-is_primary", "created_at")
+        .first()
+    )
+    if not packaging:
         return
 
-    InventoryTransaction.objects.create(
-        warehouse=inventory.warehouse,
-        product=product,
-        type="CONSUME_EMPTY",
-        quantity=qty,
-        reference_type="stock_batch_empty_consumed",
-        reference_id=str(getattr(batch, "id", "")),
-        notes=f"Consumed {qty} empty case(s) ({qty * containers_per_case} bottles) for stock-in batch {getattr(batch, 'batch_number', 'N/A')}",
+    requested_cases = max(0, int(qty or 0))
+    containers_per_case = max(1, int(packaging.containers_per_case or 1))
+    batch_id = str(getattr(batch, "id", "") or "").strip()
+    if not batch_id:
+        raise ValueError("A stock batch is required to consume empty cases")
+
+    # Lock this warehouse/product row so simultaneous stock-ins cannot consume
+    # the same empty cases.
+    locked_inventory = Inventory.objects.select_for_update().select_related("warehouse", "product").get(id=inventory.id)
+    existing = (
+        InventoryTransaction.objects.select_for_update()
+        .filter(
+            warehouse=locked_inventory.warehouse,
+            product=product,
+            type="CONSUME_EMPTY",
+            reference_type="stock_batch_empty_consumed",
+            reference_id=batch_id,
+        )
+        .order_by("created_at")
+        .first()
     )
+    previously_consumed_cases = max(0, int(getattr(existing, "quantity", 0) or 0))
+    additional_cases = requested_cases - previously_consumed_cases
+    balance = get_product_empty_case_balance(locked_inventory)
+
+    if additional_cases > 0 and additional_cases > balance["availableCases"]:
+        raise ValueError(
+            f"Insufficient empty cases for {product.name}: "
+            f"{balance['availableCases']} available, {additional_cases} additional required"
+        )
+
+    available_before = balance["availableCases"]
+    available_after = max(0, available_before - additional_cases)
+    if requested_cases == 0:
+        if existing:
+            existing.delete()
+        return
+
+    defaults = {
+        "quantity": requested_cases,
+        "quantity_unit": InventoryQuantityUnit.CASE,
+        "stock_unit_label": "Empty case",
+        "previous_stock": available_before,
+        "updated_stock": available_after,
+        "case_capacity_snapshot": containers_per_case,
+        "case_count_snapshot": requested_cases,
+        "notes": (
+            f"Consumed {requested_cases} empty case(s) ({requested_cases * containers_per_case} bottles) "
+            f"for stock-in batch {getattr(batch, 'batch_number', 'N/A')}"
+        ),
+    }
+    if existing:
+        for field, value in defaults.items():
+            setattr(existing, field, value)
+        existing.save(update_fields=[*defaults.keys()])
+    else:
+        InventoryTransaction.objects.create(
+            warehouse=locked_inventory.warehouse,
+            product=product,
+            type="CONSUME_EMPTY",
+            reference_type="stock_batch_empty_consumed",
+            reference_id=batch_id,
+            **defaults,
+        )
+
+
+def get_product_empty_case_balance(inventory: Inventory) -> dict[str, int]:
+    """Return delivered, consumed, and currently available empties for one product."""
+    product = inventory.product
+    packaging = (
+        ProductPackaging.objects.filter(product=product, is_active=True, is_returnable=True)
+        .order_by("-is_primary", "created_at")
+        .first()
+    )
+    if not packaging:
+        return {
+            "containersPerCase": 0,
+            "returnedBottles": 0,
+            "consumedCases": 0,
+            "availableBottles": 0,
+            "availableCases": 0,
+            "looseBottles": 0,
+        }
+
+    containers_per_case = max(1, int(packaging.containers_per_case or 1))
+    # Checkout reservations remain customer-only; warehouse empties become
+    # available only after the associated order is delivered.
+    standard_returned = (
+        OrderItem.objects.filter(
+            order__status="DELIVERED",
+            order__warehouse_id=inventory.warehouse_id,
+            product_id=product.id,
+            empty_returned_quantity__gt=0,
+        )
+        .exclude(item_type="MIXED_CASE")
+        .aggregate(total=Sum("empty_returned_quantity"))
+        .get("total")
+        or 0
+    )
+    mixed_returned = (
+        MixedCaseComponent.objects.filter(
+            order_item__order__status="DELIVERED",
+            order_item__order__warehouse_id=inventory.warehouse_id,
+            product_id=product.id,
+            empty_covered_quantity__gt=0,
+        )
+        .aggregate(total=Sum("empty_covered_quantity"))
+        .get("total")
+        or 0
+    )
+    returned_bottles = max(0, int(standard_returned) + int(mixed_returned))
+    consumed_cases = (
+        InventoryTransaction.objects.filter(
+            warehouse_id=inventory.warehouse_id,
+            product_id=product.id,
+            type="CONSUME_EMPTY",
+            reference_type="stock_batch_empty_consumed",
+        )
+        .aggregate(total=Sum("quantity"))
+        .get("total")
+        or 0
+    )
+    consumed_cases = max(0, int(consumed_cases))
+    available_bottles = max(0, returned_bottles - (consumed_cases * containers_per_case))
+    return {
+        "containersPerCase": containers_per_case,
+        "returnedBottles": returned_bottles,
+        "consumedCases": consumed_cases,
+        "availableBottles": available_bottles,
+        "availableCases": available_bottles // containers_per_case,
+        "looseBottles": available_bottles % containers_per_case,
+    }
