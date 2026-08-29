@@ -640,6 +640,7 @@ export function WarehousePortal() {
   const [replacements, setReplacements] = useState<WarehouseReplacementItem[]>([])
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [driversLoadFailed, setDriversLoadFailed] = useState(false)
+  const [driversLoading, setDriversLoading] = useState(true)
   const [vehicles, setVehicles] = useState<VehicleOption[]>([])
   const [routePlans, setRoutePlans] = useState<RoutePlanCityGroup[]>([])
   const [savedRoutes, setSavedRoutes] = useState<SavedRouteDraft[]>([])
@@ -1141,9 +1142,9 @@ export function WarehousePortal() {
       summarizeDriverAvailability(
         drivers,
         (driver) => getDriverTripEligibilityLabel(driver) || (isDriverSelectableForTrip(driver) ? '' : 'Not available'),
-        { loadFailed: driversLoadFailed }
+        { loadFailed: driversLoadFailed, loading: driversLoading }
       ),
-    [drivers, driversLoadFailed, availableVehicleIdSet]
+    [drivers, driversLoadFailed, driversLoading, availableVehicleIdSet]
   )
   const selectedDriverAssignedVehicle = useMemo(() => {
     const driver = drivers.find((d) => d.id === selectedRouteDriverId)
@@ -2598,6 +2599,7 @@ export function WarehousePortal() {
   }
 
   const fetchDriversData = async () => {
+    setDriversLoading(true)
     try {
       const result = await safeFetchJson('/api/drivers?includeSample=true')
       if (!result.ok) {
@@ -2617,6 +2619,8 @@ export function WarehousePortal() {
     } catch (error) {
       console.warn('Failed to load drivers:', error)
       setDriversLoadFailed(true)
+    } finally {
+      setDriversLoading(false)
     }
   }
 
@@ -5404,7 +5408,7 @@ export function WarehousePortal() {
                         </option>
                       ))}
                     </select>
-                    {!driverAvailability.hasSelectable ? (
+                    {driverAvailability.message ? (
                       <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
                         {driverAvailability.message}
                       </p>
@@ -5438,7 +5442,7 @@ export function WarehousePortal() {
                         </option>
                       ))}
                     </select>
-                    {!driverAvailability.hasSelectable ? (
+                    {driverAvailability.message ? (
                       <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
                         {driverAvailability.message}
                       </p>
@@ -5642,7 +5646,7 @@ export function WarehousePortal() {
                   </option>
                 ))}
               </select>
-              {!driverAvailability.hasSelectable ? (
+              {driverAvailability.message ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
                   {driverAvailability.message}
                 </p>

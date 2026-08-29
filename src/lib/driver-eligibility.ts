@@ -65,13 +65,19 @@ export function isDriverAssignable(driver: any): boolean {
 export function summarizeDriverAvailability(
   drivers: any[],
   getIssue: (driver: any) => string,
-  options?: { loadFailed?: boolean }
+  options?: { loadFailed?: boolean; loading?: boolean }
 ): { hasSelectable: boolean; message: string } {
   if (options?.loadFailed) {
     return {
       hasSelectable: false,
       message: 'Drivers could not be loaded. Check your connection and refresh, then try again.',
     }
+  }
+
+  // An in-flight fetch is not the same as an empty roster: staying silent here
+  // keeps the load from being reported as "no drivers exist".
+  if (options?.loading) {
+    return { hasSelectable: false, message: '' }
   }
 
   const list = Array.isArray(drivers) ? drivers : []

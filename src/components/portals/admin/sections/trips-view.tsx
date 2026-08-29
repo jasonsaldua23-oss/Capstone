@@ -67,6 +67,7 @@ export function TripsView() {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
   const [driversLoadFailed, setDriversLoadFailed] = useState(false)
+  const [driversLoading, setDriversLoading] = useState(true)
   const [vehicles, setVehicles] = useState<any[]>([])
   const [routePlans, setRoutePlans] = useState<any[]>([])
   const [savedRoutes, setSavedRoutes] = useState<any[]>([])
@@ -148,9 +149,9 @@ export function TripsView() {
       summarizeDriverAvailability(
         drivers,
         (driver) => getDriverTripEligibilityLabel(driver) || (isDriverSelectableForTrip(driver) ? '' : 'Not available'),
-        { loadFailed: driversLoadFailed }
+        { loadFailed: driversLoadFailed, loading: driversLoading }
       ),
-    [drivers, driversLoadFailed, availableVehicleIdSet]
+    [drivers, driversLoadFailed, driversLoading, availableVehicleIdSet]
   )
   const selectedDriverEligibilityIssue = useMemo(() => {
     const selectedDriver = drivers.find((driver) => driver.id === selectedRouteDriverId)
@@ -211,6 +212,7 @@ export function TripsView() {
           }
         }
 
+        setDriversLoading(false)
         setDriversLoadFailed(!driversResult.ok)
         if (driversResult.ok) {
           const list = getCollection<any>(driversResult.data, ['drivers'])
@@ -248,7 +250,9 @@ export function TripsView() {
         }
       } catch (error) {
         console.error('Failed to fetch trips meta:', error)
+        setDriversLoadFailed(true)
       } finally {
+        setDriversLoading(false)
         setIsLoading(false)
       }
     }
@@ -1012,7 +1016,7 @@ export function TripsView() {
                     </option>
                   ))}
                 </select>
-                {!driverAvailability.hasSelectable ? (
+                {driverAvailability.message ? (
                   <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
                     {driverAvailability.message}
                   </p>
@@ -1184,7 +1188,7 @@ export function TripsView() {
                   </option>
                 ))}
               </select>
-              {!driverAvailability.hasSelectable ? (
+              {driverAvailability.message ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
                   {driverAvailability.message}
                 </p>
