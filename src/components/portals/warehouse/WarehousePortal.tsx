@@ -391,6 +391,19 @@ interface WarehouseTripItem {
   }>
 }
 
+interface DriverLocationItem {
+  id?: string
+  driverId?: string
+  driverName?: string
+  tripId?: string | null
+  tripStatus?: string | null
+  vehiclePlate?: string | null
+  latitude?: number
+  longitude?: number
+  heading?: number | null
+  recordedAt?: string | null
+}
+
 interface WarehouseReplacementItem {
   id: string
   replacementNumber: string
@@ -611,6 +624,12 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
 ]
 
 
+function getLocalDateInputValue() {
+  // Date inputs use local calendar dates; offset first to avoid a UTC day shift.
+  const now = new Date()
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+}
+
 export function WarehousePortal() {
   const { user, setUser, logout } = useAuth()
   const cacheOwnerId = String((user as any)?.userId || (user as any)?.id || 'warehouse-staff')
@@ -637,6 +656,7 @@ export function WarehousePortal() {
   const [inventoryTransactions, setInventoryTransactions] = useState<InventoryTransactionItem[]>([])
   const [orders, setOrders] = useState<WarehouseOrderItem[]>([])
   const [trips, setTrips] = useState<WarehouseTripItem[]>([])
+  const [driverLocations, setDriverLocations] = useState<DriverLocationItem[]>([])
   const [replacements, setReplacements] = useState<WarehouseReplacementItem[]>([])
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [driversLoadFailed, setDriversLoadFailed] = useState(false)
@@ -1436,6 +1456,7 @@ export function WarehousePortal() {
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
     const tripOrderIds = new Set<string>()
+    const shownDriverIds = new Set<string>()
 
     scopedTrips
       .filter(
@@ -1514,6 +1535,7 @@ export function WarehousePortal() {
         const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude ?? latestLocation?.lng)
         const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
         const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
+        const driverId = String(trip?.driver?.id || '').trim()
         const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
         
         const markerHeading =
@@ -1539,7 +1561,7 @@ export function WarehousePortal() {
 
         const driverLocationMarker = hasDriverPosition
           ? {
-              id: `driver-${trip.id}`,
+              id: `driver-${driverId || trip.id}`,
               driverName,
               vehiclePlate,
               lat: driverLat,
@@ -1579,6 +1601,7 @@ export function WarehousePortal() {
 
         if (driverLocationMarker) {
           // Push driver marker last so it stays visually on top of stop pins.
+          if (driverId) shownDriverIds.add(driverId)
           locations.push(driverLocationMarker)
         }
 
@@ -1647,6 +1670,29 @@ export function WarehousePortal() {
         }
       })
 
+    // Fix: warehouse tracking also receives the latest point for drivers whose
+    // GPS is tied to a completed trip or currently has no trip association.
+    driverLocations.forEach((location) => {
+      const driverId = String(location?.driverId || '').trim()
+      const latitude = Number(location?.latitude)
+      const longitude = Number(location?.longitude)
+      if (!driverId || shownDriverIds.has(driverId)) return
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+      shownDriverIds.add(driverId)
+      locations.push({
+        id: `driver-${driverId}`,
+        driverName: String(location?.driverName || 'Driver'),
+        vehiclePlate: String(location?.vehiclePlate || 'N/A'),
+        lat: latitude,
+        lng: longitude,
+        status: String(location?.tripStatus || 'LOCATION_AVAILABLE'),
+        markerColor: '#1d4ed8',
+        markerLabel: 'Driver last known location',
+        markerType: 'truck',
+        markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
+      })
+    })
+
     dayOrders.forEach((order: any) => {
       if (order?.id && tripOrderIds.has(order.id)) return
       const lat = Number(order?.shippingLatitude)
@@ -1676,7 +1722,7 @@ export function WarehousePortal() {
     })
 
     return { locations, routeLines }
-  }, [scopedOrders, scopedTrips, trackingDate])
+  }, [driverLocations, scopedOrders, scopedTrips, trackingDate])
 
   const liveTrackingLocations = liveMapData.locations
   const liveTrackingRouteLines = liveMapData.routeLines
@@ -2533,6 +2579,7 @@ export function WarehousePortal() {
         let page = 1
         let totalPages = 1
         const mergedTrips: WarehouseTripItem[] = []
+        let latestDriverLocations: DriverLocationItem[] = []
 
         while (page <= totalPages) {
           const query = new URLSearchParams({
@@ -2545,12 +2592,18 @@ export function WarehousePortal() {
             return null
           }
           mergedTrips.push(...getCollection<WarehouseTripItem>(result.data, ['trips']))
+          if (page === 1) {
+            latestDriverLocations = Array.isArray(result.data?.driverLocations)
+              ? result.data.driverLocations
+              : []
+          }
           const payload = (result.data || {}) as Record<string, any>
           totalPages = Math.max(1, Number(payload.totalPages || 1))
           page += 1
         }
 
         setTrips(mergedTrips)
+        setDriverLocations(latestDriverLocations)
         writePortalCache(tripsCacheKey, mergedTrips, assignedWarehouseIdRef.current)
         tripsCacheAtRef.current = Date.now()
         return mergedTrips
@@ -3577,6 +3630,10 @@ export function WarehousePortal() {
       toast.error('Manufactured date is required')
       return
     }
+    if (editBatchExpiryDate && editBatchExpiryDate < getLocalDateInputValue()) {
+      toast.error('Expiry date cannot be in the past. Enter today or a future date.')
+      return
+    }
 
     setIsSavingBatchQty(true)
     try {
@@ -3687,6 +3744,9 @@ export function WarehousePortal() {
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
     if (!row.expiryDate.trim()) errors.expiryDate = 'Expiry date is required'
+    else if (row.expiryDate < getLocalDateInputValue()) {
+      errors.expiryDate = 'Expiry date cannot be in the past. Enter today or a future date.'
+    }
     return errors
   }
 
@@ -6276,6 +6336,7 @@ export function WarehousePortal() {
                       <Input
                         id={`expiry-${row.id}`}
                         type="date"
+                        min={getLocalDateInputValue()}
                         className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.expiryDate ? 'border-red-500 bg-red-50' : ''}`}
                         value={row.expiryDate}
                         onChange={(e) => updateStockRow(row.id, 'expiryDate', e.target.value)}
@@ -6397,6 +6458,7 @@ export function WarehousePortal() {
                 <Input
                   id="edit-batch-expiry-date"
                   type="date"
+                  min={getLocalDateInputValue()}
                   value={editBatchExpiryDate}
                   onChange={(e) => setEditBatchExpiryDate(e.target.value)}
                 />
@@ -6501,4 +6563,3 @@ export function WarehousePortal() {
     </div>
   )
 }
-

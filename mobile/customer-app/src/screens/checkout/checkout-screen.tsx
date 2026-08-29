@@ -7,7 +7,14 @@ import { DateField } from "../../components/ui/date-field";
 import { MixedCaseComponents } from "../../components/ui/mixed-case-components";
 import { formatPeso, getAvailableQuantity, localDateInput } from "../../lib/customer-logic";
 import { resolveImageUrl } from "../../lib/format";
-import { getLineDepositAmounts, getMixedCaseDepositAmounts, isReturnableGlassItem } from "../../lib/shared";
+import {
+  formatDiscountLabel,
+  getCheckoutQuantityLabel,
+  getEffectiveDiscountPercent,
+  getLineDepositAmounts,
+  getMixedCaseDepositAmounts,
+  isReturnableGlassItem,
+} from "../../lib/shared";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
@@ -116,7 +123,12 @@ export function CheckoutScreen() {
                     <View style={styles.checkoutItemMetaRow}>
                       <Text style={styles.checkoutItemCategory}>{item.category || "Beverage"}</Text>
                       <Text style={styles.checkoutItemQty}>
-                        {item.quantity} × {formatPeso(item.unitPrice)}
+                        {getCheckoutQuantityLabel({
+                          quantity: item.quantity,
+                          unit: item.unitLabel,
+                          itemType: item.isMixedCase ? "MIXED_CASE" : "STANDARD_CASE",
+                        })}{" "}
+                        × {formatPeso(item.unitPrice)}
                       </Text>
                     </View>
 
@@ -181,7 +193,7 @@ export function CheckoutScreen() {
                     {item.isMixedCase ? (
                       <View style={styles.checkoutMixedBox}>
                         <Text style={styles.checkoutMixedQuantity}>
-                          Quantity: {Math.max(1, Number(item.quantity || 1))}
+                          Quantity: {Math.max(1, Number(item.quantity || 1))} case{Number(item.quantity || 1) === 1 ? "" : "s"}
                         </Text>
                         <MixedCaseComponents item={{ components: item.components }} compact />
                       </View>
@@ -211,10 +223,13 @@ export function CheckoutScreen() {
                 </Text>
               </View>
             ) : null}
-            <View style={styles.checkoutSummaryRow}>
-              <Text style={styles.checkoutSummaryLabel}>Discount</Text>
-              <Text style={styles.checkoutSummaryDiscount}>-{formatPeso(totalDiscount)}</Text>
-            </View>
+            {/* The web renders this as one line via CompactDiscountLine, not a two-sided row. */}
+            <Text style={styles.checkoutDiscountLine}>
+              {formatDiscountLabel(
+                formatPeso(totalDiscount),
+                getEffectiveDiscountPercent(selectedSubtotal, totalDiscount)
+              )}
+            </Text>
             <Text style={styles.checkoutDiscountHint}>Discounts apply to orders totaling 50 cases or packs.</Text>
             <View style={styles.checkoutDivider} />
             <View style={styles.checkoutSummaryRow}>

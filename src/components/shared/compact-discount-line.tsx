@@ -1,23 +1,20 @@
 'use client'
 
+import { formatDiscountLabel, formatDiscountPercent } from '@shared/customer-logic/discount'
+
 type CompactDiscountLineProps = {
   value: string
   percent?: number
   className?: string
 }
 
-const formatDiscountPercent = (percent: number) => {
-  const normalized = Number(percent)
-  if (!Number.isFinite(normalized) || normalized <= 0) return ''
-  return Number.isInteger(normalized) ? `${normalized}%` : `${normalized.toFixed(2).replace(/\.?0+$/, '')}%`
-}
+// Wording moved to shared/customer-logic so the Expo customer app renders it identically.
+export { formatDiscountPercent }
 
 export function CompactDiscountLine({ value, percent, className = '' }: CompactDiscountLineProps) {
-  const percentLabel = formatDiscountPercent(Number(percent || 0))
   return (
     <p className={`text-sm font-medium text-slate-700 ${className}`.trim()}>
-      Discount: {value}{percentLabel ? ` (${percentLabel})` : ''}
+      {formatDiscountLabel(value, percent)}
     </p>
   )
 }
-

@@ -507,11 +507,13 @@ class PurchaseRequestWorkflowTests(TestCase):
             customer=self.customer,
             type="ORDER",
             reference_id=self.order.id,
-            title="Purchase request approved",
+            title="Order approved",
         ).first()
         self.assertIsNotNone(approval_notice)
-        self.assertIn(str(self.order.purchase_request_number), approval_notice.message)
-        self.assertIn(str(self.order.purchase_order_number), approval_notice.message)
+        self.assertEqual(
+            approval_notice.message,
+            f"Your order {self.order.purchase_order_number} was approved.",
+        )
 
     def test_pending_request_cannot_skip_approval_and_start_processing(self) -> None:
         response = self.client.patch(
@@ -527,6 +529,7 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertEqual(self.order.status, OrderStatus.PENDING)
         self.assertFalse(bool(self.order.purchase_order_number))
         self.assertFalse(bool(self.order.purchase_order_stage))
+
 
     def test_reject_pending_request_requires_reason_and_does_not_create_purchase_order(self) -> None:
         missing_reason = self.client.patch(
@@ -572,6 +575,81 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertEqual(self.order.status, OrderStatus.CANCELLED)
         self.assertEqual(self.order.request_status, "CANCELLED")
         self.assertEqual(self.order.cancellation_reason, "Duplicate purchase request")
+
+
+class DriverVehicleActiveTripValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.staff = User.objects.create(
+            email="transport.admin@example.com",
+            password="hashed",
+            name="Transport Admin",
+            role="ADMIN",
+            is_active=True,
+        )
+        self.driver = User.objects.create(
+            email="active.trip.driver@example.com",
+            password="hashed",
+            name="Active Trip Driver",
+            phone="09171234567",
+            role="DRIVER",
+            license_number="D09-22-000984",
+            license_type="B",
+            license_expiry=timezone.now() + timedelta(days=365),
+            is_active=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            license_plate="ACTIVE-TRIP-001",
+            type=VehicleType.TRUCK,
+            driver=self.driver,
+        )
+        self.trip = Trip.objects.create(
+            trip_number="TRIP-ACTIVE-UNASSIGN-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+            actual_start_at=timezone.now(),
+        )
+        self.token = create_token(
+            {
+                "userId": self.staff.id,
+                "email": self.staff.email,
+                "name": self.staff.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def test_vehicle_update_rejects_unassignment_during_active_trip(self) -> None:
+        response = self.client.patch(
+            "/api/vehicles",
+            data={"id": self.vehicle.id, "driverId": ""},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(self.trip.trip_number, response.json()["error"])
+        self.assertIn("Complete or cancel the trip", response.json()["error"])
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.driver_id, self.driver.id)
+
+    def test_driver_update_allows_unassignment_after_trip_is_closed(self) -> None:
+        self.trip.status = TripStatus.COMPLETED
+        self.trip.actual_end_at = timezone.now()
+        self.trip.save(update_fields=["status", "actual_end_at", "updated_at"])
+
+        response = self.client.put(
+            "/api/drivers",
+            data={"id": self.driver.id, "vehicleId": ""},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.driver_id)
+
 
 class CustomerTrackingApiContractTests(TestCase):
     def setUp(self) -> None:
@@ -1217,7 +1295,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             status="ACTIVE",
         )
 
-    def test_customer_orders_post_creates_order_for_authenticated_customer_and_reserves_inventory(self) -> None:
+    def test_customer_orders_post_creates_unreserved_purchase_request_for_authenticated_customer(self) -> None:
         warehouse_staff = User.objects.create(
             email="order.alert.warehouse@example.com",
             password="hashed",
@@ -1275,13 +1353,100 @@ class CustomerOrdersPostApiContractTests(TestCase):
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 20)
-        self.assertEqual(self.inventory.reserved_quantity, 2)
+        self.assertEqual(self.inventory.reserved_quantity, 0)
 
         reserve_count = InventoryTransaction.objects.filter(
             reference_type="order_item_reserve",
             type="RESERVE",
         ).count()
-        self.assertEqual(reserve_count, 1)
+        self.assertEqual(reserve_count, 0)
+
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    @patch("core.views_api._email_order_confirmed_to_customer")
+    def test_second_purchase_request_approval_is_blocked_when_first_uses_remaining_stock(
+        self,
+        _mock_approval_email,
+        _mock_new_order_email,
+    ) -> None:
+        # Two requests may be submitted, but approval must serialize against the
+        # latest reserved quantity so the second cannot overbook inventory.
+        self.inventory.quantity = 10
+        self.inventory.reserved_quantity = 0
+        self.inventory.save(update_fields=["quantity", "reserved_quantity", "updated_at"])
+        StockBatch.objects.filter(inventory=self.inventory).update(quantity=10)
+
+        warehouse_staff = User.objects.create(
+            email="approval.stock.staff@example.com",
+            password="hashed",
+            name="Approval Stock Staff",
+            role="WAREHOUSE_STAFF",
+            is_active=True,
+        )
+        staff_token = create_token(
+            {
+                "userId": warehouse_staff.id,
+                "email": warehouse_staff.email,
+                "name": warehouse_staff.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+        other_customer_token = create_token(
+            {
+                "userId": self.other_customer.id,
+                "email": self.other_customer.email,
+                "name": self.other_customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+        order_payload = {
+            "warehouseId": self.warehouse.id,
+            "shippingAddress": "Approval Test Address",
+            "shippingCity": "Talisay",
+            "shippingProvince": "Negros Occidental",
+            "shippingLatitude": 10.67,
+            "shippingLongitude": 122.95,
+            "items": [{"productId": self.product.id, "quantity": 10}],
+        }
+
+        first_request = self.client.post(
+            "/api/customer/orders",
+            data=order_payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        second_request = self.client.post(
+            "/api/customer/orders",
+            data=order_payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {other_customer_token}",
+        )
+        self.assertEqual(first_request.status_code, 201, first_request.content)
+        self.assertEqual(second_request.status_code, 201, second_request.content)
+        first_order_id = first_request.json()["order"]["id"]
+        second_order_id = second_request.json()["order"]["id"]
+
+        first_approval = self.client.patch(
+            f"/api/orders/{first_order_id}/status",
+            data={"status": "CONFIRMED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {staff_token}",
+        )
+        second_approval = self.client.patch(
+            f"/api/orders/{second_order_id}/status",
+            data={"status": "CONFIRMED"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {staff_token}",
+        )
+
+        self.assertEqual(first_approval.status_code, 200, first_approval.content)
+        self.assertEqual(second_approval.status_code, 400, second_approval.content)
+        self.assertIn("Available: 0 cases; required: 10 cases", second_approval.json()["error"])
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.reserved_quantity, 10)
+        self.assertLessEqual(self.inventory.reserved_quantity, self.inventory.quantity)
+        self.assertEqual(Order.objects.get(id=second_order_id).request_status, "PENDING_APPROVAL")
 
     @patch("core.views_api._create_staff_notifications", side_effect=RuntimeError("notification unavailable"))
     @patch("core.views_api._email_new_order_to_warehouse_staff", side_effect=RuntimeError("email unavailable"))
@@ -2908,6 +3073,31 @@ class TripsCollectionTrackingContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Invalid trackingDate. Expected YYYY-MM-DD")
 
+    def test_include_tracking_returns_latest_driver_location_without_an_active_trip(self) -> None:
+        latest_log = LocationLog.objects.create(
+            driver=self.driver,
+            trip=None,
+            latitude=10.7999,
+            longitude=122.9787,
+            recorded_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            "/api/trips",
+            data={"includeTracking": "true"},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(len(payload["driverLocations"]), 1)
+        location = payload["driverLocations"][0]
+        self.assertEqual(location["id"], latest_log.id)
+        self.assertEqual(location["driverId"], self.driver.id)
+        self.assertEqual(location["driverName"], self.driver.name)
+        self.assertIsNone(location["tripId"])
+
 
 class RoutePlanContractTests(TestCase):
     def setUp(self) -> None:
@@ -3867,6 +4057,95 @@ class BulkStockInExistingProductContractTests(TestCase):
             InventoryTransaction.objects.filter(reference_type="stock_batch", reference_id=batch.id).count(),
             1,
         )
+
+    def test_bulk_stock_in_rejects_past_expiry_date(self) -> None:
+        past_date = timezone.localdate() - timedelta(days=1)
+        response = self.client.post(
+            "/api/stock-batches/bulk",
+            data={
+                "warehouseId": self.warehouse.id,
+                "batches": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 4,
+                        "expiryDate": past_date.isoformat(),
+                        "batchNumber": "STOCKIN-PAST-EXPIRY-001",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Expiry date cannot be in the past", response.json()["error"])
+        self.assertFalse(StockBatch.objects.filter(batch_number="STOCKIN-PAST-EXPIRY-001").exists())
+
+    def test_bulk_stock_in_accepts_current_expiry_date(self) -> None:
+        response = self.client.post(
+            "/api/stock-batches/bulk",
+            data={
+                "warehouseId": self.warehouse.id,
+                "batches": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 1,
+                        "expiryDate": timezone.localdate().isoformat(),
+                        "batchNumber": "STOCKIN-CURRENT-EXPIRY-001",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        batch = StockBatch.objects.get(batch_number="STOCKIN-CURRENT-EXPIRY-001")
+        # The current date is valid and remains usable through the end of the local day.
+        self.assertEqual(timezone.localtime(batch.expiry_date).date(), timezone.localdate())
+        self.assertGreater(batch.expiry_date, timezone.now())
+
+    def test_single_stock_in_rejects_past_expiry_date(self) -> None:
+        response = self.client.post(
+            "/api/stock-batches",
+            data={
+                "inventoryId": self.inventory.id,
+                "quantity": 1,
+                "expiryDate": (timezone.localdate() - timedelta(days=1)).isoformat(),
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "Expiry date cannot be in the past. Enter today or a future date.",
+        )
+
+    def test_stock_batch_edit_rejects_past_expiry_date(self) -> None:
+        batch = StockBatch.objects.create(
+            batch_number="STOCKIN-EDIT-EXPIRY-001",
+            inventory=self.inventory,
+            quantity=1,
+            receipt_date=timezone.now(),
+            expiry_date=timezone.now() + timedelta(days=30),
+            status="ACTIVE",
+        )
+        response = self.client.put(
+            "/api/stock-batches",
+            data={
+                "batchId": batch.id,
+                "quantity": 1,
+                "expiryDate": (timezone.localdate() - timedelta(days=1)).isoformat(),
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        batch.refresh_from_db()
+        self.assertGreaterEqual(timezone.localtime(batch.expiry_date).date(), timezone.localdate())
 
     def test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount(self) -> None:
         self.product.packaging_type = "RETURNABLE"

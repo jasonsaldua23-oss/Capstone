@@ -75,7 +75,8 @@ export function CustomerHomeView({
 
   const getCardQty = (productId: string, maxQty?: number) => {
     const raw = Number(cardQtyByProductId[productId])
-    const base = Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 12
+    // Customer quantity is a case count, not the number of units packed inside it.
+    const base = Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 1
     const safeMaxQty = Number.isFinite(Number(maxQty)) && Number(maxQty) > 0 ? Math.floor(Number(maxQty)) : null
     return safeMaxQty ? Math.min(base, safeMaxQty) : base
   }
@@ -117,8 +118,9 @@ export function CustomerHomeView({
       <div className="grid gap-4 px-3 pt-3 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-3">
           <div className="rounded-2xl border border-emerald-100 bg-white p-3">
-            <div className="flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-[#f9fbfa] px-3 py-2">
+            {/* Fix: balance both filters on phones while keeping the category compact on wider screens. */}
+            <div className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_170px]">
+              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-[#f9fbfa] px-3 py-2">
                 <Search className="h-4 w-4 text-slate-500" />
                 <Input
                   value={productSearch}
@@ -130,7 +132,7 @@ export function CustomerHomeView({
               <select
                 value={productCategoryFilter}
                 onChange={(e) => setProductCategoryFilter(e.target.value)}
-                className="h-10 min-w-[170px] rounded-xl border border-slate-200 bg-[#f9fbfa] px-3 text-sm text-slate-700"
+                className="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-[#f9fbfa] px-3 text-sm text-slate-700"
                 title="Filter by category"
               >
                 {productCategoryOptions.map((category) => (
@@ -183,7 +185,7 @@ export function CustomerHomeView({
                 const categoryLabel = p
                   ? String((p as any)?.category?.name || (p as any)?.category || '').trim()
                   : ''
-                const currentQty = p ? getCardQty(p.id, availableQty) : 12
+                const currentQty = p ? getCardQty(p.id, availableQty) : 1
                 const isSoldOut = Boolean(p) && availableQty <= 0
                 const startsSoldOutGroup = firstSoldOutKey !== null && String(p?.id ?? '') === firstSoldOutKey
                 return (
@@ -242,7 +244,7 @@ export function CustomerHomeView({
                       </div>
 
                       <div className="mt-0.5 pt-0.5">
-                        <p className="mb-1 text-[11px] font-semibold text-slate-700 md:text-xs">Quantity</p>
+                        <p className="mb-1 text-[11px] font-semibold text-slate-700 md:text-xs">Quantity (cases)</p>
                         <div className="mb-0.5 flex items-center justify-between rounded-md border border-emerald-100 bg-white px-1 py-0.5">
                           <button
                             type="button"
@@ -263,7 +265,7 @@ export function CustomerHomeView({
                           </button>
                         </div>
                         <div className="relative z-10 mb-0.5 grid grid-cols-4 gap-1">
-                          {['12', '24', '36', '48'].map((qty) => {
+                          {['1', '2', '3', '4'].map((qty) => {
                             const parsed = Number(qty)
                             const isActive = currentQty === parsed
                             const exceedsAvailable = parsed > Math.max(0, Number(availableQty || 0))

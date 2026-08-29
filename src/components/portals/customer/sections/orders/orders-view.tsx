@@ -26,6 +26,7 @@ import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeleto
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
+import { getOrderItemDisplayName } from '@shared/customer-logic/item-display'
 
 const PAGE_SIZE = 10
 
@@ -167,22 +168,7 @@ export function CustomerOrdersView(props: any) {
   const formatQuantityWithUnit = (item: any): string => {
     return formatOrderedQuantityWithContainer(item)
   }
-  const getItemDisplayNameWithSize = (item: any): string => {
-    if (item?.itemType === 'MIXED_CASE') {
-      const components = (item?.components || [])
-        .map((component: any) => `${component.productName} ${component.quantityPerCase}/case`)
-        .join(', ')
-      return `Mixed Case (${item.caseCapacity || 0} units)${components ? ` — ${components}` : ''}`
-    }
-    const baseName = String(item?.product?.name || 'Product').trim()
-    const product = item?.product || {}
-    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
-      ? product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
-      : ''
-    const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-    const sizeLabel = sizeFromArray || sizeFromField
-    return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
-  }
+  const getItemDisplayNameWithSize = getOrderItemDisplayName
   const parseReplacementMeta = (record: any) => {
     const notes = String(record?.notes || '')
     const marker = notes.lastIndexOf('Meta:')

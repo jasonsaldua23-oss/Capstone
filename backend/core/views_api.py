@@ -265,6 +265,29 @@ def _assign_vehicle_to_driver(driver: User, vehicle: Vehicle | None) -> None:
     vehicle.save(update_fields=["driver", "updated_at"])
 
 
+def _active_driver_trip(driver: User | None) -> Trip | None:
+    """Return the driver's currently running delivery trip, if one exists."""
+    if driver is None:
+        return None
+    return (
+        Trip.objects.filter(driver=driver, status=TripStatus.IN_PROGRESS)
+        .order_by("-actual_start_at", "-created_at")
+        .first()
+    )
+
+
+def _driver_unassignment_error(driver: User | None) -> str | None:
+    """Explain why removing a driver from their vehicle would disrupt delivery."""
+    active_trip = _active_driver_trip(driver)
+    if active_trip is None:
+        return None
+    trip_number = str(active_trip.trip_number or active_trip.id).strip()
+    return (
+        f"Driver cannot be unassigned while delivery trip {trip_number} is in progress. "
+        "Complete or cancel the trip before removing the driver from the vehicle."
+    )
+
+
 def _camel(name: str) -> str:
     parts = name.split("_")
     return parts[0] + "".join(p.capitalize() for p in parts[1:])
@@ -419,6 +442,24 @@ def _validate_future_license_expiry(value: Any) -> tuple[datetime | None, str | 
         return None, "Invalid licenseExpiry format"
     if timezone.localtime(parsed).date() < timezone.localdate():
         return None, "License expiration date cannot be in the past."
+    return parsed, None
+
+
+def _validate_stock_expiry(value: Any) -> tuple[datetime | None, str | None]:
+    """Parse a stock expiry date and allow only today or a future local date."""
+    raw = str(value or "").strip()
+    parsed = _parse_iso_datetime(value)
+    if not parsed:
+        return None, "Invalid expiryDate format"
+    local_expiry_date = timezone.localtime(parsed).date()
+    if local_expiry_date < timezone.localdate():
+        return None, "Expiry date cannot be in the past. Enter today or a future date."
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        # A date-only expiry remains usable throughout that entire local day.
+        parsed = timezone.make_aware(
+            datetime.combine(local_expiry_date, time.max),
+            timezone.get_current_timezone(),
+        )
     return parsed, None
 
 
@@ -580,7 +621,6 @@ def _create_order_from_checkout_payload(
     )
 
     allocation_policy = _resolve_allocation_policy(body)
-    warehouses_used_for_reservation: set[str] = set()
     mixed_case_net_deposit = 0.0
     for item in normalized_items:
         if str(item.get("itemType") or "").strip().upper() == OrderItemType.MIXED_CASE:
@@ -653,9 +693,10 @@ def _create_order_from_checkout_payload(
                 "net_deposit",
                 "deposit_total",
             ])
-            reserve_order_item(order_item, allocation_policy, performed_by)
-            if str(order.warehouse_id or "").strip():
-                warehouses_used_for_reservation.add(str(order.warehouse_id).strip())
+            # Purchase Requests do not reserve stock until warehouse approval,
+            # when the transaction can validate the latest inventory state.
+            order_item.notes = f"{order_item.notes or ''}\nAllocationPolicy={allocation_policy}".strip()
+            order_item.save(update_fields=["notes"])
             mixed_case_net_deposit += item_deposit
             continue
 
@@ -706,46 +747,10 @@ def _create_order_from_checkout_payload(
             notes=item.get("notes"),
         )
 
-        requested_warehouse_id = str(order.warehouse_id or "").strip() or None
-        used_fallback_warehouse = False
-        try:
-            allocations = _reserve_inventory_for_order_item(
-                product=prod,
-                requested_qty=qty,
-                order=order,
-                order_item=order_item,
-                warehouse_id=requested_warehouse_id,
-                allocation_policy=allocation_policy,
-                performed_by=performed_by,
-            )
-        except ValueError:
-            if not requested_warehouse_id:
-                raise
-            used_fallback_warehouse = True
-            allocations = _reserve_inventory_for_order_item(
-                product=prod,
-                requested_qty=qty,
-                order=order,
-                order_item=order_item,
-                warehouse_id=None,
-                allocation_policy=allocation_policy,
-                performed_by=performed_by,
-            )
-
-        for row in allocations:
-            used_wh = str(row.get("warehouseId") or "").strip()
-            if used_wh:
-                warehouses_used_for_reservation.add(used_wh)
-        allocation_note = f"Reserved using {allocation_policy}: " + ", ".join([f"{row['batchNumber']} x{row['quantity']}" for row in allocations])
         policy_note = f"AllocationPolicy={allocation_policy}"
-        fallback_note = "WarehouseFallback=TRUE" if used_fallback_warehouse else ""
-        order_item.notes = f"{order_item.notes or ''}\n{policy_note}\n{fallback_note}\n{allocation_note}".strip()
+        # Keep the requested allocation policy for the approval-time reservation.
+        order_item.notes = f"{order_item.notes or ''}\n{policy_note}".strip()
         order_item.save(update_fields=["notes"])
-
-    if len(warehouses_used_for_reservation) == 1:
-        order.warehouse_id = next(iter(warehouses_used_for_reservation))
-    elif len(warehouses_used_for_reservation) > 1:
-        order.warehouse_id = None
 
     order.subtotal = subtotal
     order.tax = tax
@@ -3182,21 +3187,34 @@ def _reserve_inventory_for_order_item(
     if requested_qty <= 0:
         raise ValueError(f"Quantity for product {product.sku} must be greater than zero")
 
-    inventory_qs = Inventory.objects.select_related("warehouse").filter(product=product)
+    # Lock inventory rows so concurrent approvals cannot reserve the same cases
+    # after reading an identical availability snapshot.
+    inventory_qs = Inventory.objects.select_for_update().select_related("warehouse").filter(product=product)
     if warehouse_id:
         inventory_qs = inventory_qs.filter(warehouse_id=warehouse_id)
 
     inventories = list(inventory_qs)
+    product_label = str(product.name or product.sku or product.id).strip()
     if not inventories:
-        raise ValueError(f"No inventory found for product {product.sku}")
+        raise ValueError(
+            f"Insufficient stock for {product_label}. Available: 0 cases; required: {requested_qty} cases."
+        )
 
     inventory_by_id = {inv.id: inv for inv in inventories}
     batches = list(
-        StockBatch.objects.select_related("inventory")
+        StockBatch.objects.select_for_update().select_related("inventory")
         .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
     )
-    if not batches:
-        raise ValueError(f"No available stock batches for product {product.sku}")
+    available_by_inventory = {
+        inv.id: max(0, _int(inv.quantity, 0) - _int(inv.reserved_quantity, 0))
+        for inv in inventories
+    }
+    total_available = sum(available_by_inventory.values())
+    if not batches or total_available < requested_qty:
+        raise ValueError(
+            f"Insufficient stock for {product_label}. Available: {total_available} cases; "
+            f"required: {requested_qty} cases."
+        )
 
     ordered_batches = _sorted_batches_for_policy(batches, allocation_policy)
     remaining = requested_qty
@@ -3206,10 +3224,11 @@ def _reserve_inventory_for_order_item(
     for batch in ordered_batches:
         if remaining <= 0:
             break
-        if batch.quantity <= 0:
+        inventory_available = available_by_inventory.get(batch.inventory_id, 0)
+        if batch.quantity <= 0 or inventory_available <= 0:
             continue
 
-        take_qty = min(batch.quantity, remaining)
+        take_qty = min(batch.quantity, inventory_available, remaining)
         if take_qty <= 0:
             continue
 
@@ -3218,6 +3237,7 @@ def _reserve_inventory_for_order_item(
             continue
 
         allocation_by_inventory[inventory.id] = allocation_by_inventory.get(inventory.id, 0) + take_qty
+        available_by_inventory[inventory.id] = max(0, inventory_available - take_qty)
         allocation_rows.append(
             {
                 "batchNumber": batch.batch_number,
@@ -3228,7 +3248,10 @@ def _reserve_inventory_for_order_item(
         remaining -= take_qty
 
     if remaining > 0:
-        raise ValueError(f"Insufficient stock for product {product.sku}. Missing quantity: {remaining}")
+        raise ValueError(
+            f"Insufficient stock for {product_label}. Available: {requested_qty - remaining} cases; "
+            f"required: {requested_qty} cases."
+        )
 
     for inventory_id, qty in allocation_by_inventory.items():
         inventory = inventory_by_id.get(inventory_id)
@@ -3247,6 +3270,86 @@ def _reserve_inventory_for_order_item(
         )
 
     return allocation_rows
+
+
+def _reserve_order_inventory_on_approval(order: Order, performed_by: str | None) -> None:
+    """Reserve every Purchase Request line against the latest locked stock state."""
+    order_items = list(
+        OrderItem.objects.select_for_update(of=("self",))
+        .select_related("product", "order")
+        .prefetch_related("mixed_case_components__product")
+        .filter(order=order)
+        .order_by("created_at", "id")
+    )
+    warehouses_used: set[str] = set()
+
+    for order_item in order_items:
+        # Existing reservations can belong to older requests created before
+        # approval-time reservation was introduced; never reserve them twice.
+        has_normalized_reservation = InventoryReservation.objects.filter(
+            order_item=order_item,
+            status=ReservationStatus.RESERVED,
+        ).exists()
+        has_legacy_reservation = InventoryTransaction.objects.filter(
+            reference_type="order_item_reserve",
+            reference_id=order_item.id,
+            type="RESERVE",
+        ).exists()
+        if has_normalized_reservation or has_legacy_reservation:
+            continue
+
+        allocation_policy = _extract_allocation_policy_from_notes(order_item.notes)
+        if order_item.item_type == OrderItemType.MIXED_CASE:
+            reserve_order_item(order_item, allocation_policy, performed_by)
+            if str(order.warehouse_id or "").strip():
+                warehouses_used.add(str(order.warehouse_id).strip())
+            continue
+
+        if order_item.product is None:
+            raise ValueError(f"Order item {order_item.id} has no active product")
+
+        requested_warehouse_id = str(order.warehouse_id or "").strip() or None
+        used_fallback_warehouse = False
+        try:
+            allocations = _reserve_inventory_for_order_item(
+                product=order_item.product,
+                requested_qty=max(0, _int(order_item.quantity, 0)),
+                order=order,
+                order_item=order_item,
+                warehouse_id=requested_warehouse_id,
+                allocation_policy=allocation_policy,
+                performed_by=performed_by,
+            )
+        except ValueError:
+            if not requested_warehouse_id:
+                raise
+            used_fallback_warehouse = True
+            allocations = _reserve_inventory_for_order_item(
+                product=order_item.product,
+                requested_qty=max(0, _int(order_item.quantity, 0)),
+                order=order,
+                order_item=order_item,
+                warehouse_id=None,
+                allocation_policy=allocation_policy,
+                performed_by=performed_by,
+            )
+
+        for allocation in allocations:
+            warehouse_id = str(allocation.get("warehouseId") or "").strip()
+            if warehouse_id:
+                warehouses_used.add(warehouse_id)
+        allocation_note = f"Reserved using {allocation_policy}: " + ", ".join(
+            f"{allocation['batchNumber']} x{allocation['quantity']}" for allocation in allocations
+        )
+        fallback_note = "\nWarehouseFallback=TRUE" if used_fallback_warehouse else ""
+        order_item.notes = f"{order_item.notes or ''}{fallback_note}\n{allocation_note}".strip()
+        order_item.save(update_fields=["notes"])
+
+    # Preserve the existing split-allocation behavior after the approval-time reserve.
+    if len(warehouses_used) == 1:
+        order.warehouse_id = next(iter(warehouses_used))
+    elif len(warehouses_used) > 1:
+        order.warehouse_id = None
 
 
 def _select_best_warehouse_for_order_items(
@@ -6419,12 +6522,9 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         if "expiryDate" in body or "expiry_date" in body:
             expiry_raw = str(body.get("expiryDate") or body.get("expiry_date") or "").strip()
             if expiry_raw:
-                try:
-                    expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
-                    if timezone.is_naive(expiry_date):
-                        expiry_date = timezone.make_aware(expiry_date)
-                except ValueError:
-                    return _err("Invalid expiryDate", 400)
+                expiry_date, expiry_error = _validate_stock_expiry(expiry_raw)
+                if expiry_error:
+                    return _err(expiry_error, 400)
             else:
                 expiry_date = None
 
@@ -6526,11 +6626,9 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
     expiry_raw = str(body.get("expiryDate") or body.get("expiry_date") or "").strip()
     if not expiry_raw:
         return _err("expiryDate is required", 400)
-    expiry_date = None
-    try:
-        expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
-    except ValueError:
-        return _err("Invalid expiryDate", 400)
+    expiry_date, expiry_error = _validate_stock_expiry(expiry_raw)
+    if expiry_error:
+        return _err(expiry_error, 400)
 
     created_by = (_payload(request) or {}).get("userId")
 
@@ -6708,11 +6806,9 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 
         if not expiry_raw:
             return _err(f"Batch {idx}: expiryDate is required", 400)
-        expiry_date = None
-        try:
-            expiry_date = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
-        except ValueError:
-            return _err(f"Batch {idx}: Invalid expiryDate format", 400)
+        expiry_date, expiry_error = _validate_stock_expiry(expiry_raw)
+        if expiry_error:
+            return _err(f"Batch {idx}: {expiry_error}", 400)
 
         validated_batches.append({
             "index": idx,
@@ -6926,6 +7022,10 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             driver = User.objects.filter(id=driver_id, role="DRIVER").first()
             if not driver:
                 return _err("Driver not found", 404)
+            if v.driver_id and v.driver_id != driver.id:
+                unassignment_error = _driver_unassignment_error(v.driver)
+                if unassignment_error:
+                    return _err(unassignment_error, 400)
             blocker = _driver_assignment_blocker(driver)
             if blocker:
                 return _err(f"Driver cannot be assigned: {blocker}", 400)
@@ -6934,6 +7034,9 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
             _assign_vehicle_to_driver(driver, v)
         else:
+            unassignment_error = _driver_unassignment_error(v.driver)
+            if unassignment_error:
+                return _err(unassignment_error, 400)
             v.driver = None
     if "isActive" in body:
         v.is_active = bool(body.get("isActive"))
@@ -7086,6 +7189,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
             _assign_vehicle_to_driver(d, vehicle)
         else:
+            unassignment_error = _driver_unassignment_error(d)
+            if unassignment_error:
+                return _err(unassignment_error, 400)
             _assign_vehicle_to_driver(d, None)
     d.save()
     driver_payload = _serialize_model(d, exclude={"password"})
@@ -7874,6 +7980,10 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             update_fields = ["status", "updated_at"]
 
             if next_status == OrderStatus.CONFIRMED:
+                # Approval is the inventory commit point: re-check and reserve
+                # while inventory rows are locked inside this transaction.
+                _reserve_order_inventory_on_approval(o, staff.get("userId"))
+                update_fields.append("warehouse_id")
                 if not str(o.purchase_request_number or "").strip():
                     o.purchase_request_number = _generate_next_purchase_workflow_number("purchase_request_number", "PR")
                     update_fields.append("purchase_request_number")
@@ -7966,13 +8076,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     )
 
     if next_status == OrderStatus.CONFIRMED:
-        pr_number = str(updated.purchase_request_number or updated.order_number or "").strip()
         po_number = str(updated.purchase_order_number or updated.order_number or "").strip()
-        # Approval keeps the PR identity while telling the customer which PO was created.
+        # Fix: customer notifications use direct customer-facing order language;
+        # staff actor/audit wording remains limited to staff notifications above.
         _create_customer_notification(
             customer=updated.customer,
-            title="Purchase request approved",
-            message=f"Your purchase request {pr_number} was approved as purchase order {po_number}.",
+            title="Order approved",
+            message=f"Your order {po_number} was approved.",
             notification_type="ORDER",
             reference_type="order",
             reference_id=updated.id,
@@ -8064,39 +8174,68 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         rows = list(qs[off : off + size])
         serialized_rows = [_serialize_trip(t) for t in rows]
 
-        if include_tracking and serialized_rows:
-            trip_ids = [row.get("id") for row in serialized_rows if row.get("id")]
-            latest_logs_qs = (
-                # Only expose a location when its owner matches the trip's driver account.
-                LocationLog.objects.filter(
-                    trip_id__in=trip_ids,
-                    driver_id=F("trip__driver_id"),
+        driver_locations: list[dict[str, Any]] = []
+        if include_tracking:
+            if serialized_rows:
+                trip_ids = [row.get("id") for row in serialized_rows if row.get("id")]
+                latest_logs_qs = (
+                    # Only expose a trip location when its owner matches the assigned driver.
+                    LocationLog.objects.filter(
+                        trip_id__in=trip_ids,
+                        driver_id=F("trip__driver_id"),
+                    )
+                    .order_by("trip_id", "-recorded_at", "-id")
                 )
-                .order_by("trip_id", "-recorded_at", "-id")
+                if tracking_date:
+                    latest_logs_qs = latest_logs_qs.filter(recorded_at__date=tracking_date)
+
+                logs_by_trip: dict[str, list[dict[str, Any]]] = {}
+                latest_log_by_trip: dict[str, dict[str, Any]] = {}
+                for log in latest_logs_qs:
+                    if not log.trip_id:
+                        continue
+                    row = _serialize_model(log)
+                    logs_by_trip.setdefault(log.trip_id, []).append(row)
+                    if log.trip_id not in latest_log_by_trip:
+                        latest_log_by_trip[log.trip_id] = row
+
+                for trip_row in serialized_rows:
+                    trip_id = trip_row.get("id")
+                    if not trip_id:
+                        continue
+                    trip_row["locationLogs"] = logs_by_trip.get(trip_id, [])
+                    trip_row["latestLocation"] = latest_log_by_trip.get(trip_id)
+
+            # Fix: expose one latest GPS point per active driver independently of
+            # trip status. Completed or unlinked locations must remain visible to
+            # authorized admin and warehouse tracking views without exposing routes.
+            seen_driver_ids: set[str] = set()
+            latest_driver_logs = (
+                LocationLog.objects.select_related("driver", "trip", "trip__vehicle")
+                .filter(driver__role=RoleType.DRIVER, driver__is_active=True)
+                .order_by("driver_id", "-recorded_at", "-id")
             )
-
-            logs_by_trip: dict[str, list[dict[str, Any]]] = {}
-            latest_log_by_trip: dict[str, dict[str, Any]] = {}
-            for log in latest_logs_qs:
-                if not log.trip_id:
+            for log in latest_driver_logs:
+                driver_id = str(log.driver_id or "").strip()
+                if not driver_id or driver_id in seen_driver_ids:
                     continue
-                if log.trip_id in latest_log_by_trip:
-                    continue
-                row = _serialize_model(log)
-                latest_log_by_trip[log.trip_id] = row
-                logs_by_trip[log.trip_id] = [row]
-
-            for trip_row in serialized_rows:
-                trip_id = trip_row.get("id")
-                if not trip_id:
-                    continue
-                trip_row["locationLogs"] = logs_by_trip.get(trip_id, [])
-                trip_row["latestLocation"] = latest_log_by_trip.get(trip_id)
+                seen_driver_ids.add(driver_id)
+                driver_locations.append(
+                    {
+                        **_serialize_model(log),
+                        "driverId": driver_id,
+                        "driverName": str(getattr(log.driver, "name", "") or "Driver"),
+                        "tripId": str(log.trip_id or "").strip() or None,
+                        "tripStatus": str(getattr(log.trip, "status", "") or "").strip() or None,
+                        "vehiclePlate": str(getattr(getattr(log.trip, "vehicle", None), "license_plate", "") or "").strip() or None,
+                    }
+                )
 
         return _ok(
             {
                 "success": True,
                 "trips": serialized_rows,
+                "driverLocations": driver_locations,
                 "total": total,
                 "page": page,
                 "pageSize": size,

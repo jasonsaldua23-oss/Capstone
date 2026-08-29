@@ -3,6 +3,7 @@
 // This mirrors the web portal's useCustomerPortalState hook.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { useFonts } from "expo-font";
@@ -15,6 +16,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { Alert, Animated, AppState, BackHandler, useWindowDimensions } from "react-native";
 import {
   cancelOrder,
+  cancelReplacementRequest,
   clearNotifications,
   confirmEmailVerification,
   fetchAuthMe,
@@ -39,6 +41,7 @@ import {
   submitCustomerFeedback,
   submitReplacementRequest,
   updateCustomerProfile,
+  updateSecuritySetting,
   uploadCustomerAvatar,
   uploadReplacementEvidence,
   verifyPasswordResetOtp,
@@ -61,7 +64,7 @@ import {
   withinNegrosOccidental,
 } from "../lib/customer-logic";
 import { buildReceiptHtml, formatAddress, getInitials } from "../lib/format";
-import { getAutomaticEmptyCredit, getLineDepositAmounts } from "../lib/shared";
+import { composeShippingAddress, getAutomaticEmptyCredit, getLineDepositAmounts, SERVICE_AREA_MESSAGE } from "../lib/shared";
 import { theme } from "../theme";
 import { API_BASE_URL } from "../config/env";
 import type {
@@ -84,6 +87,7 @@ type AuthMode = "login" | "register";
 export type PortalRoute =
   | { name: "order-detail"; orderId: string }
   | { name: "purchase-request-detail"; orderId: string }
+  | { name: "replacement-detail"; replacementId: string }
   | { name: "edit-address" };
 
 type CustomerNotificationPreferences = {
@@ -101,6 +105,8 @@ const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
 };
 
 const CUSTOMER_NOTIFICATION_PREFS_KEY = "customer_notification_preferences";
+// Same key the web portal uses in localStorage.
+const CUSTOMER_REMEMBER_DEVICE_KEY = "customer_remember_device_enabled";
 const customerCartKey = (userId: string) => `customer_cart_${userId}`;
 
 const initialProfileForm: CustomerProfileUpdateInput = {
@@ -167,17 +173,36 @@ function useCustomerPortalState() {
   const [activeTab, setActiveTab] = useState<CustomerTab>("home");
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [orderSearch, setOrderSearch] = useState("");
-  const [orderStatusFilter, setOrderStatusFilter] = useState("ALL");
-  const [orderDateFrom, setOrderDateFrom] = useState("");
-  const [orderDateTo, setOrderDateTo] = useState("");
-  const [requestStatusFilter, setRequestStatusFilter] = useState("ALL");
+  const [ordersTab, setOrdersTab] = useState<"ALL" | "DELIVERED" | "TO_REVIEW" | "REPLACEMENT">("ALL");
+  const [filterDialogVisible, setFilterDialogVisible] = useState(false);
+  const [orderFilterStatus, setOrderFilterStatus] = useState("ALL");
+  const [orderFilterDateFrom, setOrderFilterDateFrom] = useState("");
+  const [orderFilterDateTo, setOrderFilterDateTo] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [productCategory, setProductCategory] = useState("ALL");
   const [cardQuantityByProductId, setCardQuantityByProductId] = useState<Record<string, number>>({});
+  // Structured delivery address, matching the web portal's shipping* fields.
+  const [addressForm, setAddressForm] = useState({
+    name: "",
+    phone: "",
+    houseNumber: "",
+    streetName: "",
+    subdivision: "",
+    barangay: "",
+    city: "",
+    province: "Negros Occidental",
+    zipCode: "",
+    country: "Philippines",
+    latitude: null as number | null,
+    longitude: null as number | null,
+  });
+  const [resolvingPinnedAddress, setResolvingPinnedAddress] = useState(false);
   const [addressSearch, setAddressSearch] = useState("");
   const [addressSearchResults, setAddressSearchResults] = useState<Array<{ displayName: string; latitude: number; longitude: number }>>([]);
   const [searchingAddress, setSearchingAddress] = useState(false);
   const [feedbackOrderId, setFeedbackOrderId] = useState<string | null>(null);
+  const [ratingDialogOrder, setRatingDialogOrder] = useState<CustomerOrder | null>(null);
+  const [deliveryRatingValue, setDeliveryRatingValue] = useState(5);
   const [feedbackItems, setFeedbackItems] = useState<CustomerFeedbackItem[]>([]);
   const [feedbackRatingValue, setFeedbackRatingValue] = useState(5);
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([]);
@@ -200,9 +225,6 @@ function useCustomerPortalState() {
   const [receiptOrder, setReceiptOrder] = useState<CustomerOrder | null>(null);
   const [sharingReceipt, setSharingReceipt] = useState(false);
   const [replacementOrder, setReplacementOrder] = useState<CustomerOrder | null>(null);
-  const [replacementQuantities, setReplacementQuantities] = useState<Record<string, string>>({});
-  const [replacementReasons, setReplacementReasons] = useState<Record<string, string>>({});
-  const [replacementDescription, setReplacementDescription] = useState("");
   const [replacementEvidence, setReplacementEvidence] = useState<string[]>([]);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [submittingReplacement, setSubmittingReplacement] = useState(false);
@@ -210,8 +232,17 @@ function useCustomerPortalState() {
   // Mirrors the web's sessionStorage `customer_welcome_state`: null = closed,
   // "new" after registration, "existing" after login.
   const [welcomeMode, setWelcomeMode] = useState<"new" | "existing" | null>(null);
+  const [pendingCancelReplacement, setPendingCancelReplacement] = useState<CustomerReplacement | null>(null);
+  const [cancellingReplacement, setCancellingReplacement] = useState(false);
+  const [orderConfirmationVisible, setOrderConfirmationVisible] = useState(false);
+  const [lastPlacedOrderNumber, setLastPlacedOrderNumber] = useState("");
   const [notificationPrefs, setNotificationPrefs] = useState<CustomerNotificationPreferences>(defaultNotificationPrefs);
   const [securityForm, setSecurityForm] = useState(initialSecurityForm);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(false);
+  // The web keeps this one on the device, not the account.
+  const [rememberDeviceEnabled, setRememberDeviceEnabled] = useState(true);
+  const [savingSecurity, setSavingSecurity] = useState(false);
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
@@ -229,6 +260,7 @@ function useCustomerPortalState() {
         await hydrateStoredCart(stored.userId);
         await refreshData(false, stored.userId);
         await loadNotificationPreferences();
+        await loadRememberDevicePreference();
       }
       setBooting(false);
     })();
@@ -297,6 +329,23 @@ function useCustomerPortalState() {
     }
   }
 
+  function hydrateAddressForm(nextProfile: CustomerProfile) {
+    setAddressForm((current) => ({
+      ...current,
+      name: nextProfile.name || "",
+      phone: nextProfile.phone || "",
+      city: nextProfile.city || "",
+      province: nextProfile.province || "Negros Occidental",
+      zipCode: nextProfile.zipCode || "",
+      country: nextProfile.country || "Philippines",
+      latitude: typeof nextProfile.latitude === "number" ? nextProfile.latitude : current.latitude,
+      longitude: typeof nextProfile.longitude === "number" ? nextProfile.longitude : current.longitude,
+      // The API returns one composed line; the structured parts are filled by
+      // pinning or by hand until the backend exposes them separately.
+      streetName: current.streetName || String(nextProfile.address || ""),
+    }));
+  }
+
   function hydrateProfileForm(nextProfile: CustomerProfile) {
     setProfileForm({
       name: nextProfile.name || "",
@@ -313,6 +362,15 @@ function useCustomerPortalState() {
       suffix: nextProfile.suffix || "",
       avatar: nextProfile.avatar || null,
     });
+  }
+
+  async function loadRememberDevicePreference() {
+    try {
+      const raw = await AsyncStorage.getItem(CUSTOMER_REMEMBER_DEVICE_KEY);
+      setRememberDeviceEnabled(raw === null ? true : Boolean(JSON.parse(raw)));
+    } catch {
+      setRememberDeviceEnabled(true);
+    }
   }
 
   async function loadNotificationPreferences() {
@@ -366,6 +424,9 @@ function useCustomerPortalState() {
       setEligibleEmptyItems(nextEligibleEmpties);
       setFeedbackItems(nextFeedback);
       hydrateProfileForm(nextProfile);
+      hydrateAddressForm(nextProfile);
+      setTwoFactorEnabled(Boolean(currentUser.twoFactorEnabled ?? nextProfile.twoFactorEnabled));
+      setLoginAlertsEnabled(Boolean(currentUser.loginAlertsEnabled ?? nextProfile.loginAlertsEnabled));
       if (!selectedOrderId && nextOrders.length > 0) {
         setSelectedOrderId(nextOrders[0].id);
       } else if (selectedOrderId && !nextOrders.some((order) => order.id === selectedOrderId)) {
@@ -478,9 +539,6 @@ function useCustomerPortalState() {
     setEligibleEmptyItems([]);
     setReceiptOrder(null);
     setReplacementOrder(null);
-    setReplacementQuantities({});
-    setReplacementReasons({});
-    setReplacementDescription("");
     setReplacementEvidence([]);
   }
 
@@ -613,7 +671,7 @@ function useCustomerPortalState() {
           requestId: `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         };
       }
-      await placeOrder({
+      const placedOrder = await placeOrder({
         shippingAddress: profileForm.address,
         shippingCity: profileForm.city,
         shippingProvince: profileForm.province,
@@ -629,16 +687,191 @@ function useCustomerPortalState() {
         items: orderItems,
       });
       pendingCheckoutRef.current = null;
+      setLastPlacedOrderNumber(
+        String(placedOrder?.purchaseRequestNumber || placedOrder?.orderNumber || placedOrder?.id || "").trim()
+      );
+      setOrderConfirmationVisible(true);
       // Fix: checkout removes only selected lines, matching the web cart behavior.
       setCart((current) => Object.fromEntries(Object.entries(current).filter(([productId]) => !selectedCartIds.has(productId))));
       setMixedCart((current) => current.filter((item) => !selectedCartIds.has(item.id)));
       setSelectedCartIds(new Set());
       await refreshData(false, profile.userId);
-      setActiveTab("orders");
+      setOrderSearch("");
+      setOrdersTab("ALL");
+      setOrderFilterStatus("ALL");
+      // The web lands on purchase requests: a new order is pending warehouse approval.
+      setActiveTab("requests");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to place order.");
     } finally {
       setPlacingOrder(false);
+    }
+  }
+
+  async function confirmCancelReplacement() {
+    const replacementId = String(pendingCancelReplacement?.id || "").trim();
+    if (!replacementId) return;
+    setCancellingReplacement(true);
+    setError(null);
+    try {
+      await cancelReplacementRequest(replacementId);
+      setPendingCancelReplacement(null);
+      if (user) await refreshData(false, user.userId);
+    } catch (e) {
+      // A 409 means staff already moved it to Under Review; refresh so the
+      // customer sees the state that blocked them, matching the web.
+      setError(e instanceof Error ? e.message : "Failed to cancel replacement request.");
+      if (user) await refreshData(false, user.userId);
+    } finally {
+      setCancellingReplacement(false);
+    }
+  }
+
+  async function saveSecuritySetting(field: "twoFactorEnabled" | "loginAlertsEnabled", value: boolean) {
+    if (!user) return;
+    setSavingSecurity(true);
+    setError(null);
+    try {
+      const nextCustomer = await updateSecuritySetting(user.userId, field, value);
+      if (field === "twoFactorEnabled") setTwoFactorEnabled(value);
+      else setLoginAlertsEnabled(value);
+      if (nextCustomer) setProfile((current) => ({ ...(current || {}), ...nextCustomer }) as CustomerProfile);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save security setting.");
+    } finally {
+      setSavingSecurity(false);
+    }
+  }
+
+  async function persistRememberDevice(value: boolean) {
+    setRememberDeviceEnabled(value);
+    await AsyncStorage.setItem(CUSTOMER_REMEMBER_DEVICE_KEY, JSON.stringify(value));
+  }
+
+  function setAddressField(field: keyof typeof addressForm, value: string) {
+    setAddressForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function clearAddressForm() {
+    setAddressForm((current) => ({
+      ...current,
+      houseNumber: "",
+      streetName: "",
+      subdivision: "",
+      barangay: "",
+      city: "",
+      province: "Negros Occidental",
+      zipCode: "",
+      latitude: null,
+      longitude: null,
+    }));
+  }
+
+  function handleOutsideServiceArea() {
+    setError(SERVICE_AREA_MESSAGE);
+  }
+
+  // Reverse-geocodes a pinned point, exactly as the web portal does.
+  async function handlePinnedLocation(lat: number, lng: number) {
+    setAddressForm((current) => ({ ...current, latitude: lat, longitude: lng }));
+    setResolvingPinnedAddress(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1&countrycodes=ph&zoom=18`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!response.ok) throw new Error("Reverse geocoding failed");
+      const payload = await response.json();
+      const address = payload?.address || {};
+      setAddressForm((current) => ({
+        ...current,
+        houseNumber: String(address.house_number || current.houseNumber || ""),
+        streetName: String(address.road || current.streetName || ""),
+        subdivision: String(address.neighbourhood || address.suburb || current.subdivision || ""),
+        barangay: String(address.village || address.quarter || address.suburb || current.barangay || ""),
+        city: String(address.city || address.town || address.municipality || current.city || ""),
+        province: String(address.state || current.province || "Negros Occidental"),
+        zipCode: String(address.postcode || current.zipCode || ""),
+      }));
+    } catch {
+      // Keep the pin; the customer can still fill the fields by hand.
+    } finally {
+      setResolvingPinnedAddress(false);
+    }
+  }
+
+  async function useCurrentLocation() {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        setError("Location permission is required to use your current location.");
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({});
+      await handlePinnedLocation(position.coords.latitude, position.coords.longitude);
+    } catch {
+      setError("Could not read your current location.");
+    }
+  }
+
+  async function handleSaveAddress() {
+    if (!user) return;
+    if (addressForm.phone.trim() && !isValidPhilippinePhone(addressForm.phone)) {
+      setError("Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567).");
+      return;
+    }
+    setSavingProfile(true);
+    setError(null);
+    try {
+      const composed = composeShippingAddress({
+        houseNumber: addressForm.houseNumber,
+        streetName: addressForm.streetName,
+        subdivision: addressForm.subdivision,
+        barangay: addressForm.barangay,
+        city: addressForm.city,
+        province: addressForm.province,
+        zipCode: addressForm.zipCode,
+      });
+      const nextProfile = await updateCustomerProfile(user.userId, {
+        ...profileForm,
+        name: addressForm.name || profileForm.name,
+        phone: addressForm.phone || profileForm.phone,
+        address: composed,
+        city: addressForm.city,
+        province: addressForm.province,
+        zipCode: addressForm.zipCode,
+        latitude: addressForm.latitude === null ? "" : String(addressForm.latitude),
+        longitude: addressForm.longitude === null ? "" : String(addressForm.longitude),
+      });
+      setProfile(nextProfile);
+      hydrateProfileForm(nextProfile);
+      popRoute();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save address.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function submitRating(selectedFeedbackOptions: string[]): Promise<boolean> {
+    const order = ratingDialogOrder;
+    if (!order) return false;
+    if (selectedFeedbackOptions.length === 0) return false;
+    setSubmittingFeedback(true);
+    setError(null);
+    try {
+      await submitCustomerFeedback({
+        orderId: order.id,
+        rating: deliveryRatingValue,
+        message: selectedFeedbackOptions.join(", "),
+      });
+      if (user) await refreshData(false, user.userId);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to submit review.");
+      return false;
+    } finally {
+      setSubmittingFeedback(false);
     }
   }
 
@@ -783,43 +1016,27 @@ function useCustomerPortalState() {
     }
   }
 
-  async function handleSubmitReplacement() {
+  async function handleSubmitReplacement(built: {
+    lines: any[];
+    totalDamagedItems: number;
+    combinedReason: string;
+    combinedDescription: string;
+  }) {
     if (!replacementOrder) return;
-    const lines = (replacementOrder.items || []).flatMap((item) => {
-      const quantity = Number(replacementQuantities[item.id] || 0);
-      if (!Number.isFinite(quantity) || quantity <= 0) return [];
-      return [{
-        originalOrderItemId: item.id,
-        replacementProductId: item.product?.id,
-        quantityToReplace: Math.floor(quantity),
-        inputMode: "case" as const,
-        reason: replacementReasons[item.id] || "",
-        description: replacementDescription.trim() || undefined,
-      }];
-    });
-    if (lines.length === 0) return setError("Enter a replacement quantity for at least one item.");
-    if (lines.some((line) => !line.reason)) return setError("Select a replacement reason for each affected item.");
-    const invalidLine = lines.find((line) => line.quantityToReplace > Number(replacementOrder.items?.find((item) => item.id === line.originalOrderItemId)?.quantity || 0));
-    if (invalidLine) return setError("Replacement quantity cannot exceed the quantity in the delivered order.");
-    if (replacementEvidence.length === 0) return setError("Attach at least one evidence photo.");
     setSubmittingReplacement(true);
     setError(null);
     try {
       await submitReplacementRequest({
         orderId: replacementOrder.id,
-        numberDamagedItems: lines.reduce((sum, line) => sum + line.quantityToReplace, 0),
-        damageType: lines[0].reason,
-        description: replacementDescription.trim() || undefined,
+        numberDamagedItems: built.totalDamagedItems,
+        damageType: built.combinedReason,
+        description: built.combinedDescription || undefined,
         evidence: replacementEvidence,
-        replacementLines: lines,
+        replacementLines: built.lines,
       });
       setReplacementOrder(null);
-      setReplacementQuantities({});
-      setReplacementReasons({});
-      setReplacementDescription("");
       setReplacementEvidence([]);
-      await refreshData(false, user?.userId);
-      Alert.alert("Replacement Requested", "Your replacement request was submitted successfully.");
+      if (user) await refreshData(false, user.userId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to submit replacement request.");
     } finally {
@@ -1111,9 +1328,12 @@ function useCustomerPortalState() {
       const sizes = Array.isArray(item.product.sizes)
         ? item.product.sizes.map((size) => String(size).trim()).filter(Boolean)
         : [];
+      // Same precedence as the web's getProductSizeLabel: sizes first, then the
+      // size fields, then the unit. Cart lines fall back to the unit ("case");
+      // the catalog card falls back to "N/A" instead.
       const sizeLabel =
-        String(item.product.sizeLabel || item.product.size || "").trim() ||
         (sizes.length > 0 ? sizes.join(", ") : "") ||
+        String(item.product.sizeLabel || item.product.size || "").trim() ||
         String(item.product.unit || "").trim() ||
         "case";
       const unitLabel = String(item.product.unit || "case").trim().toLowerCase() || "case";
@@ -1201,6 +1421,10 @@ function useCustomerPortalState() {
   // The web total lets the backend reconcile returnable-container deposits; mirror that displayed calculation.
   const checkoutTotal = Math.max(0, selectedSubtotal - totalDiscount);
   const cartLineCount = cartItems.length + mixedCart.length;
+  // The header badge counts units, not lines: the web uses
+  // cart.reduce((sum, i) => sum + i.quantity, 0).
+  const cartUnitCount = cartItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+    + mixedCart.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const selectedCartLineCount = selectedStandardCartItems.length + selectedMixedCartItems.length;
   const deliveredOrders = useMemo(
     () => orders.filter((order) => String(order.status || "").toUpperCase() === "DELIVERED"),
@@ -1224,21 +1448,6 @@ function useCustomerPortalState() {
   }, [productCategory, productSearch, products]);
   const purchaseRequests = useMemo(() => orders.filter(isPurchaseRequest), [orders]);
   const purchaseOrders = useMemo(() => orders.filter((order) => !isPurchaseRequest(order) || Boolean(order.purchaseOrderNumber)), [orders]);
-  const filteredRequests = useMemo(() => purchaseRequests.filter((order) => {
-    const status = String(order.requestStatus || normalizeOrderStatus(order)).toUpperCase();
-    const matchesStatus = requestStatusFilter === "ALL" || status === requestStatusFilter;
-    const query = orderSearch.trim().toLowerCase();
-    return matchesStatus && (!query || [order.purchaseRequestNumber, order.orderNumber, status].some((value) => String(value || "").toLowerCase().includes(query)));
-  }), [orderSearch, purchaseRequests, requestStatusFilter]);
-  const filteredOrders = useMemo(() => purchaseOrders.filter((order) => {
-    const status = normalizeOrderStatus(order);
-    const created = String(order.createdAt || "").slice(0, 10);
-    const matchesStatus = orderStatusFilter === "ALL" || status === orderStatusFilter;
-    const matchesFrom = !orderDateFrom || created >= orderDateFrom;
-    const matchesTo = !orderDateTo || created <= orderDateTo;
-    const query = orderSearch.trim().toLowerCase();
-    return matchesStatus && matchesFrom && matchesTo && (!query || [order.purchaseOrderNumber, order.orderNumber, status].some((value) => String(value || "").toLowerCase().includes(query)));
-  }), [orderDateFrom, orderDateTo, orderSearch, orderStatusFilter, purchaseOrders]);
   const customerInitials = getInitials(profile?.name || user?.name || "Customer");
   const profileAddress = formatAddress(profileForm);
 
@@ -1272,6 +1481,43 @@ function useCustomerPortalState() {
   }, [routeStack.length]);
 
   return {
+    ratingDialogOrder,
+    setRatingDialogOrder,
+    deliveryRatingValue,
+    setDeliveryRatingValue,
+    submitRating,
+    addressForm,
+    setAddressField,
+    clearAddressForm,
+    handlePinnedLocation,
+    handleOutsideServiceArea,
+    useCurrentLocation,
+    resolvingPinnedAddress,
+    handleSaveAddress,
+    twoFactorEnabled,
+    loginAlertsEnabled,
+    rememberDeviceEnabled,
+    savingSecurity,
+    saveSecuritySetting,
+    persistRememberDevice,
+    pendingCancelReplacement,
+    setPendingCancelReplacement,
+    cancellingReplacement,
+    confirmCancelReplacement,
+    cartUnitCount,
+    ordersTab,
+    setOrdersTab,
+    filterDialogVisible,
+    setFilterDialogVisible,
+    orderFilterStatus,
+    setOrderFilterStatus,
+    orderFilterDateFrom,
+    setOrderFilterDateFrom,
+    orderFilterDateTo,
+    setOrderFilterDateTo,
+    orderConfirmationVisible,
+    setOrderConfirmationVisible,
+    lastPlacedOrderNumber,
     unifiedCartItems,
     selectedUnifiedCartItems,
     selectedDepositRefunded,
@@ -1341,14 +1587,6 @@ function useCustomerPortalState() {
     setSelectedOrderId,
     orderSearch,
     setOrderSearch,
-    orderStatusFilter,
-    setOrderStatusFilter,
-    orderDateFrom,
-    setOrderDateFrom,
-    orderDateTo,
-    setOrderDateTo,
-    requestStatusFilter,
-    setRequestStatusFilter,
     productSearch,
     setProductSearch,
     productCategory,
@@ -1407,12 +1645,6 @@ function useCustomerPortalState() {
     setSharingReceipt,
     replacementOrder,
     setReplacementOrder,
-    replacementQuantities,
-    setReplacementQuantities,
-    replacementReasons,
-    setReplacementReasons,
-    replacementDescription,
-    setReplacementDescription,
     replacementEvidence,
     setReplacementEvidence,
     uploadingEvidence,
@@ -1504,8 +1736,6 @@ function useCustomerPortalState() {
     visibleProducts,
     purchaseRequests,
     purchaseOrders,
-    filteredRequests,
-    filteredOrders,
     customerInitials,
     profileAddress,
   };

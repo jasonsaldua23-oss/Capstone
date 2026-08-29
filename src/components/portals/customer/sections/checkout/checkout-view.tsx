@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
+import { getCheckoutQuantityLabel } from '@shared/customer-logic/item-display'
 
 type CustomerCheckoutViewProps = {
   setActiveView: (view: any) => void
@@ -134,6 +135,7 @@ export function CustomerCheckoutView({
                     {(() => {
                       const sizeLabel = String(item.sizeLabel || item.unit || '').trim() || 'case'
                       const categoryLabel = String((item as any)?.category?.name || (item as any)?.category || '').trim()
+                      const quantityLabel = getCheckoutQuantityLabel(item)
                       return (
                         <>
                           <div className="flex items-start justify-between gap-2">
@@ -148,7 +150,7 @@ export function CustomerCheckoutView({
                           </div>
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-semibold text-slate-900">{categoryLabel || 'Beverage'}</span>
-                            <span className="text-slate-500">{item.quantity} × {formatPeso(item.unitPrice)}</span>
+                            <span className="text-slate-500">{quantityLabel} × {formatPeso(item.unitPrice)}</span>
                           </div>
                         </>
                       )
@@ -210,7 +212,7 @@ export function CustomerCheckoutView({
                     {item.itemType === 'MIXED_CASE' ? (
                       <div className="mt-2 rounded-lg bg-sky-50 p-2 text-xs text-sky-800">
                         <p className="font-semibold">
-                          Quantity: {Math.max(1, Number(item.quantity || 1))}
+                          Quantity: {Math.max(1, Number(item.quantity || 1))} case{Number(item.quantity || 1) === 1 ? '' : 's'}
                         </p>
                         <MixedCaseComponents item={item} compact />
                       </div>

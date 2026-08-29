@@ -13,10 +13,10 @@ import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
 
-// The web card defaults to 12 and clamps to what is in stock.
+// Customer quantity is a case count, not the units packed inside a case.
 function getCardQty(raw: number | undefined, maxQty: number) {
   const parsed = Number(raw);
-  const base = Number.isFinite(parsed) && parsed > 0 ? Math.max(1, Math.floor(parsed)) : 12;
+  const base = Number.isFinite(parsed) && parsed > 0 ? Math.max(1, Math.floor(parsed)) : 1;
   const safeMaxQty = Number.isFinite(Number(maxQty)) && Number(maxQty) > 0 ? Math.floor(Number(maxQty)) : null;
   return safeMaxQty ? Math.min(base, safeMaxQty) : base;
 }
@@ -48,6 +48,7 @@ export function HomeScreen() {
 
   // The web aside appears at the lg breakpoint, not md.
   const showOrderRail = width >= 1024;
+  const isWide = width >= 768;
 
   const welcomeMessage = useMemo(() => {
     const name = String(profile?.name || user?.name || "").trim();
@@ -111,7 +112,7 @@ export function HomeScreen() {
         <View style={styles.flex}>
           <View style={styles.catalogHeader}>
             <View style={styles.catalogControlsRow}>
-              <View style={styles.catalogSearchWrap}>
+              <View style={[styles.catalogSearchWrap, isWide ? styles.flex : styles.catalogControlHalf]}>
                 <Search size={16} color={theme.colors.slate500} />
                 <TextInput
                   style={styles.catalogSearchInput}
@@ -121,16 +122,21 @@ export function HomeScreen() {
                   placeholderTextColor={theme.colors.textFaint}
                 />
               </View>
-              <CategorySelect value={productCategory} options={categoryOptions} onChange={setProductCategory} />
+              <CategorySelect
+                value={productCategory}
+                options={categoryOptions}
+                onChange={setProductCategory}
+                wide={isWide}
+              />
             </View>
 
-            <View style={styles.catalogTitleRow}>
-              <View style={styles.flex}>
+            <View style={isWide ? styles.catalogTitleRowWide : styles.catalogTitleRow}>
+              <View style={isWide ? styles.flex : undefined}>
                 <Text style={styles.catalogTitle}>Product Catalog</Text>
                 <Text style={styles.catalogSubtitle}>Place your order and we&apos;ll deliver it to your store.</Text>
               </View>
               <Pressable
-                style={styles.mixedCaseButton}
+                style={[styles.mixedCaseButton, isWide ? null : styles.mixedCaseButtonStacked]}
                 onPress={() => openMixedCaseBuilder()}
                 accessibilityRole="button"
               >
@@ -204,7 +210,7 @@ export function HomeScreen() {
                         </View>
                       </View>
 
-                      <Text style={styles.quantityLabel}>Quantity</Text>
+                      <Text style={styles.quantityLabel}>Quantity (cases)</Text>
                       <View style={styles.qtyControls}>
                         <Pressable
                           style={styles.qtyButton}
@@ -234,7 +240,7 @@ export function HomeScreen() {
                       </View>
 
                       <View style={styles.quantityPresets}>
-                        {[12, 24, 36, 48].map((quantity) => {
+                        {[1, 2, 3, 4].map((quantity) => {
                           const isActive = selectedQty === quantity;
                           const exceedsAvailable = quantity > Math.max(0, available);
                           const isDisabled = isSoldOut || exceedsAvailable;

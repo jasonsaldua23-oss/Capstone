@@ -54,6 +54,7 @@ import { CustomerPortalProvider, useCustomerPortal, type CustomerTab } from "./s
 import { AuthScreen } from "./src/screens/auth/auth-screen";
 import { PortalModals } from "./src/portal/portal-modals";
 import { OrderDetailScreen } from "./src/screens/orders/order-detail-screen";
+import { ReplacementDetailScreen } from "./src/screens/orders/replacement-detail-screen";
 import { PurchaseRequestDetailScreen } from "./src/screens/purchase-requests/request-detail-screen";
 import { HomeScreen } from "./src/screens/home/home-screen";
 import { CartScreen } from "./src/screens/cart/cart-screen";
@@ -63,6 +64,7 @@ import { OrdersScreen } from "./src/screens/orders/orders-screen";
 import { TrackScreen } from "./src/screens/track/track-screen";
 import { FeedbackScreen } from "./src/screens/feedback/feedback-screen";
 import { ProfileScreen } from "./src/screens/profile/profile-screen";
+import { EditAddressScreen } from "./src/screens/profile/edit-address-screen";
 import { styles } from "./src/styles/app-styles";
 import { theme } from "./src/theme";
 
@@ -71,6 +73,7 @@ function CustomerPortalScreens() {
     fontsLoaded,
     width,
     currentRoute,
+    cartUnitCount,
     resetToTab,
     isDesktop,
     booting,
@@ -116,14 +119,6 @@ function CustomerPortalScreens() {
     setSelectedOrderId,
     orderSearch,
     setOrderSearch,
-    orderStatusFilter,
-    setOrderStatusFilter,
-    orderDateFrom,
-    setOrderDateFrom,
-    orderDateTo,
-    setOrderDateTo,
-    requestStatusFilter,
-    setRequestStatusFilter,
     productSearch,
     setProductSearch,
     productCategory,
@@ -170,12 +165,6 @@ function CustomerPortalScreens() {
     sharingReceipt,
     replacementOrder,
     setReplacementOrder,
-    replacementQuantities,
-    setReplacementQuantities,
-    replacementReasons,
-    setReplacementReasons,
-    replacementDescription,
-    setReplacementDescription,
     replacementEvidence,
     setReplacementEvidence,
     uploadingEvidence,
@@ -243,8 +232,6 @@ function CustomerPortalScreens() {
     categoryOptions,
     visibleProducts,
     purchaseRequests,
-    filteredRequests,
-    filteredOrders,
     customerInitials,
     profileAddress,
   } = useCustomerPortal();
@@ -276,7 +263,7 @@ function CustomerPortalScreens() {
           <AppHeader
             title="AAB TRADING SHOP"
             subtitle="ANN ANN'S BEVERAGES TRADING"
-            cartCount={cartLineCount}
+            cartCount={cartUnitCount}
             isCartActive={activeTab === "cart"}
             onCartPress={() => resetToTab("cart")}
             unreadCount={unreadNotifications}
@@ -302,6 +289,10 @@ function CustomerPortalScreens() {
                 {currentRoute.name === "purchase-request-detail" ? (
                   <PurchaseRequestDetailScreen orderId={currentRoute.orderId} />
                 ) : null}
+                {currentRoute.name === "replacement-detail" ? (
+                  <ReplacementDetailScreen replacementId={currentRoute.replacementId} />
+                ) : null}
+                {currentRoute.name === "edit-address" ? <EditAddressScreen /> : null}
               </>
             ) : (
               <>

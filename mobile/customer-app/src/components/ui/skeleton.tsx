@@ -40,3 +40,36 @@ export function ProductGridSkeleton({ cards = 6 }: { cards?: number }) {
     </View>
   );
 }
+
+// Mirrors PortalCardsSkeleton: the loading state for the order and request lists.
+export function CardsSkeleton({ cards = 4 }: { cards?: number }) {
+  return (
+    <View style={styles.cardsSkeletonWrap}>
+      {Array.from({ length: cards }).map((_, index) => (
+        <View key={`card-skeleton-${index}`} style={styles.cardsSkeletonCard}>
+          <Skeleton style={styles.cardsSkeletonLineLg} />
+          <Skeleton style={styles.cardsSkeletonLineMd} />
+          <Skeleton style={styles.cardsSkeletonLineSm} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Mirrors PortalTimelineSkeleton: the Delivery Journey loading state.
+export function TimelineSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <View style={styles.timelineSkeletonWrap}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <View key={`timeline-skeleton-${index}`} style={styles.timelineSkeletonRow}>
+          <Skeleton style={styles.timelineSkeletonDot} />
+          <View style={styles.flex}>
+            <Skeleton style={styles.timelineSkeletonLineLg} />
+            <Skeleton style={styles.timelineSkeletonLineSm} />
+          </View>
+          <Skeleton style={styles.timelineSkeletonTime} />
+        </View>
+      ))}
+    </View>
+  );
+}

@@ -261,3 +261,19 @@
 .leaflet-control-attribution {
   display: none !important;
 }
+
+/* Fix: give the driver trip sheet a responsive, consistent motion curve without
+   changing the timing of other Vaul drawers in the application. */
+.driver-trip-drawer-motion[data-vaul-drawer] {
+  transition-duration: 380ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-duration: 380ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .driver-trip-drawer-motion[data-vaul-drawer] {
+    transition-duration: 1ms;
+    animation-duration: 1ms;
+  }
+}

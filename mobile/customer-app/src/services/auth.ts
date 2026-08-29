@@ -333,6 +333,20 @@ export async function fetchCustomerProfile(userId: string): Promise<CustomerProf
   return profile;
 }
 
+export async function updateSecuritySetting(
+  userId: string,
+  field: "twoFactorEnabled" | "loginAlertsEnabled",
+  value: boolean
+): Promise<CustomerProfile> {
+  const token = await getToken();
+  const data = await apiRequest<{ customer: CustomerProfile }>(`/api/customers/${userId}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify({ [field]: value }),
+  });
+  return data.customer;
+}
+
 export async function updateCustomerProfile(userId: string, input: CustomerProfileUpdateInput): Promise<CustomerProfile> {
   const token = await getToken();
   const latitude = input.latitude.trim() ? Number(input.latitude) : null;
@@ -487,21 +501,23 @@ export async function uploadReplacementEvidence(file: { uri: string; name: strin
   return data.fileUrl;
 }
 
+export async function cancelReplacementRequest(replacementId: string): Promise<void> {
+  const token = await getToken();
+  await apiRequest(`/api/customer/replacements/${encodeURIComponent(replacementId)}/cancel`, {
+    method: "POST",
+    token,
+  });
+}
+
 export async function submitReplacementRequest(input: {
   orderId: string;
   numberDamagedItems: number;
   damageType: string;
   description?: string;
   evidence: string[];
-  replacementLines: Array<{
-    originalOrderItemId: string;
-    replacementProductId?: string;
-    quantityToReplace: number;
-    quantityPerCase?: number;
-    inputMode?: "case" | "bottle";
-    reason: string;
-    description?: string;
-  }>;
+  // Built by buildReplacementRequest in shared/customer-logic; the web sends every
+  // field it produces, so this stays open rather than narrowing the payload.
+  replacementLines: Array<Record<string, unknown>>;
 }): Promise<CustomerReplacement> {
   const token = await getToken();
   const data = await apiRequest<{ replacement: CustomerReplacement }>("/api/customer/replacements", {

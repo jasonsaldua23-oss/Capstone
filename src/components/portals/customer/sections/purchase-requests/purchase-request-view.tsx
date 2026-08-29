@@ -20,22 +20,20 @@ import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { formatOrderedQuantityWithContainer } from '../orders/order-item-display'
+import {
+  getRequestItemDisplayName,
+  getPRStatusText,
+  normalizePRStatus,
+  type PRStatus,
+} from '@shared/customer-logic/item-display'
 
 const PAGE_SIZE = 10
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
-export type PRStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+export type { PRStatus }
 
-export function normalizePRStatus(value: any): PRStatus {
-  const raw = String(value || '')
-    .trim()
-    .toUpperCase()
-  if (raw === 'APPROVED') return 'APPROVED'
-  if (raw === 'REJECTED') return 'REJECTED'
-  if (raw === 'CANCELLED' || raw === 'CANCELED') return 'CANCELLED'
-  return 'PENDING_APPROVAL'
-}
+export { normalizePRStatus }
 
 export function getStatusConfig(status: PRStatus): {
   label: string
@@ -47,32 +45,28 @@ export function getStatusConfig(status: PRStatus): {
   switch (status) {
     case 'APPROVED':
       return {
-        label: 'Approved',
-        message: 'Your purchase request has been approved. A purchase order has been created.',
+        ...getPRStatusText('APPROVED'),
         icon: <CheckCircle2 className="h-3.5 w-3.5" />,
         badgeClass: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200',
         dotClass: 'bg-emerald-500',
       }
     case 'REJECTED':
       return {
-        label: 'Rejected',
-        message: 'Your purchase request was not approved.',
+        ...getPRStatusText('REJECTED'),
         icon: <XCircle className="h-3.5 w-3.5" />,
         badgeClass: 'bg-red-100 text-red-700 hover:bg-red-100 border-red-200',
         dotClass: 'bg-red-500',
       }
     case 'CANCELLED':
       return {
-        label: 'Cancelled',
-        message: 'This purchase request has been cancelled.',
+        ...getPRStatusText('CANCELLED'),
         icon: <CircleAlert className="h-3.5 w-3.5" />,
         badgeClass: 'bg-rose-100 text-rose-700 hover:bg-rose-100 border-rose-200',
         dotClass: 'bg-rose-500',
       }
     default:
       return {
-        label: 'Pending Review',
-        message: 'Your purchase request is currently being reviewed by warehouse staff.',
+        ...getPRStatusText('PENDING_APPROVAL'),
         icon: <Clock3 className="h-3.5 w-3.5" />,
         badgeClass: 'bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200',
         dotClass: 'bg-amber-400',
@@ -82,20 +76,7 @@ export function getStatusConfig(status: PRStatus): {
 
 // ─── Item formatters ──────────────────────────────────────────────────────────
 
-function getItemDisplayNameWithSize(item: any): string {
-  if (item?.itemType === 'MIXED_CASE') {
-    return 'Mixed Case'
-  }
-  const baseName = String(item?.product?.name || item?.productName || 'Product').trim()
-  const product = item?.product || {}
-  const sizeFromArray =
-    Array.isArray(product?.sizes) && product.sizes.length > 0
-      ? product.sizes.map((s: any) => String(s).trim()).filter(Boolean).join(', ')
-      : ''
-  const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-  const sizeLabel = sizeFromArray || sizeFromField
-  return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
-}
+const getItemDisplayNameWithSize = getRequestItemDisplayName
 
 function formatQuantityWithUnit(item: any): string {
   // Purchase requests use the ordered container (Case, Pack, etc.), matching purchase orders.

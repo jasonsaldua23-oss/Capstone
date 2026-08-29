@@ -82,18 +82,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
           <p className="text-xs font-semibold text-slate-800">All ({cart.length})</p>
           <p className="text-[10px] text-slate-500">{selectedCount} selected</p>
         </div>
-        {selectedCount > 0 ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1 rounded-xl px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-            onClick={removeSelectedFromCart}
-            title="Remove selected items"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Remove
-          </Button>
-        ) : null}
+
       </div>
 
       <div className="flex items-center gap-3">
@@ -105,7 +94,6 @@ export function CustomerCartView(props: CustomerCartViewProps) {
         <Button
           disabled={selectedCount === 0}
           className="h-10 rounded-xl bg-emerald-600 px-5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400"
-          onClick={() => setActiveView('checkout')}
         >
           Check out ({selectedCount})
         </Button>

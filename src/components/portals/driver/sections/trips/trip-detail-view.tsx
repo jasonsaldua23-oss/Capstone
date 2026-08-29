@@ -123,7 +123,9 @@ export function TripDetailView({
   // Mobile bottom sheet and map UX state.
   const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false)
+  const [isMobileSheetClosing, setIsMobileSheetClosing] = useState(false)
   const [showMobileSheetPeek, setShowMobileSheetPeek] = useState(true)
+  const [mobileSheetAnimationEpoch, setMobileSheetAnimationEpoch] = useState(0)
   const [mobileMapRecenterSignal, setMobileMapRecenterSignal] = useState(0)
   const [mobileMapZoomInSignal, setMobileMapZoomInSignal] = useState(0)
   const [mobileMapZoomOutSignal, setMobileMapZoomOutSignal] = useState(0)
@@ -149,7 +151,6 @@ export function TripDetailView({
   const cameraGpsRef = useRef<{ latitude: number; longitude: number } | null>(null)
   const lastReverseGeocodeKeyRef = useRef('')
   const mobileSheetTouchStartYRef = useRef<number | null>(null)
-  const mobileSheetPeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
   const mobileMapViewportRef = useRef<HTMLDivElement | null>(null)
   const mobileTopOverlayRef = useRef<HTMLDivElement | null>(null)
@@ -200,7 +201,7 @@ export function TripDetailView({
     if (!mapViewport || !topOverlay) return
 
     const updateCameraInsets = () => {
-      const bottomOverlay = isMobileSheetOpen
+      const bottomOverlay = isMobileSheetOpen || isMobileSheetClosing
         ? mobileDrawerRef.current
         : showMobileSheetPeek
           ? mobileSheetPeekRef.current
@@ -232,23 +233,16 @@ export function TripDetailView({
     if (mobileDrawerRef.current) resizeObserver.observe(mobileDrawerRef.current)
     if (mobileSheetPeekRef.current) resizeObserver.observe(mobileSheetPeekRef.current)
 
-    // Vaul moves the drawer with transforms, so follow its style changes as well
-    // as element resizes to keep the usable camera viewport accurate while dragging.
-    const mutationObserver = new MutationObserver(updateCameraInsets)
-    if (mobileDrawerRef.current) {
-      mutationObserver.observe(mobileDrawerRef.current, { attributes: true, attributeFilter: ['style', 'data-state'] })
-    }
     window.addEventListener('resize', updateCameraInsets)
     window.visualViewport?.addEventListener('resize', updateCameraInsets)
     updateCameraInsets()
 
     return () => {
       resizeObserver.disconnect()
-      mutationObserver.disconnect()
       window.removeEventListener('resize', updateCameraInsets)
       window.visualViewport?.removeEventListener('resize', updateCameraInsets)
     }
-  }, [isMobileSheetOpen, isMobileViewport, mobileSheetSnapPoint, showMobileSheetPeek])
+  }, [isMobileSheetClosing, isMobileSheetOpen, isMobileViewport, mobileSheetAnimationEpoch, mobileSheetSnapPoint, showMobileSheetPeek])
 
   // Refresh immediately after writes so status changes reflect server DB state without delay.
   const refreshTripsInBackground = () => {
@@ -288,32 +282,17 @@ export function TripDetailView({
 
   // Reset mobile sheet and recenter state when user switches to a different trip.
   useEffect(() => {
-    if (mobileSheetPeekTimeoutRef.current) {
-      clearTimeout(mobileSheetPeekTimeoutRef.current)
-      mobileSheetPeekTimeoutRef.current = null
-    }
     setIsMobileSheetOpen(false)
+    setIsMobileSheetClosing(false)
     setShowMobileSheetPeek(true)
     setMobileSheetSnapPoint(0.52)
     setMobileMapRecenterCenter(null)
     setMobileMapRecenterSignal(0)
   }, [trip.id])
 
-  // Cleanup delayed timers to avoid setting state on unmounted component.
-  useEffect(() => {
-    return () => {
-      if (mobileSheetPeekTimeoutRef.current) {
-        clearTimeout(mobileSheetPeekTimeoutRef.current)
-      }
-    }
-  }, [])
-
   // Opens full mobile sheet and hides the collapsed peek button.
   const openMobileSheet = () => {
-    if (mobileSheetPeekTimeoutRef.current) {
-      clearTimeout(mobileSheetPeekTimeoutRef.current)
-      mobileSheetPeekTimeoutRef.current = null
-    }
+    setIsMobileSheetClosing(false)
     setShowMobileSheetPeek(false)
     setIsMobileSheetOpen(true)
   }
@@ -335,30 +314,31 @@ export function TripDetailView({
     setMobileSheetSnapPoint(0.52)
   }
 
-  // Controls open/close transitions and delayed peek reappearance.
+  // Controls open/close state. During closing, the preview sits beneath the
+  // drawer so the moving sheet reveals it as one continuous surface.
   const handleMobileSheetOpenChange = (open: boolean) => {
     if (!open) {
+      setIsMobileSheetClosing(true)
+      setShowMobileSheetPeek(true)
       setIsMobileSheetOpen(false)
       setMobileSheetSnapPoint(0.52)
-      if (mobileSheetPeekTimeoutRef.current) {
-        clearTimeout(mobileSheetPeekTimeoutRef.current)
-      }
-      mobileSheetPeekTimeoutRef.current = setTimeout(() => {
-        setShowMobileSheetPeek(true)
-        mobileSheetPeekTimeoutRef.current = null
-      }, 160)
       return
     }
 
-    if (mobileSheetPeekTimeoutRef.current) {
-      clearTimeout(mobileSheetPeekTimeoutRef.current)
-      mobileSheetPeekTimeoutRef.current = null
-    }
+    setIsMobileSheetClosing(false)
     setShowMobileSheetPeek(false)
     setIsMobileSheetOpen(open)
     if (open && typeof mobileSheetSnapPoint === 'number' && mobileSheetSnapPoint < 0.52) {
       setMobileSheetSnapPoint(0.52)
     }
+  }
+
+  const handleMobileSheetAnimationEnd = (open: boolean) => {
+    setShowMobileSheetPeek(!open)
+    if (!open) setIsMobileSheetClosing(false)
+    // Fix: recalculate the map once at the settled drawer position instead of
+    // forcing layout and React updates during every transform animation frame.
+    setMobileSheetAnimationEpoch((previous) => previous + 1)
   }
 
   // Touch handlers enable upward swipe on peek button to open the sheet.
@@ -2510,11 +2490,12 @@ export function TripDetailView({
                   snapPoints={mobileSheetSnapPoints}
                   activeSnapPoint={mobileSheetSnapPoint}
                   setActiveSnapPoint={handleMobileSheetSnapPointChange}
+                  onAnimationEnd={handleMobileSheetAnimationEnd}
                 >
                   <DrawerContent
                     ref={mobileDrawerRef}
                     hideOverlay
-                    className="!bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                    className="driver-trip-drawer-motion !bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] transform-gpu will-change-transform rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
                   >
                     <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] pt-2 pr-3">
                       <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
@@ -2716,11 +2697,11 @@ export function TripDetailView({
                     ref={mobileSheetPeekRef}
                     key="mobile-sheet-peek"
                     type="button"
-                    initial={{ opacity: 0, y: 20, scale: 0.985 }}
+                    initial={isMobileSheetClosing ? false : { opacity: 0, y: 12, scale: 0.99 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 16, scale: 0.985 }}
-                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                    className="fixed inset-x-0 bottom-0 z-[1250] w-full max-w-none rounded-t-[24px] border border-white/85 bg-white/96 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)]"
+                    exit={{ opacity: 0, y: 10, scale: 0.99 }}
+                    transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                    className={`fixed inset-x-0 bottom-0 w-full max-w-none rounded-t-[24px] border border-white/85 bg-white/96 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)] ${isMobileSheetClosing ? 'z-[1190]' : 'z-[1250]'}`}
                     onClick={openMobileSheet}
                     onTouchStart={handleMobileSheetPeekTouchStart}
                     onTouchMove={handleMobileSheetPeekTouchMove}

@@ -2,15 +2,22 @@
 // Every dialog rendered above the authenticated shell.
 import React from "react";
 import { Search } from "lucide-react-native";
-import { Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { CUSTOMER_ORDER_REASONS, REPLACEMENT_REASONS, formatPeso } from "../lib/customer-logic";
 import { formatDate, resolveImageUrl } from "../lib/format";
 import { InfoRow } from "../components/ui/info-row";
 import { ToggleRow } from "../components/ui/toggle-row";
+import { DateField } from "../components/ui/date-field";
+import { EmptiesDeposits } from "../components/ui/empties-deposits";
 import { ModalShell } from "../components/ui/modal-shell";
+import { RatingDialog } from "../components/ui/rating-dialog";
+import { ReceiptDialog } from "../components/ui/receipt-dialog";
+import { ReplacementRequestForm } from "../components/ui/replacement-request-form";
+import { StatusSelect } from "../components/ui/status-select";
 import { ConfirmationModal } from "../components/ui/confirmation-modal";
 import { MixedCaseBuilder } from "../components/MixedCaseBuilder";
 import { styles } from "../styles/app-styles";
+import { theme } from "../theme";
 import { useCustomerPortal } from "./portal-context";
 
 export function PortalModals() {
@@ -48,14 +55,9 @@ export function PortalModals() {
     receiptOrder,
     setReceiptOrder,
     sharingReceipt,
+    replacements,
     replacementOrder,
     setReplacementOrder,
-    replacementQuantities,
-    setReplacementQuantities,
-    replacementReasons,
-    setReplacementReasons,
-    replacementDescription,
-    setReplacementDescription,
     replacementEvidence,
     setReplacementEvidence,
     uploadingEvidence,
@@ -89,10 +91,90 @@ export function PortalModals() {
     handleRequestOtp,
     handleVerifyOtp,
     handleChangePassword,
+    orderConfirmationVisible,
+    setOrderConfirmationVisible,
+    lastPlacedOrderNumber,
+    filterDialogVisible,
+    setFilterDialogVisible,
+    orderFilterStatus,
+    setOrderFilterStatus,
+    orderFilterDateFrom,
+    setOrderFilterDateFrom,
+    orderFilterDateTo,
+    setOrderFilterDateTo,
+    pendingCancelReplacement,
+    setPendingCancelReplacement,
+    cancellingReplacement,
+    confirmCancelReplacement,
+    twoFactorEnabled,
+    loginAlertsEnabled,
+    rememberDeviceEnabled,
+    savingSecurity,
+    saveSecuritySetting,
+    persistRememberDevice,
   } = useCustomerPortal();
 
   return (
     <>
+      <RatingDialog />
+      <ReceiptDialog />
+
+      <ConfirmationModal
+        visible={Boolean(pendingCancelReplacement)}
+        title="Cancel Replacement Request?"
+        message={`Cancel ${pendingCancelReplacement?.replacementNumber || "this replacement request"}? This cannot be undone.`}
+        confirmLabel={cancellingReplacement ? "Cancelling..." : "Cancel Replacement"}
+        danger
+        onCancel={() => setPendingCancelReplacement(null)}
+        onConfirm={() => void confirmCancelReplacement()}
+      />
+
+      <ModalShell
+        visible={filterDialogVisible}
+        title="Filter Orders"
+        subtitle="Refine the list by status and date range."
+        onClose={() => setFilterDialogVisible(false)}
+      >
+        <Text style={styles.checkoutFieldLabel}>Status</Text>
+        <StatusSelect value={orderFilterStatus} onChange={setOrderFilterStatus} />
+        <Text style={styles.checkoutFieldLabel}>Date from</Text>
+        <DateField value={orderFilterDateFrom} onChange={setOrderFilterDateFrom} accessibilityLabel="Date from" />
+        <Text style={styles.checkoutFieldLabel}>Date to</Text>
+        <DateField value={orderFilterDateTo} onChange={setOrderFilterDateTo} accessibilityLabel="Date to" />
+        <View style={styles.modalActions}>
+          <Pressable
+            style={styles.modalGhostButton}
+            onPress={() => {
+              setOrderFilterStatus("ALL");
+              setOrderFilterDateFrom("");
+              setOrderFilterDateTo("");
+            }}
+          >
+            <Text style={styles.modalGhostButtonText}>Clear</Text>
+          </Pressable>
+          <Pressable style={styles.primaryButtonCompact} onPress={() => setFilterDialogVisible(false)}>
+            <Text style={styles.primaryButtonText}>Apply</Text>
+          </Pressable>
+        </View>
+      </ModalShell>
+
+      <ModalShell
+        visible={orderConfirmationVisible}
+        title="Purchase Request Submitted"
+        subtitle={
+          lastPlacedOrderNumber
+            ? `Your purchase request ${lastPlacedOrderNumber} has been submitted and is currently pending review by warehouse staff.`
+            : "Your purchase request has been submitted and is currently pending review by warehouse staff."
+        }
+        onClose={() => setOrderConfirmationVisible(false)}
+      >
+        <View style={styles.modalActions}>
+          <Pressable style={styles.primaryButtonCompact} onPress={() => setOrderConfirmationVisible(false)}>
+            <Text style={styles.primaryButtonText}>OK</Text>
+          </Pressable>
+        </View>
+      </ModalShell>
+
 
       <ModalShell
         visible={activeProfileModal === "edit"}
@@ -101,7 +183,7 @@ export function PortalModals() {
         onClose={closeProfileModal}
       >
         <View style={styles.avatarEditor}>
-          <Image source={{ uri: resolveImageUrl(profileForm.avatar) }} style={styles.profileAvatarImage} />
+          <Image source={{ uri: resolveImageUrl(profileForm.avatar) }} style={styles.profileEditAvatarImage} />
           <Pressable style={styles.secondaryButtonCompact} onPress={handlePickAvatar} disabled={uploadingAvatar}>
             <Text style={styles.secondaryButtonText}>{uploadingAvatar ? "Uploading..." : "Change Photo"}</Text>
           </Pressable>
@@ -187,6 +269,52 @@ export function PortalModals() {
             <Text style={styles.primaryButtonText}>{resettingPassword ? "Updating..." : "Change Password"}</Text>
           </Pressable>
         </View>
+
+        <Text style={styles.securitySectionTitle}>Security Settings</Text>
+        <View style={styles.securityToggleRow}>
+          <View style={styles.flex}>
+            <Text style={styles.securityToggleLabel}>Two-Factor Authentication (2FA)</Text>
+            <Text style={styles.securityToggleHint}>
+              Require a 6-digit OTP code when logging in to secure your account.
+            </Text>
+          </View>
+          <Switch
+            value={twoFactorEnabled}
+            disabled={savingSecurity}
+            onValueChange={(value) => void saveSecuritySetting("twoFactorEnabled", value)}
+            trackColor={{ true: "#14532d", false: theme.colors.slate200 }}
+            thumbColor={theme.colors.white}
+          />
+        </View>
+        <View style={styles.securityToggleRow}>
+          <View style={styles.flex}>
+            <Text style={styles.securityToggleLabel}>Login Activity Alerts</Text>
+            <Text style={styles.securityToggleHint}>
+              Receive email notifications when your account is logged in from a new device.
+            </Text>
+          </View>
+          <Switch
+            value={loginAlertsEnabled}
+            disabled={savingSecurity}
+            onValueChange={(value) => void saveSecuritySetting("loginAlertsEnabled", value)}
+            trackColor={{ true: "#14532d", false: theme.colors.slate200 }}
+            thumbColor={theme.colors.white}
+          />
+        </View>
+        <View style={styles.securityToggleRow}>
+          <View style={styles.flex}>
+            <Text style={styles.securityToggleLabel}>Remember Device Sessions</Text>
+            <Text style={styles.securityToggleHint}>
+              Keep trusted sessions active on your browser for faster access.
+            </Text>
+          </View>
+          <Switch
+            value={rememberDeviceEnabled}
+            onValueChange={(value) => void persistRememberDevice(value)}
+            trackColor={{ true: "#14532d", false: theme.colors.slate200 }}
+            thumbColor={theme.colors.white}
+          />
+        </View>
       </ModalShell>
 
       <ModalShell
@@ -252,180 +380,39 @@ export function PortalModals() {
         subtitle="Record eligible returnable containers from products you purchased."
         onClose={closeProfileModal}
       >
-        {(profile?.bottleBalances || []).map((balance, index) => (
-          <View key={`${balance.containerTypeId || "balance"}-${index}`} style={styles.notificationCard}>
-            <Text style={styles.listTitle}>{balance.containerTypeName || "Returnable container"}</Text>
-            <InfoRow label="Outstanding bottles" value={String(balance.bottlesOutstanding || 0)} />
-            <InfoRow label="Deposit balance" value={formatPeso(Number(balance.depositBalance || 0))} />
-          </View>
-        ))}
-        <Text style={styles.sectionTitle}>Available Empty Containers</Text>
-        {eligibleEmptyItems.length === 0 ? <Text style={styles.subtle}>No eligible empty containers are available.</Text> : null}
-        {eligibleEmptyItems.map((item) => {
-          const cases = Math.max(1, emptyCasesByProductId[item.productId] || 1);
-          return (
-            <View key={item.productId} style={styles.notificationCard}>
-              <Text style={styles.listTitle}>{item.productName}</Text>
-              <Text style={styles.subtle}>Up to {item.availableCasesToReturn} case(s) · {item.containersPerCase} bottles/case</Text>
-              <Text style={styles.subtle}>Deposit per case: {formatPeso(item.caseDeposit)}</Text>
-              <View style={styles.sectionHeadingRow}>
-                <View style={styles.qtyControls}>
-                  <Pressable style={styles.qtyButton} onPress={() => setEmptyCasesByProductId((current) => ({ ...current, [item.productId]: Math.max(1, cases - 1) }))}><Text style={styles.qtyButtonText}>−</Text></Pressable>
-                  <Text style={styles.qtyValue}>{cases}</Text>
-                  <Pressable style={styles.qtyButton} onPress={() => setEmptyCasesByProductId((current) => ({ ...current, [item.productId]: Math.min(item.availableCasesToReturn, cases + 1) }))}><Text style={styles.qtyButtonText}>+</Text></Pressable>
-                </View>
-                <Pressable style={styles.primaryButtonCompact} onPress={() => handleRecordEmptyCases(item)} disabled={recordingEmptyProductId === item.productId}>
-                  <Text style={styles.primaryButtonText}>{recordingEmptyProductId === item.productId ? "Recording..." : "Record Empties"}</Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        })}
+        <EmptiesDeposits />
       </ModalShell>
 
-      <ModalShell
-        visible={activeProfileModal === "address"}
-        title="Address"
-        subtitle="View and update your saved delivery address."
-        onClose={closeProfileModal}
-      >
-        {/* Added: address search mirrors the web portal's Negros Occidental delivery-area lookup. */}
-        <View style={styles.inlineActionRow}>
-          <TextInput style={[styles.input, styles.inlineInput]} value={addressSearch} onChangeText={setAddressSearch} placeholder="Search address in Negros Occidental" />
-          <Pressable style={styles.secondaryButtonCompact} onPress={handleSearchAddress} disabled={searchingAddress}>
-            <Text style={styles.secondaryButtonText}>{searchingAddress ? "Searching..." : "Search"}</Text>
-          </Pressable>
-        </View>
-        {addressSearchResults.map((result) => (
-          <Pressable key={`${result.latitude}-${result.longitude}`} style={styles.searchResult} onPress={() => selectAddressSearchResult(result)}>
-            <Text style={styles.bodyText}>{result.displayName}</Text>
-          </Pressable>
-        ))}
-        <TextInput
-          style={styles.input}
-          value={profileForm.address}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, address: value }))}
-          placeholder="Address"
-        />
-        <TextInput
-          style={styles.input}
-          value={profileForm.city}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, city: value }))}
-          placeholder="City"
-        />
-        <TextInput
-          style={styles.input}
-          value={profileForm.province}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, province: value }))}
-          placeholder="Province"
-        />
-        <TextInput
-          style={styles.input}
-          value={profileForm.zipCode}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, zipCode: value }))}
-          placeholder="ZIP Code"
-        />
-        <TextInput
-          style={styles.input}
-          value={profileForm.latitude}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, latitude: value }))}
-          placeholder="Latitude"
-          keyboardType="decimal-pad"
-        />
-        <TextInput
-          style={styles.input}
-          value={profileForm.longitude}
-          onChangeText={(value) => setProfileForm((current) => ({ ...current, longitude: value }))}
-          placeholder="Longitude"
-          keyboardType="decimal-pad"
-        />
-        <View style={styles.modalActions}>
-          <Pressable style={styles.modalGhostButton} onPress={closeProfileModal}>
-            <Text style={styles.modalGhostButtonText}>Cancel</Text>
-          </Pressable>
-          <Pressable style={styles.primaryButtonCompact} onPress={handleSaveProfile} disabled={savingProfile}>
-            <Text style={styles.primaryButtonText}>{savingProfile ? "Saving..." : "Save Address"}</Text>
-          </Pressable>
-        </View>
-      </ModalShell>
-
-      <ModalShell
-        visible={Boolean(receiptOrder)}
-        title="Receipt Preview"
-        subtitle="Official delivery receipt from Ann Ann's Beverages Trading."
-        onClose={() => setReceiptOrder(null)}
-      >
-        {receiptOrder ? (
-          <>
-            <View style={styles.receiptHeader}>
-              <Text style={styles.featureTitle}>AAB TRADING SHOP</Text>
-              <Text style={styles.subtle}>Receipt No. RCT-{receiptOrder.orderNumber}</Text>
-            </View>
-            <InfoRow label="Customer" value={receiptOrder.shippingName || profile?.name || user?.name || ""} />
-            <InfoRow label="Order" value={receiptOrder.purchaseOrderNumber || receiptOrder.orderNumber} />
-            <InfoRow label="Date" value={formatDate(receiptOrder.createdAt)} />
-            {(receiptOrder.items || []).map((item) => (
-              <View key={item.id} style={styles.cartRow}>
-                <View style={styles.flex}><Text style={styles.listTitle}>{item.product?.name || (item.itemType === "MIXED_CASE" ? "Mixed Case" : "Product")}</Text><Text style={styles.subtle}>Qty {item.quantity}</Text></View>
-                <Text style={styles.listTitle}>{formatPeso(Number(item.totalPrice || 0))}</Text>
-              </View>
-            ))}
-            <View style={styles.summaryLine}><Text style={styles.sectionTitle}>Total</Text><Text style={styles.totalText}>{formatPeso(Number(receiptOrder.totalAmount || 0))}</Text></View>
-            <Pressable style={styles.primaryButton} onPress={() => void handleShareReceipt(receiptOrder)} disabled={sharingReceipt}>
-              <Text style={styles.primaryButtonText}>{sharingReceipt ? "Preparing PDF..." : "Download or Share Receipt"}</Text>
-            </Pressable>
-          </>
-        ) : null}
-      </ModalShell>
-
+      
+      
       <ModalShell
         visible={Boolean(replacementOrder)}
         title="Request Replacement"
         subtitle={`Report affected items from ${replacementOrder?.orderNumber || "this delivered order"}.`}
         onClose={() => {
           setReplacementOrder(null);
-          setReplacementQuantities({});
-          setReplacementReasons({});
-          setReplacementDescription("");
           setReplacementEvidence([]);
         }}
       >
-        {(replacementOrder?.items || []).map((item) => (
-          <View key={item.id} style={styles.replacementLine}>
-            <Text style={styles.listTitle}>{item.product?.name || (item.itemType === "MIXED_CASE" ? "Mixed Case" : "Product")}</Text>
-            <Text style={styles.subtle}>Delivered quantity: {item.quantity}</Text>
-            <TextInput
-              style={styles.input}
-              value={replacementQuantities[item.id] || ""}
-              onChangeText={(value) => setReplacementQuantities((current) => ({ ...current, [item.id]: value.replace(/\D/g, "") }))}
-              keyboardType="number-pad"
-              placeholder="Quantity to replace"
-            />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              {REPLACEMENT_REASONS.map((reason) => (
-                <Pressable key={reason} style={[styles.chip, replacementReasons[item.id] === reason ? styles.chipActive : null]} onPress={() => setReplacementReasons((current) => ({ ...current, [item.id]: reason }))}>
-                  <Text style={[styles.chipText, replacementReasons[item.id] === reason ? styles.chipTextActive : null]}>{reason}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        ))}
-        <TextInput style={[styles.input, styles.multilineInput]} value={replacementDescription} onChangeText={setReplacementDescription} multiline placeholder="Describe the issue" />
-        <Pressable style={styles.secondaryButton} onPress={handlePickReplacementEvidence} disabled={uploadingEvidence || replacementEvidence.length >= 5}>
-          <Text style={styles.secondaryButtonText}>{uploadingEvidence ? "Uploading..." : `Attach Evidence (${replacementEvidence.length}/5)`}</Text>
-        </Pressable>
-        <View style={styles.evidenceRow}>
-          {replacementEvidence.map((url) => (
-            <View key={url}>
-              <Image source={{ uri: resolveImageUrl(url) }} style={styles.evidenceImage} />
-              <Pressable style={styles.removeEvidenceButton} onPress={() => setReplacementEvidence((current) => current.filter((item) => item !== url))}><Text style={styles.removeEvidenceText}>X</Text></Pressable>
-            </View>
-          ))}
-        </View>
-        {!!error ? <Text style={styles.error}>{error}</Text> : null}
-        <Pressable style={[styles.primaryButton, submittingReplacement ? styles.disabledButton : null]} onPress={handleSubmitReplacement} disabled={submittingReplacement}>
-          <Text style={styles.primaryButtonText}>{submittingReplacement ? "Submitting..." : "Submit Replacement Request"}</Text>
-        </Pressable>
+        {replacementOrder ? (
+          <ReplacementRequestForm
+            order={replacementOrder}
+            evidence={replacementEvidence}
+            uploadingEvidence={uploadingEvidence}
+            onPickEvidence={handlePickReplacementEvidence}
+            onRemoveEvidence={(url) => setReplacementEvidence((current) => current.filter((item) => item !== url))}
+            submitting={submittingReplacement}
+            blockedMessage={
+              replacements.some(
+                (record) =>
+                  record.orderId === replacementOrder.id || record.orderNumber === replacementOrder.orderNumber
+              )
+                ? "A replacement request is already in progress or completed for this order."
+                : null
+            }
+            onSubmit={(built) => void handleSubmitReplacement(built)}
+          />
+        ) : null}
       </ModalShell>
 
       <ModalShell

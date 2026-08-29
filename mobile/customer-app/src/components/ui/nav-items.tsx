@@ -16,6 +16,7 @@ export function getActiveNavId(activeTab: CustomerTab, route: PortalRoute | null
   if (route) {
     if (route.name === "purchase-request-detail") return "requests";
     if (route.name === "order-detail") return "orders";
+    if (route.name === "replacement-detail") return "orders";
     if (route.name === "edit-address") return "profile";
   }
   if (activeTab === "home") return "home";

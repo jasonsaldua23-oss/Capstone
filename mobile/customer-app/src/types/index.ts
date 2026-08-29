@@ -183,6 +183,21 @@ export interface CustomerReplacement {
   damagePhotoUrl?: string | null;
   damagePhotoUrls?: string[];
   replacementQuantity?: number | null;
+  quantityToReplace?: number | null;
+  quantityPerCase?: number | null;
+  rawStatus?: string | null;
+  orderStatus?: string | null;
+  notes?: string | null;
+  replacementOrderId?: string | null;
+  replacementOrderNumber?: string | null;
+  replacementProductName?: string | null;
+  originalProductName?: string | null;
+  replacementProductSize?: string | null;
+  originalProductSize?: string | null;
+  replacementProductImageUrl?: string | null;
+  originalProductImageUrl?: string | null;
+  replacementLines?: any[];
+  replacementItems?: any[];
   createdAt?: string | null;
 }
 

@@ -79,14 +79,14 @@ Missing: pagination (prev/next with range label); `Requested Items`, `Container 
 `Estimated Total` blocks; the dedicated detail page (`Order Note`, Product/Qty/Unit Price/Subtotal,
 `Returnable-container deposit`, `Estimated Total`).
 
-Mobile-only, to remove: the status chip row (web has no status filter here).
+~~Mobile-only, to remove: the status chip row (web has no status filter here).~~ **This note was wrong.** The web PR view has its own `prTab` row (`All / Pending Review / Approved / Rejected / Cancelled`). The app's chips were right in substance; they needed to become tabs with the web's labels.
 
 ### 2.6 Purchase Orders
 
 Missing: the four tabs `All / Delivered / To Review / Replacement`; the Filter dialog;
 pagination (`PAGE_SIZE = 10`); the entire **Replacement** surface — `Replacement Details`,
 `Replacement Items`, `Reason`, `Reported`, `Replacement Order:`, `Received By:`, `Submitted At:`,
-`Proof of Delivery (POD)` image with `No POD uploaded yet.`, cancel-replacement, receive-return;
+`Proof of Delivery (POD)` image with `No POD uploaded yet.`, and cancel-replacement (~~receive-return~~ — that is a warehouse action, see §4h);
 the `Rescheduled Order` badge; the review-details dialog; the full order-detail page
 (`Order Note`, Product/Qty/Unit Price/Subtotal/Total, POD, `Request Replacement` with per-product
 reason selection).
@@ -197,11 +197,11 @@ screens with back affordances, matching the web `activeView` model.
 | **0. Foundation** ✅ **done** | shared logic package; theme token expansion; split `App.tsx` into screens; add the stack navigator | `npm run typecheck` and `npm test` pass; app behaves as before |
 | **1. Shell** ✅ **done** | header glyph cleanup, bell/avatar split, bottom nav, side nav, detail routing | side-by-side screenshots match |
 | **2. Home** ✅ **done** | welcome popup, category dropdown, sold-out sort + heading + badge, image placeholder, skeleton, category line, desktop rail; remove SKU line and Cart summary card | screenshot + copy diff clean |
-| **3. Cart & Checkout** | deliver-to header, remove/remove-selected, deposit indicator, sticky total bar; empty-deposit line, date picker, confirmation dialog, primary/secondary address | place-order flow matches web end to end |
-| **4. Orders & Purchase Requests** | tabs, filter dialog, pagination, order-detail page, PR detail page; remove mobile-only chips and date inputs | list + detail parity |
-| **5. Replacements & POD** | replacement tab, replacement detail, POD display, request/cancel replacement, receive-return; new endpoints | full replacement lifecycle works from the app |
-| **6. Track** | gradient strip, rescheduled badge, warehouse marker + guards, Delivery Journey, Delivery Details, driver card + call | live-delivery walkthrough matches |
-| **7. Profile & Address** | avatar crop, 2FA / login alerts / remember device, empties tabs + deposit credit, structured Edit Address page, map pin + current location + service-area check | every profile subview matches |
+| **3. Cart & Checkout** ✅ **done** | deliver-to header, remove/remove-selected, deposit indicator, sticky total bar; empty-deposit line, date picker, confirmation dialog, primary/secondary address | place-order flow matches web end to end |
+| **4. Orders & Purchase Requests** ✅ **done** | tabs, filter dialog, pagination, order-detail page, PR detail page; remove mobile-only chips and date inputs | list + detail parity |
+| **5. Replacements & POD** ✅ **done** | replacement tab, replacement detail, POD display, request/cancel replacement, receive-return; new endpoints | full replacement lifecycle works from the app |
+| **6. Track** ✅ **done** | gradient strip, rescheduled badge, warehouse marker + guards, Delivery Journey, Delivery Details, driver card + call | live-delivery walkthrough matches |
+| **7. Profile & Address** ✅ **done** | avatar crop, 2FA / login alerts / remember device, empties tabs + deposit credit, structured Edit Address page, map pin + current location + service-area check | every profile subview matches |
 | **8. Feedback & Receipt** | rating dialog with stars, feedback list copy, full receipt layout | copy diff clean |
 | **9. Polish** | skeletons everywhere, toast layer, pull-to-refresh, accessibility labels, 44pt targets | audit checklist signed off |
 
@@ -334,6 +334,409 @@ declares and the card falls back to; both added.
 screen references a deleted style; four styles orphaned by removing the old welcome modal
 were deleted. Still no side-by-side screenshots, so AC-1 is unsigned for Home as well.
 
+## 4d. Phase 3 outcome (completed 2026-08-30)
+
+**Cart rebuilt against `cart-view.tsx`.** Added: the sticky header with back arrow,
+`Shopping Cart (n)` and the `Edit Address` button; the `Deliver to:` bar; circular
+select checkboxes; 80px thumbnails (two-up for mixed cases); the per-line trash button;
+the stock-shortfall box with its `Use {n}` / `Remove` actions; the returnable-deposit box;
+and the bottom bar with select-all, `{n} selected`, `Remove`, `Total`, and
+`Check out (n)`. The old "Cart total" card with *Continue Shopping* / *Proceed to
+Checkout* is gone.
+
+**Checkout rebuilt against `checkout-view.tsx`.** Added: the header, the empty state, the
+recipient card with its three fallbacks, 74px item rows with category and `n x price`,
+per-line deposit boxes, the mixed-case quantity box, `Existing empty deposits applied`,
+the divider and `Total (n items)`, the `Order note (optional)` label, and the sticky
+action bar with the insufficient-stock warning and its `Review your cart` link.
+
+**Three real bugs found while doing it:**
+- **Checkout listed every cart item but totalled only the selected ones.** It mapped over
+  `cartItems` and `mixedCart` while the summary used `selectedSubtotal`, so the list and
+  the total disagreed whenever anything was deselected. Both now use
+  `selectedUnifiedCartItems`.
+- **Placing an order landed on Purchase Orders.** The web goes to Purchase Requests, which
+  is correct — a new order is a request pending warehouse approval. It also clears the
+  order search and status filter, which the app was not doing.
+- **No empty-container credit existed in the app at all.** The web applies
+  `applyAutomaticEmptyCredit` when an item enters the cart, so customers see how much of a
+  new deposit their existing empties cover. The app only ever charged the gross deposit.
+
+**Shared logic grew.** `isReturnableGlassItem`, `getAutomaticEmptyCredit` and
+`getLineDepositAmounts` now live in `shared/customer-logic/empty-credit.ts`. A new
+`unifiedCartItems` selector in the context flattens standard and mixed lines into the
+shape the web's `cart` array has, with deposit credit attached, so cart and checkout
+render from one source.
+
+**New dependency:** `@react-native-community/datetimepicker` 9.1.0, installed via
+`expo install`. The web gets its date picker free from `<input type="date">` with a `min`
+of today; this is the native equivalent, wrapped in a `DateField` component. It replaces
+the free-text `YYYY-MM-DD` box. This is an Expo Go-supported module, but it is a native
+module, so a new dev build is needed for anyone running a custom client.
+
+**Known remaining gap.** The cart's `Deliver to:` line reads
+`address, city, province` because the app's `CustomerProfile` has no `barangay` field; the
+web uses `barangay, city, province`. Phase 7 adds the structured address and closes this.
+
+**Verified** — typecheck, 9 tests, `expo export`, and the web `tsc` all clean; eight
+styles orphaned by the rewrites were removed. Still no side-by-side screenshots.
+
+## 4e. Copy-parity gate (added 2026-08-30)
+
+§8 named a string-parity test as the mitigation that stops the two clients drifting
+again. It exists now: `scripts/check-customer-copy-parity.mjs`, wired into
+`npm test` in the app.
+
+It extracts user-visible strings from both sides and reports app copy with no
+counterpart in the web portal. Findings are tagged with the phase that closes them, so
+the check is a working gate today rather than a wall of known noise:
+
+- **New drift fails the build.** Any app string that is not in the web portal, the
+  `ALLOWED_APP_ONLY` list, or the phase baseline exits non-zero.
+- **A stale baseline entry also fails.** If a phase ships and its strings are still
+  listed, the phase did not finish. This is deliberate — it stops a phase being marked
+  done while its copy is untouched.
+- Verified by injecting drift into a finished screen: the gate caught it and exited 1.
+
+**Result on the current tree: 51 known findings, 0 new.** Every one sits in a screen
+Phases 4–8 have yet to rebuild. **Nothing in the shell, Home, Cart, or Checkout** — the
+four surfaces Phases 1–3 claimed — which is the first independent evidence those phases
+actually landed their copy.
+
+`ALLOWED_APP_ONLY` holds eleven strings that are legitimately app-only: accessibility
+labels for native affordances, the category sheet's title (the web `<select>` supplies
+its own), the date field's empty state, and the cold-start splash. Each carries its
+reason inline.
+
+### Gap in this plan the gate exposed
+
+The **login and registration screen has no phase**. Seven strings differ from
+`CustomerLoginPage.tsx` ("Already have an account?", "Verifying...", "Account email",
+and others) and no phase in §4 covers them. They are parked under
+`Unscheduled — auth screen` in the baseline. This needs a phase before the work can be
+called complete.
+
+### Still not verified
+
+Screenshots. AC-1 asks for a rendered side-by-side per screen, and that has not happened
+for any phase. It needs browser automation (none is installed) plus the Django backend,
+which `backend/*/settings.py` points at a **remote Postgres**. Both are decisions for the
+user, not defaults to assume. The copy gate covers wording and element presence; it says
+nothing about layout, spacing, or color.
+
+## 4f. Phase 4 outcome (completed 2026-08-30)
+
+**Both list screens rebuilt.** Purchase Orders gained the four tabs
+(`All / Delivered / To Review / Replacement`), the Filter button and dialog, 10-per-page
+pagination with `Showing X to Y of N orders`, and the web's card layout — status dot,
+badges, `Delivered on` dating, address block, cancellation-reason box, `Order Items` with
+thumbnails, `Total Amount`, and the action stack. Purchase Requests gained its own tab row,
+pagination, `Requested Items`, `Container deposit`, `Estimated Total`, the scheduled-delivery
+line, and the three-way empty state. Both detail screens are now real pages with the web's
+Product / Qty / Unit Price / Subtotal table and `Order Note`.
+
+**A gap note in §2.5 was wrong and is corrected above.** It claimed the web has no status
+filter on Purchase Requests, so the app's chips should be deleted. The web has `prTab` with
+five options. Acting on that note would have removed a feature the web has. The chips became
+tabs with the web's labels instead — "Pending Review", not "Pending Approval".
+
+**Order status and date filters moved, not deleted.** §2.6 said to remove the app's status
+chips and date inputs. They exist on the web too, behind the Filter button; they are now in
+a Filter dialog with the web's `All statuses / Pending / Processing / Out for delivery /
+Delivered / Cancelled` options and its Clear / Apply buttons.
+
+**Shared logic grew again.** `getOrderItemDisplayName`, `getRequestItemDisplayName`,
+`normalizePRStatus`, `getPRStatusText` and `formatCardDateTime` moved to
+`shared/customer-logic/item-display.ts`. The two display-name functions differ by design —
+an order card spells out mixed-case contents, a request card does not — and both were
+inline closures in their web views. **Both web views now import them**, so the app cannot
+drift from either. `getStatusConfig` keeps its icons and Tailwind classes locally and takes
+its label and message from the shared table.
+
+### The copy gate earned its keep
+
+Running it after this phase surfaced four things, two of them real:
+
+- **The web cart changed under me.** The `Remove selected items` bulk-remove button I built
+  in Phase 3 had since been deleted from `cart-view.tsx`. The app was carrying a control the
+  web no longer has, which FR-5 forbids. Removed from the app to match.
+- **Two invented accessibility labels.** `Filter date from` / `Filter date to` had no web
+  counterpart; they now use the web's own `Date from` / `Date to`.
+- Two extractor bugs: it read `//` comments as copy, and let a JSX ternary fragment through.
+  Both fixed. Block-comment stripping was **reverted** after it silently ate 16KB of
+  `profile-view.tsx` — a stray `/*` makes a non-greedy strip span far too far — so only
+  whole-line comments are removed now.
+
+**Verified** — app typecheck, 9 tests, copy gate (49 known / 0 new), `expo export`, and the
+web `tsc` all clean. One over-eager style cleanup removed `chip*` and `flexInput`, which the
+modals still use; caught by typecheck and restored from the original backup.
+
+## 4g. Screenshot sweep (2026-08-30)
+
+The user supplied ten screenshots of the **web** portal at phone width: Home, Purchase
+Request list and detail, Purchase Order list and detail, the Replacement tab, Profile, and
+Cart. That is the reference half of AC-1. It is not a side-by-side — the app side is still
+uncaptured — but comparing the screenshots against the app source found defects that
+neither `tsc` nor the copy gate can see, because both are blind to layout and to values.
+
+### Defects found in phases already marked done
+
+- **Header cart badge counted lines, not units** (Phase 1). The screenshot shows `24` beside
+  "Shopping Cart (2)" — two lines of twelve. The web uses
+  `cart.reduce((sum, i) => sum + i.quantity, 0)`; the app passed `cartLineCount`. Now
+  `cartUnitCount`.
+- **Order detail was missing most of the page** (Phase 4). The web has a four-step progress
+  stepper, `Ordered on` / `Scheduled delivery` lines, a status badge, separate Delivery
+  Address and Total Amount cards, `Order Items (n items)` with a count, a category line per
+  product, a "No replacement case filed for this order." block, a **Proof of Delivery (POD)**
+  section, and `Order Note` with a "No note for this order." fallback. Roughly a third of
+  that existed. Rebuilt — the stepper uses `orderStages` and `getOrderStageIndex`, which had
+  been sitting unused in the shared module since Phase 0.
+- **Purchase-request detail was missing** its amber status callout, Delivery Address card,
+  Estimated Total card, item count, thumbnails and per-item category lines. Rebuilt.
+- **Cart size label used the wrong precedence** (Phase 3). The web's `getProductSizeLabel`
+  tries `sizes` first, then `sizeLabel`/`size`, then the unit — which is why the screenshot
+  reads "Carbonated (Glass) · case". The app preferred `sizeLabel` over `sizes`. Note the
+  catalog card and the cart line deliberately differ in their final fallback: `N/A` on the
+  card, the unit on the cart line.
+- **`TOTAL` in the cart bar was not uppercased** — the web has `uppercase tracking-wider`;
+  RN needs an explicit `textTransform`.
+- **"Build Mixed Case" sat on the title row.** The web row is `flex flex-wrap`, so on a phone
+  the button wraps onto its own line, left-aligned. RN does not wrap a row containing a
+  flexing child, so the narrow layout now stacks explicitly.
+- **`View Details` was missing its trailing chevron** on both list cards.
+
+### Confirmed for later phases
+
+- **Profile** (Phase 7) is `Edit Profile / Empties & Deposits / Account Security /
+  Notification Settings / Address / Log Out` — five items plus logout, **titles only, no
+  descriptions**, under a heading of "Profile". The app has six items, in a different order,
+  with a description under each. Those baseline strings get **deleted**, not translated.
+- **Cart `Deliver to:`** reads `Rizal, Silay, Negros Occidental` — barangay, city, province,
+  confirming the field-mapping gap Phase 3 flagged and Phase 7 closes.
+- **Replacement tab cards** (Phase 5) use `Replacement Items`, a `Reported on` date, a
+  status badge, and repeat the status as a caption under Total Amount.
+
+### Checkout (screenshots added later the same day)
+
+- **The discount line was the wrong shape.** The web renders it through
+  `CompactDiscountLine` as a single left-aligned sentence — `Discount: ₱0.00`, slate-700,
+  with an optional ` (5%)` suffix and **no minus sign**. The app had a two-sided row with
+  an emerald `-₱0.00` and no percent. `formatDiscountPercent`, `formatDiscountLabel` and
+  `getEffectiveDiscountPercent` now live in `shared/customer-logic/discount.ts`, and the
+  web component renders from them, so the wording cannot diverge again.
+- Everything else on Checkout matched: the recipient card and its three fallbacks, the
+  `{name} {sizeLabel}` item title, the category / `12 × ₱280.00` row, the three-part
+  deposit box, the summary ordering, the note and date fields, and the rose `Place order`
+  button. The screenshots also confirm the total **excludes** the container deposit
+  (`Subtotal ₱5,100.00` + `deposit +₱504.00` → `Total ₱5,100.00`), which matches
+  `checkoutTotal`.
+
+**Deferred to Phase 9:** the web's cart and checkout action bars are `sticky`, staying
+visible while the list scrolls. In the app both render as ordinary blocks at the end of the
+scroll, because every screen renders inside one shared `ScrollView` in `App.tsx`. Making
+them sticky means lifting the bars out of that scroll container, which is shell surgery
+better done once for both screens than twice in a hurry.
+
+### What this changes about the process
+
+Three of four completed phases had defects that source-reading missed. Copy parity and
+type-checking do not catch a wrong *value* (units vs lines), a missing *section*, or a
+layout that does not wrap. **Phases 5–9 should be checked against a screenshot of the
+corresponding web screen before being marked done**, not after.
+
+## 4h. Phase 5 outcome (2026-08-30)
+
+**Done**
+
+- **Replacement tab** now lists replacement *records* rather than generic orders, matching
+  the user's screenshot: `RPL-…` number, blue `Replacement` badge, `Reported on` dating,
+  `Replacement Items` with per-line quantity labels, the status badge, `Total Amount`, and
+  the status repeated as a caption.
+- **Both missing endpoints** added to the app's API layer:
+  `POST /api/customer/replacements/{id}/cancel` and
+  `POST /api/replacements/{id}/receive-return`.
+- **Cancel Replacement** works end to end — button on pending records, confirmation dialog,
+  and the web's 409 behaviour (staff already moved it to Under Review) refreshes so the
+  customer sees the state that blocked them.
+- **POD display** already landed during the screenshot sweep, as part of the order-detail
+  rebuild.
+
+**Shared logic.** The replacement display rules moved to
+`shared/customer-logic/replacement-display.ts`: `getReplacementItemsForRecord`,
+`getReplacementLineQtyLabel`, `getReplacementDisplayQty`, `getReplacementDisplayStatus`,
+`getReplacementTotalAmount`, `getLinkedOrderForReplacementRecord` and
+`buildReplacementTabOrders`. The quantity labelling alone reads three competing shapes the
+backend can return — explicit line fields, a `Meta:` JSON blob inside the notes, and
+free-text hints in the description — and reimplementing that per platform would have
+drifted on the first edge case.
+
+**Request Replacement form — rebuilt (second pass)**
+
+The app's original modal (one row per delivered item, a single shared description) is
+replaced by the web's per-product form: `Select one or more products and set reason per
+product`, a `By Unit` / `By Bottle` toggle per line, a product picker that hides products
+already chosen on another line, a quantity capped by `getMaxReplacementQtyForLine`, a
+per-line reason from `DAMAGE_REASON_OPTIONS`, a free-text box when the reason is `Other`,
+`Add Product`, and evidence capped at `MAX_EVIDENCE_PHOTOS` (2 — the app previously allowed
+5). Mixed-case components are selectable individually and forced to `bottle` mode, as on
+the web.
+
+The payload builder moved to `shared/customer-logic/replacement-request.ts`. This matters
+more than most of the shared extractions: the backend parses the *combined description*
+back out (`By Unit: 3 unit(s), Qty/Unit 24. Reason: Leaking`), so that wording is
+load-bearing, not cosmetic. The app was previously sending a different shape entirely.
+
+**Replacement detail — added**
+
+A pushed `replacement-detail` route now mirrors the web's replacement dialog:
+`Replacement Details` with the six icon rows (`Order #`, `Product`, `Reason`, `Status`,
+`Quantity`, `Reported`), an `Evidence (n)` grid, and a `Proof of Delivery (POD)` block with
+`Replacement Order:` / `Received By:` / `Submitted At:` and the "No POD uploaded yet."
+fallback. Rows in the Replacement tab open this instead of the generic order detail, which
+is what the web does. `getReplacementEvidenceUrls`, `getReplacementPod` and
+`sanitizeReplacementText` joined the shared module.
+
+### FR-7 was wrong: receive-return is not a customer feature
+
+FR-7 and §2.6 both listed `receive-return` as a missing customer capability. It is not.
+`receiveReplacementReturn` is called **only** by
+`src/components/portals/warehouse/sections/replacements/replacements-view.tsx` — it is a
+warehouse action. It merely *lives* in `customer/sections/orders/orders-api.ts`, which is
+what the original audit tripped over. No customer view calls it.
+
+Building it into the app would have added a control the web customer portal does not have,
+which FR-5 forbids, and handed customers a staff-only action. The endpoint added to the
+app's API layer earlier in this phase has been **removed**. FR-7 should read: request,
+view, and cancel — not receive-return.
+
+### A corrupted regex, caught and fixed
+
+Writing `sanitizeReplacementText` through a shell heredoc wrote literal backspace bytes
+(0x08) into the shared file where `\b` word boundaries belonged, silently changing the
+regex. It was found by inspecting the written bytes rather than trusting the printed
+output — `sed` rendered it as `^H` only under `cat -v`. Fixed by rebuilding the function
+through a script file instead of a heredoc, and the file is verified to contain zero
+control characters. Worth remembering: `tsc` compiled it happily.
+
+**Baseline correction:** `case(s) ·` was filed under Phase 5 but belongs to the Empties &
+Deposits modal, which Phase 7 rebuilds; it has been moved there.
+
+**Two further extractor fixes:** inline TypeScript prop annotations were being read as copy
+(rejected when a capture holds both `;` and `:`), as were call fragments ending in `(`.
+
+**Two more extractor fixes.** The gate flagged `"Reported on"` as app-only when the web has
+it; JSX copy that ends at an expression (`Reported on {date}`) was never being extracted
+from either side. Widening the terminator to `[<{]` then over-matched into attribute
+regions, so captures containing `=`, a backtick, `$`, or a trailing `(` are now rejected.
+Web string coverage went from 625 to 694 as a result — the gate had been blind to a whole
+class of copy on both sides.
+
+**A live web change landed mid-phase.** `home-view.tsx` now lays the search and category
+filter out as `grid-cols-2 sm:grid-cols-[minmax(0,1fr)_170px]` — two equal columns on a
+phone rather than "search flexes, category takes 170px". The app has been matched. This is
+the second time this session that web edits have invalidated finished app work (the cart's
+bulk-remove button was the first), which is exactly what the copy gate and these sweeps
+exist to catch.
+
+**Verified** — typecheck, 9 tests, copy gate (46 known / 0 new), `expo export`, web `tsc`.
+
+## 4i. Phase 6 outcome (2026-08-30)
+
+**Track rebuilt against `track-view.tsx`.** Added: the green gradient stat strip
+(`Order Status` / `Order ID` or `Replacement ID` / `Scheduled for`–`Expected on`–`Delivered
+on`, with the delivered time underneath), the `RESCHEDULED ORDER` badge, both GPS guard
+messages, `Delivery Journey` with per-step descriptions, timestamps, a `Live updates` badge
+and a loading skeleton, the `Delivery Details` card (`Delivery Address`, `No. of Items` /
+`No. of Replacement Items`, `Total Amount`), and the driver card with avatar, fallbacks
+(`Driver not assigned yet`, `No driver phone available`) and a working `tel:` call button.
+
+Removed: the tracking-order chip row, the ETA line, and the `Trip` / `Updated:` rows —
+none of which the web has.
+
+**The map now uses real markers.** The `TRUCK` and `D` text placeholders are replaced by
+the web's own van artwork (`public/icons/aab-van-iso.png`, already reachable through Metro's
+`watchFolders`), a pin for the destination, and the warehouse circle the app never drew —
+`#9ca3af` fill with a `#111827` ring at radius 7, matching `DriverRouteMap`'s
+`CircleMarker`.
+
+**Selection model corrected.** The app let you pick which order to track from a chip row.
+The web has no such control: Track renders `selectedTrackingOrderId`, set when you press
+Track Order on a specific order. The screen now reads the selected order and shows
+`Select an order to track.` when there is none — the web's own empty state.
+
+**Another live web change picked up mid-phase.** `checkout-view.tsx` gained a quantity
+label (`12 cases × ₱280.00` rather than `12 × ₱280.00`). The app had a partial version of
+the same logic that did not pluralise non-case units — it would have shown `12 pack` where
+the web shows `12 packs`. Both now call `getCheckoutQuantityLabel` in
+`shared/customer-logic/item-display.ts`.
+
+**Verified** — typecheck, 9 tests, copy gate (43 known / 0 new, Phase 6's three baseline
+entries cleared), `expo export`, web `tsc`. `Back to orders` and `Call driver` joined
+`ALLOWED_APP_ONLY` as native accessibility labels.
+
+## 4j. Phase 7 outcome (2026-08-30)
+
+**Profile menu rebuilt.** The app had six rows, each with a description under it, in a
+different order, under a heading of "My Profile". The web has five titled rows plus Log Out,
+**no descriptions**, under "Profile": `Edit Profile / Empties & Deposits / Account Security /
+Notification Settings / Address`. The user's screenshot confirmed this before the work
+started. Also added: the 80px avatar with its camera badge, the name-details line, and the
+emerald phone chip. Nine baseline entries cleared as a result.
+
+**Security settings added.** `Two-Factor Authentication (2FA)`, `Login Activity Alerts` and
+`Remember Device Sessions` now sit under the password form in Account Security, with the
+web's exact hint text. 2FA and login alerts persist through `PUT /api/customers/{id}` — the
+same call the web makes — while remember-device stays device-local under the web's own
+`customer_remember_device_enabled` key.
+
+**Empties & Deposits rebuilt** with the web's two tabs (`Available Empties` /
+`Used / Reserved Deposits`, the second carrying a count badge), per-container deposit values,
+`Number of Cases to Return`, `Deposit Credit to Apply:`, `Total Locked Deposit Credit`,
+`Reserved in active orders:`, and all three empty states.
+
+**One invented line caught by the gate:** the app's balance card had a `Deposit balance:`
+row the web does not render. Removed.
+
+**Edit Address rebuilt as a pushed screen.** The flat modal — and its hand-typed latitude
+and longitude — are gone. It now carries the web's field set (`House number (optional)`,
+`Street name`, `Subdivision (optional)`, `Barangay`, `City / Municipality`, `Province`,
+`Postal code`, `Country`), the `Full Address Preview`, a map picker, `Use Current Location`,
+the `Pinned Location:` readout, and reverse-geocoding that auto-fills the fields from a
+dropped pin. Because the app now holds a structured address, the `Deliver to:` and checkout
+address lines can finally read `barangay, city, province` as the web does — the gap first
+flagged in Phase 3.
+
+**The service area was wrong, not just missing.** The app was validating against a coarse
+bounding box with the message "Delivery coordinates must be inside the supported Negros
+Occidental area." The web checks the actual **Silay and Talisay municipal polygons** and
+says "We only deliver within Silay and Talisay." The app was therefore accepting addresses
+the web would reject. `shared/customer-logic/service-area.ts` now holds the geometry math,
+bounds, message and `composeShippingAddress`; `src/lib/service-area.ts` re-exports them and
+keeps only its browser fetch and hook. The app bundles the same
+`negros-occidental-municipal-maritime.json` through Metro's existing `watchFolders`, so both
+clients test the same polygons — with the same coarse-box fallback the web already
+documents.
+
+**Three more invented strings caught by the gate:** the app said `Use current location`,
+`Resolving address…`, and its own phone-validation wording. The web says
+`Use Current Location`, `Auto-filling address from pinned location...`, and
+`Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567).` All
+corrected, and the web's `Pinned Location:` / `No location pinned yet` line was added.
+
+### Correction: avatar cropping already existed
+
+The Phase 7 interim note said the app "uploads the picked image directly". That was wrong.
+`handlePickAvatar` already calls `ImagePicker.launchImageLibraryAsync` with
+`allowsEditing: true, aspect: [1, 1]`, which opens the platform's own cropper with drag and
+zoom. That is the native equivalent of the web's custom crop dialog — the web builds one
+because browsers have no such affordance — and it sits in the same category as the date
+picker and the category sheet. No custom cropper was built.
+
+**New dependency:** `expo-location`, for `Use Current Location`.
+
+**Verified** — typecheck, 9 tests, copy gate (28 known / 0 new; twelve baseline entries cleared across the phase), `expo export`, web `tsc`.
+
 ## 5. Functional requirements
 
 - FR-1: Every screen, subview and dialog in the web customer portal MUST have an app counterpart
@@ -348,8 +751,9 @@ were deleted. Still no side-by-side screenshots, so AC-1 is unsigned for Home as
   home Cart summary card).
 - FR-6: Status normalization, delivery-stage index, order-status labels, item display labels, peso
   formatting and mixed-case deposit math MUST come from the shared module, not a mobile copy.
-- FR-7: The app MUST support the full replacement lifecycle: request with per-product reason and
-  evidence, view replacement details and items, view POD, cancel a replacement, and receive-return.
+- FR-7: The app MUST support the customer half of the replacement lifecycle: request with
+  per-product reason and evidence, view replacement details and items, view POD, and cancel a
+  replacement. **Receive-return is a warehouse action and MUST NOT appear in the customer app.**
 - FR-8: Purchase Orders MUST expose the `All / Delivered / To Review / Replacement` tabs, the filter
   dialog and 10-per-page pagination.
 - FR-9: Purchase Requests MUST expose pagination and a dedicated detail screen.

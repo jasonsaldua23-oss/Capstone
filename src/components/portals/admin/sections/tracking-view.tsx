@@ -57,6 +57,7 @@ const AddressMapPicker = dynamic(
 
 export function TrackingView() {
   const [trips, setTrips] = useState<any[]>([])
+  const [driverLocations, setDriverLocations] = useState<any[]>([])
   const [ordersForMap, setOrdersForMap] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
@@ -136,10 +137,12 @@ export function TrackingView() {
       ])
 
       setTrips(tripsResponse.ok ? getCollection(tripsResponse.data, ['trips']) : [])
+      setDriverLocations(tripsResponse.ok ? toArray<any>(tripsResponse.data?.driverLocations) : [])
       setOrdersForMap(ordersResponse.ok ? getCollection(ordersResponse.data, ['orders']) : [])
     } catch (error) {
       console.error('Failed to fetch live tracking data:', error)
       setTrips([])
+      setDriverLocations([])
       setOrdersForMap([])
     } finally {
       setIsLoading(false)
@@ -253,6 +256,7 @@ export function TrackingView() {
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
     const tripOrderIds = new Set<string>()
+    const shownDriverIds = new Set<string>()
 
     tripsForMap.forEach((trip: any) => {
       const normalizedTripStatus = normalizeTripStatus(trip?.status)
@@ -315,6 +319,7 @@ export function TrackingView() {
       const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude)
       const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
       const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
+      const driverId = String(trip?.driver?.id || '').trim()
       const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
       const markerHeading =
         nextDropPoint &&
@@ -338,8 +343,9 @@ export function TrackingView() {
           : null
 
       if (hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)) {
+        if (driverId) shownDriverIds.add(driverId)
         locations.push({
-          id: `driver-${trip.id}`,
+          id: `driver-${driverId || trip.id}`,
           driverName,
           vehiclePlate,
           lat: driverLat,
@@ -451,6 +457,29 @@ export function TrackingView() {
       }
     })
 
+    // Fix: show every active driver's latest saved GPS point even when their
+    // last location belongs to a completed trip or is not linked to a trip.
+    driverLocations.forEach((location: any) => {
+      const driverId = String(location?.driverId || location?.driver_id || '').trim()
+      const latitude = Number(location?.latitude ?? location?.lat)
+      const longitude = Number(location?.longitude ?? location?.lng)
+      if (!driverId || shownDriverIds.has(driverId)) return
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+      shownDriverIds.add(driverId)
+      locations.push({
+        id: `driver-${driverId}`,
+        driverName: String(location?.driverName || 'Driver'),
+        vehiclePlate: String(location?.vehiclePlate || 'N/A'),
+        lat: latitude,
+        lng: longitude,
+        status: String(location?.tripStatus || 'LOCATION_AVAILABLE'),
+        markerColor: '#1d4ed8',
+        markerLabel: 'Driver last known location',
+        markerType: 'truck',
+        markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
+      })
+    })
+
     dayOrders.forEach((order: any) => {
       const orderId = String(order?.id || '').trim()
       if (orderId && tripOrderIds.has(orderId)) return
@@ -482,7 +511,7 @@ export function TrackingView() {
     })
 
     return { locations, routeLines }
-  }, [ordersForMap, trackingDate, trips])
+  }, [driverLocations, ordersForMap, trackingDate, trips])
 
   const mapLocations = mapData.locations
   const routeLines = mapData.routeLines

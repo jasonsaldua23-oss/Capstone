@@ -38,12 +38,6 @@ export function CartScreen() {
     else updateCart(item.id, 0);
   };
 
-  const removeSelected = () => {
-    for (const item of unifiedCartItems) {
-      if (selectedCartIds.has(item.id)) removeItem(item);
-    }
-  };
-
   return (
     <View style={styles.cartSection}>
       <View style={styles.cartHeader}>
@@ -292,17 +286,6 @@ export function CartScreen() {
               <Text style={styles.cartCheckoutAllLabel}>All ({unifiedCartItems.length})</Text>
               <Text style={styles.cartCheckoutSelected}>{selectedCount} selected</Text>
             </View>
-            {selectedCount > 0 ? (
-              <Pressable
-                style={styles.cartRemoveSelectedButton}
-                onPress={removeSelected}
-                accessibilityRole="button"
-                accessibilityLabel="Remove selected items"
-              >
-                <Trash2 size={14} color={theme.colors.rose} />
-                <Text style={styles.cartRemoveSelectedText}>Remove</Text>
-              </Pressable>
-            ) : null}
           </View>
 
           <View style={styles.cartCheckoutRight}>
