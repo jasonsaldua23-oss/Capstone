@@ -6,14 +6,11 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { formatPeso, isOrderCancellable } from "../../lib/customer-logic";
 import { formatDate, formatStatusLabel } from "../../lib/format";
 import { StatusBadge } from "../../components/ui/status-badge";
-import { OrderDetailCard } from "../../components/ui/order-detail-card";
 import { styles } from "../../styles/app-styles";
 import { useCustomerPortal } from "../../portal/portal-context";
 
 export function PurchaseRequestsScreen() {
   const {
-    replacements,
-    setActiveTab,
     selectedOrderId,
     setSelectedOrderId,
     orderSearch,
@@ -21,9 +18,8 @@ export function PurchaseRequestsScreen() {
     requestStatusFilter,
     setRequestStatusFilter,
     setPendingCancellationOrder,
-    selectedOrder,
-    purchaseRequests,
     filteredRequests,
+    pushRoute,
   } = useCustomerPortal();
 
   return (
@@ -44,7 +40,10 @@ export function PurchaseRequestsScreen() {
           </ScrollView>
           {filteredRequests.length === 0 ? <Text style={styles.subtle}>No purchase requests found.</Text> : null}
           {filteredRequests.map((order) => (
-            <Pressable key={order.id} style={[styles.orderCard, selectedOrderId === order.id ? styles.listItemSelected : null]} onPress={() => setSelectedOrderId(order.id)}>
+            <Pressable key={order.id} style={[styles.orderCard, selectedOrderId === order.id ? styles.listItemSelected : null]} onPress={() => {
+                setSelectedOrderId(order.id);
+                pushRoute({ name: "purchase-request-detail", orderId: order.id });
+              }}>
               <View style={styles.sectionHeadingRow}>
                 <Text style={styles.featureTitle}>{order.purchaseRequestNumber || order.orderNumber}</Text>
                 <StatusBadge status={order.requestStatus || order.status} />
@@ -59,9 +58,6 @@ export function PurchaseRequestsScreen() {
             </Pressable>
           ))}
         </View>
-        {selectedOrder && purchaseRequests.some((order) => order.id === selectedOrder.id) ? (
-          <OrderDetailCard order={selectedOrder} replacements={replacements} onTrack={() => setActiveTab("track")} onCancel={() => setPendingCancellationOrder(selectedOrder)} />
-        ) : null}
       </>
     </>
   );

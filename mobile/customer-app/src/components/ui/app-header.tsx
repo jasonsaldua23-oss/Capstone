@@ -1,26 +1,27 @@
-// Extracted verbatim from App.tsx.
+// Mirrors src/components/portals/customer/sections/layout/portal-header.tsx.
+// The web header carries only the wordmark, a cart button and a bell — no avatar.
 import { Bell, ShoppingCart } from "lucide-react-native";
 import React from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
-import { resolveImageUrl } from "../../lib/format";
 import { styles } from "../../styles/app-styles";
+import { theme } from "../../theme";
 
 export function AppHeader({
   title,
   subtitle,
   cartCount,
+  isCartActive,
   onCartPress,
   unreadCount,
-  avatarUrl,
   onNotificationsPress,
 }: {
   title: string;
   subtitle: string;
   cartCount: number;
+  isCartActive: boolean;
   onCartPress: () => void;
   unreadCount: number;
-  avatarUrl?: string | null;
   onNotificationsPress: () => void;
 }) {
   return (
@@ -28,24 +29,41 @@ export function AppHeader({
       <View style={styles.logoWrap}>
         <View style={styles.flex}>
           <Text style={styles.headerEyebrow}>{subtitle}</Text>
-          <Text style={styles.appHeaderTitle}>{title.replace(/\s+SHOP$/i, "")}<Text style={styles.appHeaderShop}> SHOP</Text></Text>
+          <Text style={styles.appHeaderTitle}>
+            {title.replace(/\s+SHOP$/i, "")}
+            <Text style={styles.appHeaderShop}> SHOP</Text>
+          </Text>
         </View>
       </View>
       <View style={styles.headerActions}>
-        <Pressable style={styles.headerCartButton} onPress={onCartPress}>
-          <ShoppingCart size={20} color="#334155" strokeWidth={2} />
-          <Text style={styles.headerGlyph}>🛒</Text>
+        <Pressable
+          style={[styles.headerIconButton, isCartActive ? styles.headerIconButtonActive : null]}
+          onPress={onCartPress}
+          accessibilityRole="button"
+          accessibilityLabel="Open cart"
+        >
+          <ShoppingCart
+            size={20}
+            color={isCartActive ? theme.colors.emeraldDark : theme.colors.textBody}
+            strokeWidth={2}
+          />
           {cartCount > 0 ? (
             <View style={styles.headerCartBadge}>
               <Text style={styles.headerCartBadgeText}>{cartCount}</Text>
             </View>
           ) : null}
         </Pressable>
-        <Pressable style={styles.headerAvatar} onPress={onNotificationsPress} accessibilityLabel="Notifications">
-          <Bell size={20} color="#334155" strokeWidth={2} />
-          {avatarUrl ? <Image source={{ uri: resolveImageUrl(avatarUrl) }} style={styles.headerAvatarImage} /> : <Text style={styles.headerGlyph}>🔔</Text>}
+        <Pressable
+          style={styles.headerIconButton}
+          onPress={onNotificationsPress}
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+        >
+          <Bell size={20} color={theme.colors.textBody} strokeWidth={2} />
           {unreadCount > 0 ? (
-            <View style={styles.headerNotificationBadge}><Text style={styles.headerCartBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text></View>
+            <View style={styles.headerNotificationBadge}>
+              <Text style={styles.headerNotificationBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+            </View>
           ) : null}
         </Pressable>
       </View>

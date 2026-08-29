@@ -12,7 +12,7 @@ import { Poppins_600SemiBold } from "@expo-google-fonts/poppins/600SemiBold";
 import { Poppins_700Bold } from "@expo-google-fonts/poppins/700Bold";
 import { Poppins_800ExtraBold } from "@expo-google-fonts/poppins/800ExtraBold";
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, AppState, useWindowDimensions } from "react-native";
+import { Alert, Animated, AppState, BackHandler, useWindowDimensions } from "react-native";
 import {
   cancelOrder,
   clearNotifications,
@@ -1181,6 +1181,16 @@ function useCustomerPortalState() {
     setRouteStack([]);
     setActiveTab(tab);
   }
+
+  useEffect(() => {
+    // Android hardware back pops the detail stack instead of leaving the app.
+    if (routeStack.length === 0) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setRouteStack((current) => current.slice(0, -1));
+      return true;
+    });
+    return () => subscription.remove();
+  }, [routeStack.length]);
 
   return {
     routeStack,

@@ -49,9 +49,12 @@ import {
   localDateInput,
 } from "./src/lib/customer-logic";
 import { formatDate, formatStatusLabel, resolveImageUrl } from "./src/lib/format";
+import { getActiveNavId, type NavItemId } from "./src/components/ui/nav-items";
 import { CustomerPortalProvider, useCustomerPortal, type CustomerTab } from "./src/portal/portal-context";
 import { AuthScreen } from "./src/screens/auth/auth-screen";
 import { PortalModals } from "./src/portal/portal-modals";
+import { OrderDetailScreen } from "./src/screens/orders/order-detail-screen";
+import { PurchaseRequestDetailScreen } from "./src/screens/purchase-requests/request-detail-screen";
 import { HomeScreen } from "./src/screens/home/home-screen";
 import { CartScreen } from "./src/screens/cart/cart-screen";
 import { CheckoutScreen } from "./src/screens/checkout/checkout-screen";
@@ -67,6 +70,8 @@ function CustomerPortalScreens() {
   const {
     fontsLoaded,
     width,
+    currentRoute,
+    resetToTab,
     isDesktop,
     booting,
     loading,
@@ -246,6 +251,14 @@ function CustomerPortalScreens() {
     profileAddress,
   } = useCustomerPortal();
 
+  const activeNavId = getActiveNavId(activeTab, currentRoute);
+
+  // Matches the web nav's handleNav: clear the open detail before switching destination.
+  function handleNav(id: NavItemId) {
+    setSelectedOrderId(null);
+    resetToTab(id as CustomerTab);
+  }
+
   if (booting || !fontsLoaded) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -266,17 +279,17 @@ function CustomerPortalScreens() {
             title="AAB TRADING SHOP"
             subtitle="ANN ANN'S BEVERAGES TRADING"
             cartCount={cartLineCount}
-            onCartPress={() => setActiveTab("cart")}
+            isCartActive={activeTab === "cart"}
+            onCartPress={() => resetToTab("cart")}
             unreadCount={unreadNotifications}
-            avatarUrl={profile?.avatar || user.avatar || null}
             onNotificationsPress={() => {
               setActiveProfileModal("notifications");
-              setActiveTab("profile");
+              resetToTab("profile");
             }}
           />
 
           <View style={styles.portalBody}>
-          {isDesktop ? <SideNavigation activeTab={activeTab} onSelect={(tab) => setActiveTab(tab as CustomerTab)} /> : null}
+          {isDesktop ? <SideNavigation activeId={activeNavId} onSelect={handleNav} /> : null}
           <Animated.View style={[styles.flex, { opacity: screenOpacity, transform: [{ translateY: screenTranslateY }] }]}>
             <ScrollView
               style={styles.flex}
@@ -285,6 +298,15 @@ function CustomerPortalScreens() {
             >
             {!!error && <Text style={styles.errorBanner}>{error}</Text>}
 
+            {currentRoute ? (
+              <>
+                {currentRoute.name === "order-detail" ? <OrderDetailScreen orderId={currentRoute.orderId} /> : null}
+                {currentRoute.name === "purchase-request-detail" ? (
+                  <PurchaseRequestDetailScreen orderId={currentRoute.orderId} />
+                ) : null}
+              </>
+            ) : (
+              <>
             {activeTab === "home" ? <HomeScreen /> : null}
 
             {activeTab === "cart" ? <CartScreen /> : null}
@@ -300,19 +322,12 @@ function CustomerPortalScreens() {
             {activeTab === "feedback" ? <FeedbackScreen /> : null}
 
             {activeTab === "profile" ? <ProfileScreen /> : null}
+              </>
+            )}
             </ScrollView>
           </Animated.View>
 
-          {!isDesktop ? <BottomNavigation
-            items={[
-              { id: "home", label: "Home", icon: "⌂" },
-              { id: "requests", label: "Purchase Req.", icon: "▤" },
-              { id: "orders", label: "Purchase Order", icon: "□" },
-              { id: "profile", label: "Profile", icon: "○" },
-            ]}
-            activeTab={activeTab}
-            onSelect={(tab) => setActiveTab(tab as CustomerTab)}
-          /> : null}
+          {!isDesktop ? <BottomNavigation activeId={activeNavId} onSelect={handleNav} /> : null}
           </View>
 
           <PortalModals />

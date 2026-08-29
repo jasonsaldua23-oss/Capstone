@@ -1,39 +1,38 @@
-// Extracted verbatim from App.tsx.
+// Mirrors the mobile half of
+// src/components/portals/customer/sections/layout/bottom-nav.tsx.
 import { ClipboardList, Home, Package, User } from "lucide-react-native";
 import React from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { theme } from "../../theme";
 import { styles } from "../../styles/app-styles";
+import { theme } from "../../theme";
+import { NAV_ITEMS, type NavItemId } from "./nav-items";
 
 export function BottomNavigation({
-  items,
-  activeTab,
+  activeId,
   onSelect,
 }: {
-  items: Array<{ id: string; label: string; icon?: string }>;
-  activeTab: string;
-  onSelect: (tab: string) => void;
+  activeId: NavItemId | null;
+  onSelect: (id: NavItemId) => void;
 }) {
   return (
     <View style={styles.bottomNav}>
-      {items.map((item) => {
-        const active = item.id === activeTab;
-        const iconColor = active ? theme.colors.emeraldDark : "#334155";
-        const icon = item.id === "home"
-          ? <Home size={17} color={iconColor} />
-          : item.id === "requests"
-            ? <ClipboardList size={17} color={iconColor} />
-            : item.id === "orders"
-              ? <Package size={17} color={iconColor} />
-              : <User size={17} color={iconColor} />;
+      {NAV_ITEMS.map((item) => {
+        const active = item.id === activeId;
+        const iconColor = active ? theme.colors.emeraldDark : theme.colors.textBody;
+        const Icon =
+          item.id === "home" ? Home : item.id === "requests" ? ClipboardList : item.id === "orders" ? Package : User;
         return (
-          <Pressable key={item.id} style={[styles.bottomNavItem, active ? styles.bottomNavItemActive : null]} onPress={() => onSelect(item.id)}>
-            <View style={[styles.bottomNavIconWrap, active ? styles.bottomNavIconWrapActive : null]}>
-              {icon}
-              <Text style={[styles.bottomNavGlyph, active ? styles.bottomNavGlyphActive : null]}>{item.icon}</Text>
-            </View>
-            <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>{item.label}</Text>
+          <Pressable
+            key={item.id}
+            style={[styles.bottomNavItem, active ? styles.bottomNavItemActive : null]}
+            onPress={() => onSelect(item.id)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={item.shortLabel}
+          >
+            <Icon size={16} color={iconColor} />
+            <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>{item.shortLabel}</Text>
           </Pressable>
         );
       })}

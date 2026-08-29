@@ -55,7 +55,7 @@ export function AuthScreen() {
   return (
     <>
       <ImageBackground
-        source={require("../../public/customer-login-bg.png")}
+        source={require("../../../../../public/customer-login-bg.png")}
         resizeMode="cover"
         style={styles.authBackground}
       >
@@ -66,7 +66,7 @@ export function AuthScreen() {
         >
         <View style={[styles.authCard, { width: Math.min(Math.max(width - 56, 280), 448) }]}>
           <View style={styles.authBrandHeader}>
-            <Image source={require("../../public/aab-trading-shop.png")} style={styles.authLogo} resizeMode="contain" />
+            <Image source={require("../../../../../public/aab-trading-shop.png")} style={styles.authLogo} resizeMode="contain" />
             <Text style={styles.authEyebrow}>ANN ANN'S BEVERAGES TRADING</Text>
             <Text style={styles.authTitleBlue}>AAB TRADING</Text>
             <Text style={styles.authTitleGreen}>SHOP</Text>

@@ -35,9 +35,9 @@ different shadow and text-metrics models, native pickers instead of `<select>` /
 
 | Area | Web | Mobile | Action |
 |---|---|---|---|
-| Header | eyebrow `ANN ANN'S BEVERAGES TRADING`, wordmark `AAB TRADING` + green ` SHOP`, cart button w/ count badge, bell w/ unread badge | same structure, but renders emoji glyphs (cart, bell) layered on top of the lucide icons, and the bell button doubles as the avatar | strip emoji glyphs; separate bell from avatar |
-| Bottom nav | Home / Purchase Request / Purchase Order / Profile, emerald-50 active pill | same items, but emoji glyphs render beside the lucide icons | strip glyph text |
-| Desktop rail | 240px left sidebar | `SideNavigation` present | verify styling parity |
+| Header | eyebrow `ANN ANN'S BEVERAGES TRADING`, wordmark `AAB TRADING` + green ` SHOP`, cart button w/ count badge, bell w/ unread badge | same structure; emoji glyphs and an avatar image sat in the markup but were already `display: "none"` — dead markup, not a visible defect. Real gaps: no active-cart state, cart badge used brand green instead of emerald-500, bell badge was 18px rose without the white ring instead of 16px red-500 with it | remove dead markup; fix badge colors/sizes; add active-cart state |
+| Bottom nav | Home / Purchase Request / Purchase Order / Profile, emerald-50 active pill | glyph markup also already hidden. Real gaps: 17px icons vs 16, missing `gap-1`, 0.98 vs 0.95 background alpha, and active state ignored detail routes | fix metrics; make active state route-aware |
+| Desktop rail | 240px left sidebar | present and close; 17px icons vs 16, `px-3` vs the web's `px-4` | fix metrics |
 | Detail routing | `order-detail`, `purchase-request-detail`, `edit-address` are **full pages** | detail renders as an inline card under the list; address is a modal | convert to pushed screens |
 
 ### 2.2 Home / catalog
@@ -195,7 +195,7 @@ screens with back affordances, matching the web `activeView` model.
 | Phase | Scope | Exit condition |
 |---|---|---|
 | **0. Foundation** ✅ **done** | shared logic package; theme token expansion; split `App.tsx` into screens; add the stack navigator | `npm run typecheck` and `npm test` pass; app behaves as before |
-| **1. Shell** | header glyph cleanup, bell/avatar split, bottom nav, side nav, detail routing | side-by-side screenshots match |
+| **1. Shell** ✅ **done** | header glyph cleanup, bell/avatar split, bottom nav, side nav, detail routing | side-by-side screenshots match |
 | **2. Home** | welcome popup, category dropdown, sold-out sort + heading + badge, image placeholder, skeleton, category line, desktop rail; remove SKU line and Cart summary card | screenshot + copy diff clean |
 | **3. Cart & Checkout** | deliver-to header, remove/remove-selected, deposit indicator, sticky total bar; empty-deposit line, date picker, confirmation dialog, primary/secondary address | place-order flow matches web end to end |
 | **4. Orders & Purchase Requests** | tabs, filter dialog, pagination, order-detail page, PR detail page; remove mobile-only chips and date inputs | list + detail parity |
@@ -255,6 +255,43 @@ modules; the incremental build cache had been masking it).
 **Deferred from Phase 0** — `portal-context.tsx` and `app-styles.ts` exceed the NFR-6
 400-line guidance. Both shrink as Phases 1–8 move per-screen state and styles into the
 screens; NFR-6 is met for every screen file today.
+
+## 4b. Phase 1 outcome (completed 2026-08-30)
+
+**Correction to §2.1.** The emoji glyphs and the header avatar were already
+`display: "none"` in the stylesheet. They were dead markup, not a visible defect, and the
+original gap note overstated them. They are now removed from the markup as well, but the
+work that actually changed pixels was the metric and color fixes below.
+
+**Header** — rebuilt against `portal-header.tsx`. The avatar is gone (the web header has
+none), the cart button gains the web's `activeView === 'cart'` emerald state, the cart
+badge is emerald-500 on white at font-semibold (was brand green on off-white at 800), and
+the bell badge is a 16px red-500 dot with the web's 2px white ring (was an 18px rose pill
+with no ring). `headerCartButton`/`headerAvatar` collapsed into one `headerIconButton`.
+
+**Navigation** — icons corrected to 16px in both navs, `gap-1` added between bottom-nav
+items, background alpha corrected to 0.95, and sidebar padding to `px-4`. Labels now come
+from one `NAV_ITEMS` table so the sidebar's "Purchase Request" and the bottom bar's
+"Purchase Req." cannot drift apart. `getActiveNavId` keeps the parent destination
+highlighted on detail routes, matching the web. Selecting a destination clears the open
+detail first, mirroring the web nav's `handleNav`.
+
+**Detail routing** — `order-detail` and `purchase-request-detail` are now pushed screens
+reached via `pushRoute`, not cards rendered inline beneath their lists. Both get a
+`DetailHeader` back affordance, and Android's hardware back button pops the stack instead
+of leaving the app. Screen *content* was moved verbatim; Phase 4 rewrites it against
+`order-detail-page.tsx` and `purchase-request-detail-page.tsx`. `edit-address` stays a
+modal until Phase 7 builds the structured form.
+
+**Verified** — `npm run typecheck` and `npm test` (9 passing) clean, plus
+`npx expo export --platform web`, which caught a bug typechecking could not: moving the
+auth screen three directories deeper broke its two `require("../../public/…")` asset
+paths. Both now resolve and the bundle builds. Bundle verification should be part of every
+remaining phase's exit check.
+
+**Not yet verified** — no side-by-side screenshots were captured, so AC-1 is not signed off
+for the shell. The changes above are measured against the web source, not against a
+rendered comparison.
 
 ## 5. Functional requirements
 
