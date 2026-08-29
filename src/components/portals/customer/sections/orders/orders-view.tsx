@@ -50,6 +50,7 @@ export function CustomerOrdersView(props: any) {
     formatOrderStatus,
     isOrderCancellable,
     cancelOrder,
+    requestCancelReplacement,
     openRatingDialog,
     openReviewDetails,
     openOrderDetail,
@@ -95,18 +96,25 @@ export function CustomerOrdersView(props: any) {
   }
   const isReplacementOrder = (order: any): boolean =>
     String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
+  const getReplacementRecordsForOrder = (order: any): any[] =>
+    (Array.isArray(deliveryIssueRecords) ? deliveryIssueRecords : []).filter(
+      (record: any) => String(record?.orderId || '') === String(order?.id || '')
+    )
   const hasCompletedReplacementCase = (order: any): boolean => {
-    const issue = deliveryIssuesByOrderId?.[order?.id]
-    const rawStatus = String(issue?.rawStatus || '').toUpperCase()
-    if (!rawStatus) return false
-    return ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)
+    return getReplacementRecordsForOrder(order).some((record: any) =>
+      ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(String(record?.status || '').toUpperCase())
+    )
   }
   const hasActiveReplacementCase = (order: any): boolean => {
-    const issue = deliveryIssuesByOrderId?.[order?.id]
-    const rawStatus = String(issue?.rawStatus || issue?.status || '').toUpperCase()
-    if (!rawStatus) return false
-    return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)
+    return getReplacementRecordsForOrder(order).some((record: any) =>
+      ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REPORTED', 'IN_PROGRESS', 'NEEDS_FOLLOW_UP', 'FOR_PICKUP', 'FOR_DELIVERY']
+        .includes(String(record?.status || '').toUpperCase())
+    )
   }
+  const getPendingReplacementCase = (order: any): any | null =>
+    getReplacementRecordsForOrder(order).find(
+      (record: any) => String(record?.status || '').toUpperCase() === 'PENDING'
+    ) || null
   const getReplacementRequestDisplay = (order: any): { qty: number; label: 'unit' | 'bottle' } | null => {
     if (!isReplacementOrder(order)) return null
     const notes = String(order?.notes || '')
@@ -785,6 +793,7 @@ export function CustomerOrdersView(props: any) {
             const deliveryIssue = deliveryIssuesByOrderId[o.id]
             const hasCompletedReplacement = hasCompletedReplacementCase(o)
             const hasActiveReplacement = hasActiveReplacementCase(o)
+            const pendingReplacement = getPendingReplacementCase(o)
             const hasReplacementCase = Boolean(deliveryIssue)
 
             return (
@@ -980,16 +989,27 @@ export function CustomerOrdersView(props: any) {
                     ) : null}
 
                     {isDelivered && !isReplacementOrder(o) && ordersTab !== 'TO_REVIEW' ? (
-                      <Button
-                        variant="outline"
-                        className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={hasCompletedReplacement || hasActiveReplacement}
-                        onClick={() => {
-                          handleOpenOrderDetail({ ...o, __openReplacementRequest: true })
-                        }}
-                      >
-                        {hasCompletedReplacement ? 'Replacement Completed' : hasActiveReplacement ? 'Replacement In Progress' : 'Request Replacement'}
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={hasCompletedReplacement || hasActiveReplacement}
+                          onClick={() => {
+                            handleOpenOrderDetail({ ...o, __openReplacementRequest: true })
+                          }}
+                        >
+                          {hasCompletedReplacement ? 'Replacement Completed' : hasActiveReplacement ? 'Replacement In Progress' : 'Request Replacement'}
+                        </Button>
+                        {pendingReplacement ? (
+                          <Button
+                            variant="outline"
+                            className="h-8 w-full rounded-md border-rose-200 text-[11px] text-rose-600 hover:bg-rose-50"
+                            onClick={() => requestCancelReplacement?.(pendingReplacement)}
+                          >
+                            Cancel Replacement
+                          </Button>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                 

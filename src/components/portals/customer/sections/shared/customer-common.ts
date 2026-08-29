@@ -46,9 +46,13 @@ export function parseReplacementMeta(notes: string | null | undefined): Record<s
 }
 
 export function getReplacementRank(label: string): number {
-  if (label === 'Needs Follow-up' || label === 'Partially Resolved') return 3
-  if (label === 'In Progress') return 2
-  if (label === 'Resolved on Delivery' || label === 'Completed') return 1
+  // Active workflow states outrank older cancelled records for the order-card summary.
+  if (label === 'Needs Follow-up' || label === 'Partially Resolved') return 6
+  if (label === 'In Progress' || label === 'Approved') return 5
+  if (label === 'Under Review') return 4
+  if (label === 'Pending' || label === 'Reported') return 3
+  if (label === 'Resolved on Delivery' || label === 'Completed') return 2
+  if (label === 'Rejected' || label === 'Cancelled') return 1
   return 0
 }
 

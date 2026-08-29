@@ -106,8 +106,8 @@ export function RetailTransactionsView() {
     setLoading(true)
     try {
       const url = warehouseFilter && warehouseFilter !== 'ALL'
-        ? `/api/retail/sales?warehouseId=${encodeURIComponent(warehouseFilter)}&pageSize=500`
-        : '/api/retail/sales?pageSize=500'
+        ? `/api/retail/sales?warehouseId=${encodeURIComponent(warehouseFilter)}&pageSize=50`
+        : '/api/retail/sales?pageSize=50'
       const result = await safeFetchJson(url, { cache: 'no-store' })
       if (result.ok) {
         setSales(getCollection<RetailSale>(result.data, ['sales']))

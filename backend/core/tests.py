@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.utils import timezone
@@ -4526,6 +4527,39 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(serialized["replacementLines"][1]["originalProductName"], "Return Product B")
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
+
+    def test_saved_replacement_succeeds_when_notifications_fail(self) -> None:
+        # Regression: secondary notification failures previously returned HTTP 500
+        # even though the replacement request had already been saved.
+        with (
+            patch("core.views_api._create_staff_notifications", side_effect=RuntimeError("staff notification failed")),
+            patch("core.views_api._create_customer_notification", side_effect=RuntimeError("customer notification failed")),
+            patch("core.views_api.threading.Thread.start", side_effect=RuntimeError("email thread failed")),
+        ):
+            response = self.client.post(
+                "/api/customer/replacements",
+                data={
+                    "orderId": self.order.id,
+                    "damageType": "Broken seal",
+                    "evidence": ["https://example.com/replacement-proof.jpg"],
+                    "replacementLines": [
+                        {
+                            "originalOrderItemId": self.order_item_a.id,
+                            "inputMode": "case",
+                            "quantityPerCase": 6,
+                            "quantityToReplace": 6,
+                            "quantityToReplaceCases": 1,
+                            "reason": "Broken seal",
+                        }
+                    ],
+                },
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+            )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertTrue(response.json()["success"])
+        self.assertEqual(Replacement.objects.filter(order=self.order).count(), 1)
 
     def test_customer_replacement_retry_reuses_active_request(self) -> None:
         OrderTimeline.objects.create(

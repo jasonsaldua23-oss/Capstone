@@ -943,8 +943,7 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
         for row in order.bottle_returns.all().order_by("created_at", "id")
     ]
     customer_name = order.customer.name if order.customer else (order.walk_in_name or "Walk-in Customer")
-    warehouse = Warehouse.objects.filter(id=order.warehouse_id).first() if order.warehouse_id else None
-    warehouse_name = warehouse.name if warehouse else None
+    warehouse = getattr(order, "warehouse", None) or (Warehouse.objects.filter(id=order.warehouse_id).first() if order.warehouse_id else None)
     warehouse_code = warehouse.code if warehouse else None
     return {
         "id": order.id,

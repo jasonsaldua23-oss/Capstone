@@ -10327,7 +10327,7 @@ def _retail_error(exc: ValueError) -> JsonResponse:
 
 def _retail_sale_queryset(warehouse: Warehouse | None = None):
     qs = (
-        Order.objects.select_related("customer", "created_by_user")
+        Order.objects.select_related("customer", "created_by_user", "warehouse")
         .prefetch_related("items__product", "items__mixed_case_components__product", "bottle_returns")
         .filter(sales_channel=SalesChannel.RETAIL_POS)
     )
