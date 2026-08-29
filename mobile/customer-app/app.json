@@ -17,7 +17,8 @@
         {
           "photosPermission": "Allow AAB TRADING SHOP to select profile and replacement evidence photos."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "android": {
       "package": "com.logitrack.customer",

@@ -181,8 +181,6 @@ function CustomerPortalScreens() {
     uploadingEvidence,
     submittingReplacement,
     uploadingAvatar,
-    welcomeVisible,
-    setWelcomeVisible,
     notificationPrefs,
     securityForm,
     setSecurityForm,

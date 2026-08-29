@@ -61,6 +61,7 @@ import {
   withinNegrosOccidental,
 } from "../lib/customer-logic";
 import { buildReceiptHtml, formatAddress, getInitials } from "../lib/format";
+import { getAutomaticEmptyCredit, getLineDepositAmounts } from "../lib/shared";
 import { theme } from "../theme";
 import { API_BASE_URL } from "../config/env";
 import type {
@@ -206,7 +207,9 @@ function useCustomerPortalState() {
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [submittingReplacement, setSubmittingReplacement] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [welcomeVisible, setWelcomeVisible] = useState(false);
+  // Mirrors the web's sessionStorage `customer_welcome_state`: null = closed,
+  // "new" after registration, "existing" after login.
+  const [welcomeMode, setWelcomeMode] = useState<"new" | "existing" | null>(null);
   const [notificationPrefs, setNotificationPrefs] = useState<CustomerNotificationPreferences>(defaultNotificationPrefs);
   const [securityForm, setSecurityForm] = useState(initialSecurityForm);
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -385,7 +388,7 @@ function useCustomerPortalState() {
       await hydrateStoredCart(loggedIn.userId);
       await refreshData(false, loggedIn.userId);
       await loadNotificationPreferences();
-      setWelcomeVisible(true);
+      setWelcomeMode("existing");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed.");
     } finally {
@@ -439,7 +442,7 @@ function useCustomerPortalState() {
       setUser(registered);
       await hydrateStoredCart(registered.userId);
       await refreshData(false, registered.userId);
-      setWelcomeVisible(true);
+      setWelcomeMode("new");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Registration failed.");
     } finally {
@@ -1100,6 +1103,82 @@ function useCustomerPortalState() {
     () => mixedCart.filter((item) => selectedCartIds.has(item.id)),
     [mixedCart, selectedCartIds]
   );
+  // One list over standard and mixed-case lines, shaped like the web portal's `cart`
+  // array so the cart and checkout screens can render it the same way. Empty-container
+  // credit is attached here, matching the web's applyAutomaticEmptyCredit at add time.
+  const unifiedCartItems = useMemo(() => {
+    const standard = cartItems.map((item) => {
+      const sizes = Array.isArray(item.product.sizes)
+        ? item.product.sizes.map((size) => String(size).trim()).filter(Boolean)
+        : [];
+      const sizeLabel =
+        String(item.product.sizeLabel || item.product.size || "").trim() ||
+        (sizes.length > 0 ? sizes.join(", ") : "") ||
+        String(item.product.unit || "").trim() ||
+        "case";
+      const unitLabel = String(item.product.unit || "case").trim().toLowerCase() || "case";
+      const depositSource = {
+        ...item.product,
+        itemType: "STANDARD_CASE" as const,
+        unit: item.product.unit,
+        quantity: item.quantity,
+      };
+      const credit = getAutomaticEmptyCredit(depositSource, item.quantity, profile?.bottleBalances);
+      return {
+        id: item.product.id,
+        name: item.product.name,
+        sizeLabel,
+        unitLabel,
+        category: String(item.product.category || "").trim(),
+        imageUrl: item.product.imageUrl || null,
+        quantity: item.quantity,
+        unitPrice: Number(item.product.price || 0),
+        lineTotal: item.total,
+        isMixedCase: false as const,
+        components: null as any,
+        source: { ...depositSource, ...credit },
+        availableEmptyBottles: credit.availableEmptyBottles,
+        availableDepositBalance: credit.availableDepositBalance,
+        emptyReturnedQuantity: credit.emptyReturnedQuantity,
+      };
+    });
+
+    const mixed = mixedCart.map((item) => ({
+      id: item.id,
+      name: "Mixed Case",
+      sizeLabel: "",
+      unitLabel: "case",
+      category: "",
+      imageUrl: null as string | null,
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice || 0),
+      lineTotal: Number(item.unitPrice || 0) * item.quantity,
+      isMixedCase: true as const,
+      components: item.components,
+      source: item,
+      availableEmptyBottles: 0,
+      availableDepositBalance: 0,
+      emptyReturnedQuantity: 0,
+    }));
+
+    return [...standard, ...mixed];
+  }, [cartItems, mixedCart, profile?.bottleBalances]);
+
+  const selectedUnifiedCartItems = useMemo(
+    () => unifiedCartItems.filter((item) => selectedCartIds.has(item.id)),
+    [selectedCartIds, unifiedCartItems]
+  );
+
+  // How much of the new deposit the customer's existing empties already cover.
+  const selectedDepositRefunded = useMemo(
+    () =>
+      selectedUnifiedCartItems.reduce(
+        (sum, item) => (item.isMixedCase ? sum : sum + getLineDepositAmounts(item.source).refunded),
+        0
+      ),
+    [selectedUnifiedCartItems]
+  );
+
   const cartTotal = cartItems.reduce((sum, item) => sum + item.total, 0);
   const mixedCartTotal = mixedCart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const allCartTotal = cartTotal + mixedCartTotal;
@@ -1193,6 +1272,9 @@ function useCustomerPortalState() {
   }, [routeStack.length]);
 
   return {
+    unifiedCartItems,
+    selectedUnifiedCartItems,
+    selectedDepositRefunded,
     routeStack,
     currentRoute,
     pushRoute,
@@ -1339,8 +1421,8 @@ function useCustomerPortalState() {
     setSubmittingReplacement,
     uploadingAvatar,
     setUploadingAvatar,
-    welcomeVisible,
-    setWelcomeVisible,
+    welcomeMode,
+    setWelcomeMode,
     notificationPrefs,
     setNotificationPrefs,
     securityForm,

@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -536,7 +536,20 @@ export function TrackingView() {
             </CardHeader>
             <CardContent>
               {isLoading ? (
-                <PortalCardsSkeleton cards={2} compact />
+                // Fix: mirror the compact trip-row layout so the loader remains
+                // inside the narrow tracking sidebar at desktop breakpoints.
+                <div className="space-y-3">
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <div key={`active-trip-skeleton-${index}`} className="flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 p-2">
+                      <Skeleton className="h-2 w-2 shrink-0 rounded-full" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-4 w-24 max-w-full" />
+                        <Skeleton className="h-3 w-36 max-w-full" />
+                      </div>
+                      <Skeleton className="h-6 w-10 shrink-0 rounded-md" />
+                    </div>
+                  ))}
+                </div>
               ) : activeTrips.length === 0 ? (
                 <p className="text-sm text-gray-500">No active trips right now</p>
               ) : (

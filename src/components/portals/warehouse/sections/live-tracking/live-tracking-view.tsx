@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { WarehouseLiveTrackingViewProps } from '../shared/types'
 
 export function WarehouseLiveTrackingView({
@@ -55,7 +55,9 @@ export function WarehouseLiveTrackingView({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      {/* Fix: stack the map and trip panels until there is enough room for the
+          three-column desktop layout, preventing loading cards from overflowing. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="h-[500px]">
             <CardContent className="h-full p-0">
@@ -79,7 +81,20 @@ export function WarehouseLiveTrackingView({
             </CardHeader>
             <CardContent>
               {loadingTrips ? (
-                <PortalCardsSkeleton cards={2} compact />
+                // Fix: use the trip row's actual shape instead of the generic
+                // action-card skeleton, which overflows this narrow sidebar.
+                <div className="space-y-3">
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <div key={`active-trip-skeleton-${index}`} className="flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 p-2">
+                      <Skeleton className="h-2 w-2 shrink-0 rounded-full" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-4 w-24 max-w-full" />
+                        <Skeleton className="h-3 w-36 max-w-full" />
+                      </div>
+                      <Skeleton className="h-6 w-10 shrink-0 rounded-md" />
+                    </div>
+                  ))}
+                </div>
               ) : liveTrackingActiveTrips.length === 0 ? (
                 <p className="text-sm text-gray-500">No active trips right now</p>
               ) : (

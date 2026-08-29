@@ -196,7 +196,7 @@ screens with back affordances, matching the web `activeView` model.
 |---|---|---|
 | **0. Foundation** ✅ **done** | shared logic package; theme token expansion; split `App.tsx` into screens; add the stack navigator | `npm run typecheck` and `npm test` pass; app behaves as before |
 | **1. Shell** ✅ **done** | header glyph cleanup, bell/avatar split, bottom nav, side nav, detail routing | side-by-side screenshots match |
-| **2. Home** | welcome popup, category dropdown, sold-out sort + heading + badge, image placeholder, skeleton, category line, desktop rail; remove SKU line and Cart summary card | screenshot + copy diff clean |
+| **2. Home** ✅ **done** | welcome popup, category dropdown, sold-out sort + heading + badge, image placeholder, skeleton, category line, desktop rail; remove SKU line and Cart summary card | screenshot + copy diff clean |
 | **3. Cart & Checkout** | deliver-to header, remove/remove-selected, deposit indicator, sticky total bar; empty-deposit line, date picker, confirmation dialog, primary/secondary address | place-order flow matches web end to end |
 | **4. Orders & Purchase Requests** | tabs, filter dialog, pagination, order-detail page, PR detail page; remove mobile-only chips and date inputs | list + detail parity |
 | **5. Replacements & POD** | replacement tab, replacement detail, POD display, request/cancel replacement, receive-return; new endpoints | full replacement lifecycle works from the app |
@@ -292,6 +292,47 @@ remaining phase's exit check.
 **Not yet verified** — no side-by-side screenshots were captured, so AC-1 is not signed off
 for the shell. The changes above are measured against the web source, not against a
 rendered comparison.
+
+## 4c. Phase 2 outcome (completed 2026-08-30)
+
+**Home rebuilt against `home-view.tsx`.** Added: the welcome popup, the category
+dropdown, sold-out sorting with its `Sold Out` heading and circular badge overlay, the
+`Package` image placeholder, the loading skeleton, the product category line, and the
+desktop `Current Order` rail. Removed: the `{sku} · {unit}` line and the whole
+"Cart summary" card, neither of which the web has.
+
+**Welcome popup.** The app previously showed "You are signed in to AAB Trading Shop…"
+with a *Start Shopping* button after both login and registration. The web distinguishes
+the two through `sessionStorage.customer_welcome_state` and renders a close button, not a
+CTA. `welcomeVisible: boolean` is now `welcomeMode: "new" | "existing" | null` — login
+sets `existing` ("Welcome back, {name}."), registration sets `new` ("Welcome, {name}."),
+with the web's subtitle. The popup moved from `portal-modals.tsx` into the Home screen,
+where the web owns it.
+
+**Category filter.** The horizontal chip row is replaced by a `CategorySelect` that shows
+the current value and opens a sheet of options — React Native has no `<select>`, so this
+is the nearest equivalent control rather than a different interaction model.
+
+**Two behavior corrections found by reading the web source:**
+- Out-of-stock availability text is `text-emerald-700` on the web for *both* states — only
+  the wording changes. The app was rendering it red.
+- Mixed-case contents were printed as `{name}: {n}/case · PHP {x} subtotal`. The web uses
+  `getMixedCaseComponentNameWithSize` / `getMixedCaseBottleQuantity` (e.g. "Coke 8oz",
+  "12 Bottles/case - 24 total"). Both helpers moved to `shared/customer-logic`, and the app
+  now has a `MixedCaseComponents` component mirroring the web one, thumbnails included.
+
+**Deliberate parity removal, worth a decision.** The app showed "No products match your
+search." when the catalog filtered to nothing. The web shows an empty grid with no message.
+FR-2 and FR-5 say remove it, so it is gone — but this is a case where the app was better
+than the web. If you would rather keep it, the honest fix is to add the empty state to the
+web portal too, and I would then mirror it back.
+
+**Also** — the app's `Product` type was missing `size` and `sizeLabel`, which the web type
+declares and the card falls back to; both added.
+
+**Verified** — typecheck, 9 tests, and `expo export` all clean. A style audit confirmed no
+screen references a deleted style; four styles orphaned by removing the old welcome modal
+were deleted. Still no side-by-side screenshots, so AC-1 is unsigned for Home as well.
 
 ## 5. Functional requirements
 

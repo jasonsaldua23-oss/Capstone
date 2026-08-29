@@ -61,8 +61,6 @@ export function PortalModals() {
     uploadingEvidence,
     submittingReplacement,
     uploadingAvatar,
-    welcomeVisible,
-    setWelcomeVisible,
     notificationPrefs,
     securityForm,
     setSecurityForm,
@@ -95,16 +93,6 @@ export function PortalModals() {
 
   return (
     <>
-      <Modal visible={welcomeVisible} transparent animationType="fade" onRequestClose={() => setWelcomeVisible(false)}>
-        <View style={styles.modalBackdropCentered}>
-          <View style={styles.welcomeCard}>
-            <View style={styles.welcomeIcon}><Text style={styles.welcomeIconText}>AAB</Text></View>
-            <Text style={styles.profilePageTitle}>Welcome, {profile?.firstName || user?.name?.split(" ")[0] || "Customer"}!</Text>
-            <Text style={styles.profilePageSubtitle}>You are signed in to AAB Trading Shop. Browse products or check your latest order.</Text>
-            <Pressable style={styles.primaryButton} onPress={() => setWelcomeVisible(false)}><Text style={styles.primaryButtonText}>Start Shopping</Text></Pressable>
-          </View>
-        </View>
-      </Modal>
 
       <ModalShell
         visible={activeProfileModal === "edit"}

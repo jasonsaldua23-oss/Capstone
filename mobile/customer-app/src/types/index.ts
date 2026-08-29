@@ -38,6 +38,9 @@ export interface Product {
   price: number;
   category?: string | null;
   sizes?: string[];
+  // The web Product type carries both; the catalog card falls back to them.
+  size?: string | null;
+  sizeLabel?: string | null;
   quantityPerUnit?: number | null;
   availableQuantity?: number;
   availableBaseUnits?: number;

@@ -32,3 +32,15 @@ export {
   getMixedCaseComponentDepositProfile,
   getMixedCaseDepositAmounts,
 } from "../../../../shared/customer-logic/src/mixed-case-deposit.ts";
+
+export {
+  getMixedCaseComponentNameWithSize,
+  getMixedCaseBottleQuantity,
+} from "../../../../shared/customer-logic/src/mixed-case-components.ts";
+
+export {
+  isReturnableGlassItem,
+  getAutomaticEmptyCredit,
+  getLineDepositAmounts,
+  type EmptyCredit,
+} from "../../../../shared/customer-logic/src/empty-credit.ts";
