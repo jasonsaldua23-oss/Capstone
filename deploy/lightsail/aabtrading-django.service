@@ -1,0 +1,21 @@
+[Unit]
+Description=AAB Trading Django API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=www-data
+WorkingDirectory=/srv/aabtrading/backend
+EnvironmentFile=/etc/aabtrading-backend.env
+EnvironmentFile=/etc/aabtrading-backend-production.env
+# Keep PostgreSQL and other user-level configuration under the service account.
+Environment=HOME=/home/ubuntu
+# Gunicorn is bound to loopback so only Nginx can expose the Django service.
+ExecStart=/srv/aabtrading/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 2 --timeout 120 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

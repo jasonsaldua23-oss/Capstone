@@ -64,6 +64,7 @@ import { TrackScreen } from "./src/screens/track/track-screen";
 import { FeedbackScreen } from "./src/screens/feedback/feedback-screen";
 import { ProfileScreen } from "./src/screens/profile/profile-screen";
 import { EditAddressScreen } from "./src/screens/profile/edit-address-screen";
+import { PasswordOtpScreen } from "./src/screens/profile/password-otp-screen";
 import { styles } from "./src/styles/app-styles";
 import { theme } from "./src/theme";
 
@@ -256,6 +257,9 @@ function CustomerPortalScreens() {
       <StatusBar style="dark" />
       {!user ? (
         <AuthScreen />
+      ) : activeProfileModal === "change-password-otp" ? (
+        // Full screen, like registration's: no app header and no bottom nav over it.
+        <PasswordOtpScreen />
       ) : (
         <View style={styles.flex}>
           <AppHeader

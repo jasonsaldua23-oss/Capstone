@@ -8092,6 +8092,14 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         reference_type="replacement",
         reference_id=r.id,
     )
+    # Fix: build optional lines outside the f-string because Python 3.10 rejects
+    # backslashes inside nested f-string expressions.
+    replacement_delivery_line = (
+        f"Scheduled delivery date: {replacement_delivery_date.isoformat()}\n"
+        if replacement_delivery_date
+        else ""
+    )
+    replacement_notes_line = f"Notes: {status_notes}\n" if status_notes else ""
     _send_transactional_email(
         subject=f"Replacement Update: {r.replacement_number} - {final_status}",
         message=(
@@ -8102,8 +8110,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             f"Status: {final_status}\n"
             f"Product(s): {replacement_product_hint}\n"
             f"Reason: {replacement_reason}\n"
-            f"{f'Scheduled delivery date: {replacement_delivery_date.isoformat()}\\n' if replacement_delivery_date else ''}"
-            f"{f'Notes: {status_notes}\\n' if status_notes else ''}"
+            f"{replacement_delivery_line}"
+            f"{replacement_notes_line}"
         ),
         recipients=_ops_staff_emails(),
     )
@@ -8121,6 +8129,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         reference_id=r.id,
     )
     customer_email = _normalize_email(getattr(getattr(r, "order", None), "customer", None).email if getattr(r, "order", None) and getattr(r.order, "customer", None) else None)
+    customer_status_reason_line = f"Reason: {status_notes}\n" if status_notes else ""
     if customer_email:
         _send_transactional_email(
             subject=f"Replacement Request Update: {r.replacement_number}",
@@ -8129,7 +8138,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 f"Replacement: {r.replacement_number}\n"
                 f"Order: {getattr(getattr(r, 'order', None), 'order_number', 'N/A')}\n"
                 f"New status: {normalized_status}\n"
-                f"{f'Reason: {status_notes}\\n' if status_notes else ''}"
+                f"{customer_status_reason_line}"
             ),
             recipients=[customer_email],
         )

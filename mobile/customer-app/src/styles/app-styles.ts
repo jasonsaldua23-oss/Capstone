@@ -1133,6 +1133,10 @@ const styles = StyleSheet.create({
   profileMenuRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14 },
   profileMenuRowDivided: { borderBottomWidth: 1, borderBottomColor: theme.colors.slate100 },
   profileMenuTitle: { flex: 1, color: "#1e293b", fontSize: 15, fontFamily: "Poppins_600SemiBold" },
+  // Account Security's rows carry a description under the title, as the web's do.
+  profileMenuLabel: { color: "#1e293b", fontSize: 15, fontFamily: "Poppins_600SemiBold" },
+  profileMenuDescription: { marginTop: 1, color: theme.colors.slate500, fontSize: 12, fontFamily: "Poppins_400Regular" },
+  otpPageIntro: { alignItems: "center", gap: 8, paddingTop: 4, paddingBottom: 2 },
   profileLogoutTitle: { flex: 1, color: "#dc2626", fontSize: 15, fontFamily: "Poppins_600SemiBold" },
   // Security settings block inside the Account Security modal
   // Security Verification card: rounded-2xl border-emerald-100 bg-[#f4faf6] p-4
@@ -1173,7 +1177,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 6,
   },
-  passwordRequirementsTitle: { color: theme.colors.textFaint, fontSize: 10, letterSpacing: 0.8, fontFamily: "Poppins_700Bold" },
+  passwordRequirementsTitle: { textTransform: "uppercase", color: theme.colors.textFaint, fontSize: 10, letterSpacing: 0.8, fontFamily: "Poppins_700Bold" },
   passwordRequirementsGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 2 },
   passwordRequirementRow: { width: "50%", flexDirection: "row", alignItems: "center", gap: 6 },
   passwordRequirementDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.slate300 },
@@ -1201,6 +1205,22 @@ const styles = StyleSheet.create({
   emptiesTabCount: { borderRadius: 999, backgroundColor: "#dbeafe", paddingHorizontal: 6, paddingVertical: 2 },
   emptiesTabCountText: { color: "#1d4ed8", fontSize: 10, fontFamily: "Poppins_700Bold" },
   emptiesSectionTitle: { marginTop: 12, color: theme.colors.text, fontSize: 15, fontFamily: "Poppins_700Bold" },
+  emptiesSectionTitleTight: { color: theme.colors.text, fontSize: 15, fontFamily: "Poppins_700Bold" },
+  // The web heads the balance list with a title, a one-line explanation and an icon.
+  emptiesCardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginTop: 12 },
+  emptiesCardHeaderText: { flex: 1 },
+  emptiesCardSubtitle: { marginTop: 2, color: theme.colors.slate500, fontSize: 12, fontFamily: "Poppins_400Regular" },
+  emptiesCardBadge: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#ecfdf5", alignItems: "center", justifyContent: "center" },
+  // Counts sit to the right of the name, not under it.
+  emptiesBalanceRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  emptiesBalanceMain: { flex: 1, gap: 2 },
+  emptiesBalanceSide: { alignItems: "flex-end" },
+  emptiesBalanceCountMuted: { color: theme.colors.textFaint },
+  emptiesBalanceUnit: { color: theme.colors.slate500, fontSize: 12, textAlign: "right", fontFamily: "Poppins_400Regular" },
+  emptiesBalanceCredit: { marginTop: 1, color: theme.colors.emeraldDark, fontSize: 12, fontFamily: "Poppins_600SemiBold" },
+  emptiesBalanceCreditMuted: { color: theme.colors.textFaint },
+  emptiesHeaderButton: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 12, backgroundColor: theme.colors.emerald, paddingHorizontal: 12, paddingVertical: 7 },
+  emptiesHeaderButtonText: { color: "#ffffff", fontSize: 12, fontFamily: "Poppins_700Bold" },
   emptiesBalanceCard: {
     borderRadius: 12,
     borderWidth: 1,

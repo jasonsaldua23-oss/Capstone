@@ -90,7 +90,21 @@ import type {
 type CustomerTab = "home" | "cart" | "checkout" | "requests" | "orders" | "track" | "feedback" | "profile";
 // "notifications" is the settings toggles; "notification-list" is the alert list the
 // header bell opens. The web keeps them as separate sub-views too.
-type CustomerProfileModal = "edit" | "security" | "notifications" | "notification-list" | "address" | "empties" | null;
+type CustomerProfileModal =
+  | "edit"
+  // "security" is the Account Security menu; the web splits its contents into these
+  // two sub-views rather than stacking them on one page.
+  | "security"
+  | "change-password"
+  // Code entry takes over the whole screen, so it is a view of its own rather than a
+  // dialog on the change-password form.
+  | "change-password-otp"
+  | "security-settings"
+  | "notifications"
+  | "notification-list"
+  | "address"
+  | "empties"
+  | null;
 type AuthMode = "login" | "register";
 
 // Detail views the web portal reaches through `activeView`.
@@ -921,7 +935,8 @@ function useCustomerPortalState() {
 
   useEffect(() => {
     // Mirrors the web: both counters run while the OTP step is on screen.
-    if (activeProfileModal !== "security" || (otpExpiry <= 0 && otpResendCooldown <= 0)) return;
+    const onOtpStep = activeProfileModal === "change-password" || activeProfileModal === "change-password-otp";
+    if (!onOtpStep || (otpExpiry <= 0 && otpResendCooldown <= 0)) return;
     const timer = setInterval(() => {
       setOtpExpiry((prev) => (prev > 0 ? prev - 1 : 0));
       setOtpResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
@@ -1254,11 +1269,13 @@ function useCustomerPortalState() {
     resetSecurityState();
   }
 
-  async function handleRequestOtp() {
+  // Returns whether a code actually went out, so the caller only opens the code entry
+  // step when there is a code to enter.
+  async function handleRequestOtp(): Promise<boolean> {
     const accountEmail = (profile?.email || user?.email || email).trim();
     if (!accountEmail) {
       setError("No email is available for this customer account.");
-      return;
+      return false;
     }
     setSendingOtp(true);
     setError(null);
@@ -1267,8 +1284,10 @@ function useCustomerPortalState() {
       resetOtpTimers();
       setOtpVerified(false);
       Alert.alert("OTP Sent", "A verification code was sent to your email.");
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send OTP.");
+      return false;
     } finally {
       setSendingOtp(false);
     }

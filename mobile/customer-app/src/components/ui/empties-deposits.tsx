@@ -5,12 +5,20 @@ import { Package, Plus, Recycle } from "lucide-react-native";
 import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
+import { ModalShell } from "./modal-shell";
 import { formatPeso } from "../../lib/customer-logic";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
 
-export function EmptiesDeposits() {
+export function EmptiesDeposits({
+  recordOpen,
+  onRecordOpenChange,
+}: {
+  /** The web opens the recording form from a Record Empties button in the page header. */
+  recordOpen: boolean;
+  onRecordOpenChange: (open: boolean) => void;
+}) {
   const {
     profile,
     orders,
@@ -65,7 +73,19 @@ export function EmptiesDeposits() {
 
       {emptiesTab === "available" ? (
         <>
-          <Text style={styles.emptiesSectionTitle}>Available Empty Containers</Text>
+          {/* The web heads this list with a titled card row and an icon, and keeps the
+              recording form behind the header's Record Empties button. */}
+          <View style={styles.emptiesCardHeader}>
+            <View style={styles.emptiesCardHeaderText}>
+              <Text style={styles.emptiesSectionTitleTight}>Available Empty Containers</Text>
+              <Text style={styles.emptiesCardSubtitle}>
+                Available empty containers applied automatically at checkout.
+              </Text>
+            </View>
+            <View style={styles.emptiesCardBadge}>
+              <Recycle size={16} color={theme.colors.emerald} />
+            </View>
+          </View>
           {bottleBalances.length === 0 ? (
             <View style={styles.emptiesEmptyState}>
               <Text style={styles.emptiesEmptyTitle}>No Empty Bottles Recorded</Text>
@@ -77,99 +97,139 @@ export function EmptiesDeposits() {
           ) : (
             bottleBalances.map((balance, index) => {
               const containersPerCase = Math.max(1, Number((balance as any).containersPerCase || 1));
-              const bottlesAvailable = Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)));
-              const casesAvailable = Math.floor(bottlesAvailable / containersPerCase);
-              const looseAvailable = bottlesAvailable % containersPerCase;
-              const isCaseFormat = casesAvailable > 0 || looseAvailable === 0;
+              const bottlesAvailable = Number.isFinite(Number((balance as any).bottlesAvailable))
+                ? Math.max(0, Math.floor(Number((balance as any).bottlesAvailable)))
+                : Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)));
+              const casesAvailable = Number.isFinite(Number((balance as any).casesAvailable))
+                ? Math.max(0, Math.floor(Number((balance as any).casesAvailable)))
+                : Math.floor(bottlesAvailable / containersPerCase);
+              const looseAvailable = Number.isFinite(Number((balance as any).looseBottlesAvailable))
+                ? Math.max(0, Math.floor(Number((balance as any).looseBottlesAvailable)))
+                : bottlesAvailable % containersPerCase;
+              const casesReserved = Number((balance as any).casesReserved || 0);
+              const isCaseFormat = casesAvailable > 0 || (casesReserved > 0 && looseAvailable === 0);
               const depositAmount = isCaseFormat
                 ? Number((balance as any).caseDepositAmount || 0)
                 : Number((balance as any).depositAmount || 0);
+              const depositAvailable = Number.isFinite(Number((balance as any).depositAvailable))
+                ? Number((balance as any).depositAvailable)
+                : Number((balance as any).depositBalance || 0);
+              const count = isCaseFormat ? casesAvailable : looseAvailable;
               return (
                 <View key={`${balance.containerTypeId || "balance"}-${index}`} style={styles.emptiesBalanceCard}>
-                  <Text style={styles.emptiesBalanceName}>
-                    {balance.containerTypeName || "Returnable container"}
-                  </Text>
-                  <Text style={styles.emptiesBalanceMeta}>
-                    Deposit value: <Text style={styles.emptiesBalanceStrong}>
-                      {formatPeso(depositAmount)}/{isCaseFormat ? "case" : "bottle"}
-                    </Text>
-                  </Text>
-                  <Text style={styles.emptiesBalanceCount}>
-                    {isCaseFormat ? casesAvailable : looseAvailable}
-                  </Text>
+                  <View style={styles.emptiesBalanceRow}>
+                    <View style={styles.emptiesBalanceMain}>
+                      <Text style={styles.emptiesBalanceName} numberOfLines={1}>
+                        {balance.containerTypeName || "Returnable container"}
+                      </Text>
+                      <Text style={styles.emptiesBalanceMeta}>
+                        Deposit value:{" "}
+                        <Text style={styles.emptiesBalanceStrong}>
+                          {formatPeso(depositAmount)}/{isCaseFormat ? "case" : "bottle"}
+                        </Text>
+                      </Text>
+                    </View>
+                    <View style={styles.emptiesBalanceSide}>
+                      <Text style={[styles.emptiesBalanceCount, count === 0 ? styles.emptiesBalanceCountMuted : null]}>
+                        {count}
+                      </Text>
+                      <Text style={styles.emptiesBalanceUnit}>
+                        {isCaseFormat
+                          ? `empty case${casesAvailable !== 1 ? "s" : ""}`
+                          : `loose bottle${looseAvailable !== 1 ? "s" : ""}`}{" "}
+                        available
+                      </Text>
+                      {isCaseFormat && looseAvailable > 0 ? (
+                        <Text style={styles.emptiesBalanceUnit}>
+                          + {looseAvailable} loose bottle{looseAvailable !== 1 ? "s" : ""}
+                        </Text>
+                      ) : null}
+                      <Text
+                        style={[
+                          styles.emptiesBalanceCredit,
+                          depositAvailable <= 0 ? styles.emptiesBalanceCreditMuted : null,
+                        ]}
+                      >
+                        {formatPeso(depositAvailable)} credit
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               );
             })
           )}
 
-          <Text style={styles.emptiesSectionTitle}>Record Empty Bottle Cases</Text>
-          {eligibleEmptyItems.length === 0 ? (
-            <View style={styles.emptiesEmptyState}>
-              <Text style={styles.emptiesEmptyTitle}>No Eligible Returnable History</Text>
-            </View>
-          ) : (
-            eligibleEmptyItems.map((item) => {
-              const cases = Math.max(1, emptyCasesByProductId[item.productId] || 1);
-              return (
-                <View key={item.productId} style={styles.emptiesBalanceCard}>
-                  <Text style={styles.emptiesSectionTitle}>Select Purchased Beverage</Text>
-                  <Text style={styles.emptiesBalanceName}>{item.productName}</Text>
-                  <Text style={styles.emptiesBalanceMeta}>
-                    Max available: <Text style={styles.emptiesBalanceStrong}>{item.availableCasesToReturn}</Text>
-                  </Text>
-                  <Text style={styles.emptiesBalanceMeta}>
-                    Number of Cases to Return
-                  </Text>
-                  <View style={styles.emptiesRecordRow}>
-                    <View style={[styles.qtyControls, styles.emptiesQtyControls]}>
+          <ModalShell
+            visible={recordOpen}
+            title="Record Empty Bottle Cases"
+            onClose={() => onRecordOpenChange(false)}
+          >
+            {eligibleEmptyItems.length === 0 ? (
+              <View style={styles.emptiesEmptyState}>
+                <Text style={styles.emptiesEmptyTitle}>No Eligible Returnable History</Text>
+              </View>
+            ) : (
+              eligibleEmptyItems.map((item) => {
+                const cases = Math.max(1, emptyCasesByProductId[item.productId] || 1);
+                return (
+                  <View key={item.productId} style={styles.emptiesBalanceCard}>
+                    <Text style={styles.emptiesSectionTitleTight}>Select Purchased Beverage</Text>
+                    <Text style={styles.emptiesBalanceName}>{item.productName}</Text>
+                    <Text style={styles.emptiesBalanceMeta}>
+                      Max available: <Text style={styles.emptiesBalanceStrong}>{item.availableCasesToReturn}</Text>
+                    </Text>
+                    <Text style={styles.emptiesBalanceMeta}>Number of Cases to Return</Text>
+                    <View style={styles.emptiesRecordRow}>
+                      <View style={[styles.qtyControls, styles.emptiesQtyControls]}>
+                        <Pressable
+                          style={styles.qtyButton}
+                          onPress={() =>
+                            setEmptyCasesByProductId((current) => ({
+                              ...current,
+                              [item.productId]: Math.max(1, cases - 1),
+                            }))
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel="Decrease quantity"
+                        >
+                          <Text style={styles.qtyButtonText}>−</Text>
+                        </Pressable>
+                        <Text style={styles.qtyValue}>{cases}</Text>
+                        <Pressable
+                          style={styles.qtyButton}
+                          onPress={() =>
+                            setEmptyCasesByProductId((current) => ({
+                              ...current,
+                              [item.productId]: Math.min(item.availableCasesToReturn, cases + 1),
+                            }))
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel="Increase quantity"
+                        >
+                          <Text style={styles.qtyButtonText}>+</Text>
+                        </Pressable>
+                      </View>
                       <Pressable
-                        style={styles.qtyButton}
-                        onPress={() =>
-                          setEmptyCasesByProductId((current) => ({
-                            ...current,
-                            [item.productId]: Math.max(1, cases - 1),
-                          }))
-                        }
+                        style={styles.primaryButtonCompact}
+                        onPress={() => handleRecordEmptyCases(item)}
+                        disabled={recordingEmptyProductId === item.productId}
                         accessibilityRole="button"
-                        accessibilityLabel="Decrease quantity"
                       >
-                        <Text style={styles.qtyButtonText}>−</Text>
-                      </Pressable>
-                      <Text style={styles.qtyValue}>{cases}</Text>
-                      <Pressable
-                        style={styles.qtyButton}
-                        onPress={() =>
-                          setEmptyCasesByProductId((current) => ({
-                            ...current,
-                            [item.productId]: Math.min(item.availableCasesToReturn, cases + 1),
-                          }))
-                        }
-                        accessibilityRole="button"
-                        accessibilityLabel="Increase quantity"
-                      >
-                        <Text style={styles.qtyButtonText}>+</Text>
+                        <Plus size={14} color={theme.colors.white} />
+                        <Text style={styles.primaryButtonText}>
+                          {recordingEmptyProductId === item.productId ? "Recording..." : "Record Empties"}
+                        </Text>
                       </Pressable>
                     </View>
-                    <Pressable
-                      style={styles.primaryButtonCompact}
-                      onPress={() => handleRecordEmptyCases(item)}
-                      disabled={recordingEmptyProductId === item.productId}
-                      accessibilityRole="button"
-                    >
-                      <Plus size={14} color={theme.colors.white} />
-                      <Text style={styles.primaryButtonText}>
-                        {recordingEmptyProductId === item.productId ? "Recording..." : "Record Empties"}
-                      </Text>
-                    </Pressable>
+                    <Text style={styles.emptiesBalanceMeta}>
+                      Deposit Credit to Apply:{" "}
+                      <Text style={styles.emptiesBalanceStrong}>{formatPeso(cases * item.caseDeposit)}</Text>
+                    </Text>
                   </View>
-                  <Text style={styles.emptiesBalanceMeta}>
-                    Deposit Credit to Apply:{" "}
-                    <Text style={styles.emptiesBalanceStrong}>{formatPeso(cases * item.caseDeposit)}</Text>
-                  </Text>
-                </View>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </ModalShell>
         </>
       ) : (
         <>

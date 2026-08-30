@@ -7,7 +7,7 @@
 // same: the menu is replaced by the section, and Back returns to it. Nothing here
 // floats over the tab any more.
 import React from "react";
-import { ArrowLeft, Bell, Check, MapPin, X } from "lucide-react-native";
+import { ArrowLeft, Bell, Check, ChevronRight, KeyRound, MapPin, Plus, ShieldCheck, X } from "lucide-react-native";
 import { Image, Pressable, Switch, Text, TextInput, View } from "react-native";
 import { EmptiesDeposits } from "../../components/ui/empties-deposits";
 import { ToggleRow } from "../../components/ui/toggle-row";
@@ -55,10 +55,13 @@ function ProfileSectionPage({
  */
 export function ProfileSections() {
   const [editingSecurity, setEditingSecurity] = React.useState(false);
+  const [recordEmptiesOpen, setRecordEmptiesOpen] = React.useState(false);
   const {
     user,
     profile,
     activeProfileModal,
+    error,
+    openProfileModal,
     closeProfileModal,
     pushRoute,
     profileForm,
@@ -94,6 +97,19 @@ export function ProfileSections() {
     handleClearNotifications,
     handleNotificationPress,
   } = useCustomerPortal();
+
+  // While a code is still valid this only opens the entry screen — asking for a new one
+  // would restart the countdown the customer is already racing. A new code is requested
+  // only when none is outstanding, and the screen opens only if one actually went out.
+  const openCodeStep = async () => {
+    if (otpExpiry > 0) {
+      openProfileModal("change-password-otp");
+      return;
+    }
+    const sent = await handleRequestOtp();
+    if (sent) openProfileModal("change-password-otp");
+  };
+
 
   if (activeProfileModal === "edit") {
     return (
@@ -203,124 +219,81 @@ export function ProfileSections() {
 
   if (activeProfileModal === "empties") {
     return (
-    <ProfileSectionPage
-      title="Empties & Deposits"
-      onBack={closeProfileModal}
-    >
-        <EmptiesDeposits />
-    </ProfileSectionPage>
+      <ProfileSectionPage
+        title="Empties & Deposits"
+        onBack={closeProfileModal}
+        headerAction={
+          <Pressable
+            style={styles.emptiesHeaderButton}
+            onPress={() => setRecordEmptiesOpen(true)}
+            accessibilityRole="button"
+          >
+            <Plus size={14} color="#ffffff" />
+            <Text style={styles.emptiesHeaderButtonText}>Record Empties</Text>
+          </Pressable>
+        }
+      >
+        <EmptiesDeposits recordOpen={recordEmptiesOpen} onRecordOpenChange={setRecordEmptiesOpen} />
+      </ProfileSectionPage>
     );
   }
 
+  // Account Security is a menu of two rows on the web (profile-view.tsx
+  // `subView === 'account-security'`), not one long page. Change Password and Security
+  // Settings each get their own sub-view, and Back from either returns here.
   if (activeProfileModal === "security") {
     return (
-    <ProfileSectionPage
-      title="Account Security"
-      subtitle="Update your password with OTP verification"
-      onBack={closeProfileModal}
-    >
-        <TextInput style={[styles.input, styles.disabledInput]} value={profile?.email || user?.email || ""} editable={false} placeholder="Email" />
-        <View style={styles.otpCard}>
-          <Text style={styles.otpCardTitle}>Security Verification</Text>
-          <Text style={styles.otpCardSubtitle}>OTP verification is required to change password.</Text>
-          <Text style={styles.otpCardSubtitle}>
-            We sent a 6-digit verification code to{" "}
-            <Text style={styles.otpCountdownValue}>{profile?.email || user?.email || "your email"}</Text>
-          </Text>
-
-          {otpVerified ? (
-            <View style={styles.otpVerifiedRow}>
-              <Check size={18} color={theme.colors.emerald} />
-              <Text style={styles.otpVerifiedText}>OTP Verified Successfully</Text>
+      <ProfileSectionPage title="Account Security" onBack={closeProfileModal}>
+        <View style={styles.profileMenuCard}>
+          <Pressable
+            style={[styles.profileMenuRow, styles.profileMenuRowDivided]}
+            onPress={() => openProfileModal("change-password")}
+            accessibilityRole="button"
+          >
+            <KeyRound size={20} color="#14532d" />
+            <View style={styles.flex}>
+              <Text style={styles.profileMenuLabel}>Change Password</Text>
+              <Text style={styles.profileMenuDescription}>Update your password with OTP verification</Text>
             </View>
-          ) : (
-            <>
-              <View style={styles.inlineActionRow}>
-                <TextInput
-                  style={[styles.input, styles.inlineInput]}
-                  value={securityForm.otp}
-                  onChangeText={(value) => {
-                    setSecurityForm((current) => ({ ...current, otp: value.replace(/\D/g, "").slice(0, 6) }));
-                    setOtpVerified(false);
-                  }}
-                  keyboardType="number-pad"
-                  placeholder="Enter Verification Code"
-                  placeholderTextColor={theme.colors.textFaint}
-                />
-                <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
-                  <Text style={styles.secondaryButtonText}>
-                    {sendingOtp ? "Sending..." : "Send Verification OTP"}
-                  </Text>
-                </Pressable>
-              </View>
-
-              {otpExpiry > 0 ? (
-                <Text style={styles.otpCountdown}>
-                  Code expires in <Text style={styles.otpCountdownValue}>{formatOtpCountdown(otpExpiry)}</Text>
-                </Text>
-              ) : (
-                <Text style={styles.otpExpired}>Verification code has expired.</Text>
-              )}
-
-              <Pressable
-                style={[styles.modalOutlineButton, otpExpiry === 0 ? styles.disabledButton : null]}
-                onPress={handleVerifyOtp}
-                disabled={verifyingOtp || securityForm.otp.length < 6 || otpExpiry === 0}
-              >
-                <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying Code..." : "Verify Code"}</Text>
-              </Pressable>
-
-              {otpResendCooldown > 0 ? (
-                <Text style={styles.otpResendHint}>
-                  Resend code in <Text style={styles.otpResendValue}>{otpResendCooldown}s</Text>
-                </Text>
-              ) : (
-                <Pressable onPress={handleRequestOtp} disabled={sendingOtp} accessibilityRole="button">
-                  <Text style={styles.otpResendLink}>Resend Code</Text>
-                </Pressable>
-              )}
-            </>
-          )}
+            <ChevronRight size={20} color={theme.colors.slate300} />
+          </Pressable>
+          <Pressable
+            style={styles.profileMenuRow}
+            onPress={() => openProfileModal("security-settings")}
+            accessibilityRole="button"
+          >
+            <ShieldCheck size={20} color="#14532d" />
+            <View style={styles.flex}>
+              <Text style={styles.profileMenuLabel}>Security Settings</Text>
+              <Text style={styles.profileMenuDescription}>Configure 2FA login verification and security alerts</Text>
+            </View>
+            <ChevronRight size={20} color={theme.colors.slate300} />
+          </Pressable>
         </View>
+      </ProfileSectionPage>
+    );
+  }
 
+  // Field order follows the web: new password and its checklist, then confirm, then the
+  // verification card. The six-digit code is entered in a dialog there, not inline.
+  if (activeProfileModal === "change-password") {
+    return (
+      <ProfileSectionPage title="Change Password" onBack={() => openProfileModal("security")}>
         <Text style={styles.addressFieldLabel}>New Password</Text>
         <TextInput
           style={styles.input}
           value={securityForm.newPassword}
           onChangeText={(value) => setSecurityForm((current) => ({ ...current, newPassword: value }))}
           placeholder="New password"
+          placeholderTextColor={theme.colors.textFaint}
           secureTextEntry
         />
-        <Text style={styles.addressFieldLabel}>Confirm Password</Text>
-        <TextInput
-          style={styles.input}
-          value={securityForm.confirmPassword}
-          onChangeText={(value) => setSecurityForm((current) => ({ ...current, confirmPassword: value }))}
-          placeholder="Confirm password"
-          secureTextEntry
-        />
-        <Text style={styles.modalHelpText}>
-          OTP verification is required to change password.
-        </Text>
-        <View style={styles.modalActions}>
-          <Pressable style={styles.modalGhostButton} onPress={closeProfileModal}>
-            <Text style={styles.modalGhostButtonText}>Cancel</Text>
-          </Pressable>
-          <Pressable style={styles.primaryButtonCompact} onPress={handleChangePassword} disabled={resettingPassword}>
-            <Text style={styles.primaryButtonText}>{resettingPassword ? "Updating..." : "Change Password"}</Text>
-          </Pressable>
-        </View>
-
         <View style={styles.passwordRequirementsBox}>
-          <Text style={styles.passwordRequirementsTitle}>PASSWORD REQUIREMENTS</Text>
+          <Text style={styles.passwordRequirementsTitle}>Password Requirements</Text>
           <View style={styles.passwordRequirementsGrid}>
             {getPasswordRequirementState(securityForm.newPassword).map((rule) => (
               <View key={rule.label} style={styles.passwordRequirementRow}>
-                {rule.met ? (
-                  <Check size={12} color={theme.colors.emerald} />
-                ) : (
-                  <X size={12} color="#dc2626" />
-                )}
+                {rule.met ? <Check size={12} color={theme.colors.emerald} /> : <X size={12} color="#dc2626" />}
                 <Text style={rule.met ? styles.passwordRequirementMet : styles.passwordRequirementText}>
                   {rule.label}
                 </Text>
@@ -328,8 +301,56 @@ export function ProfileSections() {
             ))}
           </View>
         </View>
+        <Text style={styles.addressFieldLabel}>Confirm Password</Text>
+        <TextInput
+          style={styles.input}
+          value={securityForm.confirmPassword}
+          onChangeText={(value) => setSecurityForm((current) => ({ ...current, confirmPassword: value }))}
+          placeholder="Confirm password"
+          placeholderTextColor={theme.colors.textFaint}
+          secureTextEntry
+        />
 
-        <Text style={styles.securitySectionTitle}>Security Settings</Text>
+        <View style={styles.otpCard}>
+          <Text style={styles.otpCardTitle}>Security Verification</Text>
+          <Text style={styles.otpCardSubtitle}>OTP verification is required to change password.</Text>
+          {otpVerified ? (
+            <View style={styles.otpVerifiedRow}>
+              <Check size={18} color={theme.colors.emerald} />
+              <Text style={styles.otpVerifiedText}>OTP Verified Successfully</Text>
+            </View>
+          ) : (
+            <Pressable
+              style={styles.modalOutlineButton}
+              onPress={() => void openCodeStep()}
+              disabled={sendingOtp}
+              accessibilityRole="button"
+            >
+              <Text style={styles.outlineButtonText}>
+                {sendingOtp ? "Sending OTP..." : otpExpiry > 0 ? "Enter OTP" : "Request Verification OTP"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        <Pressable
+          style={[styles.primaryButton, !otpVerified || resettingPassword ? styles.disabledButton : null]}
+          onPress={handleChangePassword}
+          disabled={!otpVerified || resettingPassword || !securityForm.newPassword || !securityForm.confirmPassword}
+          accessibilityRole="button"
+        >
+          <Text style={styles.primaryButtonText}>
+            {resettingPassword ? "Updating Password..." : "Update Password"}
+          </Text>
+        </Pressable>
+
+      </ProfileSectionPage>
+    );
+  }
+
+  if (activeProfileModal === "security-settings") {
+    return (
+      <ProfileSectionPage title="Security Settings" onBack={() => openProfileModal("security")}>
         <View style={styles.securityToggleRow}>
           <View style={styles.flex}>
             <Text style={styles.securityToggleLabel}>Two-Factor Authentication (2FA)</Text>
@@ -375,17 +396,16 @@ export function ProfileSections() {
             thumbColor={theme.colors.white}
           />
         </View>
-
         <Pressable
           style={[styles.primaryButton, !editingSecurity && styles.securityEditIdle]}
           onPress={() => setEditingSecurity((current) => !current)}
           accessibilityRole="button"
         >
           <Text style={styles.primaryButtonText}>
-            {editingSecurity ? "Done" : "Edit Security Settings"}
+            {editingSecurity ? "Save Security Settings" : "Edit Security Settings"}
           </Text>
         </Pressable>
-    </ProfileSectionPage>
+      </ProfileSectionPage>
     );
   }
 

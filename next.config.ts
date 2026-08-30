@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
-const djangoApiOrigin = process.env.DJANGO_API_ORIGIN || "http://127.0.0.1:8000";
+const configuredDjangoApiOrigin =
+  process.env.DJANGO_API_ORIGIN?.trim() || "http://127.0.0.1:8000";
+
+// Fix: Next.js external rewrites require a fully qualified HTTP(S) URL.
+const djangoApiOrigin = /^https?:\/\//i.test(configuredDjangoApiOrigin)
+  ? configuredDjangoApiOrigin.replace(/\/+$/, "")
+  : `https://${configuredDjangoApiOrigin.replace(/\/+$/, "")}`;
 
 const nextConfig: NextConfig = {
   output: "standalone",
