@@ -121,7 +121,7 @@ export function EmptiesDeposits() {
                     Number of Cases to Return
                   </Text>
                   <View style={styles.emptiesRecordRow}>
-                    <View style={styles.qtyControls}>
+                    <View style={[styles.qtyControls, styles.emptiesQtyControls]}>
                       <Pressable
                         style={styles.qtyButton}
                         onPress={() =>

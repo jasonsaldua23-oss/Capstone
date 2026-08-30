@@ -235,6 +235,40 @@ class SingleWarehouseApiContractTests(TestCase):
         self.assertEqual(warehouse.name, "Updated Main Warehouse")
         self.assertEqual(warehouse.capacity, 2000)
 
+    def test_capacity_cannot_be_lowered_below_current_stock(self) -> None:
+        warehouse = self.create_warehouse()
+        product = Product.objects.create(sku="SKU-CAPACITY-FLOOR", name="Capacity Floor Product")
+        Inventory.objects.create(
+            warehouse=warehouse,
+            product=product,
+            quantity=12,
+            reserved_quantity=0,
+            threshold=2,
+        )
+
+        rejected = self.client.put(
+            f"/api/warehouses/{warehouse.id}",
+            data=json.dumps({"capacity": 11}),
+            content_type="application/json",
+            **self.auth(self.admin_token),
+        )
+
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn("Warehouse capacity exceeded", rejected.json()["error"])
+        warehouse.refresh_from_db()
+        self.assertEqual(warehouse.capacity, 1000)
+
+        # Exact current usage remains a valid hard-cap configuration.
+        accepted = self.client.put(
+            f"/api/warehouses/{warehouse.id}",
+            data=json.dumps({"capacity": 12}),
+            content_type="application/json",
+            **self.auth(self.admin_token),
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.content)
+        warehouse.refresh_from_db()
+        self.assertEqual(warehouse.capacity, 12)
+
     def test_second_registration_is_rejected_by_api_and_database(self) -> None:
         self.create_warehouse()
         response = self.client.post(

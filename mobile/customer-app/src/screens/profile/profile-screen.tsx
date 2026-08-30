@@ -6,6 +6,7 @@ import { Image, Pressable, Text, View } from "react-native";
 
 import { getInitials, resolveImageUrl } from "../../lib/format";
 import { useCustomerPortal } from "../../portal/portal-context";
+import { ProfileSections } from "./profile-sections";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
 
@@ -13,6 +14,7 @@ export function ProfileScreen() {
   const {
     user,
     profile,
+    activeProfileModal,
     openProfileModal,
     setConfirmLogoutVisible,
     handlePickAvatar,
@@ -22,6 +24,10 @@ export function ProfileScreen() {
 
   // Screens only render inside the authenticated shell.
   if (!user) return null;
+
+  // The web swaps the menu for the chosen section in place rather than opening a
+  // dialog over it, so the app does the same. ("address" is a route of its own.)
+  if (activeProfileModal && activeProfileModal !== "address") return <ProfileSections />;
 
   const avatarUrl = profile?.avatar || user.avatar || null;
   const fullName = String(profile?.name || user.name || "").trim();

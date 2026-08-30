@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Trash2, X } from "lucide-react-native";
 import { quoteMixedCase } from "../services/auth";
 import { formatPeso } from "../lib/customer-logic";
 import { ProductThumb } from "./ui/product-thumb";
+import { OptionSelect } from "./ui/option-select";
 import type { MobileMixedCaseCartItem, Product } from "../types";
 
 type Props = {
@@ -142,40 +144,38 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
       <ScrollView contentContainerStyle={styles.screen}>
         <Text style={styles.title}>{editingItem ? "Edit Mixed Case" : "Build a Mixed Case"}</Text>
         {groups.length === 0 ? <Text style={styles.error}>At least two compatible in-stock products are required.</Text> : null}
-        {groups.length > 1 ? (
-          <View style={styles.wrap}>
-            {groups.map(([key, rows]) => (
-              <Pressable
-                key={key}
-                style={[styles.chip, key === selectedGroup?.[0] && styles.chipActive]}
-                onPress={() => {
-                  setGroupKey(key);
-                  setCapacity(getSharedCapacities(rows)[0] || 0);
-                  setQuantities({});
-                  setError("");
-                }}
-              >
-                <Text>{rows[0]?.packagingProfile?.name || key}</Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-        <Text style={styles.label}>Case capacity</Text>
-        <View style={styles.wrap}>
-          {capacities.map((value) => (
-            <Pressable
-              key={value}
-              style={[styles.chip, capacity === value && styles.chipActive]}
-              onPress={() => {
-                setCapacity(value);
+        {groups.length > 0 ? (
+          <>
+            <Text style={styles.label}>Product size</Text>
+            <OptionSelect
+              title="Product size"
+              value={selectedGroup?.[0] || ""}
+              options={groups.map(([key, rows]) => ({
+                value: key,
+                label: rows[0]?.packagingProfile?.name || sizeLabelOf(rows[0]) || key,
+              }))}
+              onChange={(key) => {
+                const rows = groups.find(([groupId]) => groupId === key)?.[1] || [];
+                setGroupKey(key);
+                setCapacity(getSharedCapacities(rows)[0] || 0);
                 setQuantities({});
                 setError("");
               }}
-            >
-              <Text>{value} units</Text>
-            </Pressable>
-          ))}
-        </View>
+            />
+          </>
+        ) : null}
+        <Text style={styles.label}>Case capacity</Text>
+        <OptionSelect
+          title="Case capacity"
+          value={capacity}
+          placeholder="Select capacity"
+          options={capacities.map((value) => ({ value, label: `${value} units` }))}
+          onChange={(value) => {
+            setCapacity(value);
+            setQuantities({});
+            setError("");
+          }}
+        />
         {selectedProducts.length > 0 && capacities.length === 0 ? (
           <Text style={styles.error}>These products do not share a configured Mixed Case capacity.</Text>
         ) : null}
@@ -190,7 +190,20 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
           }}
         />
         {!validCaseCount ? <Text style={styles.error}>Number of cases must be a positive whole number.</Text> : null}
-        <View style={styles.summary}><Text>Capacity {capacity}</Text><Text>Added {added}</Text><Text>Remaining {remaining}</Text></View>
+        <View style={styles.summary}>
+          <View style={styles.summaryCell}>
+            <Text style={styles.summaryLabel}>Capacity</Text>
+            <Text style={styles.summaryValue}>{capacity}</Text>
+          </View>
+          <View style={styles.summaryCell}>
+            <Text style={styles.summaryLabel}>Added</Text>
+            <Text style={styles.summaryValue}>{added}</Text>
+          </View>
+          <View style={styles.summaryCell}>
+            <Text style={styles.summaryLabel}>Remaining</Text>
+            <Text style={[styles.summaryValue, remaining === 0 && styles.summaryValueDone]}>{remaining}</Text>
+          </View>
+        </View>
         {selectedProducts.map((product) => {
           const quantity = quantities[product.id] || 0;
           const max = validCaseCount ? Math.floor(Number(product.availableBaseUnits || 0) / cases) : 0;
@@ -207,9 +220,11 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
                 <Text style={styles.muted}>
                   {formatPeso(Number(product.baseUnitPrice || 0))}/{product.packagingProfile?.baseUnitLabel || "unit"}
                 </Text>
-                <Text style={styles.muted}>
-                  {quantity} {quantity === 1 ? "Bottle" : "Bottles"} per case
-                </Text>
+                {quantity > 0 ? (
+                  <Text style={styles.muted}>
+                    {quantity} {quantity === 1 ? "Bottle" : "Bottles"} per case
+                  </Text>
+                ) : null}
                 {quantity > 0 && validCaseCount ? (
                   <Text style={styles.componentSubtotal}>
                     Subtotal/case: {formatPeso(Number(product.baseUnitPrice || 0) * quantity)}
@@ -221,16 +236,20 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
                   style={[styles.counterButton, (!validCaseCount || quantity <= 0) && styles.disabled]}
                   disabled={!validCaseCount || quantity <= 0}
                   onPress={() => updateQuantity(product, quantity - 1)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove one ${product.name}`}
                 >
-                  <Text>-</Text>
+                  <Trash2 size={15} color="#64748b" />
                 </Pressable>
                 <Text style={styles.counterValue}>{quantity}</Text>
                 <Pressable
-                  style={[styles.counterButton, atLimit && styles.disabled]}
+                  style={[styles.counterButton, styles.counterButtonAdd, atLimit && styles.disabled]}
                   disabled={atLimit}
                   onPress={() => updateQuantity(product, quantity + 1)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add one ${product.name}`}
                 >
-                  <Text>+</Text>
+                  <Text style={styles.counterAddText}>+</Text>
                 </Pressable>
               </View>
             </View>
@@ -248,7 +267,13 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
 const styles = StyleSheet.create({
   screen: { padding: 20, gap: 12, backgroundColor: "#f8fafc", minHeight: "100%" }, title: { fontSize: 24, fontWeight: "800", color: "#0f172a" },
   label: { fontSize: 13, fontWeight: "700", color: "#334155" }, wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fff" }, chipActive: { borderColor: "#0284c7", backgroundColor: "#e0f2fe" },
-  input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 10, backgroundColor: "#fff", padding: 10 }, summary: { flexDirection: "row", justifyContent: "space-between", borderRadius: 10, backgroundColor: "#dcfce7", padding: 12 },
-  product: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, backgroundColor: "#fff" }, flex: { flex: 1 }, productName: { fontWeight: "700", color: "#0f172a" }, muted: { fontSize: 12, color: "#64748b", marginTop: 3 }, componentSubtotal: { fontSize: 12, color: "#047857", fontWeight: "700", marginTop: 3 }, counter: { flexDirection: "row", alignItems: "center", gap: 8 }, counterButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#bae6fd", borderRadius: 17, backgroundColor: "#f0f9ff" }, counterValue: { minWidth: 24, textAlign: "center", fontWeight: "700" },
+  input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 10, backgroundColor: "#fff", padding: 10 }, summary: { flexDirection: "row", borderRadius: 12, backgroundColor: "#ecfdf5", borderWidth: 1, borderColor: "#a7f3d0", paddingVertical: 12, paddingHorizontal: 8 },
+  summaryCell: { flex: 1, alignItems: "center", gap: 2 },
+  summaryLabel: { fontSize: 11, fontWeight: "600", color: "#047857", letterSpacing: 0.2 },
+  summaryValue: { fontSize: 20, fontWeight: "800", color: "#065f46" },
+  summaryValueDone: { color: "#0284c7" },
+  product: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, backgroundColor: "#fff" }, flex: { flex: 1 }, productName: { fontWeight: "700", color: "#0f172a" }, muted: { fontSize: 12, color: "#64748b", marginTop: 3 }, componentSubtotal: { fontSize: 12, color: "#047857", fontWeight: "700", marginTop: 3 }, counter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }, counterButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 10, backgroundColor: "#ffffff" },
+  counterButtonAdd: { borderColor: "#cbd5e1" },
+  counterAddText: { fontSize: 18, fontWeight: "700", color: "#334155", lineHeight: 20 }, counterValue: { minWidth: 24, textAlign: "center", fontWeight: "700" },
   error: { color: "#b91c1c", backgroundColor: "#fee2e2", padding: 10, borderRadius: 8 }, total: { fontSize: 18, fontWeight: "800", color: "#047857" }, actions: { flexDirection: "row", gap: 10 }, secondary: { flex: 1, alignItems: "center", padding: 13, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 10 }, primary: { flex: 1, alignItems: "center", padding: 13, backgroundColor: "#059669", borderRadius: 10 }, primaryText: { color: "#fff", fontWeight: "700" }, disabled: { opacity: 0.45 },
 });

@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
 import { CheckCircle2, Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
-import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
+import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 
 const poppins = { className: '' }
 
@@ -54,6 +54,9 @@ export function CustomerLoginPage() {
   const loginGoogleButtonRef = useRef<HTMLDivElement | null>(null)
   const registerGoogleButtonRef = useRef<HTMLDivElement | null>(null)
   const isRenderingGoogleRef = useRef(false)
+  // Verification takes over the whole page rather than opening over the form, matching
+  // the mobile app, so the form (and the Google button inside it) unmounts while it is up.
+  const isOtpPageOpen = isOtpModalOpen || isLoginOtpOpen
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
 
   const persistCustomerWelcomeState = (mode: 'existing' | 'new', fallbackName?: string) => {
@@ -227,7 +230,9 @@ export function CustomerLoginPage() {
       renderGoogleButton()
     }, 60)
     return () => clearTimeout(timer)
-  }, [authMode, googleClientId, renderGoogleButton])
+    // isOtpPageOpen: returning from the verification page gives the form a new ref
+    // container, and GIS only fills the node it was handed.
+  }, [authMode, googleClientId, renderGoogleButton, isOtpPageOpen])
 
   useEffect(() => {
     if (!googleClientId) return
@@ -447,6 +452,30 @@ export function CustomerLoginPage() {
     return (
       <div className={`${poppins.className} min-h-screen bg-[#eaf6ff] flex items-center justify-center px-4`}>
         <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
+      </div>
+    )
+  }
+
+  if (isOtpPageOpen) {
+    const isLoginChallenge = isLoginOtpOpen
+    return (
+      <div className={`${poppins.className} min-h-dvh bg-white px-6 pb-10 pt-4 sm:min-h-screen`}>
+        <Toaster position="top-right" />
+        <div className="mx-auto flex w-full max-w-md flex-col">
+          <OtpVerificationPanel
+            open
+            variant="page"
+            onOpenChange={(next) => {
+              if (next) return
+              if (isLoginChallenge) setIsLoginOtpOpen(false)
+              else setIsOtpModalOpen(false)
+            }}
+            email={email.trim().toLowerCase()}
+            onVerify={isLoginChallenge ? verifyLoginOtp : handleVerifyOtp}
+            onResendCode={isLoginChallenge ? resendLoginOtp : handleResendOtp}
+            theme="emerald"
+          />
+        </div>
       </div>
     )
   }
@@ -706,23 +735,6 @@ export function CustomerLoginPage() {
         </Card>
       </div>
 
-      {/* OTP Verification Modal */}
-      <OtpVerificationModal
-        open={isOtpModalOpen}
-        onOpenChange={setIsOtpModalOpen}
-        email={email.trim().toLowerCase()}
-        onVerify={handleVerifyOtp}
-        onResendCode={handleResendOtp}
-        theme="emerald"
-      />
-      <OtpVerificationModal
-        open={isLoginOtpOpen}
-        onOpenChange={setIsLoginOtpOpen}
-        email={email.trim().toLowerCase()}
-        onVerify={verifyLoginOtp}
-        onResendCode={resendLoginOtp}
-        theme="emerald"
-      />
     </div>
   )
 }

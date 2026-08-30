@@ -1056,6 +1056,19 @@ const styles = StyleSheet.create({
   // ---- Profile (profile-view.tsx) ----
   profileSection: { flex: 1, backgroundColor: "#f8f9fa", paddingBottom: 24, gap: 20 },
   profileHeading: { paddingHorizontal: 16, paddingTop: 20, color: theme.colors.text, fontSize: 24, fontFamily: "Poppins_700Bold", letterSpacing: -0.4 },
+  // Profile sub-pages (screens/profile/profile-sections.tsx). The web renders these
+  // as in-place sub-views with a back arrow beside the title, on the same grey page.
+  profileSectionPage: { flex: 1, backgroundColor: "#f8f9fa", paddingBottom: 24 },
+  profileSectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingTop: 18, paddingBottom: 4 },
+  profileSectionBack: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  profileSectionTitle: { color: theme.colors.text, fontSize: 20, fontFamily: "Poppins_700Bold", letterSpacing: -0.3 },
+  profileSectionSubtitle: { marginTop: 1, color: theme.colors.slate600, fontSize: 12, fontFamily: "Poppins_400Regular" },
+  profileSectionBody: { paddingHorizontal: 16, paddingTop: 8, gap: 10 },
+  profileSectionHeaderActions: { flexDirection: "row", alignItems: "center", gap: 14, paddingRight: 4 },
+  notificationsEmptyState: { alignItems: "center", paddingVertical: 56, paddingHorizontal: 24, gap: 4 },
+  notificationsEmptyBadge: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#ecfdf5", alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  notificationsEmptyTitle: { color: "#1e293b", fontSize: 16, fontFamily: "Poppins_700Bold" },
+  notificationsEmptyHint: { maxWidth: 240, textAlign: "center", color: theme.colors.textFaint, fontSize: 12, fontFamily: "Poppins_400Regular", lineHeight: 17 },
   profileIdentityRow: { flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 16, paddingVertical: 12 },
   // h-20 w-20 border-2 border-white, teal-700 fallback
   profileAvatar: {
@@ -1201,6 +1214,10 @@ const styles = StyleSheet.create({
   emptiesBalanceStrong: { color: theme.colors.emeraldDark, fontFamily: "Poppins_600SemiBold" },
   emptiesBalanceCount: { color: theme.colors.text, fontSize: 18, fontFamily: "Poppins_700Bold" },
   emptiesRecordRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 },
+  // styles.qtyControls is width:"100%" for the product card, where it sits in a
+  // column; beside the Record button it has to flex instead or the button lands
+  // outside the card.
+  emptiesQtyControls: { flex: 1, width: "auto" },
   emptiesLockedRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 6, marginTop: 4 },
   emptiesEmptyState: { alignItems: "center", paddingVertical: 24, gap: 4 },
   emptiesEmptyTitle: { color: theme.colors.textBody, fontSize: 14, fontFamily: "Poppins_600SemiBold" },
@@ -1222,6 +1239,61 @@ const styles = StyleSheet.create({
   addressBackText: { color: theme.colors.slate600, fontSize: 14, fontFamily: "Poppins_500Medium" },
   addressTitle: { color: theme.colors.text, fontSize: 16, fontFamily: "Poppins_700Bold" },
   addressClearButton: { height: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 8, borderRadius: 6 },
+  // Email verification dialog, per the signup screenshots.
+  securityEditIdle: { backgroundColor: "#7fae91" },
+  optionSelectField: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, height: 46, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff" },
+  optionSelectValue: { flex: 1, fontSize: 14, fontWeight: "600", color: "#0f172a" },
+  optionSelectPlaceholder: { flex: 1, fontSize: 14, color: "#94a3b8" },
+  optionSelectBackdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.4)", justifyContent: "center", padding: 28 },
+  optionSelectSheet: { maxHeight: "70%", borderRadius: 18, backgroundColor: "#ffffff", paddingVertical: 8 },
+  optionSelectSheetTitle: { fontSize: 13, fontWeight: "700", color: "#64748b", paddingHorizontal: 16, paddingVertical: 10 },
+  optionSelectRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 16, paddingVertical: 13 },
+  optionSelectRowActive: { backgroundColor: "#ecfdf5" },
+  optionSelectRowText: { fontSize: 14, color: "#334155" },
+  optionSelectRowTextActive: { fontSize: 14, fontWeight: "700", color: "#065f46" },
+  // Matches the GIS button the web portal renders: outline/pill/large, logo left,
+  // width capped at 340 and centred (see CustomerLoginPage.renderGoogleButton).
+  googleButtonRow: { alignSelf: "stretch", alignItems: "center", marginVertical: 6 },
+  googleButton: { position: "relative", flexDirection: "row", alignItems: "center", justifyContent: "center", width: "100%", maxWidth: 340, height: 40, paddingHorizontal: 40, borderRadius: 20, borderWidth: 1, borderColor: "#dadce0", backgroundColor: "#ffffff" },
+  googleButtonDisabled: { opacity: 0.55 },
+  googleMark: { position: "absolute", left: 12, width: 18, height: 18, alignItems: "center", justifyContent: "center" },
+  googleButtonText: { fontSize: 14, letterSpacing: 0.25, textAlign: "center", color: "#3c4043", fontFamily: "Poppins_500Medium" },
+  // No eye button on the email field, so it does not need the 38px right gutter the
+  // shared icon input reserves — that gutter was cutting the address off mid-word.
+  authEmailInput: { paddingRight: 12 },
+  flexOne: { flex: 1 },
+  authRequiredMark: { color: "#dc2626", fontWeight: "700" },
+  authSendOtpButton: { alignSelf: "flex-end", height: 38, paddingHorizontal: 18, borderRadius: 10, backgroundColor: "#0f6b3f", alignItems: "center", justifyContent: "center" },
+  authSendOtpButtonDone: { backgroundColor: "#94a3b8" },
+  authSendOtpText: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  // The verification step is its own full-bleed page (screens/auth/otp-verification-screen.tsx):
+  // plain white filling the screen with the content stacked from the top, not a card
+  // floating on the login background. Nothing about it should read as a dialog.
+  otpScreenPage: { flex: 1, backgroundColor: "#ffffff" },
+  otpScreenScroll: { flexGrow: 1, alignItems: "center", paddingHorizontal: 24, paddingTop: 8, paddingBottom: 32 },
+  otpScreenContent: { width: "100%", maxWidth: 420, alignItems: "center", gap: 10 },
+  otpScreenBack: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 2, paddingVertical: 10, paddingRight: 12 },
+  otpScreenBackText: { fontSize: 13, color: "#64748b", fontFamily: "Poppins_600SemiBold" },
+  otpScreenBadge: { width: 52, height: 52, borderRadius: 16, backgroundColor: "#ecfdf5", alignItems: "center", justifyContent: "center", marginTop: 24, marginBottom: 2 },
+  otpScreenTitle: { fontSize: 22, fontWeight: "800", color: "#0f172a", textAlign: "center" },
+  otpScreenSubtitle: { fontSize: 13, color: "#64748b", textAlign: "center", lineHeight: 19 },
+  otpScreenEmail: { fontWeight: "700", color: "#0f172a" },
+  // Boxes flex down instead of running off the card on a narrow phone; maxWidth keeps
+  // them from stretching into slabs on a wide one. Rounded squares, matching the web
+  // modal's h-11 w-9 rounded-xl inputs — never circles.
+  otpScreenBoxes: { alignSelf: "stretch", flexDirection: "row", justifyContent: "center", gap: 8, marginTop: 10 },
+  otpScreenBox: { flex: 1, minWidth: 0, maxWidth: 52, height: 56, borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#ffffff", textAlign: "center", fontSize: 20, fontWeight: "700", color: "#1e293b", paddingHorizontal: 0 },
+  otpScreenBoxFilled: { borderColor: "#10b981", backgroundColor: "#f0fdf7", color: "#022c22" },
+  otpScreenBoxError: { borderColor: "#f87171", backgroundColor: "#fef2f2", color: "#7f1d1d" },
+  otpScreenCountdown: { fontSize: 13, fontWeight: "700", color: theme.colors.emerald, marginTop: 4 },
+  otpScreenExpired: { fontSize: 13, fontWeight: "700", color: "#b91c1c", marginTop: 4 },
+  otpScreenError: { fontSize: 12, color: "#b91c1c", textAlign: "center" },
+  otpScreenVerify: { alignSelf: "stretch", height: 50, borderRadius: 14, backgroundColor: theme.colors.emerald, alignItems: "center", justifyContent: "center", marginTop: 10 },
+  otpScreenVerifyDisabled: { opacity: 0.5 },
+  otpScreenVerifyText: { color: "#ffffff", fontSize: 15, fontWeight: "700" },
+  otpScreenResend: { fontSize: 13, fontWeight: "700", color: theme.colors.emerald, marginTop: 2 },
+  otpScreenResendWaiting: { fontSize: 13, fontWeight: "600", color: "#94a3b8", marginTop: 2 },
+  otpScreenCancel: { fontSize: 13, fontWeight: "600", color: "#64748b", marginTop: 6 },
   productThumbImage: { borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },
   productThumbFallback: { borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center" },
   productThumbInitial: { fontSize: 15, fontWeight: "700", color: "#64748b" },

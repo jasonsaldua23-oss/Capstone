@@ -44,15 +44,30 @@ const ALLOWED_APP_ONLY = new Set([
   "Preparing PDF...", // expo-print export; the web downloads a PNG via html-to-image
   "Uploading...", // the app uploads to the server; the web file input is instant
   // Map affordances. The web renders Leaflet markers with no text; these are the
-  // native accessibility labels and the web-preview fallback, since
-  // @maplibre/maplibre-react-native is native-only.
+  // native accessibility labels. The web build of the app now renders a real
+  // maplibre-gl map rather than a coordinate-entry fallback, so the fallback's
+  // copy is gone.
   "Live driver location",
   "Delivery address",
   "Recenter delivery map",
   "Open in OpenStreetMap",
-  "Map picking is available in the mobile app",
-  "Enter coordinates to pin the delivery location in this web preview.",
-  "Pin these coordinates",
+  // The web renders Google Identity Services' own widget, so its button label
+  // ("Continue as <name>") comes from Google and exists in no web source file.
+  // expo-auth-session has no equivalent widget, so the app supplies its own label.
+  "Continue with Google",
+  // Email verification. The web shows it as a modal over the form; the app gives it
+  // its own page, so it needs a labelled way back that the web's icon-only close
+  // button has no copy for. The resend control and verifying state are app-only for
+  // the same reason.
+  "Back to sign up",
+  "Resend verification code",
+  "Verifying...",
+  // expo-auth-session surfaces OAuth failures to the app, whereas Google Identity
+  // Services renders its own error inside the widget on the web.
+  "Google sign-in failed. Please try again.",
+  // The Mixed Case size/capacity dropdowns replace the app's old chips; a select
+  // needs placeholder text where a chip row does not.
+  "Select capacity",
   // Mixed-case builder validation. The web shows one generic toast
   // ("Complete the Mixed Case with at least two products before adding it.");
   // the app names the specific problem, which is more useful on a phone.

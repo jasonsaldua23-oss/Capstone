@@ -347,11 +347,28 @@ export function MixedCaseBuilderDialog({
                 const maxAllowedForRow = Math.min(maxForCases, quantity + remaining)
                 return (
                   <div key={product.id} className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 p-3 sm:flex sm:gap-3">
-                    <img
-                      src={product.imageUrl || '/ann-anns-logo.png'}
-                      alt={product.name}
-                      className="h-10 w-10 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
-                    />
+                    {/* No product here carries an image, so this fell back to
+                        /ann-anns-logo.png — a 537KB PNG fetched once per row to fill a
+                        40x40 box. Draw a cheap initial instead, and keep the fallback
+                        for the case where an image path is present but fails to load. */}
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="h-10 w-10 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
+                        onError={(event) => {
+                          const img = event.currentTarget
+                          img.style.display = 'none'
+                          img.nextElementSibling?.classList.remove('hidden')
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      aria-hidden
+                      className={`h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-100 text-sm font-bold text-slate-500 flex ${product.imageUrl ? 'hidden' : ''}`}
+                    >
+                      {product.name?.trim().charAt(0).toUpperCase() || ''}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-slate-900">
                         {product.name}{getProductSizeLabel(product) ? ` ${getProductSizeLabel(product)}` : ''}

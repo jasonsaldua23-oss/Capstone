@@ -98,6 +98,23 @@ class StockBatchTransactionSyncTests(TestCase):
 
         self.assertFalse(_is_inventory_overstocked_flagged_by_stockin(self.inventory))
 
+    def test_batch_increase_cannot_exceed_warehouse_capacity(self):
+        self.inventory.threshold = 20
+        self.inventory.save(update_fields=["threshold", "updated_at"])
+
+        at_capacity = self.update_batch(100)
+        self.assertEqual(at_capacity.status_code, 200, at_capacity.content)
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 100)
+
+        rejected = self.update_batch(101)
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn("Warehouse capacity exceeded", rejected.json()["error"])
+        self.inventory.refresh_from_db()
+        self.batch.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 100)
+        self.assertEqual(self.batch.quantity, 100)
+
     def test_inventory_transaction_list_hides_replacement_bottle_remainders(self):
         InventoryTransaction.objects.create(
             warehouse=self.warehouse,

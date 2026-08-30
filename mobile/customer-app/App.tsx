@@ -150,7 +150,6 @@ function CustomerPortalScreens() {
     profileForm,
     setProfileForm,
     activeProfileModal,
-    setActiveProfileModal,
     confirmLogoutVisible,
     setConfirmLogoutVisible,
     pendingCancellationOrder,
@@ -267,8 +266,10 @@ function CustomerPortalScreens() {
             onCartPress={() => resetToTab("cart")}
             unreadCount={unreadNotifications}
             onNotificationsPress={() => {
-              setActiveProfileModal("notifications");
+              // resetToTab clears any open section first, so select the tab before
+              // asking for the list. openProfileModal also refreshes it.
               resetToTab("profile");
+              openProfileModal("notification-list");
             }}
           />
 

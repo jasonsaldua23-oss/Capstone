@@ -239,8 +239,11 @@ export function HomeScreen() {
                         </Pressable>
                       </View>
 
+                      {/* Fixed shortcuts in the same unit as the stepper above, matching the
+                          web card's ['12','24','36','48'] (home-view.tsx). They are not
+                          derived from the case size: tapping 48 sets the quantity to 48. */}
                       <View style={styles.quantityPresets}>
-                        {[1, 2, 3, 4].map((quantity) => {
+                        {[12, 24, 36, 48].map((quantity) => {
                           const isActive = selectedQty === quantity;
                           const exceedsAvailable = quantity > Math.max(0, available);
                           const isDisabled = isSoldOut || exceedsAvailable;

@@ -1141,6 +1141,47 @@ The first diagnosis was plausible and wrong. A hardcoded emulator IP and a 16s
 response produce the identical symptom — a timeout toast — and only measurement
 separates them. Time the endpoint before theorising about it.
 
+## 4p. Design pass on the customer screens (2026-08-30)
+
+Sixteen reference screenshots of the **web** portal (identified as web, not the app,
+because the Mixed Case dialog shows "Product size" as a select — the app renders
+chips there, and that label exists only in `mixed-case-builder-dialog.tsx`).
+
+### Product thumbnails were fetching a 537KB logo per row
+
+`resolveImageUrl()` falls back to `/email-assets/ann-anns-logo.png` when a product
+has no image. **All 14 products in the database have no image**, so every thumbnail
+in the app took that path: a 537KB PNG fetched once per row to fill a 40x40 box, and
+a broken-image icon whenever the host was unreachable — which it always was, while
+`app.json` pinned the API base to the emulator alias.
+
+Added `components/ui/product-thumb.tsx`: renders an image only when a real path
+exists, and falls back to a cheap local placeholder (product initial, or a package
+glyph) both when the path is missing and when the load fails via `onError`. Applied
+in the Mixed Case builder and the cart, which had the same pattern twice.
+
+The web had the identical bug — `product.imageUrl || '/ann-anns-logo.png'`, so four
+open rows meant ~2.1MB to draw four 40px squares. Given every product lacks an image,
+that is the likely explanation for the broken thumbnails in the screenshot: caught
+mid-load rather than genuinely failed. Fixed there the same way, with the image
+fallback kept for paths that exist but fail.
+
+### Mixed Case builder
+
+- The running totals were three bare strings on a green bar
+  (`Capacity 24  Added 0  Remaining 24`). Now a three-column card with a small label
+  above each value, and the remaining count turns blue when the case is exactly full.
+- Labelled the product-size chips "Product size", matching the web's select.
+- `0 Bottles per case` was repeated on every row, duplicating the stepper beside it.
+  It now appears once it means something, pairing with the existing Subtotal line.
+
+### Not changed
+
+The profile screens render saved values in a disabled/grey state until "Edit Profile"
+is pressed. That reads as placeholder text at a glance, but it is the web's own
+`disabled={!isEditingProfile}` behaviour and changing it would be a product decision,
+not a polish pass.
+
 ## 5. Functional requirements
 
 - FR-1: Every screen, subview and dialog in the web customer portal MUST have an app counterpart

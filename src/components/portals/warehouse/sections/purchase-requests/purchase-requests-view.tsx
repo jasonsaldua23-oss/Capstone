@@ -114,6 +114,12 @@ export function WarehousePurchaseRequestsView({
     const nextReason = action === 'approve' ? undefined : reason.trim() || undefined
     try {
       setBusyId(order.id)
+      const updated = await updateWarehouseOrderStatus(order.id, nextStatus, nextReason)
+      if (updated !== false) {
+        setActionState(null)
+        setSelectedReasons([])
+        setOtherReason('')
+      }
       await updateWarehouseOrderStatus(order.id, nextStatus, nextReason)
       setActionState(null)
       setSelectedReasons([])

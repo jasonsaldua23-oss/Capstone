@@ -357,6 +357,36 @@ def _int(v: Any, default: int) -> int:
         return default
 
 
+def _warehouse_capacity_error(
+    warehouse: Warehouse,
+    *,
+    incoming_cases: int = 0,
+    proposed_capacity: int | None = None,
+) -> str | None:
+    """Return a user-facing error when a stock change would exceed hard capacity."""
+    used_cases = max(
+        0,
+        _int(
+            Inventory.objects.filter(warehouse_id=warehouse.id)
+            .aggregate(total=Sum("quantity"))
+            .get("total"),
+            0,
+        ),
+    )
+    capacity = max(
+        0,
+        _int(proposed_capacity if proposed_capacity is not None else warehouse.capacity, 0),
+    )
+    projected_cases = used_cases + max(0, _int(incoming_cases, 0))
+    if projected_cases <= capacity:
+        return None
+    # Added: capacity is a hard warehouse-wide case limit, not only a report metric.
+    return (
+        f"Warehouse capacity exceeded. Current stock is {used_cases} case(s), "
+        f"the requested change would use {projected_cases}, and capacity is {capacity}."
+    )
+
+
 def _to_float_or_none(value: Any) -> float | None:
     try:
         number = float(value)
@@ -1611,7 +1641,10 @@ def _calculate_order_item_weight(item: OrderItem, quantity: int | None = None) -
     # Fix: mixed cases have no direct product, so derive their per-case weight
     # from each component's base-unit share of its source product case.
     total_weight = 0.0
-    for component in item.mixed_case_components.select_related("product").all():
+    # Reuse prefetched mixed-case rows when trip lists batch-load their orders.
+    prefetched_components = getattr(item, "_prefetched_objects_cache", {}).get("mixed_case_components")
+    components = prefetched_components if prefetched_components is not None else item.mixed_case_components.select_related("product").all()
+    for component in components:
         component_product = getattr(component, "product", None)
         product_weight = float(getattr(component_product, "weight", 0) or 0)
         units_per_case = max(1, _int(getattr(component_product, "quantity_per_unit", 0), 1))
@@ -1636,15 +1669,22 @@ def _calculate_order_weight(order: Order) -> float:
     return _calculate_order_load(order)[1]
 
 
-def _calculate_orders_load_for_warehouse(orders: list[Order], warehouse_id: str | None) -> tuple[int, float]:
+def _calculate_orders_load_for_warehouse(
+    orders: list[Order],
+    warehouse_id: str | None,
+    allocation_map: dict[str, Any] | None = None,
+) -> tuple[int, float]:
     """Calculate only the order quantities assigned to the trip's warehouse leg."""
     order_ids = [str(order.id) for order in orders]
-    allocation_map = _build_order_item_warehouse_allocations_map(order_ids) if warehouse_id and order_ids else {}
+    if allocation_map is None:
+        allocation_map = _build_order_item_warehouse_allocations_map(order_ids) if warehouse_id and order_ids else {}
     total_cases = 0
     total_weight = 0.0
     for order in orders:
         allocations_by_item = allocation_map.get(str(order.id), {})
-        for item in order.items.select_related("product").prefetch_related("mixed_case_components__product").all():
+        prefetched_items = getattr(order, "_prefetched_objects_cache", {}).get("items")
+        order_items = prefetched_items if prefetched_items is not None else order.items.select_related("product").prefetch_related("mixed_case_components__product").all()
+        for item in order_items:
             item_allocations = allocations_by_item.get(str(item.id), [])
             if warehouse_id and item_allocations:
                 load_quantity = sum(
@@ -2928,6 +2968,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
     total_cases, total_weight = _calculate_orders_load_for_warehouse(
         trip_orders,
         str(getattr(trip, "warehouse_id", "") or "").strip() or None,
+        ctx.get("allocations_map"),
     )
     vehicle_capacity = float(getattr(getattr(trip, "vehicle", None), "capacity", 0) or 0)
     data["totalCases"] = total_cases
@@ -2937,7 +2978,8 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
     warehouse_lat = None
     warehouse_lng = None
     if trip.warehouse_id:
-        warehouse = Warehouse.objects.filter(id=trip.warehouse_id).first()
+        warehouse_cache = ctx.get("warehouse_cache")
+        warehouse = warehouse_cache.get(str(trip.warehouse_id)) if warehouse_cache is not None else Warehouse.objects.filter(id=trip.warehouse_id).first()
         if warehouse:
             data["warehouse"] = _serialize_model(warehouse)
             warehouse_lat = _to_float_or_none(getattr(warehouse, "latitude", None))
@@ -2966,13 +3008,23 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
         if allocations_map is None:
             allocations_map = _build_order_item_warehouse_allocations_map(order_ids) if order_ids else {}
             
-        trip_assignments_map = ctx.get("trip_assignments_map")
-        if trip_assignments_map is None:
-            trip_assignments_map = _build_order_item_trip_assignments_map(order_ids, trip_id=str(getattr(trip, "id", "") or "").strip() or None) if order_ids else {}
-            
         all_assignments_map = ctx.get("all_assignments_map")
         if all_assignments_map is None:
             all_assignments_map = _build_order_item_trip_assignments_map(order_ids, trip_id=None) if order_ids else {}
+
+        trip_assignments_map = ctx.get("trip_assignments_map")
+        if trip_assignments_map is None and ctx.get("all_assignments_map") is not None:
+            # Fix: derive each trip's assignments from the batched all-trip map.
+            trip_id = str(getattr(trip, "id", "") or "").strip()
+            trip_assignments_map = {
+                order_id: {
+                    item_id: [entry for entry in entries if str(entry.get("tripId") or "").strip() == trip_id]
+                    for item_id, entries in items.items()
+                }
+                for order_id, items in all_assignments_map.items()
+            }
+        elif trip_assignments_map is None:
+            trip_assignments_map = _build_order_item_trip_assignments_map(order_ids, trip_id=str(getattr(trip, "id", "") or "").strip() or None) if order_ids else {}
             
         warehouse_cache = ctx.get("warehouse_cache")
         if warehouse_cache is None:
@@ -3026,7 +3078,11 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     "scheduledReplacement": _get_scheduled_replacement_payload(dp.order),
                     "items": [
                         {
-                            **_serialize_order_item_with_spare_products(item, include_full_product=False),
+                            **_serialize_order_item_with_spare_products(
+                                item,
+                                include_full_product=False,
+                                packaging_cache=ctx.get("packaging_cache"),
+                            ),
                             "warehouseAllocations": item_allocations_by_order.get(str(getattr(item, "id", "") or "").strip(), []),
                             "tripAssignments": item_trip_assignments_by_order.get(str(getattr(item, "id", "") or "").strip(), []),
                             "allTripAssignments": all_item_trip_assignments_by_order.get(str(getattr(item, "id", "") or "").strip(), []),
@@ -3110,11 +3166,20 @@ def _round_half_up(value: float) -> int:
     return max(0, int(math.floor(max(value, 0) + 0.5)))
 
 
-def _serialize_order_item_with_spare_products(item: OrderItem, *, include_full_product: bool = True) -> dict[str, Any]:
+def _serialize_order_item_with_spare_products(
+    item: OrderItem,
+    *,
+    include_full_product: bool = True,
+    packaging_cache: dict[str, ProductPackaging] | None = None,
+) -> dict[str, Any]:
     row = _serialize_model(item)
     product = getattr(item, "product", None)
     quantity_per_case = _int(getattr(product, "quantity_per_unit", 0), 0)
-    packaging = ProductPackaging.objects.filter(product=product, is_active=True).first() if product else None
+    packaging = (
+        packaging_cache.get(str(product.id))
+        if product and packaging_cache is not None
+        else ProductPackaging.objects.filter(product=product, is_active=True).first() if product else None
+    )
     containers_per_case = int(packaging.containers_per_case) if (packaging and packaging.containers_per_case) else (quantity_per_case or 1)
     snapshot_name = str(getattr(item, "product_name", "") or "").strip()
     snapshot_sku = str(getattr(item, "product_sku", "") or "").strip()
@@ -5884,6 +5949,9 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         capacity_value = _int(raw_capacity, 0)
         if capacity_value <= 0:
             return _err("capacity must be greater than 0", 400)
+        capacity_error = _warehouse_capacity_error(w, proposed_capacity=capacity_value)
+        if capacity_error:
+            return _err(capacity_error, 400)
         body["capacity"] = capacity_value
     mapping = [("name", "name"), ("code", "code"), ("address", "address"), ("city", "city"), ("province", "province"), ("zipCode", "zip_code"), ("latitude", "latitude"), ("longitude", "longitude"), ("capacity", "capacity"), ("managerId", "manager_id")]
     for key, attr in mapping:
@@ -6040,8 +6108,25 @@ def products_collection(request: HttpRequest) -> JsonResponse:
     if initial_quantity < 0:
         return _err("availableQuantity must be a non-negative integer", 400)
 
+    # Fix: validate deposits before creating any product or inventory records.
+    deposit_allowed = bool((category_spec(category_value) or {}).get("depositAllowed"))
+    raw_bottle_deposit = body.get("bottleDeposit") if "bottleDeposit" in body else body.get("depositAmount")
+    raw_case_deposit = body.get("caseDeposit") if "caseDeposit" in body else body.get("caseDepositAmount")
+    bottle_deposit, bottle_error = _coerce_deposit_amount(raw_bottle_deposit) if deposit_allowed else (None, None)
+    if bottle_error:
+        return _err(bottle_error, 400)
+    case_deposit, case_error = _coerce_deposit_amount(raw_case_deposit) if deposit_allowed else (None, None)
+    if case_error:
+        return _err(case_error, 400)
+
     try:
         with transaction.atomic():
+            # Added: lock the warehouse while checking its shared capacity so
+            # simultaneous stock-ins cannot both claim the same remaining space.
+            warehouse = Warehouse.objects.select_for_update().get(id=warehouse.id)
+            capacity_error = _warehouse_capacity_error(warehouse, incoming_cases=initial_quantity)
+            if capacity_error:
+                return _err(capacity_error, 400)
             prod = Product.objects.create(
                 sku=str(body["sku"]).strip(),
                 name=str(body["name"]).strip(),
@@ -6075,9 +6160,8 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             # Create or update packaging / deposit if specified.
             # Container deposits only exist for returnable (glass) categories, so
             # ignore any amounts sent for a category that does not allow them.
-            deposit_allowed = bool((category_spec(category_value) or {}).get("depositAllowed"))
-            bottle_deposit = float(body.get("bottleDeposit") or body.get("depositAmount") or 0) if deposit_allowed else 0.0
-            case_deposit = float(body.get("caseDeposit") or body.get("caseDepositAmount") or 0) if deposit_allowed else 0.0
+            bottle_deposit = bottle_deposit or 0
+            case_deposit = case_deposit or 0
             if bottle_deposit > 0 or case_deposit > 0 or _is_returnable_product(prod):
                 pkg_obj, ct_obj = _get_or_create_product_packaging(prod)
                 if bottle_deposit > 0:
@@ -6331,6 +6415,9 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         product = Product.objects.get(id=product_id)
     except (Warehouse.DoesNotExist, Product.DoesNotExist):
         return _err("Warehouse or Product not found", 404)
+    capacity_error = _warehouse_capacity_error(warehouse, incoming_cases=qty)
+    if capacity_error:
+        return _err(capacity_error, 400)
     item, created = Inventory.objects.get_or_create(
         warehouse=warehouse,
         product=product,
@@ -6379,6 +6466,12 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
     except Inventory.DoesNotExist:
         return _err("Inventory not found", 404)
     body = _json_body(request)
+    if "quantity" in body:
+        next_quantity = _int(body.get("quantity"), item.quantity)
+        added_cases = next_quantity - max(0, _int(item.quantity, 0))
+        capacity_error = _warehouse_capacity_error(item.warehouse, incoming_cases=added_cases)
+        if capacity_error:
+            return _err(capacity_error, 400)
     # Threshold is intentionally excluded from manual edits.
     # It is recalculated only after restock operations.
     mapping = [("quantity", "quantity"), ("reservedQuantity", "reserved_quantity"), ("looseBottles", "loose_bottles")]
@@ -6694,6 +6787,12 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             return _err("Cannot increase stock batch quantity: product is overstocked.", 400)
 
         with transaction.atomic():
+            if delta > 0:
+                # Added: serialize warehouse-wide capacity checks with stock changes.
+                locked_warehouse = Warehouse.objects.select_for_update().get(id=inv.warehouse_id)
+                capacity_error = _warehouse_capacity_error(locked_warehouse, incoming_cases=delta)
+                if capacity_error:
+                    return _err(capacity_error, 400)
             if delta != 0:
                 from .deposit_lifecycle import record_stockin_empty_consumption
                 # Fix: consume available empties while allowing any remaining stock quantity.
@@ -6872,6 +6971,13 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
                     return _err("Cannot add stock: product is currently flagged as overstocked (latest stock-in is >= 10x threshold).", 400)
 
+            locked_warehouse = Warehouse.objects.select_for_update().get(id=inv.warehouse_id)
+            capacity_error = _warehouse_capacity_error(locked_warehouse, incoming_cases=qty)
+            if capacity_error:
+                # Raising keeps newly-created product/inventory rows inside this
+                # transaction from being committed after a rejected stock-in.
+                raise ValueError(capacity_error)
+
             batch = StockBatch.objects.create(
                 batch_number=str(body.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}"),
                 inventory=inv,
@@ -6999,6 +7105,8 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
 
     try:
         with transaction.atomic():
+            # Added: one lock protects the combined capacity of the entire bulk request.
+            warehouse = Warehouse.objects.select_for_update().get(id=warehouse.id)
             created_stock_batches = []
             newly_created_count = 0
             reused_count = 0
@@ -7044,6 +7152,10 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                         f"Batch {batch_data['index']}: cannot add stock for product currently flagged as overstocked (latest stock-in is >= 10x threshold).",
                         400,
                     )
+
+                capacity_error = _warehouse_capacity_error(warehouse, incoming_cases=qty)
+                if capacity_error:
+                    raise ValueError(f"Batch {batch_data['index']}: {capacity_error}")
 
                 # Create stock batch
                 batch = StockBatch.objects.create(
@@ -8289,8 +8401,23 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
+        # Batch-load the complete trip graph used by serialization. Without this,
+        # each trip repeats order-item, product, and mixed-case queries until the UI times out.
+        drop_points_prefetch = Prefetch(
+            "drop_points",
+            queryset=TripDropPoint.objects.select_related(
+                "order",
+                "order__customer",
+                "order__timeline",
+            ).prefetch_related(
+                Prefetch(
+                    "order__items",
+                    queryset=OrderItem.objects.select_related("product").prefetch_related("mixed_case_components__product"),
+                ),
+            ).order_by("sequence"),
+        )
         qs = (
-            Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").all()
+            Trip.objects.select_related("driver", "vehicle").prefetch_related(drop_points_prefetch).all()
         ).order_by("-created_at")
         tracking_date_raw = str(request.GET.get("trackingDate") or "").strip()
         include_tracking = str(request.GET.get("includeTracking") or "").strip().lower() in {"1", "true", "yes"}
@@ -8345,7 +8472,45 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             ).distinct()
         total = qs.count()
         rows = list(qs[off : off + size])
-        serialized_rows = [_serialize_trip(t) for t in rows]
+
+        # Build shared lookup maps once for the whole page instead of once per trip.
+        all_order_ids: set[str] = set()
+        all_warehouse_ids: set[str] = set()
+        all_product_ids: set[str] = set()
+        for trip in rows:
+            if trip.warehouse_id:
+                all_warehouse_ids.add(str(trip.warehouse_id))
+            for drop_point in trip.drop_points.all():
+                order = getattr(drop_point, "order", None)
+                if not order:
+                    continue
+                all_order_ids.add(str(order.id))
+                if order.warehouse_id:
+                    all_warehouse_ids.add(str(order.warehouse_id))
+                for item in order.items.all():
+                    if item.product_id:
+                        all_product_ids.add(str(item.product_id))
+
+        order_returns_map: dict[str, list[Replacement]] = {}
+        if all_order_ids:
+            for replacement in Replacement.objects.filter(order_id__in=all_order_ids):
+                order_returns_map.setdefault(str(replacement.order_id), []).append(replacement)
+
+        serialization_context = {
+            "allocations_map": _build_order_item_warehouse_allocations_map(list(all_order_ids)) if all_order_ids else {},
+            "all_assignments_map": _build_order_item_trip_assignments_map(list(all_order_ids), trip_id=None) if all_order_ids else {},
+            "trip_assignments_map": None,
+            "warehouse_cache": {
+                str(warehouse.id): warehouse
+                for warehouse in Warehouse.objects.filter(id__in=all_warehouse_ids)
+            } if all_warehouse_ids else {},
+            "packaging_cache": {
+                str(packaging.product_id): packaging
+                for packaging in ProductPackaging.objects.filter(product_id__in=all_product_ids, is_active=True)
+            } if all_product_ids else {},
+            "order_returns_map": order_returns_map,
+        }
+        serialized_rows = [_serialize_trip(trip, ctx=serialization_context) for trip in rows]
 
         driver_locations: list[dict[str, Any]] = []
         if include_tracking:
@@ -10921,7 +11086,10 @@ def _coerce_deposit_amount(value: Any) -> tuple[float | None, str | None]:
         return None, "Deposit amounts must be numbers."
     if amount < 0:
         return None, "Deposit amounts cannot be negative."
-    return round(amount, 2), None
+    # Deposit configuration is intentionally limited to whole peso amounts.
+    if not amount.is_integer():
+        return None, "Deposit amounts must be whole numbers."
+    return int(amount), None
 
 
 def _is_returnable_product(product: Product) -> bool:

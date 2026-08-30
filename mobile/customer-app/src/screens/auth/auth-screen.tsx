@@ -1,9 +1,11 @@
 // Extracted from App.tsx during the Phase 0 split.
 // Customer login and registration.
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Check, Eye, EyeOff, Leaf, Lock, Mail } from "lucide-react-native";
 import { ActivityIndicator, Image, ImageBackground, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { ModalShell } from "../../components/ui/modal-shell";
+import { OtpVerificationScreen } from "./otp-verification-screen";
+import { GoogleSignInButton } from "../../components/ui/google-sign-in-button";
 import { LinearGradient } from "expo-linear-gradient";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
@@ -43,6 +45,7 @@ export function AuthScreen() {
     otpVerified,
     setOtpVerified,
     handleLogin,
+    handleGoogleCredential,
     handleRequestRegistrationOtp,
     handleVerifyRegistrationOtp,
     handleRegister,
@@ -52,6 +55,48 @@ export function AuthScreen() {
     handleChangePassword,
     width,
   } = useCustomerPortal();
+
+  const [otpPageVisible, setOtpPageVisible] = useState(false);
+  const [otpSentAt, setOtpSentAt] = useState(0);
+
+  // Sending navigates to the verification page; the code is entered there, not on the
+  // form and no longer in a modal over it. A rejected address keeps the user on the
+  // form, where the reason is next to the field it belongs to.
+  async function handleSendRegistrationOtp() {
+    const sent = await handleRequestRegistrationOtp();
+    if (!sent) return;
+    setEmailOtp("");
+    setOtpSentAt(Date.now());
+    setOtpPageVisible(true);
+  }
+
+  async function handleVerifyFromOtpPage() {
+    await handleVerifyRegistrationOtp();
+  }
+
+  // A verified address means the page is done; fall back to the form.
+  useEffect(() => {
+    if (emailVerificationToken) setOtpPageVisible(false);
+  }, [emailVerificationToken]);
+
+
+  // A page, not a modal: it takes over the screen and Back returns to the form.
+  if (otpPageVisible) {
+    return (
+      <OtpVerificationScreen
+        email={email.trim().toLowerCase()}
+        value={emailOtp}
+        onChange={setEmailOtp}
+        onVerify={handleVerifyFromOtpPage}
+        onResend={handleSendRegistrationOtp}
+        onBack={() => setOtpPageVisible(false)}
+        verifying={verifyingEmailOtp}
+        resending={sendingEmailOtp}
+        error={error}
+        sentAt={otpSentAt}
+      />
+    );
+  }
 
   return (
     <>
@@ -108,25 +153,28 @@ export function AuthScreen() {
             </>
           ) : null}
           <View style={styles.authFieldGroup}>
-            <Text style={styles.authLabel}>Email</Text>
+            <Text style={styles.authLabel}>
+              Email{authMode === "register" ? <Text style={styles.authRequiredMark}> *</Text> : null}
+            </Text>
+            {/* Send OTP sits on its own row: beside the field it left barely 180px for
+                the address, which cut real ones off mid-domain. */}
             <View style={styles.authIconInputWrap}>
               <Mail size={16} color="#697a96" strokeWidth={2} />
-              <TextInput style={styles.authIconInput} value={email} onChangeText={(value) => { setEmail(value); setEmailVerificationToken(""); }} autoCapitalize="none" keyboardType="email-address" placeholder="Enter email" placeholderTextColor="#8a99b3" />
+              <TextInput style={[styles.authIconInput, styles.authEmailInput]} value={email} onChangeText={(value) => { setEmail(value); setEmailVerificationToken(""); }} autoCapitalize="none" keyboardType="email-address" placeholder="Enter email address" placeholderTextColor="#8a99b3" />
             </View>
-          </View>
-          {authMode === "register" ? (
-            <View style={styles.inlineActionRow}>
-              <TextInput style={[styles.authInput, styles.inlineInput]} value={emailOtp} onChangeText={(value) => setEmailOtp(value.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="Enter Verification Code" placeholderTextColor="#8a99b3" />
-              <Pressable style={styles.secondaryButtonCompact} onPress={emailVerificationToken ? undefined : handleRequestRegistrationOtp} disabled={sendingEmailOtp || Boolean(emailVerificationToken)}>
-                <Text style={styles.secondaryButtonText}>{emailVerificationToken ? "Verified" : sendingEmailOtp ? "Sending..." : "Send Verification OTP"}</Text>
+            {authMode === "register" ? (
+              <Pressable
+                style={[styles.authSendOtpButton, Boolean(emailVerificationToken) && styles.authSendOtpButtonDone]}
+                onPress={emailVerificationToken ? undefined : handleSendRegistrationOtp}
+                disabled={sendingEmailOtp || Boolean(emailVerificationToken)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.authSendOtpText}>
+                  {emailVerificationToken ? "Verified" : sendingEmailOtp ? "Sending..." : "Send OTP"}
+                </Text>
               </Pressable>
-              {!emailVerificationToken && emailOtp.length === 6 ? (
-                <Pressable style={styles.secondaryButtonCompact} onPress={handleVerifyRegistrationOtp} disabled={verifyingEmailOtp}>
-                  <Text style={styles.secondaryButtonText}>{verifyingEmailOtp ? "Verifying Code..." : "Verify Code"}</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
+            ) : null}
+          </View>
           <View style={styles.authFieldGroup}>
             <Text style={styles.authLabel}>Password</Text>
             <View style={styles.authIconInputWrap}>
@@ -172,7 +220,7 @@ export function AuthScreen() {
                 </View>
                 <View style={styles.dividerLine} />
               </View>
-              <Text style={styles.googleUnavailable}>Google sign-in is not configured yet.</Text>
+              <GoogleSignInButton onCredential={handleGoogleCredential} onError={setError} disabled={loading} />
               <View style={styles.authSwitchRow}>
                 <Text style={styles.authSwitchText}>Don&apos;t have an account? </Text>
                 <Pressable onPress={() => { setAuthMode("register"); setError(null); }}>
@@ -181,12 +229,23 @@ export function AuthScreen() {
               </View>
             </>
           ) : (
+            <>
+            <View style={styles.continueDivider}>
+              <View style={styles.dividerLine} />
+              <View style={styles.continueLabel}>
+                <Leaf size={13} color="#4aa13d" />
+                <Text style={styles.continueLabelText}>OR CONTINUE WITH</Text>
+              </View>
+              <View style={styles.dividerLine} />
+            </View>
+            <GoogleSignInButton onCredential={handleGoogleCredential} onError={setError} disabled={loading} />
             <View style={styles.authSwitchRow}>
               <Text style={styles.authSwitchText}>Already have an account? </Text>
               <Pressable onPress={() => { setAuthMode("login"); setError(null); }}>
                 <Text style={styles.authSwitchLink}>Log In</Text>
               </Pressable>
             </View>
+            </>
           )}
           </View>
         </View>

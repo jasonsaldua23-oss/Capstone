@@ -36,6 +36,7 @@ import {
   recordEmptyBottles,
   registerCustomer,
   requestEmailVerification,
+  loginWithGoogle,
   requestPasswordResetOtp,
   resetPasswordWithOtp,
   submitCustomerFeedback,
@@ -87,7 +88,9 @@ import type {
 } from "../types";
 
 type CustomerTab = "home" | "cart" | "checkout" | "requests" | "orders" | "track" | "feedback" | "profile";
-type CustomerProfileModal = "edit" | "security" | "notifications" | "address" | "empties" | null;
+// "notifications" is the settings toggles; "notification-list" is the alert list the
+// header bell opens. The web keeps them as separate sub-views too.
+type CustomerProfileModal = "edit" | "security" | "notifications" | "notification-list" | "address" | "empties" | null;
 type AuthMode = "login" | "register";
 
 // Detail views the web portal reaches through `activeView`.
@@ -466,15 +469,42 @@ function useCustomerPortalState() {
     }
   }
 
-  async function handleRequestRegistrationOtp() {
-    if (!email.trim()) return setError("Email is required.");
+  // Google returns an ID token; the backend verifies it and issues our own session,
+  // so everything after the exchange is the same path as a password login.
+  async function handleGoogleCredential(idToken: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const loggedIn = await loginWithGoogle(idToken);
+      setUser(loggedIn);
+      await hydrateStoredCart(loggedIn.userId);
+      await refreshData(false, loggedIn.userId);
+      await loadNotificationPreferences();
+      setWelcomeMode("existing");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Returns whether a code actually went out, so the caller does not navigate to the
+  // verification page after a rejected address ("already registered") and leave the
+  // user staring at six boxes there is no code for.
+  async function handleRequestRegistrationOtp(): Promise<boolean> {
+    if (!email.trim()) {
+      setError("Email is required.");
+      return false;
+    }
     setSendingEmailOtp(true);
     setError(null);
     try {
       await requestEmailVerification(email.trim().toLowerCase());
       Alert.alert("Verification Code Sent", "Enter the six-digit code sent to your email.");
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send verification code.");
+      return false;
     } finally {
       setSendingEmailOtp(false);
     }
@@ -1114,7 +1144,7 @@ function useCustomerPortalState() {
   function openProfileModal(modal: Exclude<CustomerProfileModal, null>) {
     setError(null);
     setActiveProfileModal(modal);
-    if (modal === "notifications") {
+    if (modal === "notification-list") {
       void fetchNotifications().then((data) => {
         setNotifications(data.notifications || []);
         setUnreadNotifications(Number(data.unreadCount || 0));
@@ -1498,18 +1528,27 @@ function useCustomerPortalState() {
 
   function resetToTab(tab: CustomerTab) {
     setRouteStack([]);
+    // Leaving the tab drops any open profile section, the way the web remounts the
+    // profile view back on its menu. Callers that want a section open (the header
+    // bell) set it after this runs.
+    closeProfileModal();
     setActiveTab(tab);
   }
 
   useEffect(() => {
-    // Android hardware back pops the detail stack instead of leaving the app.
-    if (routeStack.length === 0) return;
+    // Android hardware back closes an open profile section, then pops the detail stack,
+    // instead of leaving the app. The sections are pages now, so back has to leave them.
+    if (routeStack.length === 0 && !activeProfileModal) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (activeProfileModal) {
+        closeProfileModal();
+        return true;
+      }
       setRouteStack((current) => current.slice(0, -1));
       return true;
     });
     return () => subscription.remove();
-  }, [routeStack.length]);
+  }, [routeStack.length, activeProfileModal]);
 
   return {
     otpExpiry,
@@ -1711,6 +1750,7 @@ function useCustomerPortalState() {
     persistNotificationPreferences,
     refreshData,
     handleLogin,
+    handleGoogleCredential,
     handleRequestRegistrationOtp,
     handleVerifyRegistrationOtp,
     handleRegister,
