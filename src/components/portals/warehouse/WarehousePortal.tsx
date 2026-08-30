@@ -53,7 +53,7 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
-import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
+import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import {
@@ -4817,6 +4817,29 @@ export function WarehousePortal() {
     )
   }
 
+  // Verification is a page in this portal too. An early return inside the component
+  // keeps all of the portal's state, so nothing in progress is lost behind it.
+  if (otpModalKind !== null) {
+    const otpEmail = otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail
+    return (
+      <div className={`${portalFont.className} min-h-screen bg-white px-6 pb-10 pt-4`}>
+        <div className="mx-auto flex w-full max-w-md flex-col">
+          <OtpVerificationPanel
+            open
+            variant="page"
+            onOpenChange={(open) => {
+              if (!open) setOtpModalKind(null)
+            }}
+            email={otpEmail}
+            onVerify={(otp) => verifyOtp(otpEmail, otpModalKind, otp)}
+            onResendCode={() => requestOtp(otpEmail, otpModalKind)}
+            theme="sky"
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
@@ -6595,23 +6618,6 @@ export function WarehousePortal() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <OtpVerificationModal
-        open={otpModalKind !== null}
-        onOpenChange={(open) => {
-          if (!open) setOtpModalKind(null)
-        }}
-        email={otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail}
-        onVerify={(otp) =>
-          otpModalKind
-            ? verifyOtp(otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail, otpModalKind, otp)
-            : Promise.resolve(false)
-        }
-        onResendCode={() =>
-          otpModalKind
-            ? requestOtp(otpModalKind === 'profile' ? normalizedProfileEmail : accountEmail, otpModalKind)
-            : Promise.resolve(false)
-        }
-      />
       <AvatarCropDialog crop={profileAvatarCrop} isSaving={isSavingProfile} onSave={saveCroppedAvatar} />
 
       <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>

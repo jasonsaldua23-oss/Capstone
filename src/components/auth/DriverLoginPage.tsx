@@ -8,7 +8,7 @@ import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
-import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
+import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 
 const poppins = { className: '' }
 
@@ -235,6 +235,29 @@ export function DriverLoginPage() {
     return false
   }
 
+  // Verification takes over the page rather than opening over the form, matching the
+  // customer portal and the mobile app.
+  if (isLoginOtpOpen) {
+    return (
+      <div className={`${poppins.className} min-h-dvh bg-white px-6 pb-10 pt-4 sm:min-h-screen`}>
+        <Toaster position="top-right" />
+        <div className="mx-auto flex w-full max-w-md flex-col">
+          <OtpVerificationPanel
+            open
+            variant="page"
+            onOpenChange={(next) => {
+              if (!next) setIsLoginOtpOpen(false)
+            }}
+            email={email.trim().toLowerCase()}
+            onVerify={verifyLoginOtp}
+            onResendCode={resendLoginOtp}
+            theme="emerald"
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-2 py-3 sm:min-h-screen sm:px-4 sm:py-8`}
@@ -379,14 +402,6 @@ export function DriverLoginPage() {
           </div>
         </div>
       </div>
-      <OtpVerificationModal
-        open={isLoginOtpOpen}
-        onOpenChange={setIsLoginOtpOpen}
-        email={email.trim().toLowerCase()}
-        onVerify={verifyLoginOtp}
-        onResendCode={resendLoginOtp}
-        theme="emerald"
-      />
     </div>
   )
 }

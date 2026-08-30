@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
+import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
@@ -439,6 +439,29 @@ export function SettingsView() {
         setIsSavingSecuritySettings(false)
       }
     })()
+  }
+
+  // Verification is a page in this portal too, not a dialog over the settings form.
+  // This is an early return inside the same component, so every field typed above it
+  // is still here when the customer comes back.
+  if (otpModalKind !== null) {
+    const otpEmail = otpModalKind === 'profile' ? normalizedEmail : accountEmail
+    return (
+      <div className="min-h-[calc(100dvh-9rem)] bg-white">
+        <div className="mx-auto flex w-full max-w-md flex-col px-6 pb-10 pt-4">
+          <OtpVerificationPanel
+            open
+            variant="page"
+            onOpenChange={(open) => {
+              if (!open) setOtpModalKind(null)
+            }}
+            email={otpEmail}
+            onVerify={(otp) => verifyOtp(otpEmail, otpModalKind, otp)}
+            onResendCode={() => requestOtp(otpEmail, otpModalKind)}
+          />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -877,23 +900,6 @@ export function SettingsView() {
           </CardContent>
         </Card>
 
-        <OtpVerificationModal
-          open={otpModalKind !== null}
-          onOpenChange={(open) => {
-            if (!open) setOtpModalKind(null)
-          }}
-          email={otpModalKind === 'profile' ? normalizedEmail : accountEmail}
-          onVerify={(otp) =>
-            otpModalKind
-              ? verifyOtp(otpModalKind === 'profile' ? normalizedEmail : accountEmail, otpModalKind, otp)
-              : Promise.resolve(false)
-          }
-          onResendCode={() =>
-            otpModalKind
-              ? requestOtp(otpModalKind === 'profile' ? normalizedEmail : accountEmail, otpModalKind)
-              : Promise.resolve(false)
-          }
-        />
         <AvatarCropDialog crop={avatarCrop} isSaving={isSavingProfile} onSave={saveCroppedAvatar} />
       </div>
     </div>

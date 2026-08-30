@@ -32,7 +32,7 @@ import {
 
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePasswordPolicy } from '@/lib/password-policy'
-import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
+import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
@@ -523,6 +523,25 @@ export function UsersView() {
     }
   }
 
+  // Verification is a page here as well. The early return keeps this component mounted,
+  // so the half-filled Add User form is still there on the way back.
+  if (otpModalOpen) {
+    return (
+      <div className="min-h-[calc(100dvh-9rem)] bg-white">
+        <div className="mx-auto flex w-full max-w-md flex-col px-6 pb-10 pt-4">
+          <OtpVerificationPanel
+            open
+            variant="page"
+            onOpenChange={setOtpModalOpen}
+            email={form.email.trim().toLowerCase()}
+            onVerify={handleVerifyOtp}
+            onResendCode={handleResendOtp}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -1003,16 +1022,6 @@ export function UsersView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* OTP Verification Modal */}
-      <OtpVerificationModal
-        open={otpModalOpen}
-        onOpenChange={setOtpModalOpen}
-        email={form.email.trim().toLowerCase()}
-        onVerify={handleVerifyOtp}
-        onResendCode={handleResendOtp}
-        onBack={() => {}}
-      />
 
       {/* Edit User Modal */}
       <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>

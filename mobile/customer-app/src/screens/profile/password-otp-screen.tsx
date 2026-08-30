@@ -124,9 +124,11 @@ export function PasswordOtpScreen() {
             ))}
           </View>
 
-          <Text style={expired ? styles.otpScreenExpired : styles.otpScreenCountdown}>
-            {expired ? "Verification code has expired" : `Code expires in ${formatOtpCountdown(otpExpiry)}`}
-          </Text>
+          {expired ? (
+            <Text style={styles.otpScreenExpired}>Verification code has expired</Text>
+          ) : (
+            <Text style={styles.otpScreenCountdown}>Code expires in {formatOtpCountdown(otpExpiry)}</Text>
+          )}
 
           {error ? <Text style={styles.otpScreenError}>{error}</Text> : null}
 
@@ -142,16 +144,19 @@ export function PasswordOtpScreen() {
             <Text style={styles.otpScreenVerifyText}>{verifyingOtp ? "Verifying Code..." : "Verify Code"}</Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => void handleRequestOtp()}
-            disabled={otpResendCooldown > 0 || sendingOtp}
-            accessibilityRole="button"
-            accessibilityLabel="Resend verification code"
-          >
-            <Text style={otpResendCooldown > 0 || sendingOtp ? styles.otpScreenResendWaiting : styles.otpScreenResend}>
-              {sendingOtp ? "Sending..." : otpResendCooldown > 0 ? `Resend code in ${otpResendCooldown}s` : "Resend Code"}
-            </Text>
-          </Pressable>
+          {sendingOtp ? (
+            <Text style={styles.otpScreenResendWaiting}>Sending...</Text>
+          ) : otpResendCooldown > 0 ? (
+            <Text style={styles.otpScreenResendWaiting}>Resend code in {otpResendCooldown}s</Text>
+          ) : (
+            <Pressable
+              onPress={() => void handleRequestOtp()}
+              accessibilityRole="button"
+              accessibilityLabel="Resend verification code"
+            >
+              <Text style={styles.otpScreenResend}>Resend Code</Text>
+            </Pressable>
+          )}
 
           <Pressable onPress={goBack} accessibilityRole="button">
             <Text style={styles.otpScreenCancel}>Back to Change Password</Text>

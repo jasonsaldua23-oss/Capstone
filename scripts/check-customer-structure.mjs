@@ -51,6 +51,7 @@ const SCREENS = [
   ["Profile", "src/components/portals/customer/sections/profile/profile-view.tsx", [
     "mobile/customer-app/src/screens/profile/profile-screen.tsx",
     "mobile/customer-app/src/screens/profile/profile-sections.tsx",
+    "mobile/customer-app/src/screens/profile/password-otp-screen.tsx",
     "mobile/customer-app/src/components/ui/empties-deposits.tsx",
     "mobile/customer-app/src/portal/portal-modals.tsx",
   ]],
