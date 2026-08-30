@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
+import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -184,6 +185,69 @@ export function AdminLoginPage() {
         style={{ backgroundImage: "url('/customer-login-bg.png')" }}
       >
         <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+      </div>
+    )
+  }
+
+  // The 2FA challenge is its own page, with the same six-box entry, countdown and
+  // resend the other portals use, rather than a lone input swapped into the form.
+  if (requiresTwoFactor) {
+    const verifyLoginOtp = async (otp: string) => {
+      const response = await fetch('/api/auth/login/verify-otp', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken, otp, portal: 'admin' }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success || !data?.user) return false
+      if (resolvePortalFromUser(data.user) !== 'admin') {
+        if (data.token) clearTabAuthToken()
+        await fetch('/api/auth/logout', { method: 'POST' })
+        return false
+      }
+      persistAdminWelcomeState(data.user)
+      // The 2FA challenge preserves the same remember-me choice on the server and client.
+      if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      router.replace('/')
+      return true
+    }
+
+    const resendLoginOtp = async () => {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password, rememberMe, portal: 'admin' }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.status === 202 && data?.challengeToken) {
+        setChallengeToken(String(data.challengeToken))
+        return true
+      }
+      toast.error(data?.error || 'Failed to resend verification code')
+      return false
+    }
+
+    return (
+      <div className={`${poppins.className} min-h-dvh bg-white px-6 pb-10 pt-4 sm:min-h-screen`}>
+        <Toaster position="top-right" />
+        <div className="mx-auto flex w-full max-w-md flex-col">
+          <OtpVerificationPanel
+            open
+            variant="page"
+            onOpenChange={(next) => {
+              if (next) return
+              setRequiresTwoFactor(false)
+              setChallengeToken('')
+              setLoginOtp('')
+              setLoginError('')
+            }}
+            email={email.trim().toLowerCase()}
+            onVerify={verifyLoginOtp}
+            onResendCode={resendLoginOtp}
+          />
+        </div>
       </div>
     )
   }

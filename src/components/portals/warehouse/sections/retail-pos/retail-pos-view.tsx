@@ -340,7 +340,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         notes: walkInNotes.trim(),
       },
       fulfillmentType,
-      items: cart.map(({ key: _key, ...line }) => line),
+      items: cart.map(({ key: _key, ...line }) => {
+        // Backend always expects emptyBottlesProvided in individual bottles.
+        // For CASE mode the UI collects cases, so convert cases → bottles here.
+        if (line.mode === 'CASE' && line.emptyBottlesProvided) {
+          const product = products.find((p) => p.id === line.productId)
+          const caseQty = Number(product?.caseQuantity || 1)
+          return { ...line, emptyBottlesProvided: Number(line.emptyBottlesProvided) * caseQty }
+        }
+        return line
+      }),
     }
   }
 
@@ -437,7 +446,11 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     const product = products.find((item) => item.id === line.productId)
     if (!product?.depositEligible) return sum
     const units = line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity
-    const returned = Math.min(units, Number(line.emptyBottlesProvided || 0))
+    // For CASE mode, user inputs cases returned (not individual bottles), so convert to bottles
+    const returnedBottles = line.mode === 'CASE'
+      ? Number(line.emptyBottlesProvided || 0) * product.caseQuantity
+      : Number(line.emptyBottlesProvided || 0)
+    const returned = Math.min(units, returnedBottles)
     return sum + Math.max(0, units - returned) * Number(product.depositPerUnit || 0)
   }, 0), [cart, products])
 
@@ -1101,13 +1114,13 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                               <div className="flex items-center justify-between gap-2">
                                 <Label htmlFor={`empties-${line.key}`} className="text-[11px] font-semibold text-emerald-900 flex items-center gap-1">
                                   <Recycle className="h-3.5 w-3.5 text-emerald-600" />
-                                  Empty {product.looseUnit}s returned:
+                                  {line.mode === 'CASE' ? 'Empty Cases returned:' : `Empty ${product.looseUnit}s returned:`}
                                 </Label>
                                 <Input
                                   id={`empties-${line.key}`}
                                   type="number"
                                   min={0}
-                                  max={line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity}
+                                  max={line.quantity}
                                   value={line.emptyBottlesProvided || 0}
                                   onChange={(e) =>
                                     updateLine(line.key, {

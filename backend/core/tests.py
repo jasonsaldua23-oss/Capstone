@@ -4906,6 +4906,7 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content.decode())
         row = next(item for item in response.json()["replacements"] if item["id"] == replacement.id)
         self.assertEqual(row["status"], "COMPLETED")
+        self.assertEqual(row["statusTimeline"][-1]["status"], "COMPLETED")
         self.assertEqual(row["linkedReplacementOrderId"], replacement_order.id)
         self.assertEqual(row["linkedReplacementOrderNumber"], replacement_order.order_number)
         self.assertEqual(row["replacementDeliveryPod"]["recipientName"], "Replacement Receiver")
@@ -4919,6 +4920,7 @@ class CustomerReplacementRequestContractTests(TestCase):
                 "orderId": self.order.id,
                 "damageType": "Multiple issues",
                 "description": "Combined replacement request",
+                "notes": "5 bottles shattered inside the crate upon unloading.",
                 "evidence": ["https://example.com/repl-proof-1.jpg"],
                 "replacementLines": [
                     {
@@ -4962,10 +4964,12 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(len(meta.get("replacementLines", [])), 2)
         self.assertEqual(meta["replacementLines"][0]["quantityToReplaceCases"], 2)
         self.assertEqual(meta["replacementLines"][1]["quantityToReplaceBottles"], 3)
+        self.assertEqual(meta["customerNotes"], "5 bottles shattered inside the crate upon unloading.")
 
         serialized = payload["replacement"]
         self.assertEqual(serialized["quantityToReplace"], 15)
         self.assertEqual(serialized["quantityReplaced"], 0)
+        self.assertEqual(serialized["customerNotes"], "5 bottles shattered inside the crate upon unloading.")
         self.assertEqual(len(serialized["replacementLines"]), 2)
         self.assertEqual(serialized["replacementLines"][0]["originalProductName"], "Return Product A")
         self.assertEqual(serialized["replacementLines"][1]["originalProductName"], "Return Product B")

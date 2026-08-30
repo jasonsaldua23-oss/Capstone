@@ -79,9 +79,10 @@ export function ReplacementRequestForm({
   onRemoveEvidence: (url: string) => void;
   submitting: boolean;
   blockedMessage: string | null;
-  onSubmit: (built: ReturnType<typeof buildReplacementRequest>) => void;
+  onSubmit: (built: ReturnType<typeof buildReplacementRequest>, notes: string) => void;
 }) {
   const [lines, setLines] = useState<ReplacementLine[]>([newReplacementLine("line-1")]);
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [openPicker, setOpenPicker] = useState<{ kind: "product" | "reason"; key: string } | null>(null);
 
@@ -235,14 +236,28 @@ export function ReplacementRequestForm({
         </View>
       ) : null}
 
+      {/* Free-text detail the warehouse reads alongside the defect reason, e.g.
+          "5 bottles shattered inside crate upon unloading." */}
+      <Text style={styles.addressFieldLabel}>Notes</Text>
+      <TextInput
+        style={[styles.input, styles.replacementNotesInput]}
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Example: 5 bottles shattered inside the crate upon unloading."
+        placeholderTextColor={theme.colors.textFaint}
+        multiline
+        maxLength={500}
+      />
+
       <Pressable
         style={[styles.primaryButton, submitting || blockedMessage ? styles.disabledButton : null]}
         disabled={submitting || Boolean(blockedMessage)}
         onPress={() => {
           try {
             setError("");
-            onSubmit(buildReplacementRequest(selectableItems, lines));
+            onSubmit(buildReplacementRequest(selectableItems, lines), notes.trim());
             setLines([newReplacementLine("line-1")]);
+            setNotes("");
           } catch (e) {
             setError(e instanceof Error ? e.message : "Failed to submit replacement request");
           }

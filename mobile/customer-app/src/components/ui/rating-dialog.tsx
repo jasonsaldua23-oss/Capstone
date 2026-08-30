@@ -9,6 +9,16 @@ import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
 
+// Replacement reviews rate how the claim was handled, not the original delivery, so
+// they get their own checkbox options per star — the same set the web uses.
+const REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
+  1: ["Issue was not resolved", "Replacement arrived damaged", "Very slow handling", "Poor communication"],
+  2: ["Resolution was incomplete", "Redelivery was delayed", "Updates were unclear", "Replacement quality issue"],
+  3: ["Issue was resolved", "Handling time was acceptable", "Updates could improve", "Replacement was acceptable"],
+  4: ["Fast replacement handling", "Good replacement condition", "Clear status updates", "Smooth redelivery"],
+  5: ["Excellent replacement service", "Perfect replacement condition", "Very fast resolution", "Excellent communication"],
+};
+
 const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
   1: ["Missing items", "Damaged unit", "Wrong order", "Poor driver attitude"],
   2: ["Packaging issue", "Incomplete order", "Hard to contact driver", "Item condition problem"],
@@ -35,12 +45,18 @@ export function RatingDialog() {
     submitRating,
   } = useCustomerPortal();
 
+  // A replacement order under review switches both the copy and the option set.
+  const isReplacementReview = Boolean((ratingDialogOrder as any)?.isReplacementReview);
+
   const [showSuccess, setShowSuccess] = useState(false);
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([]);
 
   const visibleFeedbackOptions = useMemo(
-    () => FEEDBACK_OPTIONS_BY_RATING[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || [],
-    [deliveryRatingValue]
+    () => {
+      const options = isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING;
+      return options[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || [];
+    },
+    [deliveryRatingValue, isReplacementReview]
   );
 
   const close = () => {
@@ -80,8 +96,12 @@ export function RatingDialog() {
               <Star size={18} color={theme.colors.emerald} />
             </View>
             <View style={styles.flex}>
-              <Text style={styles.ratingTitle}>Review Order {ratingDialogOrder?.orderNumber}</Text>
-              <Text style={styles.ratingSubtitle}>Rate delivery, then leave feedback.</Text>
+              <Text style={styles.ratingTitle}>
+                Review {isReplacementReview ? "Replacement" : "Order"} {ratingDialogOrder?.orderNumber}
+              </Text>
+              <Text style={styles.ratingSubtitle}>
+                Rate {isReplacementReview ? "replacement handling" : "delivery"}, then select feedback.
+              </Text>
             </View>
           </View>
 

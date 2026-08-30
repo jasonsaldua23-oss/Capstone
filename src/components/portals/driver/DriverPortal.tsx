@@ -154,7 +154,8 @@ export function DriverPortal() {
                   locationPermission={locationPermission}
                   currentLocation={currentLocation}
                   onOpenTrips={() => {
-                    setActiveView('home')
+                    // Fix: the dashboard action must navigate to the driver's trip list.
+                    setActiveView('trips')
                     setSelectedTripId(null)
                   }}
                   onOpenActiveTrip={(trip) => {

@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
 import { getOrderItemDisplayName } from '@shared/customer-logic/item-display'
@@ -163,6 +164,8 @@ export function CustomerOrdersView(props: any) {
     const orderStatus = String(linkedOrder?.status || record?.orderStatus || '').trim().toUpperCase()
     if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || ['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(orderStatus)) return 'Cancelled'
     if (rawStatus === 'REJECTED') return 'Rejected'
+    if (rawStatus === 'APPROVED') return 'Verified'
+    if (['IN_PROGRESS', 'NEEDS_FOLLOW_UP', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)) return 'Assigned for Redelivery'
     return getReplacementStatusLabel(record?.status)
   }
   const formatQuantityWithUnit = (item: any): string => {
@@ -294,6 +297,7 @@ export function CustomerOrdersView(props: any) {
         key: String(line?.id || line?.replacementProductId || index),
         name: formatName(line),
         qtyLabel: getReplacementLineQtyLabel(line, record, meta),
+        reason: String(line?.reason || record?.reason || 'N/A').trim(),
         imageUrl: String(line?.replacementProductImageUrl || line?.originalProductImageUrl || '').trim(),
       }))
     }
@@ -301,6 +305,7 @@ export function CustomerOrdersView(props: any) {
       key: String(record?.id || 'replacement'),
       name: formatName(record),
       qtyLabel: getReplacementDisplayQty(record),
+      reason: String(record?.reason || 'N/A').trim(),
       imageUrl: String(record?.replacementProductImageUrl || record?.originalProductImageUrl || '').trim(),
     }]
   }
@@ -437,6 +442,8 @@ export function CustomerOrdersView(props: any) {
   const getLinkedOrderForReplacementRecord = (record: any): any | null =>
     (Array.isArray(orders) ? orders : []).find(
       (order: any) =>
+        String(order?.id || '').trim() === String(record?.linkedReplacementOrderId || '').trim() ||
+        String(order?.orderNumber || '').trim().toUpperCase() === String(record?.linkedReplacementOrderNumber || '').trim().toUpperCase() ||
         String(order?.id || '').trim() === String(record?.replacementOrderId || '').trim() ||
         String(order?.orderNumber || '').trim().toUpperCase() === String(record?.replacementOrderNumber || '').trim().toUpperCase() ||
         String(order?.id || '').trim() === String(record?.orderId || '').trim() ||
@@ -479,6 +486,7 @@ export function CustomerOrdersView(props: any) {
           paymentStatus: linkedOrder?.paymentStatus || null,
           items: Array.isArray(linkedOrder?.items) ? linkedOrder.items : [],
           totalAmount: getReplacementTotalAmount(record, linkedOrder),
+          feedbackOrderId: String(linkedOrder?.id || '').trim(),
           notes: displayReplacementNumber ? `Replacement request ${displayReplacementNumber}` : String(linkedOrder?.notes || ''),
           isScheduledReplacement: true,
           __replacementRecord: record,
@@ -579,6 +587,11 @@ export function CustomerOrdersView(props: any) {
               const replacementStatusLabel = replacementRecord ? getReplacementDisplayStatus(replacementRecord, o) : null
               const replacementItems = replacementRecord ? getReplacementItemsForRecord(replacementRecord) : []
               const hasReplacementItems = replacementItems.length > 0
+              // The note the customer typed when filing the claim was captured and stored
+              // in the replacement meta, but never shown back to them.
+              const claimNote = String(
+                (replacementRecord ? parseReplacementMeta(replacementRecord) : {})?.customerNotes || ''
+              ).trim()
               const replacementCreatedAt = replacementRecord?.createdAt || o.createdAt
               const dateTime = replacementCreatedAt
                 ? {
@@ -591,13 +604,19 @@ export function CustomerOrdersView(props: any) {
               const replacementRequestDisplay = getReplacementRequestDisplay(o)
               const isDelivered = normalizedStatus === 'DELIVERED'
               const hasReplacementCase = Boolean(deliveryIssuesByOrderId[o.id])
+              const feedbackOrderId = String(o?.feedbackOrderId || '').trim()
+              const canRateReplacement = replacementStatusLabel === 'Completed' && Boolean(feedbackOrderId)
+              const replacementAlreadyRated = Boolean(feedbackOrderId && reviewedOrderIds?.has?.(feedbackOrderId))
               return (
                 <div key={o.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm md:px-3.5 md:py-3.5">
                   <div className="grid gap-2.5 md:grid-cols-[1.35fr_1.05fr_0.72fr_0.8fr]">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                        <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{o.orderNumber}</p>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Claim ID</p>
+                          <p className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900">{o.orderNumber}</p>
+                        </div>
                         <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Replacement</Badge>
                         {isRescheduled ? (
                           <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Rescheduled Order</Badge>
@@ -626,7 +645,7 @@ export function CustomerOrdersView(props: any) {
                     </div>
 
                     <div className="space-y-2">
-                      <p className="text-xs font-semibold text-slate-900">Replacement Items</p>
+                      <p className="text-xs font-semibold text-slate-900">Product, Quantity &amp; Defect Reason</p>
                       {hasReplacementItems ? (
                         <div className="space-y-1.5">
                           {replacementItems.map((item: any) => (
@@ -637,8 +656,9 @@ export function CustomerOrdersView(props: any) {
                                 className="h-10 w-10 rounded-md border border-slate-200 bg-slate-50 object-cover"
                               />
                               <div>
-                                <p className="text-xs text-slate-800">{item.name}</p>
-                                <p className="text-xs text-slate-500">{item.qtyLabel}</p>
+                                 <p className="text-xs text-slate-800">{item.name}</p>
+                                 <p className="text-xs text-slate-500">Quantity: {item.qtyLabel}</p>
+                                 <p className="text-xs text-slate-500">Reason: {item.reason}</p>
                               </div>
                             </div>
                           ))}
@@ -648,6 +668,11 @@ export function CustomerOrdersView(props: any) {
                       )}
                       {isDelivered && !isReplacementOrder(o) && !hasReplacementCase ? (
                         <p className="text-xs text-slate-500">No replacement case filed for this order.</p>
+                      ) : null}
+                      {claimNote ? (
+                        <p className="text-xs text-slate-600">
+                          <span className="font-semibold text-slate-800">Notes:</span> {claimNote}
+                        </p>
                       ) : null}
                       {replacementStatusLabel ? (
                         <Badge className={getReplacementBadgeClass(replacementStatusLabel)}>{replacementStatusLabel}</Badge>
@@ -659,7 +684,7 @@ export function CustomerOrdersView(props: any) {
                       <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
                         {formatPeso(o.totalAmount)}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">{replacementStatusLabel || 'Reported'}</p>
+                      <p className="mt-1 text-xs text-slate-500">Current Status: {replacementStatusLabel || 'Reported'}</p>
                     </div>
 
                     <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
@@ -702,6 +727,15 @@ export function CustomerOrdersView(props: any) {
                         >
                           <Truck className="mr-1 h-3.5 w-3.5" />
                           Track Replacement
+                        </Button>
+                      ) : null}
+                      {canRateReplacement ? (
+                        <Button
+                          className="h-8 w-full rounded-md bg-amber-500 text-[11px] text-white hover:bg-amber-600"
+                          onClick={() => openRatingDialog({ ...o, id: feedbackOrderId, isReplacementReview: true })}
+                        >
+                          <Star className="mr-1 h-3.5 w-3.5" />
+                          {replacementAlreadyRated ? 'View Replacement Rating' : 'Rate Replacement'}
                         </Button>
                       ) : null}
                     </div>
@@ -1066,6 +1100,14 @@ export function CustomerOrdersView(props: any) {
                 .filter(Boolean)
             ))
             const qtyLabel = getReplacementDisplayQty(selectedReplacementRecord)
+            const customerNotes = String(selectedReplacementRecord?.customerNotes || meta?.customerNotes || '').trim()
+            const statusTimeline = (
+              Array.isArray(selectedReplacementRecord?.statusTimeline)
+                ? selectedReplacementRecord.statusTimeline
+                : Array.isArray(meta?.statusTimeline)
+                  ? meta.statusTimeline
+                  : []
+            ).filter((item: any) => item && item.status)
             const replacementPod = {
               ...(selectedReplacementRecord?.replacementDeliveryPod || {}),
               recipientName:
@@ -1133,8 +1175,8 @@ export function CustomerOrdersView(props: any) {
                             <Hash className="h-5 w-5" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[12px] font-semibold tracking-wide text-slate-500">Order #</p>
-                            <p className="mt-1 text-[15px] font-semibold leading-6 text-slate-900 break-words">{selectedReplacementRecord?.orderNumber || 'N/A'}</p>
+                            <p className="text-[12px] font-semibold tracking-wide text-slate-500">Claim ID</p>
+                            <p className="mt-1 text-[15px] font-semibold leading-6 text-slate-900 break-words">{selectedReplacementRecord?.replacementNumber || 'N/A'}</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-slate-200 py-4">
@@ -1153,6 +1195,14 @@ export function CustomerOrdersView(props: any) {
                           <div className="min-w-0">
                             <p className="text-[12px] font-semibold tracking-wide text-slate-500">Reason</p>
                             <p className="mt-1 text-[15px] font-semibold leading-6 text-slate-900 break-words">{sanitizeReplacementText(selectedReplacementRecord?.reason)}</p>
+                            {String(meta?.customerNotes || '').trim() ? (
+                              <>
+                                <p className="mt-3 text-[12px] font-semibold tracking-wide text-slate-500">Notes</p>
+                                <p className="mt-1 text-[15px] leading-6 text-slate-700 break-words">
+                                  {String(meta.customerNotes).trim()}
+                                </p>
+                              </>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -1191,17 +1241,40 @@ export function CustomerOrdersView(props: any) {
                         </div>
                       </div>
                     </div>
-                  </div>
-                  {evidenceUrls.length > 0 ? (
+                   </div>
+                   {customerNotes ? (
+                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                       <p className="text-[18px] font-bold tracking-[-0.02em] text-slate-900">Notes</p>
+                       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{customerNotes}</p>
+                     </div>
+                   ) : null}
+                   {statusTimeline.length > 0 ? (
+                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                       <p className="text-[18px] font-bold tracking-[-0.02em] text-slate-900">Claim Timeline</p>
+                       <div className="mt-3 space-y-3">
+                         {statusTimeline.map((item: any, index: number) => (
+                           <div key={`${item.status}-${item.at || index}`} className="flex items-start gap-3">
+                             <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                             <div>
+                               <p className="text-sm font-semibold text-slate-900">{getReplacementDisplayStatus({ status: item.status })}</p>
+                               <p className="text-xs text-slate-500">{item.at ? new Date(item.at).toLocaleString() : 'Time unavailable'}</p>
+                             </div>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   ) : null}
+                   {evidenceUrls.length > 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                       <p className="text-[18px] font-bold tracking-[-0.02em] text-slate-900">Evidence ({evidenceUrls.length})</p>
                       <div className="mt-4 grid gap-3 md:grid-cols-2">
                         {evidenceUrls.map((url, index) => (
-                          <img
+                          <PodImagePreview
                             key={`${url}-${index}`}
                             src={url}
                             alt={`Replacement evidence ${index + 1}`}
                             className="h-auto w-full rounded-xl border border-slate-200 bg-white object-contain p-2"
+                            caption="Click to inspect full-size evidence"
                           />
                         ))}
                       </div>
@@ -1258,5 +1331,4 @@ export function CustomerOrdersView(props: any) {
     </section>
   )
 }
-
 

@@ -516,6 +516,8 @@ export async function submitReplacementRequest(input: {
   numberDamagedItems: number;
   damageType: string;
   description?: string;
+  // Free-text note from the customer, stored on the replacement's meta by the API.
+  notes?: string;
   evidence: string[];
   // Built by buildReplacementRequest in shared/customer-logic; the web sends every
   // field it produces, so this stays open rather than narrowing the payload.

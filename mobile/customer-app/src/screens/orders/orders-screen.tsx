@@ -16,6 +16,7 @@ import {
   formatOrderedQuantityWithContainer,
   getOrderItemDisplayName,
   getReplacementDisplayStatus,
+  parseReplacementMeta,
   getReplacementItemsForRecord,
   getReplacementStatusTone,
   isRescheduledOrder,
@@ -184,6 +185,10 @@ export function OrdersScreen() {
             const replacementStatusLabel = replacementRecord
               ? getReplacementDisplayStatus(replacementRecord, o)
               : null;
+            // The note the customer filed with the claim, kept on the replacement's meta.
+            const claimNote = String(
+              (replacementRecord ? parseReplacementMeta((replacementRecord as any).notes) : {})?.customerNotes || ""
+            ).trim();
 
             return (
               <View key={o.id} style={styles.listCard}>
@@ -249,7 +254,9 @@ export function OrdersScreen() {
 
                 {replacementRecord ? (
                   <>
-                    <Text style={styles.listCardSectionLabel}>Replacement Items</Text>
+                    {/* The web's claim card spells out the product, the quantity and the
+                        defect reason per line, then the note and the current status. */}
+                    <Text style={styles.listCardSectionLabel}>Product, Quantity &amp; Defect Reason</Text>
                     {replacementItems.length > 0 ? (
                       replacementItems.map((item) => (
                         <View key={`${o.id}-replacement-${item.key}`} style={styles.listCardItemRow}>
@@ -260,13 +267,20 @@ export function OrdersScreen() {
                           />
                           <View style={styles.flex}>
                             <Text style={styles.listCardItemName}>{item.name}</Text>
-                            <Text style={styles.listCardItemQty}>{item.qtyLabel}</Text>
+                            <Text style={styles.listCardItemQty}>Quantity: {item.qtyLabel}</Text>
+                            <Text style={styles.listCardItemQty}>Reason: {item.reason}</Text>
                           </View>
                         </View>
                       ))
                     ) : (
                       <Text style={styles.listCardItemQty}>No replacement items</Text>
                     )}
+                    {claimNote ? (
+                      <Text style={styles.listCardItemQty}>
+                        <Text style={styles.listCardMetaStrong}>Notes:</Text> {claimNote}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.listCardItemQty}>Current Status: {replacementStatusLabel || "Reported"}</Text>
                     {replacementStatusLabel ? (
                       <Badge
                         label={replacementStatusLabel}

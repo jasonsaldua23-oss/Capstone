@@ -45,6 +45,21 @@ export function isOrderCancellable(order: CustomerOrder): boolean {
   return sharedIsOrderCancellable(String(order.status || ""), order.paymentStatus, order);
 }
 
+// The delivery photo has been returned under several shapes, so the web resolves it
+// from all of them (order-detail-page.tsx). Reading only `proofOfDeliveryUrl` here
+// meant a POD the web displayed showed as "No POD uploaded yet" in the app.
+export function resolveProofOfDeliveryUrl(order: CustomerOrder | null | undefined): string {
+  const record = order as any;
+  return String(
+    record?.pod?.deliveryPhoto ||
+      record?.progress?.pod?.deliveryPhoto ||
+      record?.deliveryPhoto ||
+      record?.deliveryProofUrl ||
+      record?.proofOfDeliveryUrl ||
+      ""
+  ).trim();
+}
+
 export function isOrderTrackable(order: CustomerOrder): boolean {
   return sharedIsOrderTrackable(String(order.status || ""));
 }

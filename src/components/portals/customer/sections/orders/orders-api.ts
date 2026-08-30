@@ -88,6 +88,7 @@ export async function submitCustomerReplacementRequest(body: {
   numberDamagedItems: number
   damageType: string
   description?: string
+  notes?: string
   evidence: string[]
   replacementLines?: Array<{
     originalOrderItemId: string

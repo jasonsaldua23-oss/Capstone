@@ -43,6 +43,7 @@ export function CustomerOrderDetailsDialog(props: any) {
     { key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' },
   ])
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
+  const [customerNotes, setCustomerNotes] = useState('')
   const [isSubmittingReplacement, setIsSubmittingReplacement] = useState(false)
   const evidencePreviewUrls = useMemo(
     () => evidenceFiles.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
@@ -646,6 +647,16 @@ export function CustomerOrderDetailsDialog(props: any) {
             </div>
           ))}
           <Button variant="outline" className="h-9 text-xs" onClick={addReplacementLine}>Add Product</Button>
+          <label className="space-y-1 text-xs font-medium text-slate-700">
+            Notes
+            <textarea
+              value={customerNotes}
+              onChange={(event) => setCustomerNotes(event.target.value)}
+              maxLength={500}
+              className="mt-1 min-h-[72px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-normal"
+              placeholder="Example: 5 bottles shattered inside the crate upon unloading."
+            />
+          </label>
           <label className="flex h-9 cursor-pointer items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white text-xs text-slate-700">
             <Upload className="h-3.5 w-3.5" />
             Upload Evidence (Photo)
@@ -751,9 +762,11 @@ export function CustomerOrderDetailsDialog(props: any) {
                   combinedDescription,
                   evidenceFiles,
                   submittedLines,
+                  customerNotes,
                 )
                 setReplacementLines([{ key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' }])
                 setEvidenceFiles([])
+                setCustomerNotes('')
                 setIsReplacementRequestOpen(false)
               } catch (error: any) {
                 alert(error?.message || 'Failed to submit replacement request')

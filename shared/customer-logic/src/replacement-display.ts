@@ -184,6 +184,8 @@ export type ReplacementDisplayItem = {
   name: string
   qtyLabel: string
   imageUrl: string
+  /** The defect reason for this line, falling back to the claim's overall reason. */
+  reason: string
 }
 
 export function getReplacementItemsForRecord(record: any): ReplacementDisplayItem[] {
@@ -213,6 +215,7 @@ export function getReplacementItemsForRecord(record: any): ReplacementDisplayIte
       name: formatName(line),
       qtyLabel: getReplacementLineQtyLabel(line, record, meta),
       imageUrl: String(line?.replacementProductImageUrl || line?.originalProductImageUrl || '').trim(),
+      reason: sanitizeReplacementText(line?.reason || line?.damageType || record?.reason),
     }))
   }
   return [
@@ -221,6 +224,7 @@ export function getReplacementItemsForRecord(record: any): ReplacementDisplayIte
       name: formatName(record),
       qtyLabel: getReplacementDisplayQty(record),
       imageUrl: String(record?.replacementProductImageUrl || record?.originalProductImageUrl || '').trim(),
+      reason: sanitizeReplacementText(record?.reason),
     },
   ]
 }

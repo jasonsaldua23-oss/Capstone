@@ -15,6 +15,14 @@ const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
   5: ['Professional driver', 'Perfect packaging', 'Complete order', 'Great overall experience'],
 }
 
+const REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
+  1: ['Issue was not resolved', 'Replacement arrived damaged', 'Very slow handling', 'Poor communication'],
+  2: ['Resolution was incomplete', 'Redelivery was delayed', 'Updates were unclear', 'Replacement quality issue'],
+  3: ['Issue was resolved', 'Handling time was acceptable', 'Updates could improve', 'Replacement was acceptable'],
+  4: ['Fast replacement handling', 'Good replacement condition', 'Clear status updates', 'Smooth redelivery'],
+  5: ['Excellent replacement service', 'Perfect replacement condition', 'Very fast resolution', 'Excellent communication'],
+}
+
 export function CustomerRatingDialog(props: any) {
   const {
     ratingDialogOrder,
@@ -27,9 +35,13 @@ export function CustomerRatingDialog(props: any) {
 
   const [showSuccess, setShowSuccess] = useState(false)
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([])
+  const isReplacementReview = Boolean(ratingDialogOrder?.isReplacementReview)
   const visibleFeedbackOptions = useMemo(
-    () => FEEDBACK_OPTIONS_BY_RATING[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || [],
-    [deliveryRatingValue]
+    () => {
+      const options = isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING
+      return options[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || []
+    },
+    [deliveryRatingValue, isReplacementReview]
   )
 
   const handleSubmit = async () => {
@@ -79,15 +91,15 @@ export function CustomerRatingDialog(props: any) {
                   <Star className="h-4 w-4 text-emerald-600 md:h-5 md:w-5" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-semibold text-slate-900 md:text-base">Review Order {ratingDialogOrder.orderNumber}</h3>
-                  <p className="text-xs text-slate-500">Rate delivery, then leave feedback.</p>
+                  <h3 className="text-xs font-semibold text-slate-900 md:text-base">Review {isReplacementReview ? 'Replacement' : 'Order'} {ratingDialogOrder.orderNumber}</h3>
+                  <p className="text-xs text-slate-500">Rate {isReplacementReview ? 'replacement handling' : 'delivery'}, then select feedback.</p>
                 </div>
               </div>
             </div>
 
             {/* Rating Section */}
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Delivery Rating</Label>
+              <Label className="text-xs font-semibold text-slate-900 md:text-sm">{isReplacementReview ? 'Replacement Handling Rating' : 'Delivery Rating'}</Label>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1">

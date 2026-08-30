@@ -39,6 +39,7 @@ export function AuthScreen() {
     orders,
     securityForm,
     setSecurityForm,
+    otpExpiry,
     sendingOtp,
     verifyingOtp,
     resettingPassword,
@@ -271,7 +272,9 @@ export function AuthScreen() {
               placeholder="Enter Verification Code"
             />
             <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
-              <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : otpVerified ? "Resend Verification OTP" : "Send Verification OTP"}</Text>
+              {/* Resend once a code is outstanding — the label keyed off otpVerified, so it
+                  read "Send" for a code already sent and "Resend" only after verifying. */}
+              <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : otpExpiry > 0 ? "Resend Verification OTP" : "Send Verification OTP"}</Text>
             </Pressable>
           </View>
           <Pressable style={styles.modalOutlineButton} onPress={handleVerifyOtp} disabled={verifyingOtp || securityForm.otp.length !== 6}>

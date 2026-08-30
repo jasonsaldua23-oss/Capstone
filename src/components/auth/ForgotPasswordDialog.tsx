@@ -1,7 +1,7 @@
 'use client'
 
 import { type ReactNode, useEffect, useState } from 'react'
-import { ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, LockKeyhole, Mail, Send, ShieldCheck, X, Lock } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, Lock, LockKeyhole, Mail, Send, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -229,14 +229,14 @@ export function ForgotPasswordDialog({
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>
-    if (isOtpDialogOpen) {
+    if (otpSent) {
       interval = setInterval(() => {
         setOtpExpiry((prev) => (prev > 0 ? prev - 1 : 0))
         setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0))
       }, 1000)
     }
     return () => clearInterval(interval)
-  }, [isOtpDialogOpen])
+  }, [otpSent])
 
   const resetDialogState = () => {
     setOtp('')
@@ -505,6 +505,101 @@ export function ForgotPasswordDialog({
               </div>
             </DialogHeader>
 
+            {isOtpDialogOpen ? (
+              /* The code is entered here, in place, rather than in a second dialog
+                 stacked on this one. Back returns to the email step with the code and
+                 its countdown intact. */
+              <div className="relative space-y-4 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => setIsOtpDialogOpen(false)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#60779a] transition-colors hover:text-[#0f3871]"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <p className="max-w-xs text-xs leading-relaxed text-[#60779a]">
+                  We sent a 6-digit verification code to{' '}
+                  <span className="font-semibold text-[#0f3871]">{email.trim().toLowerCase()}</span>
+                </p>
+          <div className="space-y-5 py-2">
+            {/* Inline Error Box inside Popup Dialog */}
+            {otpError && (
+              <div className="text-xs font-semibold text-red-600 text-center bg-red-50 border border-red-100 rounded-xl py-2 px-3">
+                {otpError}
+              </div>
+            )}
+
+            <div className="flex flex-col items-center space-y-3">
+              <div className="flex justify-center gap-1.5 sm:gap-2" onPaste={handleOtpPaste}>
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <input
+                    key={idx}
+                    id={`forgot-otp-input-${idx}`}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={otpVals[idx] || ''}
+                    placeholder={String(idx + 1)}
+                    onChange={(e) => handleOtpChange(e.target.value, idx)}
+                    onKeyDown={(e) => handleOtpKeyDown(e, idx)}
+                    className={cn(
+                      "w-9 h-11 sm:w-11 sm:h-13 text-center text-lg sm:text-xl font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-white text-slate-800 transition-all placeholder:text-slate-300",
+                      focusRingClass
+                    )}
+                  />
+                ))}
+              </div>
+              
+              {otpExpiry > 0 ? (
+                <p className="text-xs font-semibold text-slate-500">
+                  Code expires in <span className={cn("font-bold", accentColor)}>{formatTime(otpExpiry)}</span>
+                </p>
+              ) : (
+                <p className="text-xs font-bold text-red-500">
+                  Verification code has expired.
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <Button
+                type="button"
+                onClick={verifyForgotPasswordOtp}
+                disabled={isVerifyingOtp || otp.length < 6 || otpExpiry === 0}
+                className={cn("w-full h-11 text-white rounded-xl font-semibold hover:brightness-[1.03] transition-all", accentColor === 'text-[#14532d]' || accentColor === 'text-[#179651]' ? 'bg-[#14532d]' : accentColor === 'text-sky-600' ? 'bg-sky-600' : 'bg-indigo-600')}
+              >
+                {isVerifyingOtp ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Verifying Code...
+                  </>
+                ) : (
+                  'Verify Code'
+                )}
+              </Button>
+
+              <div className="text-center">
+                {otpCooldown > 0 ? (
+                  <span className="text-xs text-slate-400 font-medium">
+                    Resend code in <span className="font-semibold">{otpCooldown}s</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSendOtp}
+                    disabled={isSending}
+                    className={cn("text-xs font-bold hover:underline", accentColor)}
+                  >
+                    {isSending ? 'Sending...' : 'Resend Code'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+              </div>
+            ) : (
             <div className="relative space-y-4 px-5 py-4">
               <div className="space-y-1.5">
                 <Label htmlFor="forgot-password-email" className="px-0.5 text-xs font-semibold text-[#123d72]">
@@ -534,11 +629,19 @@ export function ForgotPasswordDialog({
                 <Button
                   type="button"
                   className="h-[44px] w-full rounded-xl bg-gradient-to-r from-[#2693f8] to-[#0e6fe0] text-xs font-bold text-white shadow-[0_8px_16px_rgba(17,110,216,0.15)] hover:brightness-[1.03] transition-all"
-                  onClick={handleSendOtp}
+                  onClick={() => {
+                    // Requesting again would restart a countdown the customer is
+                    // already racing, so a live code is entered rather than replaced.
+                    if (otpSent && otpExpiry > 0) {
+                      setIsOtpDialogOpen(true)
+                      return
+                    }
+                    void handleSendOtp()
+                  }}
                   disabled={isSending}
                 >
                   {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                  {otpSent ? 'Resend Verification OTP' : 'Send Verification OTP'}
+                  {otpSent && otpExpiry > 0 ? 'Enter OTP' : 'Send Verification OTP'}
                 </Button>
               ) : (
                 <div className="space-y-4 pt-1">
@@ -641,101 +744,11 @@ export function ForgotPasswordDialog({
                 </div>
               )}
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* OTP Dialog Popup */}
-      <Dialog open={isOtpDialogOpen} onOpenChange={setIsOtpDialogOpen}>
-        <DialogContent className="max-w-[90vw] sm:max-w-md border-slate-100 bg-white/95 rounded-3xl p-5 shadow-xl">
-          <DialogHeader className="flex flex-col items-center text-center">
-            <div className={cn("h-10 w-10 rounded-2xl grid place-items-center mb-2", accentBg, accentColor)}>
-              <Lock className="h-5 w-5" />
-            </div>
-            <DialogTitle className="text-lg font-bold text-slate-900">Enter Verification Code</DialogTitle>
-            <DialogDescription className="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">
-              We sent a 6-digit verification code to <span className="font-semibold text-slate-700">{email}</span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-5 py-2">
-            {/* Inline Error Box inside Popup Dialog */}
-            {otpError && (
-              <div className="text-xs font-semibold text-red-600 text-center bg-red-50 border border-red-100 rounded-xl py-2 px-3">
-                {otpError}
-              </div>
             )}
-
-            <div className="flex flex-col items-center space-y-3">
-              <div className="flex justify-center gap-1.5 sm:gap-2" onPaste={handleOtpPaste}>
-                {Array.from({ length: 6 }).map((_, idx) => (
-                  <input
-                    key={idx}
-                    id={`forgot-otp-input-${idx}`}
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={1}
-                    value={otpVals[idx] || ''}
-                    placeholder={String(idx + 1)}
-                    onChange={(e) => handleOtpChange(e.target.value, idx)}
-                    onKeyDown={(e) => handleOtpKeyDown(e, idx)}
-                    className={cn(
-                      "w-9 h-11 sm:w-11 sm:h-13 text-center text-lg sm:text-xl font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-white text-slate-800 transition-all placeholder:text-slate-300",
-                      focusRingClass
-                    )}
-                  />
-                ))}
-              </div>
-              
-              {otpExpiry > 0 ? (
-                <p className="text-xs font-semibold text-slate-500">
-                  Code expires in <span className={cn("font-bold", accentColor)}>{formatTime(otpExpiry)}</span>
-                </p>
-              ) : (
-                <p className="text-xs font-bold text-red-500">
-                  Verification code has expired.
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <Button
-                type="button"
-                onClick={verifyForgotPasswordOtp}
-                disabled={isVerifyingOtp || otp.length < 6 || otpExpiry === 0}
-                className={cn("w-full h-11 text-white rounded-xl font-semibold hover:brightness-[1.03] transition-all", accentColor === 'text-[#14532d]' || accentColor === 'text-[#179651]' ? 'bg-[#14532d]' : accentColor === 'text-sky-600' ? 'bg-sky-600' : 'bg-indigo-600')}
-              >
-                {isVerifyingOtp ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verifying Code...
-                  </>
-                ) : (
-                  'Verify Code'
-                )}
-              </Button>
-
-              <div className="text-center">
-                {otpCooldown > 0 ? (
-                  <span className="text-xs text-slate-400 font-medium">
-                    Resend code in <span className="font-semibold">{otpCooldown}s</span>
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleSendOtp}
-                    disabled={isSending}
-                    className={cn("text-xs font-bold hover:underline", accentColor)}
-                  >
-                    {isSending ? 'Sending...' : 'Resend Code'}
-                  </button>
-                )}
-              </div>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
+
     </>
   )
 }

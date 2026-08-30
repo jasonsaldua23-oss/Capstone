@@ -33,6 +33,7 @@ export function WarehouseReplacementsView({
   const [replacementDeliveryDate, setReplacementDeliveryDate] = useState('')
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
   const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({})
+  const [statusFilter, setStatusFilter] = useState('ALL')
   const todayDateInput = useMemo(() => {
     const now = new Date()
     const year = now.getFullYear()
@@ -470,6 +471,14 @@ export function WarehouseReplacementsView({
     scopedReplacements.forEach((item) => {
       const meta = parseIssueMeta(item?.notes)
       const rawStatus = String(item?.status || '').trim().toUpperCase()
+      // Added: filter both replacement tables from one workflow-status control.
+      const matchesStatusFilter =
+        statusFilter === 'ALL' ||
+        (statusFilter === 'PENDING' && ['PENDING', 'REPORTED'].includes(rawStatus)) ||
+        (statusFilter === 'COMPLETED' && ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus)) ||
+        (statusFilter === 'IN_PROGRESS' && ['IN_PROGRESS', 'NEEDS_FOLLOW_UP'].includes(rawStatus)) ||
+        rawStatus === statusFilter
+      if (!matchesStatusFilter) return
       const isResolved =
         (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)) ||
         ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)
@@ -480,7 +489,7 @@ export function WarehouseReplacementsView({
       customerRequests.push(item)
     })
     return { customerRequests, scheduledReplacements }
-  }, [scopedReplacements, parseIssueMeta, hasOutstandingReplacementQty])
+  }, [scopedReplacements, parseIssueMeta, hasOutstandingReplacementQty, statusFilter])
 
   return (
     <div className="space-y-6">
@@ -489,6 +498,23 @@ export function WarehouseReplacementsView({
           <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
           <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
         </div>
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <span className="hidden sm:inline">Status</span>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+            aria-label="Filter replacements by status"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="UNDER_REVIEW">Under Review</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="IN_PROGRESS">In Progress</option>
+          </select>
+        </label>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -798,6 +824,7 @@ export function WarehouseReplacementsView({
               ['Status', statusLabel],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               ['Reason', selectedReplacement.reason || 'N/A'],
+              ['Notes', selectedReplacement.customerNotes || meta?.customerNotes || 'No customer notes provided.'],
             ] as Array<[string, string]>
             return (
               <>
@@ -865,11 +892,12 @@ export function WarehouseReplacementsView({
                     <p className="text-xs font-medium text-slate-500">Evidence ({evidenceUrls.length})</p>
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {evidenceUrls.map((url, index) => (
-                        <img
+                        <PodImagePreview
                           key={`${url}-${index}`}
                           src={url}
                           alt={`Replacement evidence ${index + 1}`}
                           className="max-h-[360px] w-full rounded-md border object-contain"
+                          caption="Click to inspect full-size evidence"
                         />
                       ))}
                     </div>

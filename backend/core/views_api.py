@@ -2645,6 +2645,7 @@ def _assign_order_items_to_trip_for_warehouse(
 def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     data = _serialize_model(entry)
     meta = _extract_replacement_meta(getattr(entry, "notes", ""))
+    data["customerNotes"] = str(meta.get("customerNotes") or "").strip() or None
     order = getattr(entry, "order", None)
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip() or None
     if not warehouse_id:
@@ -2900,6 +2901,15 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
     data["damagePhotoUrls"] = damage_photo_urls
     if damage_photo_urls and not data.get("damagePhotoUrl"):
         data["damagePhotoUrl"] = damage_photo_urls[0]
+    status_timeline = [item for item in (meta.get("statusTimeline") or []) if isinstance(item, dict)]
+    if not status_timeline or str(status_timeline[-1].get("status") or "").upper() != str(normalized_status or "").upper():
+        # Fix: legacy records still expose a timeline that agrees with the latest database status.
+        status_at = getattr(entry, "updated_at", None) or getattr(entry, "created_at", None)
+        status_timeline.append({
+            "status": normalized_status,
+            "at": status_at.isoformat() if status_at else None,
+        })
+    data["statusTimeline"] = status_timeline
     return data
 
 
@@ -8065,6 +8075,16 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             reference_id=replacement_order.id,
         )
     final_status = str(r.status or normalized_status)
+    status_meta = _extract_replacement_meta(r.notes)
+    status_timeline = [item for item in (status_meta.get("statusTimeline") or []) if isinstance(item, dict)]
+    if not status_timeline or str(status_timeline[-1].get("status") or "").upper() != final_status.upper():
+        status_timeline.append({
+            "status": final_status,
+            "at": timezone.now().isoformat(),
+            "by": str(staff.get("userId") or ""),
+        })
+    # Fix: persist every status transition so customer claim timelines stay current.
+    r.notes = _upsert_replacement_meta(r.notes, {"statusTimeline": status_timeline})
     r.notes = _append_replacement_note_line(
         r.notes,
         f"{final_status}{f': {status_notes}' if status_notes else ''}",
@@ -9647,6 +9667,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         evidence_list.insert(0, primary_evidence)
     if not evidence_list:
         return _err("At least one evidence file is required", 400)
+    customer_notes = str(body.get("notes") or "").strip()[:500]
 
     if Replacement.objects.filter(order=order, status__in=[ReplacementStatus.COMPLETED, ReplacementStatus.RESOLVED_ON_DELIVERY]).exists():
         return _err("A replacement request is already completed for this order", 400)
@@ -9675,6 +9696,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         "damageType": damage_type,
         "evidence": evidence_list,
         "damagePhotos": evidence_list,
+        "customerNotes": customer_notes,
         "quantityToReplace": number_damaged_items,
         "quantityReplaced": 0,
         "statusTimeline": [

@@ -65,6 +65,19 @@ const ALLOWED_APP_ONLY = new Set([
   // expo-auth-session surfaces OAuth failures to the app, whereas Google Identity
   // Services renders its own error inside the widget on the web.
   "Google sign-in failed. Please try again.",
+  // The app's reset-password sheet keeps the code field inline, so it can offer a
+  // resend in place. The web moved code entry to a step of its own, where the same
+  // button says "Enter OTP" instead.
+  "Resend Verification OTP",
+  // The app's claim detail is reached from a list that does not carry the source order,
+  // so it names it; the web claim panel sits beside the order it was filed against.
+  "Order Number",
+  // Enlarged photo preview. The web says "Click to view full-size photo" and closes with
+  // the dialog's own control; touch needs "Tap", a labelled close button, and per-photo
+  // accessibility labels the web gets from its alt text.
+  "Tap to view full-size photo",
+  "Close photo",
+  "damage photo",
   // The Mixed Case size/capacity dropdowns replace the app's old chips; a select
   // needs placeholder text where a chip row does not.
   "Select capacity",

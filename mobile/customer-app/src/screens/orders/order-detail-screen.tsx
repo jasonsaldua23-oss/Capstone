@@ -5,9 +5,15 @@ import React from "react";
 import { Image, Pressable, Text, View } from "react-native";
 
 import { Badge } from "../../components/ui/badge";
+import { ImagePreview } from "../../components/ui/image-preview";
 import { DetailHeader } from "../../components/ui/detail-header";
 import { MixedCaseComponents } from "../../components/ui/mixed-case-components";
-import { formatPeso, isOrderCancellable, isOrderTrackable } from "../../lib/customer-logic";
+import {
+  formatPeso,
+  isOrderCancellable,
+  isOrderTrackable,
+  resolveProofOfDeliveryUrl,
+} from "../../lib/customer-logic";
 import { resolveImageUrl } from "../../lib/format";
 import {
   formatDiscountLabel,
@@ -67,7 +73,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
   const orderTotal = Number(order.totalAmount || 0);
   const orderDiscount = Number((order as any).discountDetails?.totalDiscount ?? order.discount ?? 0);
   const cancellationReasonText = String(order.cancellationReason || order.notes || "").trim();
-  const podUrl = String(order.proofOfDeliveryUrl || "").trim();
+  const podUrl = resolveProofOfDeliveryUrl(order);
   const hasReplacementCase = replacements.some(
     (record) => record.orderId === order.id || record.orderNumber === order.orderNumber
   );
@@ -234,7 +240,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
         <View style={styles.detailInfoCard}>
           <Text style={styles.detailInfoHeading}>Proof of Delivery (POD)</Text>
           {podUrl ? (
-            <Image source={{ uri: resolveImageUrl(podUrl) }} style={styles.detailPodImage} resizeMode="cover" />
+            <ImagePreview url={podUrl} style={styles.detailPodImage} accessibilityLabel="proof of delivery" />
           ) : (
             <Text style={styles.detailInfoText}>No POD uploaded yet</Text>
           )}

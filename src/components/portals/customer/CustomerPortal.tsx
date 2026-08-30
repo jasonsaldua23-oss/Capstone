@@ -775,6 +775,7 @@ export function CustomerPortal() {
       reason: string
       description?: string
     }>,
+    customerNotes = '',
   ) => {
     if (!damageType.trim()) throw new Error('Reason / type of damage is required')
     if (!files.length) throw new Error('At least one evidence file is required')
@@ -791,6 +792,7 @@ export function CustomerPortal() {
       numberDamagedItems: Math.floor(numberDamagedItems),
       damageType: damageType.trim(),
       description: description.trim(),
+      notes: customerNotes.trim(),
       evidence: uploaded,
       replacementLines,
     })
@@ -2018,7 +2020,7 @@ export function CustomerPortal() {
         orderId: ratingDialogOrder.id,
         rating: overallRating,
         type: overallRating <= 2 ? 'COMPLAINT' : overallRating === 3 ? 'SUGGESTION' : 'COMPLIMENT',
-        subject: `Order Review - ${ratingDialogOrder.orderNumber}`,
+        subject: `${ratingDialogOrder?.isReplacementReview ? 'Replacement Review' : 'Order Review'} - ${ratingDialogOrder.orderNumber}`,
         message: composedMessage,
       })
       if (response.status === 409) {

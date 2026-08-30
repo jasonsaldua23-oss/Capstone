@@ -1090,12 +1090,15 @@ function useCustomerPortalState() {
     }
   }
 
-  async function handleSubmitReplacement(built: {
-    lines: any[];
-    totalDamagedItems: number;
-    combinedReason: string;
-    combinedDescription: string;
-  }) {
+  async function handleSubmitReplacement(
+    built: {
+      lines: any[];
+      totalDamagedItems: number;
+      combinedReason: string;
+      combinedDescription: string;
+    },
+    notes = ""
+  ) {
     if (!replacementOrder) return;
     setSubmittingReplacement(true);
     setError(null);
@@ -1105,6 +1108,7 @@ function useCustomerPortalState() {
         numberDamagedItems: built.totalDamagedItems,
         damageType: built.combinedReason,
         description: built.combinedDescription || undefined,
+        notes: notes.trim() || undefined,
         evidence: replacementEvidence,
         replacementLines: built.lines,
       });

@@ -117,7 +117,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
-  const [subView, setSubView] = useState<'menu' | 'edit' | 'security' | 'account-security' | 'change-password' | 'security-settings' | 'notifications' | 'license' | 'real-notifications'>(initialSubView ?? 'menu')
+  const [subView, setSubView] = useState<'menu' | 'edit' | 'security' | 'account-security' | 'change-password' | 'change-password-otp' | 'security-settings' | 'notifications' | 'license' | 'real-notifications'>(initialSubView ?? 'menu')
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(Boolean((user as any)?.twoFactorEnabled ?? (user as any)?.two_factor_enabled))
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(Boolean((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true))
   const [isSavingSecurity, setIsSavingSecurity] = useState(false)
@@ -198,31 +198,30 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const [otpError, setOtpError] = useState<string | null>(null)
 
   // OTP Popup Timers
-  const [isOtpDialogOpen, setIsOtpDialogOpen] = useState(false)
   const [otpExpiry, setOtpExpiry] = useState(120)
   const [resendCooldown, setResendCooldown] = useState(60)
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>
-    if (isOtpDialogOpen) {
-      interval = setInterval(() => {
-        setOtpExpiry((prev) => (prev > 0 ? prev - 1 : 0))
-        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0))
-      }, 1000)
-    }
+    // Counting from the send, not from the entry step being on screen, so leaving it
+    // and coming back does not hand back a fresh two minutes.
+    if (!passwordOtpSent) return
+    const interval = setInterval(() => {
+      setOtpExpiry((prev) => (prev > 0 ? prev - 1 : 0))
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
     return () => clearInterval(interval)
-  }, [isOtpDialogOpen])
+  }, [passwordOtpSent])
 
-  // Clear verification state when dialog closes
+  // Clear verification state when the password flow itself is left — not when the entry
+  // step is, or stepping back to the form would throw away the code just sent.
   useEffect(() => {
-    if (!isOtpDialogOpen) {
-      setPasswordOtp('')
-      setOtpVals(Array(6).fill(''))
-      setPasswordOtpSent(false)
-      setPasswordOtpVerified(false)
-      setOtpError(null)
-    }
-  }, [isOtpDialogOpen])
+    if (subView === 'change-password' || subView === 'change-password-otp') return
+    setPasswordOtp('')
+    setOtpVals(Array(6).fill(''))
+    setPasswordOtpSent(false)
+    setPasswordOtpVerified(false)
+    setOtpError(null)
+  }, [subView])
 
   const [notifications, setNotifications] = useState<NotificationPrefs>({
     tripNotifications: true,
@@ -559,7 +558,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       setOtpVals(Array(6).fill(''))
       setOtpExpiry(120)
       setResendCooldown(60)
-      setIsOtpDialogOpen(true)
+      setSubView('change-password-otp')
       toast.success('Verification OTP code sent to your email')
       setTimeout(() => {
         document.getElementById('otp-input-0')?.focus()
@@ -595,7 +594,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         throw new Error(payload?.error || 'Invalid or expired OTP')
       }
       setPasswordOtpVerified(true)
-      setIsOtpDialogOpen(false)
+      setSubView('change-password')
       toast.success('OTP verified successfully')
     } catch (error: any) {
       setPasswordOtpVerified(false)
@@ -1093,6 +1092,113 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     )
   }
 
+  // Code entry is a page of its own, matching the other portals and the mobile app.
+  // Reaching it never sends a code: Change Password sends one and navigates here, or,
+  // while a code is still live, offers "Enter OTP" which leaves the countdown running.
+  if (subView === 'change-password-otp') {
+    return (
+      <div className="space-y-5 pb-[calc(env(safe-area-inset-bottom)+6.75rem)] md:pb-6 bg-white min-h-screen">
+        <div className="flex items-center gap-3 px-4 pt-5 pb-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 rounded-full hover:bg-slate-100 text-slate-700"
+            onClick={() => setSubView('change-password')}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h2 className="text-xl font-bold tracking-tight text-slate-900">Enter Verification Code</h2>
+        </div>
+
+        <div className="mx-auto flex w-full max-w-md flex-col items-center px-6">
+          <div className="grid h-13 w-13 place-items-center rounded-2xl bg-sky-50 p-3 text-[#0d61ad]">
+            <Lock className="h-6 w-6" />
+          </div>
+          <p className="mt-2 max-w-xs text-center text-[13px] leading-relaxed text-slate-500">
+            We sent a 6-digit verification code to{' '}
+            <span className="font-semibold text-slate-700">{form.email || user?.email}</span>
+          </p>
+
+          {otpError && (
+            <div className="mt-4 w-full rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-center text-xs font-semibold text-red-600">
+              {otpError}
+            </div>
+          )}
+
+          <div className="mt-5 flex w-full justify-center gap-2" onPaste={handleOtpPaste}>
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <input
+                key={idx}
+                id={`otp-input-${idx}`}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={1}
+                value={otpVals[idx] || ''}
+                placeholder={String(idx + 1)}
+                onChange={(e) => handleOtpChange(e.target.value, idx)}
+                onKeyDown={(e) => handleOtpKeyDown(e, idx)}
+                className="h-14 min-w-0 max-w-[52px] flex-1 rounded-xl border border-slate-200 bg-white text-center text-xl font-bold text-slate-800 transition-all placeholder:text-slate-300 focus:border-[#0d61ad] focus:outline-none focus:ring-2 focus:ring-sky-100"
+              />
+            ))}
+          </div>
+
+          <div className="mt-4 text-center">
+            {otpExpiry > 0 ? (
+              <p className="text-xs font-semibold text-slate-500">
+                Code expires in <span className="text-[#0d61ad] font-bold">{formatTime(otpExpiry)}</span>
+              </p>
+            ) : (
+              <p className="text-xs font-bold text-red-500">Verification code has expired.</p>
+            )}
+          </div>
+
+          <Button
+            type="button"
+            onClick={verifyPasswordOtp}
+            disabled={isVerifyingPasswordOtp || passwordOtp.length < 6 || otpExpiry === 0}
+            className="mt-4 h-12 w-full rounded-xl bg-[#0d61ad] font-semibold text-white hover:bg-[#0b579c]"
+          >
+            {isVerifyingPasswordOtp ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Verifying Code...
+              </>
+            ) : (
+              'Verify Code'
+            )}
+          </Button>
+
+          <div className="mt-3 text-center">
+            {resendCooldown > 0 ? (
+              <span className="text-xs font-medium text-slate-400">
+                Resend code in <span className="font-semibold">{resendCooldown}s</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={isSendingPasswordOtp}
+                className="text-xs font-bold text-[#0d61ad] hover:underline"
+              >
+                {isSendingPasswordOtp ? 'Sending...' : 'Resend Code'}
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSubView('change-password')}
+            className="mt-5 text-xs font-medium text-slate-400 transition-colors hover:text-slate-600"
+          >
+            Back to Change Password
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (subView === 'account-security') {
     return (
       <div className="space-y-5 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:pb-6 bg-[#f8f9fa] min-h-screen">
@@ -1310,7 +1416,14 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             ) : (
               <Button
                 type="button"
-                onClick={requestPasswordOtp}
+                onClick={() => {
+                  // A live code is entered, not replaced.
+                  if (passwordOtpSent && otpExpiry > 0) {
+                    setSubView('change-password-otp')
+                    return
+                  }
+                  void requestPasswordOtp()
+                }}
                 disabled={isSendingPasswordOtp}
                 className="w-full h-11 rounded-xl bg-[#0d61ad] hover:bg-[#0b579c] text-white font-semibold shadow-sm transition-colors"
               >
@@ -1319,8 +1432,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Sending OTP...
                   </>
-                ) : passwordOtpSent ? (
-                  'Resend Verification OTP'
+                ) : passwordOtpSent && otpExpiry > 0 ? (
+                  'Enter OTP'
                 ) : (
                   'Request Verification OTP'
                 )}
@@ -1348,93 +1461,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         </div>
 
         {/* OTP Dialog Popup */}
-        <Dialog open={isOtpDialogOpen} onOpenChange={setIsOtpDialogOpen}>
-          <DialogContent className="max-w-[90vw] sm:max-w-md border-slate-100 bg-white/95 rounded-3xl p-5 shadow-xl">
-            <DialogHeader className="flex flex-col items-center text-center">
-              <div className="h-10 w-10 rounded-2xl bg-sky-50 text-[#0d61ad] grid place-items-center mb-2">
-                <Lock className="h-5 w-5" />
-              </div>
-              <DialogTitle className="text-lg font-bold text-slate-900">Enter Verification Code</DialogTitle>
-              <DialogDescription className="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">
-                We sent a 6-digit verification code to <span className="font-semibold text-slate-700">{form.email || user?.email}</span>
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-5 py-2">
-              {/* Inline Error Box inside Popup Dialog */}
-              {otpError && (
-                <div className="text-xs font-semibold text-red-600 text-center bg-red-50 border border-red-100 rounded-xl py-2 px-3">
-                  {otpError}
-                </div>
-              )}
-
-              <div className="flex flex-col items-center space-y-3">
-                <div className="flex justify-center gap-1.5 sm:gap-2" onPaste={handleOtpPaste}>
-                  {Array.from({ length: 6 }).map((_, idx) => (
-                    <input
-                      key={idx}
-                      id={`otp-input-${idx}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={1}
-                      value={otpVals[idx] || ''}
-                      placeholder={String(idx + 1)}
-                      onChange={(e) => handleOtpChange(e.target.value, idx)}
-                      onKeyDown={(e) => handleOtpKeyDown(e, idx)}
-                      className="w-9 h-11 sm:w-11 sm:h-13 text-center text-lg sm:text-xl font-bold rounded-xl border border-slate-200 focus:border-[#0d61ad] focus:outline-none focus:ring-2 focus:ring-sky-100 bg-white text-slate-800 transition-all placeholder:text-slate-300"
-                    />
-                  ))}
-                </div>
-                
-                {otpExpiry > 0 ? (
-                  <p className="text-xs font-semibold text-slate-500">
-                    Code expires in <span className="text-[#0d61ad] font-bold">{formatTime(otpExpiry)}</span>
-                  </p>
-                ) : (
-                  <p className="text-xs font-bold text-red-500">
-                    Verification code has expired.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <Button
-                  type="button"
-                  onClick={verifyPasswordOtp}
-                  disabled={isVerifyingPasswordOtp || passwordOtp.length < 6 || otpExpiry === 0}
-                  className="w-full h-11 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c]"
-                >
-                  {isVerifyingPasswordOtp ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Verifying Code...
-                    </>
-                  ) : (
-                    'Verify Code'
-                  )}
-                </Button>
-
-                <div className="text-center">
-                  {resendCooldown > 0 ? (
-                    <span className="text-xs text-slate-400 font-medium">
-                      Resend code in <span className="font-semibold">{resendCooldown}s</span>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleResendOtp}
-                      disabled={isSendingPasswordOtp}
-                      className="text-xs font-bold text-[#0d61ad] hover:underline"
-                    >
-                      {isSendingPasswordOtp ? 'Sending...' : 'Resend Code'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     )
   }
