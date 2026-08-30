@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { TripLoadSummary } from '@/components/shared/trip-load-summary'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -63,6 +64,7 @@ export function TripsView() {
   const [isDeletingTrip, setIsDeletingTrip] = useState(false)
   const [trips, setTrips] = useState<any[]>([])
   const [tripsPage, setTripsPage] = useState(1)
+  const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
   const tripsPageSize = 10
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
@@ -113,6 +115,13 @@ export function TripsView() {
 
   const selectedRouteGroup = routePlans.find((group) => group.city === selectedRouteCity) || null
   const selectedRouteOrders = toArray<any>(selectedRouteGroup?.orders).filter((order) => selectedRouteOrderIds.includes(order.id))
+  const selectedRouteLoad = selectedRouteOrders.reduce(
+    (summary, order) => ({
+      totalCases: summary.totalCases + Math.max(0, Number(order?.totalCases || 0)),
+      totalWeight: summary.totalWeight + Math.max(0, Number(order?.totalWeight || 0)),
+    }),
+    { totalCases: 0, totalWeight: 0 },
+  )
   const getScheduledReplacementOrderIds = (orders: any[]) =>
     toArray<any>(orders)
       .filter((order: any) => Boolean(order?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-'))
@@ -163,6 +172,9 @@ export function TripsView() {
     if (!selectedDriver) return undefined
     return isDriverSelectableForTrip(selectedDriver) ? getDriverAssignedVehicle(selectedDriver) : undefined
   }, [drivers, selectedRouteDriverId, availableVehicleIdSet])
+  const selectedVehicleCapacity = Math.max(0, Number(selectedDriverAssignedVehicle?.capacity || 0))
+  const isSelectedVehicleCapacityMissing = Boolean(selectedDriverAssignedVehicle?.id) && selectedVehicleCapacity <= 0
+  const isSelectedRouteOverloaded = selectedVehicleCapacity > 0 && selectedRouteLoad.totalWeight > selectedVehicleCapacity
 
   const fetchSavedRoutes = async () => {
     setSavedRoutes([])
@@ -448,6 +460,14 @@ export function TripsView() {
       toast.error('Selected driver has no assigned vehicle')
       return
     }
+    if (isSelectedVehicleCapacityMissing) {
+      toast.error('Vehicle maximum weight capacity is not configured')
+      return
+    }
+    if (isSelectedRouteOverloaded) {
+      toast.error(`Vehicle overloaded by ${(selectedRouteLoad.totalWeight - selectedVehicleCapacity).toFixed(2)} kg`)
+      return
+    }
 
     setCreatingTripFromRoute(true)
     try {
@@ -525,6 +545,14 @@ export function TripsView() {
       toast.error('Selected driver has no assigned vehicle')
       return
     }
+    if (isSelectedVehicleCapacityMissing) {
+      toast.error('Vehicle maximum weight capacity is not configured')
+      return
+    }
+    if (isSelectedRouteOverloaded) {
+      toast.error(`Vehicle overloaded by ${(selectedRouteLoad.totalWeight - selectedVehicleCapacity).toFixed(2)} kg`)
+      return
+    }
 
     const group = routePlans.find((g) => g.city === selectedRouteCity)
     const selectedOrders = toArray<any>(group?.orders).filter((order) => selectedRouteOrderIds.includes(order.id))
@@ -589,15 +617,19 @@ export function TripsView() {
       day: 'numeric',
     })
   }
-  const totalTripsPages = Math.max(1, Math.ceil(trips.length / tripsPageSize))
+  const filteredTrips = useMemo(
+    () => trips.filter((trip) => tripStatusFilter === 'ALL' || normalizeTripStatus(trip.status) === tripStatusFilter),
+    [trips, tripStatusFilter],
+  )
+  const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
   const paginatedTrips = useMemo(() => {
     const start = (tripsPage - 1) * tripsPageSize
-    return trips.slice(start, start + tripsPageSize)
-  }, [trips, tripsPage])
+    return filteredTrips.slice(start, start + tripsPageSize)
+  }, [filteredTrips, tripsPage])
 
   useEffect(() => {
     setTripsPage(1)
-  }, [trips.length])
+  }, [trips.length, tripStatusFilter])
 
   useEffect(() => {
     if (tripsPage > totalTripsPages) {
@@ -614,6 +646,18 @@ export function TripsView() {
           <p className="text-gray-500">All trip records</p>
         </div>
         <div className="flex items-center gap-2">
+          <select
+            aria-label="Filter trips by status"
+            value={tripStatusFilter}
+            onChange={(event) => setTripStatusFilter(event.target.value)}
+            className="h-10 rounded-xl border border-input bg-white px-3 text-sm text-slate-700"
+          >
+            <option value="ALL">All trip statuses</option>
+            <option value="PLANNED">Planned</option>
+            <option value="IN_PROGRESS">In Progress</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
           <Button
             onClick={() => setCreateRouteOpen(true)}
             className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4"
@@ -628,7 +672,7 @@ export function TripsView() {
         <CardContent>
           {isLoading ? (
             <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
-          ) : trips.length === 0 ? (
+          ) : filteredTrips.length === 0 ? (
             <div className="text-center py-12">
               <Truck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500">No trips found</p>
@@ -638,7 +682,7 @@ export function TripsView() {
             <>
             <div className="flex items-center justify-between border-b pb-3">
               <p className="text-xs text-slate-500">
-                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, trips.length)} of {trips.length}
+                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, filteredTrips.length)} of {filteredTrips.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -1029,6 +1073,12 @@ export function TripsView() {
                 {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
                   <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
                 ) : null}
+                <TripLoadSummary
+                  totalCases={selectedRouteLoad.totalCases}
+                  totalWeight={selectedRouteLoad.totalWeight}
+                  maximumCapacity={selectedVehicleCapacity}
+                  compact
+                />
                 <Button
                   className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
@@ -1043,7 +1093,9 @@ export function TripsView() {
                     selectedRouteOrderIds.length === 0 ||
                     !selectedRouteDriverId ||
                     Boolean(selectedDriverEligibilityIssue) ||
-                    !selectedDriverAssignedVehicle?.id
+                    !selectedDriverAssignedVehicle?.id ||
+                    isSelectedVehicleCapacityMissing ||
+                    isSelectedRouteOverloaded
                   }
                 >
                   {creatingTripFromRoute ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
 import { burnPodOverlay, formatPodOverlayLines, type PodOverlaySnapshot } from '@/lib/pod-camera-overlay'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import type { AuthUser } from '@/types'
 import {
   calculateNavigationViewportInsets,
@@ -118,6 +119,7 @@ export function TripDetailView({
   const [deliveredTargetDropPointId, setDeliveredTargetDropPointId] = useState<string | null>(null)
   const [deliveredTargetDropPointName, setDeliveredTargetDropPointName] = useState('')
   const [isStartTripConfirmOpen, setIsStartTripConfirmOpen] = useState(false)
+  const [loadConfirmed, setLoadConfirmed] = useState(false)
   const [selectedDropPointForDetails, setSelectedDropPointForDetails] = useState<DropPoint | null>(null)
 
   // Mobile bottom sheet and map UX state.
@@ -666,6 +668,10 @@ export function TripDetailView({
       refreshTripsInBackground()
       return
     }
+    if (!loadConfirmed) {
+      toast.error('Confirm Load before starting the trip')
+      return
+    }
 
 
 
@@ -680,6 +686,7 @@ export function TripDetailView({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          confirmLoad: true,
           latitude: currentLocation?.lat ?? null,
           longitude: currentLocation?.lng ?? null,
         }),
@@ -2139,6 +2146,15 @@ export function TripDetailView({
                   <p className="font-medium text-slate-900">{trip.tripNumber || 'Selected Trip'}</p>
                   <p>Make sure all assigned orders are loaded before continuing.</p>
                 </div>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={loadConfirmed}
+                    onChange={(event) => setLoadConfirmed(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+                  />
+                  Confirm Load
+                </label>
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <Button
                     type="button"
@@ -2155,7 +2171,7 @@ export function TripDetailView({
                       setIsStartTripConfirmOpen(false)
                       await handleStartTrip()
                     }}
-                    disabled={isUpdating}
+                    disabled={isUpdating || !loadConfirmed}
                   >
                     {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                     Start Trip
@@ -2335,11 +2351,21 @@ export function TripDetailView({
 
           {/* Start Trip Button - Desktop */}
           {!isMobileViewport && trip.status === 'PLANNED' && (
-            <div className="hidden md:block">
+            <div className="hidden space-y-2 md:block">
+              {/* Added: physical loading confirmation must precede Start Trip. */}
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm">
+                <input
+                  type="checkbox"
+                  checked={loadConfirmed}
+                  onChange={(event) => setLoadConfirmed(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                />
+                Confirm Load
+              </label>
               <Button
                 className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => setIsStartTripConfirmOpen(true)}
-                disabled={isUpdating}
+                disabled={isUpdating || !loadConfirmed}
               >
                 {isUpdating ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -2463,11 +2489,20 @@ export function TripDetailView({
 
                 {/* Start Trip Button - Mobile */}
                 {trip.status === 'PLANNED' && (
-                  <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] left-4 right-4 z-[1100]">
+                  <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] left-4 right-4 z-[1100] space-y-2">
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg backdrop-blur">
+                      <input
+                        type="checkbox"
+                        checked={loadConfirmed}
+                        onChange={(event) => setLoadConfirmed(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                      />
+                      Confirm Load
+                    </label>
                     <Button
                       className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={() => setIsStartTripConfirmOpen(true)}
-                      disabled={isUpdating}
+                      disabled={isUpdating || !loadConfirmed}
                     >
                       {isUpdating ? (
                         <Loader2 className="h-5 w-5 animate-spin" />
@@ -2646,7 +2681,7 @@ export function TripDetailView({
                                         </Button>
                                         <p className="text-xs text-slate-500">Camera access is required before marking as delivered.</p>
                                         {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
-                                          <img
+                                          <PodImagePreview
                                             src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                             alt="POD preview"
                                             // Fix: contain the POD image so no captured edges or overlay text are cropped.
@@ -2806,7 +2841,7 @@ export function TripDetailView({
                                 {(dropPoint.deliveryPhoto || podDraftByDropPoint[String(dropPoint.id || '')]?.preview) ? (
                                   <div className="mt-2 rounded-md bg-slate-50 px-2 py-2">
                                     <p className="text-[11px] font-semibold text-slate-600">POD Photo</p>
-                                    <img
+                                    <PodImagePreview
                                       src={dropPoint.deliveryPhoto || podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                       alt="POD"
                                       className="mt-1 h-40 w-full rounded border border-slate-200 bg-slate-950 object-contain"
@@ -2875,7 +2910,7 @@ export function TripDetailView({
                               </Button>
                               <p className="text-[11px] text-slate-500 md:text-xs">Camera access is required before marking as delivered.</p>
                               {podDraftByDropPoint[String(dropPoint.id || '')]?.preview ? (
-                                <img
+                                <PodImagePreview
                                   src={podDraftByDropPoint[String(dropPoint.id || '')]?.preview || ''}
                                   alt="POD preview"
                                   className="h-64 w-full rounded-md border border-slate-200 bg-slate-950 object-contain md:h-80"

@@ -1,5 +1,12 @@
 'use client'
 
+import { getPasswordRequirementState } from '@shared/customer-logic/password'
+import {
+  OTP_EXPIRY_SECONDS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  formatOtpCountdown,
+} from '@shared/customer-logic/otp'
+
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import type { MutableRefObject } from 'react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
@@ -340,8 +347,8 @@ export function CustomerProfileView({
 
   // OTP Popup Timers
   const [isOtpDialogOpen, setIsOtpDialogOpen] = useState(false)
-  const [otpExpiry, setOtpExpiry] = useState(120)
-  const [resendCooldown, setResendCooldown] = useState(60)
+  const [otpExpiry, setOtpExpiry] = useState(OTP_EXPIRY_SECONDS)
+  const [resendCooldown, setResendCooldown] = useState(OTP_RESEND_COOLDOWN_SECONDS)
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>
@@ -388,11 +395,7 @@ export function CustomerProfileView({
     window.localStorage.setItem(CUSTOMER_NOTIFICATION_PREFS_KEY, JSON.stringify(nextValue))
   }
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
+  const formatTime = formatOtpCountdown
 
   const requestPasswordOtp = async () => {
     const email = String(profileEmail || user?.email || '').trim().toLowerCase()
@@ -1079,12 +1082,9 @@ export function CustomerProfileView({
             <div className="mt-2 space-y-1 rounded-2xl border border-slate-100 bg-slate-50/60 p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Password Requirements</p>
               <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 pt-1">
-                <RequirementRow label="Min 8 characters" met={newPassword.length >= 8} />
-                <RequirementRow label="Uppercase letter" met={/[A-Z]/.test(newPassword)} />
-                <RequirementRow label="Lowercase letter" met={/[a-z]/.test(newPassword)} />
-                <RequirementRow label="One number" met={/\d/.test(newPassword)} />
-                <RequirementRow label="Special character" met={/[^A-Za-z0-9\s]/.test(newPassword)} />
-                <RequirementRow label="No spaces" met={newPassword.length > 0 && !/\s/.test(newPassword)} />
+                {getPasswordRequirementState(newPassword).map((rule) => (
+                  <RequirementRow key={rule.label} label={rule.label} met={rule.met} />
+                ))}
               </div>
             </div>
           </div>

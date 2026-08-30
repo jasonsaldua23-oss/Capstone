@@ -102,7 +102,7 @@ export function EmptiesDeposits() {
             })
           )}
 
-          <Text style={styles.emptiesSectionTitle}>Record Empties</Text>
+          <Text style={styles.emptiesSectionTitle}>Record Empty Bottle Cases</Text>
           {eligibleEmptyItems.length === 0 ? (
             <View style={styles.emptiesEmptyState}>
               <Text style={styles.emptiesEmptyTitle}>No Eligible Returnable History</Text>
@@ -114,6 +114,9 @@ export function EmptiesDeposits() {
                 <View key={item.productId} style={styles.emptiesBalanceCard}>
                   <Text style={styles.emptiesSectionTitle}>Select Purchased Beverage</Text>
                   <Text style={styles.emptiesBalanceName}>{item.productName}</Text>
+                  <Text style={styles.emptiesBalanceMeta}>
+                    Max available: <Text style={styles.emptiesBalanceStrong}>{item.availableCasesToReturn}</Text>
+                  </Text>
                   <Text style={styles.emptiesBalanceMeta}>
                     Number of Cases to Return
                   </Text>

@@ -1807,8 +1807,10 @@ export default function LiveTrackingMap({
               >
                 <Popup>
                   <div className="text-sm">
-                    <p className="font-bold text-base mb-1">{loc.driverName}</p>
-                    <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
+                    {/* Added: truck popups always identify both assigned driver and vehicle. */}
+                    <p className="font-bold text-base mb-1">Driver: {loc.driverName}</p>
+                    <p className="text-gray-600">Vehicle: {loc.vehiclePlate || 'N/A'}</p>
+                    {loc.markerLabel ? <p className="text-gray-600">{loc.markerLabel}</p> : null}
                     <p className="text-gray-600">
                       Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
                     </p>

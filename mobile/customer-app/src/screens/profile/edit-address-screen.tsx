@@ -87,6 +87,7 @@ export function EditAddressScreen() {
           accessibilityLabel="Clear address fields"
         >
           <Trash2 size={14} color="#e11d48" />
+          <Text style={styles.addressClearText}>Clear</Text>
         </Pressable>
       </View>
 
@@ -162,6 +163,7 @@ export function EditAddressScreen() {
           <Text style={styles.addressPreviewValue}>{composed || "—"}</Text>
         </View>
 
+        <Text style={styles.addressSectionTitle}>Pin Address on Map</Text>
         <AddressMapPicker
           latitude={addressForm.latitude}
           longitude={addressForm.longitude}

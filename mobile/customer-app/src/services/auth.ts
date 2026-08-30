@@ -9,7 +9,7 @@ import type {
   EligibleEmptyItem,
   Product,
 } from "../types";
-import { apiRequest } from "./api";
+import { MAIL_REQUEST_TIMEOUT_MS, apiRequest } from "./api";
 
 const TOKEN_KEY = "customer_auth_token";
 const USER_KEY = "customer_auth_user";
@@ -205,6 +205,7 @@ async function persistAuthenticatedSession(data: LoginResponse, rememberMe: bool
 export async function requestEmailVerification(email: string): Promise<void> {
   await apiRequest("/api/auth/email-verification/request", {
     method: "POST",
+    timeoutMs: MAIL_REQUEST_TIMEOUT_MS,
     body: JSON.stringify({ email, accountType: "customer" }),
   });
 }
@@ -378,6 +379,7 @@ export async function updateCustomerProfile(userId: string, input: CustomerProfi
 export async function requestPasswordResetOtp(email: string): Promise<void> {
   await apiRequest("/api/auth/password-reset/request-otp", {
     method: "POST",
+    timeoutMs: MAIL_REQUEST_TIMEOUT_MS,
     body: JSON.stringify({ email, accountType: "customer" }),
   });
 }

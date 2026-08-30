@@ -48,6 +48,7 @@ export function WarehouseInventoryView({
                   <tr>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap min-w-[190px]">Product</th>
+                    <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Weight</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Price</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Threshold</th>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">Qty Per Case/Pack</th>
@@ -99,6 +100,12 @@ export function WarehouseInventoryView({
                               {categoryLabel ? <p className="text-[11px] text-gray-400">{categoryLabel}</p> : null}
                             </div>
                           </div>
+                        </td>
+                        {/* Added: show the product's registered case/order-unit weight in inventory. */}
+                        <td className="p-2.5 text-center font-semibold text-gray-900">
+                          {typeof item.product?.weight === 'number' && Number.isFinite(item.product.weight) && item.product.weight > 0
+                            ? `${item.product.weight.toLocaleString()} kg`
+                            : 'N/A'}
                         </td>
                         <td className="p-2.5 text-center font-medium text-indigo-600">{formatPeso(item.product?.price ?? 0)}</td>
                         <td className="p-2.5 text-center font-semibold text-gray-900">{getThresholdValue(item)}</td>

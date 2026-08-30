@@ -85,6 +85,7 @@ export function WarehouseTripsSection({
   editingTripId,
 }: WarehouseTripsSectionProps) {
   const [tripsPage, setTripsPage] = useState(1)
+  const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
   const tripsPageSize = 10
   const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
   const [allocatingPoint, setAllocatingPoint] = useState<any | null>(null)
@@ -238,15 +239,22 @@ export function WarehouseTripsSection({
     const total = items.reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.quantity || 0)), 0)
     return { allocated, total }
   }
-  const totalTripsPages = Math.max(1, Math.ceil(scopedTrips.length / tripsPageSize))
+  const filteredTrips = useMemo(
+    () => scopedTrips.filter((trip) => {
+      const status = String(trip.status || '').toUpperCase() === 'IN_TRANSIT' ? 'IN_PROGRESS' : String(trip.status || '').toUpperCase()
+      return tripStatusFilter === 'ALL' || status === tripStatusFilter
+    }),
+    [scopedTrips, tripStatusFilter],
+  )
+  const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
   const paginatedTrips = useMemo(() => {
     const start = (tripsPage - 1) * tripsPageSize
-    return scopedTrips.slice(start, start + tripsPageSize)
-  }, [scopedTrips, tripsPage])
+    return filteredTrips.slice(start, start + tripsPageSize)
+  }, [filteredTrips, tripsPage])
 
   useEffect(() => {
     setTripsPage(1)
-  }, [scopedTrips.length])
+  }, [scopedTrips.length, tripStatusFilter])
 
   useEffect(() => {
     if (tripsPage > totalTripsPages) {
@@ -386,7 +394,7 @@ export function WarehouseTripsSection({
     'CANCELLED',
   ])
 
-  const getEffectiveTripStatus = (trip: TripItem) => {
+  function getEffectiveTripStatus(trip: TripItem) {
     const normalizedTripStatus = normalizeTripStatus(trip.status)
     const dropPoints = Array.isArray(trip.dropPoints) ? trip.dropPoints : []
 
@@ -530,6 +538,18 @@ export function WarehouseTripsSection({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <select
+          aria-label="Filter trips by status"
+          value={tripStatusFilter}
+          onChange={(event) => setTripStatusFilter(event.target.value)}
+          className="h-10 rounded-xl border border-input bg-white px-3 text-sm text-slate-700"
+        >
+          <option value="ALL">All trip statuses</option>
+          <option value="PLANNED">Planned</option>
+          <option value="IN_PROGRESS">In Progress</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
         <Button onClick={onOpenCreateTripFlow} className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4">
           <Truck className="h-4 w-4 mr-2" />
           Create Trip
@@ -544,13 +564,13 @@ export function WarehouseTripsSection({
         <CardContent>
           {loadingTrips ? (
             <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
-          ) : scopedTrips.length === 0 ? (
+          ) : filteredTrips.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No trips found</div>
           ) : (
             <>
             <div className="flex items-center justify-between border-b px-1 pb-3">
               <p className="text-xs text-slate-500">
-                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, scopedTrips.length)} of {scopedTrips.length}
+                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, filteredTrips.length)} of {filteredTrips.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button

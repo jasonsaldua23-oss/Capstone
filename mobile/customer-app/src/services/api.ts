@@ -40,6 +40,15 @@ export class ApiError extends Error {
   }
 }
 
+// Endpoints that send email do a full SMTP round trip to Gmail inside the request:
+// the handshake alone is ~3s before AUTH and the send, and the whole call measures
+// 7-9s against this backend. The 15s default above is sized for ordinary JSON calls
+// and left so little headroom that a send which actually SUCCEEDED was aborted at
+// 15s and reported to the user as "The request timed out." Give those calls their
+// own budget. The backend caps its own SMTP wait (EMAIL_TIMEOUT), so a genuine
+// failure still comes back as a real error well before this fires.
+export const MAIL_REQUEST_TIMEOUT_MS = 30_000;
+
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { token, headers, timeoutMs = 15_000, cacheTtlMs, signal, ...init } = options;
   const method = String(init.method || "GET").toUpperCase();

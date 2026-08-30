@@ -64,7 +64,14 @@ import {
   withinNegrosOccidental,
 } from "../lib/customer-logic";
 import { buildReceiptHtml, formatAddress, getInitials } from "../lib/format";
-import { composeShippingAddress, getAutomaticEmptyCredit, getLineDepositAmounts, SERVICE_AREA_MESSAGE } from "../lib/shared";
+import {
+  composeShippingAddress,
+  getAutomaticEmptyCredit,
+  getLineDepositAmounts,
+  OTP_EXPIRY_SECONDS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  SERVICE_AREA_MESSAGE,
+} from "../lib/shared";
 import { theme } from "../theme";
 import { API_BASE_URL } from "../config/env";
 import type {
@@ -247,6 +254,8 @@ function useCustomerPortalState() {
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
+  const [otpExpiry, setOtpExpiry] = useState(OTP_EXPIRY_SECONDS);
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
   const pendingCheckoutRef = useRef<{ fingerprint: string; requestId: string } | null>(null);
   const cartHydratedRef = useRef(false);
   const screenOpacity = useRef(new Animated.Value(1)).current;
@@ -880,6 +889,21 @@ function useCustomerPortalState() {
     }
   }
 
+  useEffect(() => {
+    // Mirrors the web: both counters run while the OTP step is on screen.
+    if (activeProfileModal !== "security" || (otpExpiry <= 0 && otpResendCooldown <= 0)) return;
+    const timer = setInterval(() => {
+      setOtpExpiry((prev) => (prev > 0 ? prev - 1 : 0));
+      setOtpResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeProfileModal, otpExpiry, otpResendCooldown]);
+
+  function resetOtpTimers() {
+    setOtpExpiry(OTP_EXPIRY_SECONDS);
+    setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+  }
+
   async function handleSaveProfile() {
     if (!user) return;
     if (profileForm.phone.trim() && !isValidPhilippinePhone(profileForm.phone)) {
@@ -1210,6 +1234,8 @@ function useCustomerPortalState() {
     setError(null);
     try {
       await requestPasswordResetOtp(accountEmail);
+      resetOtpTimers();
+      setOtpVerified(false);
       Alert.alert("OTP Sent", "A verification code was sent to your email.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send OTP.");
@@ -1486,6 +1512,9 @@ function useCustomerPortalState() {
   }, [routeStack.length]);
 
   return {
+    otpExpiry,
+    otpResendCooldown,
+    resetOtpTimers,
     ratingDialogOrder,
     setRatingDialogOrder,
     deliveryRatingValue,

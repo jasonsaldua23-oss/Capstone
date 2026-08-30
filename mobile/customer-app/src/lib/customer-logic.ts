@@ -4,6 +4,8 @@ import {
   isOrderCancellable as sharedIsOrderCancellable,
   isOrderTrackable as sharedIsOrderTrackable,
   normalizeDeliveryStatus,
+  isPasswordValid,
+  PASSWORD_POLICY_MESSAGE,
 } from "./shared.ts";
 
 // Re-exported so screens have one import site for shared formatting.
@@ -52,11 +54,8 @@ export function getOrderStageIndex(order: CustomerOrder): number {
 }
 
 export function validatePasswordPolicy(password: string): string | null {
-  const message = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces.";
-  if (password.length < 8 || /\s/.test(password)) return message;
-  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) return message;
-  if (!/[^A-Za-z0-9\s]/.test(password)) return message;
-  return null;
+  // Same rules the checklist shows, so the two cannot disagree.
+  return isPasswordValid(password) ? null : PASSWORD_POLICY_MESSAGE;
 }
 
 export function isValidPhilippinePhone(phone: string): boolean {

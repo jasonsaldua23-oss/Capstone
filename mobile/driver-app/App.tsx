@@ -185,6 +185,7 @@ export default function App() {
   const [tripSearch, setTripSearch] = useState("");
   const [historySearch, setHistorySearch] = useState("");
   const [historyLimit, setHistoryLimit] = useState(10);
+  const [confirmedLoadTripId, setConfirmedLoadTripId] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<DriverTripLocation | null>(null);
   const lastLocationRef = useRef<DriverTripLocation | null>(null);
   const foregroundWatchRef = useRef<Location.LocationSubscription | null>(null);
@@ -642,6 +643,10 @@ export default function App() {
       setError("Only a planned trip can be started.");
       return;
     }
+    if (confirmedLoadTripId !== tripId) {
+      setError("Confirm Load before starting the trip.");
+      return;
+    }
     const blockedOrders = getStartBlockedOrders(trip);
     if (blockedOrders.length > 0) {
       setError(`Trip cannot start. Orders not loaded: ${blockedOrders.slice(0, 3).join(", ")}`);
@@ -676,7 +681,7 @@ export default function App() {
           kind: "START_TRIP",
           method: "POST",
           path: `/api/trips/${tripId}/start`,
-          body: startLocation,
+          body: { ...startLocation, confirmLoad: true },
         }));
         setTrips((current) => current.map((entry) => entry.id === tripId ? { ...entry, status: "IN_PROGRESS", actualStartAt: new Date().toISOString() } : entry));
         let mode: "background" | "foreground-only" = "foreground-only";
@@ -1345,14 +1350,26 @@ export default function App() {
                     </View>
 
                     {normalizeStatus(selectedTrip.status) === "PLANNED" ? (
-                      <Pressable
-                        style={styles.tripStartButton}
-                        onPress={() => void handleStartTrip(selectedTrip.id)}
-                        disabled={startingTripId === selectedTrip.id}
-                      >
-                        {startingTripId === selectedTrip.id ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="play" size={19} color="#ffffff" />}
-                        <Text style={styles.primaryButtonText}>Start Trip</Text>
-                      </Pressable>
+                      <View style={styles.tripStartArea}>
+                        {/* Added: the driver must confirm the physical load before Start Trip is enabled. */}
+                        <Pressable
+                          style={styles.tripLoadConfirm}
+                          onPress={() => setConfirmedLoadTripId((current) => current === selectedTrip.id ? null : selectedTrip.id)}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: confirmedLoadTripId === selectedTrip.id }}
+                        >
+                          <Ionicons name={confirmedLoadTripId === selectedTrip.id ? "checkbox" : "square-outline"} size={22} color="#1d4ed8" />
+                          <Text style={styles.tripLoadConfirmText}>Confirm Load</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[styles.tripStartButton, confirmedLoadTripId !== selectedTrip.id ? styles.tripStartButtonDisabled : null]}
+                          onPress={() => void handleStartTrip(selectedTrip.id)}
+                          disabled={startingTripId === selectedTrip.id || confirmedLoadTripId !== selectedTrip.id}
+                        >
+                          {startingTripId === selectedTrip.id ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="play" size={19} color="#ffffff" />}
+                          <Text style={styles.primaryButtonText}>Start Trip</Text>
+                        </Pressable>
+                      </View>
                     ) : null}
 
                     {!isTripSheetOpen ? (
@@ -2640,7 +2657,11 @@ const styles = StyleSheet.create({
   tripMapChipText: { color: "#0f172a", fontSize: 12, fontFamily: "Poppins_700Bold" },
   tripCoordinateChip: { minWidth: 0, flex: 1 },
   tripCoordinateText: { color: "#0f172a", fontSize: 11, fontFamily: "Poppins_600SemiBold" },
-  tripStartButton: { position: "absolute", zIndex: 22, left: 16, right: 16, bottom: 118, minHeight: 48, borderRadius: 12, backgroundColor: "#1d4ed8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, shadowColor: "#1d4ed8", shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
+  tripStartArea: { position: "absolute", zIndex: 22, left: 16, right: 16, bottom: 118, gap: 8 },
+  tripLoadConfirm: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "rgba(255,255,255,0.96)", flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 9 },
+  tripLoadConfirmText: { color: "#0f172a", fontFamily: "Poppins_700Bold", fontSize: 14 },
+  tripStartButton: { minHeight: 48, borderRadius: 12, backgroundColor: "#1d4ed8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, shadowColor: "#1d4ed8", shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
+  tripStartButtonDisabled: { opacity: 0.55 },
   tripSheetPeek: { position: "absolute", zIndex: 24, left: 0, right: 0, bottom: 0, minHeight: 108, paddingHorizontal: 18, paddingTop: 9, paddingBottom: 13, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(255,255,255,0.9)", backgroundColor: "rgba(255,255,255,0.97)", shadowColor: "#0f172a", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: -8 }, elevation: 10 },
   tripSheetHandle: { width: 54, height: 5, borderRadius: 3, alignSelf: "center", marginBottom: 8, backgroundColor: "#cbd5e1" },
   tripSheetEyebrow: { color: "#64748b", fontSize: 10, fontFamily: "Poppins_700Bold", letterSpacing: 1.7 },

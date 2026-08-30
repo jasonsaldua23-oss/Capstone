@@ -41,6 +41,9 @@ const SCREENS = [
   ["Order Detail", "src/components/portals/customer/sections/orders/order-detail-page.tsx", [
     "mobile/customer-app/src/screens/orders/order-detail-screen.tsx",
     "mobile/customer-app/src/components/ui/replacement-request-form.tsx",
+    // The web renders replacement details inline on this page; the app pushes a screen.
+    "mobile/customer-app/src/screens/orders/replacement-detail-screen.tsx",
+    "mobile/customer-app/src/portal/portal-modals.tsx",
   ]],
   ["Track", "src/components/portals/customer/sections/track/track-view.tsx", [
     "mobile/customer-app/src/screens/track/track-screen.tsx",
@@ -75,6 +78,8 @@ function isSectionLabel(text) {
   if (/(===|=>|\|\||&&|\$|`|=)/.test(t)) return false;
   if (/\b(const|return|import|export|function|type)\b/.test(t)) return false;
   if (/^\d/.test(t)) return false;
+  if (/^\(.*\)$/.test(t)) return false; // "(Optional)" is a field hint, not a section
+  if (/^(Promise|File|Blob|Error|Record|Partial|Array|Boolean|Number|String)$/.test(t)) return false; // TS types
   // Headings may be all-caps ("PRODUCT", "TOTAL PRICE"); require letters, not lowercase.
   return /[A-Za-z]{3}/.test(t);
 }
@@ -84,7 +89,7 @@ function sectionsOf(file) {
   const found = [];
   const seen = new Set();
   const push = (raw) => {
-    const text = raw.replace(/\s+/g, " ").replace(/&apos;/g, "'").trim();
+    const text = raw.replace(/\s+/g, " ").replace(/&apos;/g, "'").replace(/&amp;/g, "&").trim();
     if (!isSectionLabel(text)) return;
     const key = text.toLowerCase();
     if (seen.has(key)) return;
@@ -97,12 +102,34 @@ function sectionsOf(file) {
   // Labelled props that name a section for the reader.
   // `title` on the web often becomes `accessibilityLabel` in the app; treat both as
   // naming the same affordance.
-  for (const m of source.matchAll(/(?:title|label|subtitle|accessibilityLabel)\s*=\s*["']([^"']+)["']/g)) push(m[1]);
-  // Copy inside a ternary — {cond ? "Save Address" : "Saving..."} — is still a section
-  // label; the JSX scan cannot see it because it sits between braces.
-  for (const m of source.matchAll(/\?\s*"([^"]{3,42})"\s*:|:\s*"([^"]{3,42})"\s*[}\n]/g)) push(m[1] || m[2]);
+  for (const m of source.matchAll(/(?:title|label|subtitle|accessibilityLabel|placeholder)\s*=\s*["']([^"']+)["']/g)) push(m[1]);
+  // Menu rows are built from config objects, not JSX attributes: { title: "Delivery Address" }.
+  for (const m of source.matchAll(/(?:title|label|heading)\s*:\s*["']([^"']+)["']/g)) push(m[1]);
+  // Copy inside a ternary — {saving ? "Saving..." : "Save Address"} — is still a
+  // section label; the JSX scan cannot see it because it sits between braces.
+  // The colon is a lookahead: consuming it would swallow the separator the
+  // else-branch pattern needs, so every else label went unseen and screens were
+  // reported as missing copy they actually render.
+  for (const m of source.matchAll(/\?\s*"([^"]{3,42})"\s*(?=:)|:\s*"([^"]{3,42})"\s*[}\n]/g)) push(m[1] || m[2]);
   return found;
 }
+
+// Web labels the app deliberately renders differently. Each entry is a decision,
+// not a gap — anything NOT listed here that goes absent is real drift worth seeing.
+const INTENTIONAL = {
+  // The app names the item it is acting on ("Remove Alkaline 500ml from cart"),
+  // which is built from a template literal and so never matches a static string.
+  Cart: ["Use", "Select item", "Remove from cart"],
+  // Rendered through formatDiscountLabel(), which folds the percentage into the
+  // label, so the bare word never appears as a literal.
+  "Request Detail": ["Discount"],
+  "Order Detail": ["Discount"],
+  Receipt: ["Discount"],
+  // The web opens these as dialogs with a close control; the app pushes a screen
+  // and returns via the back header, so there is nothing to "close".
+  "Purchase Orders": ["Close", "Close replacement details dialog"],
+  Profile: ["Close", "Back to profile"],
+};
 
 const only = process.argv[2]?.toLowerCase();
 let mismatches = 0;
@@ -122,10 +149,13 @@ for (const [name, webFile, appFiles] of SCREENS) {
 
   const webSet = new Set(web.map((s) => s.toLowerCase()));
   const appSet = new Set(app.map((s) => s.toLowerCase()));
-  const missingInApp = web.filter((s) => !appSet.has(s.toLowerCase()));
+  const allowed = new Set((INTENTIONAL[name] || []).map((s) => s.toLowerCase()));
+  const missingInApp = web.filter((s) => !appSet.has(s.toLowerCase()) && !allowed.has(s.toLowerCase()));
   const extraInApp = app.filter((s) => !webSet.has(s.toLowerCase()));
 
-  const status = missingInApp.length === 0 ? "aligned" : `${missingInApp.length} web section(s) absent`;
+  const status = missingInApp.length === 0
+    ? allowed.size > 0 ? `aligned (${allowed.size} documented difference(s))` : "aligned"
+    : `${missingInApp.length} web section(s) absent`;
   console.log(`\n## ${name} — ${status}`);
   console.log(`   web: ${web.join(" | ") || "(none)"}`);
   console.log(`   app: ${app.join(" | ") || "(none)"}`);

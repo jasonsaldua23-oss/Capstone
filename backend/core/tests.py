@@ -2183,6 +2183,18 @@ class TripExecutionApiContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
 
+    def test_trip_start_requires_load_confirmation(self) -> None:
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            data={},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Confirm Load is required before starting the trip")
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+
     def test_trip_start_sets_in_progress_and_actual_start_at(self) -> None:
         order = Order.objects.create(
             order_number="ORD-TRIP-LOADED-001",
@@ -2196,6 +2208,8 @@ class TripExecutionApiContractTests(TestCase):
 
         response = self.client.post(
             f"/api/trips/{self.trip.id}/start",
+            data={"confirmLoad": True},
+            content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
         )
         self.assertEqual(response.status_code, 200)
@@ -3473,7 +3487,7 @@ class TripsPostCreationContractTests(TestCase):
         )
         self.driver = Driver.objects.create(
             user=self.driver_user,
-            license_number="LIC-TRIPS-POST-001",
+            license_number="D09-22-000984",
             license_type="B",
             license_expiry=timezone.now() + timedelta(days=365),
             is_active=True,
@@ -3482,6 +3496,7 @@ class TripsPostCreationContractTests(TestCase):
             license_plate="TRIPS-POST-001",
             type=VehicleType.VAN,
             status="AVAILABLE",
+            capacity=1000,
             driver=self.driver_user,
             is_active=True,
         )
@@ -3625,6 +3640,63 @@ class TripsPostCreationContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Driver or vehicle not found")
+
+    def test_trips_post_rejects_vehicle_overload_and_reports_excess_weight(self) -> None:
+        product = Product.objects.create(sku="LOAD-TEST-001", name="Pepsi Load Test", weight=10, price=100)
+        OrderItem.objects.create(
+            order=self.order_1,
+            product=product,
+            quantity=6,
+            unit_price=100,
+            total_price=600,
+        )
+        self.vehicle.capacity = 50
+        self.vehicle.save(update_fields=["capacity", "updated_at"])
+
+        response = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "warehouseId": self.warehouse.id,
+                "orderIds": [self.order_1.id],
+                "status": "PLANNED",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Vehicle overloaded by 10.00 kg", response.json()["error"])
+        self.assertFalse(Trip.objects.filter(vehicle=self.vehicle).exists())
+
+    def test_trips_post_allows_load_up_to_full_rated_capacity(self) -> None:
+        product = Product.objects.create(sku="LOAD-TEST-002", name="Pepsi Capacity Test", weight=10, price=100)
+        OrderItem.objects.create(
+            order=self.order_1,
+            product=product,
+            quantity=5,
+            unit_price=100,
+            total_price=500,
+        )
+        self.vehicle.capacity = 50
+        self.vehicle.save(update_fields=["capacity", "updated_at"])
+
+        response = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "warehouseId": self.warehouse.id,
+                "orderIds": [self.order_1.id],
+                "status": "PLANNED",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertEqual(response.json()["trip"]["weightRemaining"], 0.0)
 
 
 class PaginationGuardsContractTests(TestCase):
@@ -3941,6 +4013,8 @@ class DeliveryLifecycleFlowContractTests(TestCase):
 
         start_trip = self.client.post(
             f"/api/trips/{trip_id}/start",
+            data={"confirmLoad": True},
+            content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
         )
         self.assertEqual(start_trip.status_code, 200)

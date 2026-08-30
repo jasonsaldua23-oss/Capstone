@@ -20,6 +20,7 @@ from core.models import (
     Vehicle, Trip, TripDropPoint, LocationLog,
     Replacement, ReplacementLine, Feedback, Notification
 )
+from core.product_weights import calculate_product_weight
 
 
 # Standard Product Catalog Mapping for the 37 Columns in Pepsi-Sales.xlsx
@@ -700,6 +701,14 @@ class Command(BaseCommand):
                     'case_price': pdef['case_price'],
                     'retail_unit_price': (pdef['case_price'] / pdef['units_per_case']).quantize(Decimal('0.01')),
                     'quantity_per_unit': pdef['units_per_case'],
+                    # Added: seeded products need the same complete order-unit
+                    # weight used by trip capacity validation.
+                    'weight': calculate_product_weight(
+                        sizes=pdef['size'],
+                        quantity_per_unit=pdef['units_per_case'],
+                        category=pdef['category'],
+                        packaging_type='RETURNABLE' if pdef['is_returnable'] else 'NON_RETURNABLE',
+                    ),
                     'sizes': pdef['size'],
                     'image_url': pdef['image']
                 }

@@ -83,12 +83,25 @@ def _parse_database_url(url: str) -> dict:
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": parsed.hostname or "",
         "PORT": str(parsed.port or "5432"),
-        "CONN_MAX_AGE": int(query.get("conn_max_age", ["0"])[0]),
-        # Keep health checks on so stale connections are detected quickly.
-        # With transaction-mode pooling CONN_MAX_AGE should remain 0 (default)
-        # so Django never holds a persistent connection across requests.
-        # Reconnect cleanly when the remote Postgres pooler closes an idle connection.
+        # Was 0, which made Django open a brand new connection to the remote
+        # Supabase pooler for EVERY request and close it again. Measured on this
+        # machine: cold connect 12.25s (slow DNS ~3.8s, plus a failing IPv6 lookup
+        # that burns another ~3.8s before falling back to IPv4), against a warm
+        # query of 0.12s — a ~100x penalty paid per request. It pushed the OTP
+        # endpoint to 15.9s, just past the client's 15s abort, so a send that
+        # actually succeeded was reported as "The request timed out."
+        #
+        # Holding the connection open is safe with a transaction-mode pooler: what
+        # persists is the client->PgBouncer connection, which is exactly what the
+        # pooler multiplexes. The real transaction-pooling requirement is disabling
+        # server-side cursors, set below.
+        "CONN_MAX_AGE": int(query.get("conn_max_age", [os.getenv("DB_CONN_MAX_AGE", "60")])[0]),
+        # Keep health checks on so a connection the pooler dropped while idle is
+        # detected and replaced rather than handed out dead.
         "CONN_HEALTH_CHECKS": True,
+        # Required whenever the connection goes through a transaction-mode pooler:
+        # named cursors do not survive a transaction boundary there.
+        "DISABLE_SERVER_SIDE_CURSORS": True,
         "OPTIONS": options,
     }
 
@@ -211,6 +224,12 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = OTP_GMAIL_USER
 EMAIL_HOST_PASSWORD = OTP_GMAIL_APP_PASSWORD
+# OTP mail is sent synchronously inside the request, so an unbounded SMTP socket
+# means a stalled Gmail connection hangs the whole request forever while the client
+# gives up at 15s and reports "The request timed out." Django's default is None
+# (no timeout); bound it well under the client's budget so a slow send fails fast
+# and returns a real error the user can act on.
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = f"{OTP_FROM_NAME} <{OTP_FROM_EMAIL}>" if OTP_FROM_EMAIL else OTP_FROM_NAME
 if OTP_SMTP_FROM_EMAIL:
     DEFAULT_FROM_EMAIL = f"{OTP_FROM_NAME} <{OTP_SMTP_FROM_EMAIL}>"

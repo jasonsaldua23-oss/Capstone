@@ -1,4 +1,4 @@
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from core.models import (
@@ -10,6 +10,7 @@ from core.models import (
     Replacement,
     ReplacementLine,
 )
+from core.product_weights import resolve_product_weight
 
 
 class Command(BaseCommand):
@@ -23,7 +24,29 @@ class Command(BaseCommand):
 
         pepsi = Product.objects.filter(name__icontains="Pepsi").first()
         if not pepsi:
-            pepsi = Product.objects.create(sku="PEPS-REPLACEMENT", name="Pepsi", price=0)
+            source_product = coca_qs.first()
+            replacement_weight = resolve_product_weight(
+                sizes=source_product.sizes,
+                quantity_per_unit=source_product.quantity_per_unit,
+                category=source_product.category,
+                packaging_type=source_product.packaging_type,
+                supplied_weight=source_product.weight,
+            )
+            if replacement_weight is None:
+                raise CommandError("Cannot create the Pepsi replacement because the source product has no calculable weight")
+            # Preserve the source package dimensions so this maintenance path
+            # cannot introduce a weightless replacement product.
+            pepsi = Product.objects.create(
+                sku="PEPS-REPLACEMENT",
+                name="Pepsi",
+                price=0,
+                unit=source_product.unit,
+                weight=replacement_weight,
+                category=source_product.category,
+                sizes=source_product.sizes,
+                quantity_per_unit=source_product.quantity_per_unit,
+                packaging_type=source_product.packaging_type,
+            )
             self.stdout.write(self.style.WARNING(f"Created placeholder Pepsi product: {pepsi.sku}"))
 
         with transaction.atomic():

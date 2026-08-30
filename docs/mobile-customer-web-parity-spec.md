@@ -851,6 +851,296 @@ still there — harmless, but worth removing by hand rather than by regex.
 
 **Verified** — app typecheck, 9 tests, copy gate (0 known / 0 new), `expo export`.
 
+## 4m. Structural pass (2026-08-30)
+
+Reading the web for *structure* rather than copy, after the standard was relaxed. This
+found the most serious defect of the project.
+
+**The Request Replacement form was unreachable.** It was built in Phase 5 and that phase
+was reported complete. Nothing anywhere in the app called `setReplacementOrder`, so the
+form could not be opened. The copy gate passed it because its strings existed; `tsc` passed
+because the code compiled; the bundle built. Only asking "the web's order detail offers this
+action — does the app?" surfaced it. An entry point now exists on the order detail for
+delivered orders with no open case.
+
+**Also closed in this pass**
+
+- Discount lines on order detail, request detail and the receipt — present on the web,
+  absent from the app.
+- The rejection/cancellation reason banner on request detail.
+- `View Purchase Order →` on approved purchase requests, which jumps to the order.
+- The live password-requirements checklist in Account Security. Its six rules now live in
+  `shared/customer-logic/password.ts` and drive **both** the checklist and
+  `validatePasswordPolicy`, so the list a customer is shown cannot disagree with what is
+  enforced. The web's inline `RequirementRow` calls were replaced with a map over the same
+  rules.
+
+**Deliberate structural differences, kept**
+
+- The replacement record opens as a **pushed screen** in the app where the web uses a
+  dialog, so `Replacement Details` / `Cancel Replacement` / `Close` sit on that screen
+  rather than on the order detail. Better on a phone; flagged for the user rather than
+  silently reverted.
+- Where the web builds a browser workaround, the app uses the platform: OS date picker,
+  option sheets instead of `<select>`, the system image cropper, `tel:` links.
+
+**OTP countdown added (2026-08-30).** The password-change step now has the web's
+Security Verification card: `Code expires in m:ss`, `Verification code has expired.`,
+`Resend code in Ns` with a `Resend Code` link once the cooldown clears, and
+`OTP Verified Successfully` on success. Verify is disabled once the code expires, and both
+timers restart when a new code is sent. `OTP_EXPIRY_SECONDS` (120),
+`OTP_RESEND_COOLDOWN_SECONDS` (60) and `formatOtpCountdown` live in
+`shared/customer-logic/otp.ts`; the web's inline constants and `formatTime` now come from
+there. `New Password` / `Confirm Password` gained visible labels, and the empties card
+gained `Max available:`.
+
+**Remaining structure-check output is artifact, not gap.** Copy that lives inside a call
+(`formatDiscountLabel(...)`) or a nested ternary is invisible to the extractor, so `Discount`,
+`Save Address`, `Submit Review` and `Download Receipt` still report as absent while being
+present. The Profile row compares one 1853-line web file against three app files and lists
+the OTP sub-dialog's countdown copy, which the app genuinely does not have — that is the
+one real item left there.
+
+**Verified** — app typecheck, 9 tests, copy gate (0/0), `expo export`, web `tsc`.
+
+## 4n. Close-out (2026-08-30)
+
+### Two crashes the user hit, and what actually caused them
+
+**MapLibre `MLRNModule` TypeError.** `address-map-picker.tsx` imports MapLibre,
+which is native-only, and had no `.web.tsx` sibling. Added one: a coordinate-entry
+fallback that validates against the same Silay/Talisay polygons, so the service-area
+rule is enforced identically on both. Verified by grepping the shipped web bundle —
+`MLRNModule` 0 occurrences, `maplibre` 0 occurrences.
+
+**"The request timed out."** Not a network or backend problem: the backend was up
+and answering (`/api/products` → HTTP 401, correct for an unauthenticated call).
+`src/config/env.ts` hardcoded `http://10.0.2.2:8000` — the Android *emulator* alias
+for the host machine. From Expo web or a physical phone that address is unroutable,
+so every request hung until the 15s client timeout and surfaced as a timeout toast.
+Replaced with the host resolution the driver app already uses: `window.location.hostname`
+on web, the Metro `hostUri` on a physical device, the emulator alias only on Android.
+Verified in the shipped bundle: `location.hostname||"localhost"}:8000`.
+
+The shape of this bug is worth remembering — a hardcoded emulator IP fails as a
+*timeout*, not as a connection error, so it reads like a backend or network fault
+and sends you looking in the wrong place.
+
+### Structure gate: from 8 failing screens to 0
+
+The gate was reporting 8 screens as missing web copy. Nearly all of it was the
+checker's own blind spots, not real gaps — a gate that cries wolf is worse than no
+gate, so the extractor was fixed rather than the findings waved through:
+
+| Blind spot | Effect | Fix |
+| --- | --- | --- |
+| Ternary regex consumed the `:` | Every else-branch label unseen (`Save Address`, `Submit Review`) | Match the colon as a lookahead |
+| `placeholder=` not read | `Enter Verification Code` reported absent | Added to the attribute list |
+| `&amp;` not decoded | `Empties &amp; Deposits` never matched | Decode alongside `&apos;` |
+| Object-property labels ignored | Menu rows built from config objects unseen | Match `title:`/`label:`/`heading:` |
+| TS type names and field hints | `Promise`, `(Optional)` scored as sections | Filtered in `isSectionLabel` |
+| Order Detail paired too narrowly | Replacement copy looked absent | Added the screens the app split it into |
+
+Six genuine differences remain, and they are now a documented `INTENTIONAL` map in
+the checker rather than silent failures. Each is a decision:
+
+- **Cart** — `Use` / `Select item` / `Remove from cart`: the app names the item
+  ("Remove Alkaline 500ml from cart"), built from a template literal. Better than
+  the web, and unmatchable as a static string.
+- **Discount** (Request Detail, Order Detail, Receipt) — rendered through
+  `formatDiscountLabel()`, which folds the percentage into the label.
+- **Close / Back to profile** (Purchase Orders, Profile) — the web opens dialogs
+  with a close control; the app pushes screens and returns via the back header.
+
+Anything *not* on that list going absent is now real drift, and the gate exits
+non-zero for it.
+
+### Alignment applied in this pass
+
+- `MixedCaseBuilder` — product thumbnails, "Bottles per case", "Subtotal/case:",
+  "Estimated Mixed Case total:", matching the web dialog.
+- `Pin Address on Map` section heading on Edit Address.
+- `Record Empties` → `Record Empty Bottle Cases`.
+- OTP card now states where the code went: "We sent a 6-digit verification code to {email}".
+- Delivery Address summary card in the edit-profile modal, with "Change Delivery
+  Address" routing to the address editor — mirrors web `profile-view.tsx:861-876`.
+- Visible "Clear" label beside the Edit Address trash icon (web pairs both).
+- `accessibilityLabel="Upload profile photo"` (was "Change Avatar") and
+  "Close receipt preview", matching the web's aria-labels.
+
+One rename was made and then reverted: the profile menu row was briefly changed to
+"Delivery Address", but the web's row is titled "Address" — "Delivery Address" is a
+separate label inside the address card. Renaming it moved the app *away* from the
+web. Reverted, and the card added instead.
+
+### The six MixedCaseBuilder copy findings: kept, not aligned
+
+The web shows one generic toast ("Complete the Mixed Case with at least two products
+before adding it."). The app names the specific problem — insufficient stock, no
+shared capacity, non-whole case count. On a phone, where the builder is harder to
+scan, the specific message is more useful. Allowlisted in the copy gate with that
+reasoning recorded inline, so it reads as a decision rather than drift.
+
+### Verification state
+
+`tsc --noEmit` clean · 9/9 tests pass · copy parity exit 0 (0 new drift) ·
+structure gate exit 0 · `expo export --platform web` builds (3.4MB bundle).
+
+### What is still not verified
+
+`expo export` bundles but never executes a line. Every check above is static. The
+screenshot sweep in §4g found 7 defects that typecheck, the copy gate, and a clean
+bundle had all passed — so **AC-1 remains unsigned-off**, and the honest status of
+this work is "builds and is structurally aligned", not "verified working". The
+remaining ~61 unused stylesheet entries are cosmetic; the regex prune was reverted
+in §4l after it removed live styles, so they need removing by hand if at all.
+
+## 4o. The OTP timeout, properly diagnosed (2026-08-30)
+
+The first pass at this blamed `env.ts` for pointing at the Android emulator alias.
+That was a real bug and worth fixing, but it was not why OTP timed out. Measuring
+the endpoint instead of reasoning about it gave a different answer:
+
+```
+POST /api/auth/password-reset/request-otp  ->  HTTP 200 in 15.93s
+```
+
+The request **succeeded**. The client aborts at 15s, so the OTP was being sent every
+single time and the app threw it away a fraction of a second before the response
+landed, then showed "The request timed out." The mail was arriving; the UI was lying.
+
+### Where the 15.9s went
+
+Timing each stage separately:
+
+| Stage | Time |
+| --- | --- |
+| `_get_reset_account` (cold) | 19.55s |
+| `_get_reset_account` (warm) | 0.12s |
+| `_otp_mail_ready()` | 0.00s |
+| `_build_branded_email_html` | 0.02s |
+
+A 100x gap between cold and warm pointed at connection setup, not the query.
+`CONN_MAX_AGE` was `0`, so Django opened a fresh connection to the remote Supabase
+pooler for **every request** and closed it again. The connection itself costs ~12s
+on this machine: DNS resolution alone takes 3.8s, and an IPv6 lookup fails after
+another 3.8s before falling back to IPv4 (raw TCP, once resolved, is 0.24s).
+
+So every request to this backend was paying ~12s. OTP was simply the one that tipped
+past 15s, because it adds an SMTP round trip on top.
+
+### Fixes applied
+
+1. **`CONN_MAX_AGE` 0 → 60** (`DB_CONN_MAX_AGE` overrides). The old comment claimed
+   transaction-mode pooling requires 0; that conflates the client→PgBouncer
+   connection with the pooled server connection. Reusing the client connection is
+   exactly what a pooler is for. The genuine transaction-pooling requirement is
+   `DISABLE_SERVER_SIDE_CURSORS`, which was **not** set and now is.
+2. **`EMAIL_TIMEOUT = 10`.** Django's default is `None`, so a stalled SMTP socket
+   hangs the request forever while the client gives up at 15s.
+3. **Circuit breakers on the two API mail paths.** Every send tried the Gmail API,
+   then Brevo, then fell back to SMTP. On this machine both HTTPS paths fail with
+   `CERTIFICATE_VERIFY_FAILED`, so each send paid two doomed round trips before the
+   fallback that actually works. A failure now disables that path for 300s.
+4. **A latent silent-failure bug.** Three of the four senders called
+   `_send_via_brevo(...)` and then `return`ed unconditionally, ignoring the returned
+   bool — so a `False` return (unconfigured Brevo) counted as "sent" and no email
+   went out at all, with no error. The breaker raises rather than returning `False`
+   for exactly this reason, and the callers now check the result.
+5. **Client budget for OTP raised to 30s** (`OTP_MAIL_TIMEOUT_MS`). Mail is
+   legitimately slower than a JSON call; the shared 15s default was never sized for it.
+
+Result: **15.93s → 7.5–9.1s**, inside the default budget and well inside the OTP one.
+
+### Why it is still ~8s, and what was not fixed
+
+The remainder is the Gmail SMTP send: `send_mail` opens a new connection per call and
+the handshake alone is ~3s. It cannot move to the fast HTTPS APIs on this machine —
+`REQUESTS_CA_BUNDLE` points at a valid certifi bundle and verification *still* fails,
+which means TLS interception by a local proxy or antivirus injecting a root CA that
+certifi does not carry. That is an environment problem, not a code one, and the right
+response is not to disable certificate verification for outbound API calls.
+
+Sending the mail on a background thread would make the endpoint return in ~0.3s, since
+the OTP is stateless and nothing needs the send to finish first. That was deliberately
+**not** done: it converts a visible "Unable to send OTP email right now" 500 into a
+silent success, and that trade-off is the user's call, not mine.
+
+### The signup OTP was a second, separate instance
+
+A screenshot of the signup screen showed the same timeout under "Send Verification
+OTP". That is `/api/auth/email-verification/request`, not the password-reset
+endpoint, and only the latter had been given a raised budget — so the fix had been
+applied to one of the two mail paths the customer app actually uses.
+
+Enumerating every view that sends mail synchronously, rather than fixing them one
+screenshot at a time, showed only two are reachable from the customer app
+(`auth_email_verification_request` and `auth_password_reset_request_otp`); customer
+login, register, order placement and cancellation send nothing. Both now share a
+single `MAIL_REQUEST_TIMEOUT_MS` exported from `api.ts`, so the reasoning lives in
+one place instead of being duplicated per call site.
+
+Measured after the fix: signup OTP returns **HTTP 200 in 8.6-9.2s**. Before the
+connection-reuse fix it would have been ~20s — a guaranteed timeout for any new
+email, which is every signup.
+
+That screenshot also produced a useful negative result: posting an already-registered
+address returns **HTTP 409 in 1.3s** ("This email address is already registered"),
+not a timeout. Since the screenshot showed a timeout rather than that message, the
+backend must have been down at that moment — which matches finding nothing listening
+on port 8000.
+
+### The actual root cause: the env.ts fix was dead code
+
+A third screenshot showed the error had changed from "The request timed out" to
+"Failed to fetch" — a different failure, thrown by the browser when the request never
+completes at the network layer at all.
+
+The backend was up, CORS preflight returned correct headers
+(`access-control-allow-origin: http://localhost:8081`), and the exact browser POST
+succeeded from curl in 7.5s. So the browser was not calling the URL it appeared to be.
+
+`app.json` pinned the override:
+
+```json
+"extra": { "apiBaseUrl": "http://10.0.2.2:8000" }
+```
+
+and `env.ts` read it *before* falling back to detection:
+
+```ts
+process.env.EXPO_PUBLIC_API_BASE_URL || Constants.expoConfig?.extra?.apiBaseUrl || runtimeApiBaseUrl()
+```
+
+`Constants.expoConfig.extra.apiBaseUrl` was always set, so `runtimeApiBaseUrl()`
+**never ran on any platform**. The host-detection rewrite in §4n had been dead code
+from the moment it was written, and the app had been calling the Android-emulator
+alias from the browser the entire time — first as a hang, then as a fast failure.
+
+Fixes: removed `extra.apiBaseUrl` from `app.json` (it was redundant —
+`runtimeApiBaseUrl()` already returns `10.0.2.2` for Android), and hardened `env.ts`
+so a configured value that cannot work on the current platform is treated as stale
+config rather than an override, with a `console.warn` when one is discarded. That
+stops the whole class of bug returning if someone re-adds it.
+
+**app.json is read at bundle time, so the Expo dev server must be restarted for this
+to take effect — a hot reload will not pick it up.**
+
+### A verification failure worth recording
+
+§4n claimed this fix was "confirmed in the shipped bundle" on the strength of
+grepping the web bundle for `location.hostname||"localhost"}:8000` and finding it.
+The string was present; the code was unreachable. **Presence of code in a bundle is
+not evidence that it executes.** Where a value can come from several sources, resolve
+it and print the winner — which is what finally found this, in about a minute — rather
+than confirming that the new branch exists somewhere in the output.
+
+### The lesson
+
+The first diagnosis was plausible and wrong. A hardcoded emulator IP and a 16s
+response produce the identical symptom — a timeout toast — and only measurement
+separates them. Time the endpoint before theorising about it.
+
 ## 5. Functional requirements
 
 - FR-1: Every screen, subview and dialog in the web customer portal MUST have an app counterpart

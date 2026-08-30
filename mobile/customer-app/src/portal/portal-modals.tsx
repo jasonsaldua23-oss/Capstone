@@ -1,7 +1,7 @@
 // Extracted from App.tsx during the Phase 0 split.
 // Every dialog rendered above the authenticated shell.
 import React from "react";
-import { Search } from "lucide-react-native";
+import { Check, MapPin, Search } from "lucide-react-native";
 import { Image, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { CUSTOMER_ORDER_REASONS, REPLACEMENT_REASONS, formatPeso } from "../lib/customer-logic";
 import { formatDate, resolveImageUrl } from "../lib/format";
@@ -17,6 +17,7 @@ import { StatusSelect } from "../components/ui/status-select";
 import { ConfirmationModal } from "../components/ui/confirmation-modal";
 import { MixedCaseBuilder } from "../components/MixedCaseBuilder";
 import { OTHER_ORDER_REASON } from "../lib/customer-logic";
+import { composeShippingAddress, formatOtpCountdown, getPasswordRequirementState } from "../lib/shared";
 import { styles } from "../styles/app-styles";
 import { theme } from "../theme";
 import { useCustomerPortal } from "./portal-context";
@@ -44,6 +45,8 @@ export function PortalModals() {
     savingProfile,
     profileForm,
     setProfileForm,
+    addressForm,
+    pushRoute,
     activeProfileModal,
     confirmLogoutVisible,
     setConfirmLogoutVisible,
@@ -72,6 +75,8 @@ export function PortalModals() {
     resettingPassword,
     otpVerified,
     setOtpVerified,
+    otpExpiry,
+    otpResendCooldown,
     persistNotificationPreferences,
     handleLogout,
     closeMixedCaseBuilder,
@@ -238,6 +243,38 @@ export function PortalModals() {
           placeholder="Enter your email"
           placeholderTextColor={theme.colors.textFaint}
         />
+        <View style={styles.deliveryAddressCard}>
+          <Text style={styles.deliveryAddressLabel}>Delivery Address</Text>
+          <Text style={styles.deliveryAddressValue}>
+            {composeShippingAddress({
+              houseNumber: addressForm.houseNumber,
+              streetName: addressForm.streetName,
+              subdivision: addressForm.subdivision,
+              barangay: addressForm.barangay,
+              city: addressForm.city || profileForm.city,
+              province: addressForm.province || profileForm.province,
+              zipCode: addressForm.zipCode || profileForm.zipCode,
+            }) ||
+              profileForm.address ||
+              "Not set"}
+          </Text>
+          <Text style={styles.deliveryAddressMeta}>
+            {addressForm.city || profileForm.city
+              ? `${addressForm.city || profileForm.city}, ${addressForm.province || profileForm.province || "Negros Occidental"} ${addressForm.zipCode || profileForm.zipCode || ""}`.trim()
+              : "City/Province not set"}
+          </Text>
+          <Pressable
+            style={styles.deliveryAddressButton}
+            onPress={() => {
+              closeProfileModal();
+              pushRoute({ name: "edit-address" });
+            }}
+            accessibilityRole="button"
+          >
+            <MapPin size={14} color="#14532d" />
+            <Text style={styles.deliveryAddressButtonText}>Change Delivery Address</Text>
+          </Pressable>
+        </View>
         <View style={styles.modalActions}>
           <Pressable style={styles.modalGhostButton} onPress={closeProfileModal}>
             <Text style={styles.modalGhostButtonText}>Cancel</Text>
@@ -255,23 +292,70 @@ export function PortalModals() {
         onClose={closeProfileModal}
       >
         <TextInput style={[styles.input, styles.disabledInput]} value={profile?.email || user?.email || ""} editable={false} placeholder="Email" />
-        <View style={styles.inlineActionRow}>
-          <TextInput
-            style={[styles.input, styles.inlineInput]}
-            value={securityForm.otp}
-            onChangeText={(value) => {
-              setSecurityForm((current) => ({ ...current, otp: value }));
-              setOtpVerified(false);
-            }}
-            placeholder="Enter OTP"
-          />
-          <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
-            <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : "Send OTP"}</Text>
-          </Pressable>
+        <View style={styles.otpCard}>
+          <Text style={styles.otpCardTitle}>Security Verification</Text>
+          <Text style={styles.otpCardSubtitle}>OTP verification is required to change password.</Text>
+          <Text style={styles.otpCardSubtitle}>
+            We sent a 6-digit verification code to{" "}
+            <Text style={styles.otpCountdownValue}>{profile?.email || user?.email || "your email"}</Text>
+          </Text>
+
+          {otpVerified ? (
+            <View style={styles.otpVerifiedRow}>
+              <Check size={18} color={theme.colors.emerald} />
+              <Text style={styles.otpVerifiedText}>OTP Verified Successfully</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.inlineActionRow}>
+                <TextInput
+                  style={[styles.input, styles.inlineInput]}
+                  value={securityForm.otp}
+                  onChangeText={(value) => {
+                    setSecurityForm((current) => ({ ...current, otp: value.replace(/\D/g, "").slice(0, 6) }));
+                    setOtpVerified(false);
+                  }}
+                  keyboardType="number-pad"
+                  placeholder="Enter Verification Code"
+                  placeholderTextColor={theme.colors.textFaint}
+                />
+                <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
+                  <Text style={styles.secondaryButtonText}>
+                    {sendingOtp ? "Sending..." : "Send Verification OTP"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {otpExpiry > 0 ? (
+                <Text style={styles.otpCountdown}>
+                  Code expires in <Text style={styles.otpCountdownValue}>{formatOtpCountdown(otpExpiry)}</Text>
+                </Text>
+              ) : (
+                <Text style={styles.otpExpired}>Verification code has expired.</Text>
+              )}
+
+              <Pressable
+                style={[styles.modalOutlineButton, otpExpiry === 0 ? styles.disabledButton : null]}
+                onPress={handleVerifyOtp}
+                disabled={verifyingOtp || securityForm.otp.length < 6 || otpExpiry === 0}
+              >
+                <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying Code..." : "Verify Code"}</Text>
+              </Pressable>
+
+              {otpResendCooldown > 0 ? (
+                <Text style={styles.otpResendHint}>
+                  Resend code in <Text style={styles.otpResendValue}>{otpResendCooldown}s</Text>
+                </Text>
+              ) : (
+                <Pressable onPress={handleRequestOtp} disabled={sendingOtp} accessibilityRole="button">
+                  <Text style={styles.otpResendLink}>Resend Code</Text>
+                </Pressable>
+              )}
+            </>
+          )}
         </View>
-        <Pressable style={styles.modalOutlineButton} onPress={handleVerifyOtp} disabled={verifyingOtp || !securityForm.otp.trim()}>
-          <Text style={styles.outlineButtonText}>{verifyingOtp ? "Verifying Code..." : "Verify Code"}</Text>
-        </Pressable>
+
+        <Text style={styles.addressFieldLabel}>New Password</Text>
         <TextInput
           style={styles.input}
           value={securityForm.newPassword}
@@ -279,6 +363,7 @@ export function PortalModals() {
           placeholder="New password"
           secureTextEntry
         />
+        <Text style={styles.addressFieldLabel}>Confirm Password</Text>
         <TextInput
           style={styles.input}
           value={securityForm.confirmPassword}
@@ -296,6 +381,24 @@ export function PortalModals() {
           <Pressable style={styles.primaryButtonCompact} onPress={handleChangePassword} disabled={resettingPassword}>
             <Text style={styles.primaryButtonText}>{resettingPassword ? "Updating..." : "Change Password"}</Text>
           </Pressable>
+        </View>
+
+        <View style={styles.passwordRequirementsBox}>
+          <Text style={styles.passwordRequirementsTitle}>Password Requirements</Text>
+          <View style={styles.passwordRequirementsGrid}>
+            {getPasswordRequirementState(securityForm.newPassword).map((rule) => (
+              <View key={rule.label} style={styles.passwordRequirementRow}>
+                {rule.met ? (
+                  <Check size={12} color={theme.colors.emerald} />
+                ) : (
+                  <View style={styles.passwordRequirementDot} />
+                )}
+                <Text style={rule.met ? styles.passwordRequirementMet : styles.passwordRequirementText}>
+                  {rule.label}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         <Text style={styles.securitySectionTitle}>Security Settings</Text>

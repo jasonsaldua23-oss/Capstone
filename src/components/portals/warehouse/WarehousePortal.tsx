@@ -106,6 +106,8 @@ import {
 } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label as RechartsLabel, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { TripLoadSummary } from '@/components/shared/trip-load-summary'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import {
   buildInventoryStatusBreakdown,
   buildSkuVelocityData,
@@ -178,6 +180,7 @@ interface InventoryItem {
     name: string
     sku: string
     unit?: string
+    weight?: number | null
     price?: number
     sizes?: string[]
     imageUrl?: string
@@ -292,6 +295,7 @@ interface WarehouseOrderItem {
     product?: {
       name?: string
       sku?: string
+      weight?: number | null
     }
     // Additional fields from API
     productName?: string
@@ -449,6 +453,7 @@ interface DriverOption {
       licensePlate?: string
       type?: string
       status?: string
+      capacity?: number | null
     } | null
   }>
 }
@@ -457,6 +462,7 @@ interface VehicleOption {
   id: string
   licensePlate?: string
   type?: string
+  capacity?: number | null
 }
 
 interface RoutePlanOrderItem {
@@ -472,6 +478,8 @@ interface RoutePlanOrderItem {
   distanceKm: number | null
   status: string
   currentTripOrder?: boolean
+  totalCases?: number
+  totalWeight?: number
 }
 
 interface RoutePlanCityGroup {
@@ -1087,10 +1095,40 @@ export function WarehousePortal() {
     () => (selectedRouteGroup?.orders || []).filter((order) => selectedRouteOrderIds.includes(order.id)),
     [selectedRouteGroup, selectedRouteOrderIds]
   )
+  const calculateTripLoad = (loadOrders: any[]) => loadOrders.reduce(
+    (summary, order) => {
+      const explicitCases = Number(order?.totalCases)
+      const explicitWeight = Number(order?.totalWeight)
+      if (Number.isFinite(explicitCases) && Number.isFinite(explicitWeight)) {
+        summary.totalCases += Math.max(0, explicitCases)
+        summary.totalWeight += Math.max(0, explicitWeight)
+        return summary
+      }
+      // Fallback supports saved routes hydrated from ordinary order details.
+      (Array.isArray(order?.items) ? order.items : []).forEach((item: any) => {
+        const quantity = Math.max(0, Number(item?.quantity || 0))
+        summary.totalCases += quantity
+        summary.totalWeight += quantity * Math.max(0, Number(item?.product?.weight || 0))
+      })
+      return summary
+    },
+    { totalCases: 0, totalWeight: 0 },
+  )
+  const selectedRouteLoad = useMemo(() => calculateTripLoad(selectedRouteOrders), [selectedRouteOrders])
   const selectedSavedRoute = useMemo(
     () => savedRoutes.find((route) => route.id === selectedSavedRouteId) || null,
     [savedRoutes, selectedSavedRouteId]
   )
+  const selectedSavedRouteLoad = useMemo(() => {
+    if (!selectedSavedRoute) return { totalCases: 0, totalWeight: 0 }
+    const routeOrderLookup = new Map(
+      routePlans.flatMap((group) => group.orders || []).map((order) => [String(order.id), order]),
+    )
+    const loadOrders = selectedSavedRoute.orderIds
+      .map((orderId) => routeOrderLookup.get(String(orderId)) || orders.find((order) => String(order.id) === String(orderId)))
+      .filter(Boolean)
+    return calculateTripLoad(loadOrders)
+  }, [selectedSavedRoute, routePlans, orders])
   const availableVehicleIdSet = useMemo(
     () => new Set(vehicles.map((vehicle) => String(vehicle?.id || '').trim()).filter(Boolean)),
     [vehicles]
@@ -1174,6 +1212,10 @@ export function WarehousePortal() {
       allowVehicleId: editingTripState?.originalVehicleId,
     })
   }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
+  const selectedVehicleCapacity = Math.max(0, Number(selectedDriverAssignedVehicle?.capacity || 0))
+  const isSelectedVehicleCapacityMissing = Boolean(selectedDriverAssignedVehicle?.id) && selectedVehicleCapacity <= 0
+  const isSelectedRouteOverloaded = selectedVehicleCapacity > 0 && selectedRouteLoad.totalWeight > selectedVehicleCapacity
+  const isSelectedSavedRouteOverloaded = selectedVehicleCapacity > 0 && selectedSavedRouteLoad.totalWeight > selectedVehicleCapacity
   const selectedDriverEligibilityIssue = useMemo(() => {
     const driver = drivers.find((d) => d.id === selectedRouteDriverId)
     return getDriverTripEligibilityLabel(driver, {
@@ -3022,6 +3064,15 @@ export function WarehousePortal() {
       toast.error('Selected driver has no assigned vehicle')
       return
     }
+    if (isSelectedSavedRouteOverloaded) {
+      const exceededBy = selectedSavedRouteLoad.totalWeight - selectedVehicleCapacity
+      toast.error(`Vehicle overloaded by ${exceededBy.toFixed(2)} kg`)
+      return
+    }
+    if (isSelectedVehicleCapacityMissing) {
+      toast.error('Vehicle maximum weight capacity is not configured')
+      return
+    }
     if (isBeforeTodayDayKey(selectedSavedRoute.date)) {
       toast.error('Delivery date cannot be before today')
       return
@@ -3113,6 +3164,15 @@ export function WarehousePortal() {
     }
     if (!selectedDriverAssignedVehicle?.id) {
       toast.error('Selected driver has no assigned vehicle')
+      return
+    }
+    if (isSelectedRouteOverloaded) {
+      const exceededBy = selectedRouteLoad.totalWeight - selectedVehicleCapacity
+      toast.error(`Vehicle overloaded by ${exceededBy.toFixed(2)} kg`)
+      return
+    }
+    if (isSelectedVehicleCapacityMissing) {
+      toast.error('Vehicle maximum weight capacity is not configured')
       return
     }
     if (isBeforeTodayDayKey(routeDate)) {
@@ -5518,6 +5578,12 @@ export function WarehousePortal() {
                     ) : null}
                   </>
                 )}
+                <TripLoadSummary
+                  totalCases={selectedRouteLoad.totalCases}
+                  totalWeight={selectedRouteLoad.totalWeight}
+                  maximumCapacity={selectedVehicleCapacity}
+                  compact
+                />
                 <Button
                   className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                   onClick={() => {
@@ -5547,7 +5613,9 @@ export function WarehousePortal() {
                           selectedRouteOrderIds.length === 0 ||
                           !selectedRouteDriverId ||
                           Boolean(selectedDriverEligibilityIssue) ||
-                          !selectedDriverAssignedVehicle?.id
+                          !selectedDriverAssignedVehicle?.id ||
+                          isSelectedVehicleCapacityMissing ||
+                          isSelectedRouteOverloaded
                         ))
                   }
                 >
@@ -5723,6 +5791,11 @@ export function WarehousePortal() {
                 <p className="text-xs text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
               ) : null}
             </div>
+            <TripLoadSummary
+              totalCases={selectedSavedRouteLoad.totalCases}
+              totalWeight={selectedSavedRouteLoad.totalWeight}
+              maximumCapacity={selectedVehicleCapacity}
+            />
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setCreateTripOpen(false)}>
                 Cancel
@@ -5730,7 +5803,7 @@ export function WarehousePortal() {
               <Button
                 className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                 onClick={createTripFromRoute}
-                disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id}
+                disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id || isSelectedVehicleCapacityMissing || isSelectedSavedRouteOverloaded}
               >
                 {creatingTripFromRoute ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                 Create Trip
@@ -6073,10 +6146,10 @@ export function WarehousePortal() {
                         Proof Of Delivery
                       </p>
                       {selectedOrder.progress?.pod?.deliveryPhoto ? (
-                        <img
+                        <PodImagePreview
                           src={selectedOrder.progress.pod.deliveryPhoto}
                           alt="Proof of delivery"
-                          className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
+                          className="mt-2 h-64 w-full rounded-xl border border-slate-200 bg-slate-50 object-contain"
                         />
                       ) : (
                         <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>

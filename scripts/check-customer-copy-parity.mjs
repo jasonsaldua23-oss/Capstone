@@ -21,7 +21,7 @@ const WEB_DIRS = [
   "src/components/portals/shared",
   "src/components/auth",
 ];
-const APP_DIRS = ["mobile/customer-app/src/screens", "mobile/customer-app/src/components/ui"];
+const APP_DIRS = ["mobile/customer-app/src/screens", "mobile/customer-app/src/components"];
 const APP_FILES = ["mobile/customer-app/App.tsx", "mobile/customer-app/src/portal/portal-modals.tsx"];
 
 // Copy that is legitimately app-only: platform affordances the web has no equivalent
@@ -43,6 +43,25 @@ const ALLOWED_APP_ONLY = new Set([
   "Starting customer app...", // native splash; the web has no cold-start state
   "Preparing PDF...", // expo-print export; the web downloads a PNG via html-to-image
   "Uploading...", // the app uploads to the server; the web file input is instant
+  // Map affordances. The web renders Leaflet markers with no text; these are the
+  // native accessibility labels and the web-preview fallback, since
+  // @maplibre/maplibre-react-native is native-only.
+  "Live driver location",
+  "Delivery address",
+  "Recenter delivery map",
+  "Open in OpenStreetMap",
+  "Map picking is available in the mobile app",
+  "Enter coordinates to pin the delivery location in this web preview.",
+  "Pin these coordinates",
+  // Mixed-case builder validation. The web shows one generic toast
+  // ("Complete the Mixed Case with at least two products before adding it.");
+  // the app names the specific problem, which is more useful on a phone.
+  "Fill the case exactly with at least two compatible products.",
+  "At least two compatible in-stock products are required.",
+  "These products do not share a configured Mixed Case capacity.",
+  "Selected quantities exceed current stock for the requested case count.",
+  "Reduce the component quantities or number of cases to match available stock.",
+  "Number of cases must be a positive whole number.",
 ]);
 
 // Known drift in screens that have not been rebuilt yet, tagged with the phase that
@@ -103,6 +122,9 @@ function isInteresting(value) {
   if (/\($/.test(text) || /^(void|await|new)\s/.test(text)) return false;
   // Inline type annotations, e.g. "void; submitting: boolean; ..."
   if (/;/.test(text) && /:/.test(text)) return false;
+  // Object-literal fragments from a local StyleSheet, e.g. ", counterButton:"
+  if (/^\s*,/.test(text) || /^[^\s]+:$/.test(text)) return false;
+  if (/^(catch|try|else|if|for|while)\b/.test(text)) return false;
   if (/^[\w.-]+\.(png|jpg|jpeg|svg|ttf)$/i.test(text)) return false;
   return true;
 }

@@ -108,3 +108,16 @@ export {
   CUSTOMER_ORDER_REASONS,
   buildOrderActionReason,
 } from "../../../../shared/customer-logic/src/order-reasons.ts";
+
+export {
+  PASSWORD_REQUIREMENTS,
+  getPasswordRequirementState,
+  isPasswordValid,
+  PASSWORD_POLICY_MESSAGE,
+} from "../../../../shared/customer-logic/src/password.ts";
+
+export {
+  OTP_EXPIRY_SECONDS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  formatOtpCountdown,
+} from "../../../../shared/customer-logic/src/otp.ts";

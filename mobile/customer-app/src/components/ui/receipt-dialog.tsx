@@ -162,7 +162,12 @@ export function ReceiptDialog() {
           </ScrollView>
 
           <View style={styles.modalActions}>
-            <Pressable style={styles.modalGhostButton} onPress={() => setReceiptOrder(null)} accessibilityRole="button">
+            <Pressable
+              style={styles.modalGhostButton}
+              onPress={() => setReceiptOrder(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Close receipt preview"
+            >
               <Text style={styles.modalGhostButtonText}>Close</Text>
             </Pressable>
             <Pressable

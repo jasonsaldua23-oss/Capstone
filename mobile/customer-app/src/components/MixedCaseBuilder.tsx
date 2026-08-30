@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { quoteMixedCase } from "../services/auth";
+import { formatPeso } from "../lib/customer-logic";
+import { ProductThumb } from "./ui/product-thumb";
 import type { MobileMixedCaseCartItem, Product } from "../types";
 
 type Props = {
@@ -19,6 +21,15 @@ function getSharedCapacities(products: Product[]): number[] {
   return Array.from(configured[0] || [])
     .filter((value) => configured.every((capacities) => capacities.has(value)))
     .sort((left, right) => left - right);
+}
+
+// Same precedence the catalog card uses for a product's size.
+function sizeLabelOf(product: any): string {
+  const sizes = Array.isArray(product?.sizes)
+    ? product.sizes.map((size: any) => String(size).trim()).filter(Boolean)
+    : [];
+  if (sizes.length > 0) return sizes.join(", ");
+  return String(product?.sizeLabel || product?.size || "").trim();
 }
 
 export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSave }: Props) {
@@ -187,13 +198,22 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
           const componentSubtotal = Number(product.baseUnitPrice || 0) * quantity * cases;
           return (
             <View key={product.id} style={styles.product}>
+              <ProductThumb uri={product.imageUrl} name={product.name} />
               <View style={styles.flex}>
-                <Text style={styles.productName}>{product.name}</Text>
+                <Text style={styles.productName}>
+                  {product.name}
+                  {sizeLabelOf(product) ? ` ${sizeLabelOf(product)}` : ""}
+                </Text>
                 <Text style={styles.muted}>
-                  PHP {Number(product.baseUnitPrice || 0).toFixed(2)}/{product.packagingProfile?.baseUnitLabel || "unit"} · max {max}/case
+                  {formatPeso(Number(product.baseUnitPrice || 0))}/{product.packagingProfile?.baseUnitLabel || "unit"}
+                </Text>
+                <Text style={styles.muted}>
+                  {quantity} {quantity === 1 ? "Bottle" : "Bottles"} per case
                 </Text>
                 {quantity > 0 && validCaseCount ? (
-                  <Text style={styles.componentSubtotal}>Component subtotal: PHP {componentSubtotal.toFixed(2)}</Text>
+                  <Text style={styles.componentSubtotal}>
+                    Subtotal/case: {formatPeso(Number(product.baseUnitPrice || 0) * quantity)}
+                  </Text>
                 ) : null}
               </View>
               <View style={styles.counter}>
@@ -218,7 +238,7 @@ export function MixedCaseBuilder({ visible, products, editingItem, onClose, onSa
         })}
         {insufficientStock ? <Text style={styles.error}>Selected quantities exceed current stock for the requested case count.</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Text style={styles.total}>Estimated total: PHP {estimate.toFixed(2)}</Text>
+        <Text style={styles.total}>Estimated Mixed Case total: {formatPeso(estimate)}</Text>
         <View style={styles.actions}><Pressable style={styles.secondary} onPress={onClose}><Text>Cancel</Text></Pressable><Pressable style={[styles.primary, (!complete || saving) && styles.disabled]} disabled={!complete || saving} onPress={save}>{saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{editingItem ? "Save Changes" : "Add Mixed Case"}</Text>}</Pressable></View>
       </ScrollView>
     </Modal>

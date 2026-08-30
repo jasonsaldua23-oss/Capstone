@@ -11,6 +11,7 @@ import secrets
 import threading
 from html import escape
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .beverage_categories import category_spec
+from .product_weights import resolve_product_weight
 from .auth import (
     REMEMBER_ME_EXP_HOURS,
     TOKEN_EXP_HOURS,
@@ -1599,34 +1601,77 @@ def _select_trip_for_order(order_id: str, require_driver: bool = False) -> Trip 
     return best_trip
 
 
+def _calculate_order_item_weight(item: OrderItem, quantity: int | None = None) -> float:
+    """Return the loaded weight for an order line, including mixed-case components."""
+    item_quantity = max(0, _int(item.quantity if quantity is None else quantity, 0))
+    product = getattr(item, "product", None)
+    if product:
+        return float(getattr(product, "weight", 0) or 0) * item_quantity
+
+    # Fix: mixed cases have no direct product, so derive their per-case weight
+    # from each component's base-unit share of its source product case.
+    total_weight = 0.0
+    for component in item.mixed_case_components.select_related("product").all():
+        component_product = getattr(component, "product", None)
+        product_weight = float(getattr(component_product, "weight", 0) or 0)
+        units_per_case = max(1, _int(getattr(component_product, "quantity_per_unit", 0), 1))
+        component_units_per_case = max(0, _int(getattr(component, "quantity_per_case", 0), 0))
+        total_weight += (product_weight / units_per_case) * component_units_per_case * item_quantity
+    return total_weight
+
+
+def _calculate_order_load(order: Order) -> tuple[int, float]:
+    """Calculate total cases/order units and weight for a delivery order."""
+    total_cases = 0
+    total_weight = 0.0
+    for item in order.items.select_related("product").prefetch_related("mixed_case_components__product").all():
+        item_quantity = max(0, _int(item.quantity, 0))
+        total_cases += item_quantity
+        total_weight += _calculate_order_item_weight(item, item_quantity)
+    return total_cases, total_weight
+
+
 def _calculate_order_weight(order: Order) -> float:
-    """Calculate total weight of an order in kg based on order items and their product weights."""
+    """Calculate total delivery weight in kilograms for capacity validation."""
+    return _calculate_order_load(order)[1]
+
+
+def _calculate_orders_load_for_warehouse(orders: list[Order], warehouse_id: str | None) -> tuple[int, float]:
+    """Calculate only the order quantities assigned to the trip's warehouse leg."""
+    order_ids = [str(order.id) for order in orders]
+    allocation_map = _build_order_item_warehouse_allocations_map(order_ids) if warehouse_id and order_ids else {}
+    total_cases = 0
     total_weight = 0.0
-    for item in order.items.select_related("product").all():
-        product = getattr(item, "product", None)
-        product_weight = float(getattr(product, "weight", 0) or 0)
-        item_quantity = int(item.quantity or 0)
-        total_weight += product_weight * item_quantity
-    return total_weight
+    for order in orders:
+        allocations_by_item = allocation_map.get(str(order.id), {})
+        for item in order.items.select_related("product").prefetch_related("mixed_case_components__product").all():
+            item_allocations = allocations_by_item.get(str(item.id), [])
+            if warehouse_id and item_allocations:
+                load_quantity = sum(
+                    max(0, _int((allocation or {}).get("allocatedQty"), 0))
+                    for allocation in item_allocations
+                    if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
+                )
+            else:
+                load_quantity = max(0, _int(item.quantity, 0))
+            total_cases += load_quantity
+            total_weight += _calculate_order_item_weight(item, load_quantity)
+    return total_cases, total_weight
 
 
-def _get_vehicle_capacity_usage(vehicle_id: str) -> float:
-    """Get current weight usage for a vehicle across all active trips (80% of capacity used)."""
-    from django.db.models import Sum, Case, When, FloatField, Q
-
-    # Get all active trips for this vehicle
-    active_trips = Trip.objects.filter(
-        vehicle_id=vehicle_id,
-        status__in=["PLANNED", "IN_TRANSIT", "READY_TO_LOAD"]
-    ).prefetch_related("drop_points__order__items__product").all()
-
-    total_weight = 0.0
-    for trip in active_trips:
-        for drop_point in trip.drop_points.all():
-            if drop_point.order:
-                total_weight += _calculate_order_weight(drop_point.order)
-
-    return total_weight
+def _vehicle_overload_message(vehicle: Vehicle, assigned_weight: float) -> str | None:
+    """Build the non-bypassable capacity error using the vehicle's full rated capacity."""
+    vehicle_capacity = float(getattr(vehicle, "capacity", 0) or 0)
+    if vehicle_capacity <= 0:
+        return "Vehicle maximum weight capacity must be configured before creating or updating a trip."
+    if assigned_weight <= vehicle_capacity:
+        return None
+    exceeded_by = assigned_weight - vehicle_capacity
+    return (
+        f"Vehicle overloaded by {exceeded_by:.2f} kg. Total assigned weight is "
+        f"{assigned_weight:.2f} kg, exceeding the vehicle maximum capacity of "
+        f"{vehicle_capacity:.2f} kg."
+    )
 
 
 def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) -> dict[str, Trip]:
@@ -2875,6 +2920,20 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
     data = _serialize_model(trip)
     data["driver"] = _serialize_model(trip.driver, exclude={"password"}) if getattr(trip, "driver", None) else None
     data["vehicle"] = _serialize_model(trip.vehicle)
+    trip_orders = [
+        point.order
+        for point in trip.drop_points.all()
+        if getattr(point, "order", None) is not None
+    ]
+    total_cases, total_weight = _calculate_orders_load_for_warehouse(
+        trip_orders,
+        str(getattr(trip, "warehouse_id", "") or "").strip() or None,
+    )
+    vehicle_capacity = float(getattr(getattr(trip, "vehicle", None), "capacity", 0) or 0)
+    data["totalCases"] = total_cases
+    data["totalWeight"] = round(total_weight, 2)
+    data["vehicleMaxWeightCapacity"] = vehicle_capacity
+    data["weightRemaining"] = round(vehicle_capacity - total_weight, 2)
     warehouse_lat = None
     warehouse_lng = None
     if trip.warehouse_id:
@@ -4072,13 +4131,77 @@ def _otp_mail_ready() -> bool:
     return bool(has_gmail_api or has_brevo or has_gmail)
 
 
+_GMAIL_API_COOLDOWN_SECONDS = 300
+_gmail_api_disabled_until = 0.0
+
+
+def _gmail_api_available() -> bool:
+    return monotonic() >= _gmail_api_disabled_until
+
+
+def _mark_gmail_api_failed() -> None:
+    global _gmail_api_disabled_until
+    _gmail_api_disabled_until = monotonic() + _GMAIL_API_COOLDOWN_SECONDS
+
+
+class BrevoUnavailable(RuntimeError):
+    """Brevo is known-bad right now; callers should fall through to SMTP."""
+
+
+# Every OTP send tries Brevo first and falls back to SMTP when it fails. When Brevo
+# is broken for environmental reasons — on this machine the TLS handshake to
+# api.brevo.com fails with CERTIFICATE_VERIFY_FAILED, no local issuer cert — that
+# doomed attempt (plus request retries) was being paid on *every* send before the
+# fallback ran, and it was a large part of an 8.5s OTP request.
+#
+# Remember a failure briefly and skip straight to SMTP instead of re-learning it
+# each time. This raises rather than returning False on purpose: callers treat an
+# exception as "fall back to SMTP", whereas a False return is ignored by some of
+# them (see _send_reset_otp_email) and would silently send nothing.
+_BREVO_COOLDOWN_SECONDS = 300
+_brevo_disabled_until = 0.0
+
+
 def _send_via_brevo(*, subject: str, message: str, recipient: str, html_message: str | None = None) -> bool:
+    global _brevo_disabled_until
+
     api_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     from_email = str(getattr(settings, "OTP_FROM_EMAIL", "") or "").strip()
     from_name = str(getattr(settings, "OTP_FROM_NAME", "Ann Ann's Beverages Trading") or "Ann Ann's Beverages Trading").strip()
     if not api_key or not from_email:
-        return False
+        raise BrevoUnavailable("Brevo is not configured")
 
+    now = monotonic()
+    if now < _brevo_disabled_until:
+        raise BrevoUnavailable(
+            f"Brevo skipped; retrying in {int(_brevo_disabled_until - now)}s after a recent failure"
+        )
+
+    try:
+        return _brevo_post(
+            api_key=api_key,
+            from_name=from_name,
+            from_email=from_email,
+            subject=subject,
+            message=message,
+            recipient=recipient,
+            html_message=html_message,
+        )
+    except Exception:
+        _brevo_disabled_until = monotonic() + _BREVO_COOLDOWN_SECONDS
+        raise
+
+
+def _brevo_post(
+    *,
+    api_key: str,
+    from_name: str,
+    from_email: str,
+    subject: str,
+    message: str,
+    recipient: str,
+    html_message: str | None,
+) -> bool:
     response = requests.post(
         "https://api.brevo.com/v3/smtp/email",
         headers={
@@ -4229,17 +4352,18 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
     )
     html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
     gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
-    if gmail_refresh:
+    if gmail_refresh and _gmail_api_available():
         try:
             if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
                 return
         except Exception:
+            _mark_gmail_api_failed()
             logger.exception("Gmail API OTP send failed for password reset; falling back")
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
-            _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message)
-            return
+            if _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message):
+                return
         except Exception:
             logger.exception("Brevo OTP send failed for password reset; falling back to SMTP")
     send_mail(
@@ -4271,8 +4395,8 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
-            _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message)
-            return
+            if _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message):
+                return
         except Exception:
             logger.exception("Brevo OTP send failed for email verification; falling back to SMTP")
     send_mail(
@@ -4304,8 +4428,8 @@ def _send_login_otp_email(email: str, otp_code: str) -> None:
     brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
     if brevo_key:
         try:
-            _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message)
-            return
+            if _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message):
+                return
         except Exception:
             logger.exception("Brevo OTP send failed for login verification; falling back to SMTP")
     send_mail(
@@ -4345,7 +4469,8 @@ def _send_transactional_email(*, subject: str, message: str, recipients: list[st
         if brevo_key:
             for recipient in cleaned:
                 try:
-                    _send_via_brevo(subject=subject, message=message, recipient=recipient, html_message=html_message)
+                    if not _send_via_brevo(subject=subject, message=message, recipient=recipient, html_message=html_message):
+                        raise BrevoUnavailable("Brevo reported no send")
                 except Exception:
                     logger.exception("Brevo transactional send failed for %s; falling back to SMTP", recipient)
                     send_mail(
@@ -5898,6 +6023,19 @@ def products_collection(request: HttpRequest) -> JsonResponse:
     normalized_sizes = [str(value).strip() for value in raw_sizes] if isinstance(raw_sizes, list) else []
     normalized_sizes = [value for value in normalized_sizes if value]
     category_value = str(body.get("category") or "").strip() or None
+    quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0)
+    if quantity_per_unit <= 0:
+        return _err("quantityPerUnit must be a positive integer", 400)
+    # Fix: the server derives the complete case/pack weight so clients cannot
+    # create a product whose load weight is missing or zero.
+    product_weight = resolve_product_weight(
+        sizes=normalized_sizes,
+        quantity_per_unit=quantity_per_unit,
+        category=category_value,
+        supplied_weight=body.get("weight"),
+    )
+    if product_weight is None:
+        return _err("A valid product size and quantity are required to calculate weight", 400)
     initial_quantity = _int(body.get("availableQuantity"), _int(body.get("initialQuantity"), 0))
     if initial_quantity < 0:
         return _err("availableQuantity must be a non-negative integer", 400)
@@ -5909,11 +6047,11 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 name=str(body["name"]).strip(),
                 image_url=body.get("imageUrl"),
                 unit=product_unit,
-                weight=body.get("weight"),
+                weight=product_weight,
                 price=float(body.get("price") or 0),
                 category=category_value,
                 sizes=normalized_sizes,
-                quantity_per_unit=body.get("quantityPerCase", body.get("quantityPerUnit")),
+                quantity_per_unit=quantity_per_unit,
                 is_active=bool(body.get("isActive", True)),
             )
 
@@ -6044,7 +6182,7 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             return _err(str(exc), 400)
     if "quantityPerCase" in body or "quantityPerUnit" in body:
         prod.quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0) or None
-    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("weight", "weight"), ("price", "price")]
+    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
@@ -6055,6 +6193,20 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         if not isinstance(raw_sizes, list):
             return _err("sizes must be an array", 400)
         prod.sizes = [str(value).strip() for value in raw_sizes if str(value).strip()]
+    weight_inputs = {"sizes", "quantityPerCase", "quantityPerUnit", "category", "weight"}
+    if weight_inputs.intersection(body):
+        # Fix: editing size/category/quantity must update the stored load weight
+        # using the same authoritative calculation as product registration.
+        product_weight = resolve_product_weight(
+            sizes=prod.sizes,
+            quantity_per_unit=prod.quantity_per_unit,
+            category=prod.category,
+            packaging_type=prod.packaging_type,
+            supplied_weight=body.get("weight", prod.weight),
+        )
+        if product_weight is None:
+            return _err("A valid product size and quantity are required to calculate weight", 400)
+        prod.weight = product_weight
     if "isActive" in body:
         prod.is_active = bool(body.get("isActive"))
     prod.save()
@@ -6671,12 +6823,33 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     except ValueError as exc:
                         return _err(str(exc), 400)
 
+                    raw_sizes = body.get("sizes")
+                    normalized_sizes = [str(value).strip() for value in raw_sizes] if isinstance(raw_sizes, list) else []
+                    normalized_sizes = [value for value in normalized_sizes if value]
+                    quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0)
+                    category_value = str(body.get("category") or "").strip() or None
+                    product_weight = resolve_product_weight(
+                        sizes=normalized_sizes,
+                        quantity_per_unit=quantity_per_unit,
+                        category=category_value,
+                        supplied_weight=body.get("weight"),
+                    )
+                    if product_weight is None:
+                        return _err(
+                            "A valid product size and quantity are required to calculate weight",
+                            400,
+                        )
+
                     product = Product.objects.create(
                         sku=sku,
                         name=name,
                         image_url=body.get("imageUrl"),
                         unit=product_unit,
+                        weight=product_weight,
                         price=float(body.get("price") or 0),
+                        category=category_value,
+                        sizes=normalized_sizes,
+                        quantity_per_unit=quantity_per_unit,
                         is_active=True,
                     )
                 else:
@@ -8212,6 +8385,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             seen_driver_ids: set[str] = set()
             latest_driver_logs = (
                 LocationLog.objects.select_related("driver", "trip", "trip__vehicle")
+                .prefetch_related("driver__assigned_vehicles")
                 .filter(driver__role=RoleType.DRIVER, driver__is_active=True)
                 .order_by("driver_id", "-recorded_at", "-id")
             )
@@ -8220,6 +8394,16 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 if not driver_id or driver_id in seen_driver_ids:
                     continue
                 seen_driver_ids.add(driver_id)
+                tracked_vehicle = getattr(log.trip, "vehicle", None) if log.trip else None
+                if tracked_vehicle is None:
+                    tracked_vehicle = next(
+                        (
+                            vehicle
+                            for vehicle in log.driver.assigned_vehicles.all()
+                            if bool(getattr(vehicle, "is_active", False))
+                        ),
+                        None,
+                    )
                 driver_locations.append(
                     {
                         **_serialize_model(log),
@@ -8227,7 +8411,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                         "driverName": str(getattr(log.driver, "name", "") or "Driver"),
                         "tripId": str(log.trip_id or "").strip() or None,
                         "tripStatus": str(getattr(log.trip, "status", "") or "").strip() or None,
-                        "vehiclePlate": str(getattr(getattr(log.trip, "vehicle", None), "license_plate", "") or "").strip() or None,
+                        "vehiclePlate": str(getattr(tracked_vehicle, "license_plate", "") or "").strip() or None,
                     }
                 )
 
@@ -8319,28 +8503,11 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             400,
         )
 
-    # Validate vehicle capacity (80% limit)
-    vehicle_capacity = float(vehicle.capacity or 0)
-    if vehicle_capacity > 0:
-        max_capacity_allowed = vehicle_capacity * 0.8  # 80% of capacity
-        current_vehicle_usage = _get_vehicle_capacity_usage(vehicle.id)
-
-        # Calculate weight of new orders being assigned
-        new_orders_weight = 0.0
-        for order in orders_to_assign:
-            new_orders_weight += _calculate_order_weight(order)
-
-        total_weight_after_assignment = current_vehicle_usage + new_orders_weight
-
-        if total_weight_after_assignment > max_capacity_allowed:
-            return _err(
-                (
-                    f"Vehicle capacity limit reached. Total assigned weight would be "
-                    f"{total_weight_after_assignment:.2f} kg, but only up to 80% of capacity is allowed "
-                    f"({max_capacity_allowed:.2f} kg of {vehicle_capacity:.2f} kg)."
-                ),
-                400,
-            )
+    # Validate the complete rated capacity before entering the creation transaction.
+    _, new_orders_weight = _calculate_orders_load_for_warehouse(orders_to_assign, requested_warehouse_id)
+    overload_message = _vehicle_overload_message(vehicle, new_orders_weight)
+    if overload_message:
+        return _err(overload_message, 400)
 
     planned_start_at = None
     planned_start_raw = str(body.get("plannedStartAt") or "").strip()
@@ -8354,6 +8521,13 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
     for _ in range(5):
         try:
             with transaction.atomic():
+                # Fix: lock the vehicle and repeat validation inside the write
+                # transaction so simultaneous trip requests cannot bypass capacity.
+                locked_vehicle = Vehicle.objects.select_for_update().get(id=vehicle.id)
+                locked_overload_message = _vehicle_overload_message(locked_vehicle, new_orders_weight)
+                if locked_overload_message:
+                    transaction.set_rollback(True)
+                    return _err(locked_overload_message, 400)
                 trip = Trip.objects.create(
                     trip_number=_generate_next_trip_number(),
                     driver=driver,
@@ -8614,42 +8788,29 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                         performed_by=staff_user_id or None,
                     )
 
-            # Enforce vehicle capacity (80%) on trip edits as well:
-            # adding/removing orders and changing driver/vehicle must stay within limit.
+            # Enforce full rated vehicle capacity on trip edits as well.
             selected_vehicle = next_vehicle if (driver_changed and next_vehicle is not None) else trip.vehicle
             if selected_vehicle:
-                vehicle_capacity = float(getattr(selected_vehicle, "capacity", 0) or 0)
-                if vehicle_capacity > 0:
-                    max_capacity_allowed = vehicle_capacity * 0.8
-                    trip_order_ids = list(
-                        TripDropPoint.objects.filter(trip_id=trip.id)
-                        .exclude(order_id__isnull=True)
-                        .values_list("order_id", flat=True)
-                        .distinct()
-                    )
-                    trip_orders = (
-                        Order.objects.filter(id__in=trip_order_ids)
-                        .prefetch_related("items__product")
-                    )
-                    trip_total_weight = sum(_calculate_order_weight(order) for order in trip_orders)
-                    current_vehicle_usage = _get_vehicle_capacity_usage(selected_vehicle.id)
-
-                    # If trip stays on the same vehicle, usage already includes this trip.
-                    # If trip is moved to another vehicle, add this trip weight to that vehicle usage.
-                    if str(getattr(trip, "vehicle_id", "") or "").strip() == str(getattr(selected_vehicle, "id", "") or "").strip():
-                        total_weight_after_assignment = current_vehicle_usage
-                    else:
-                        total_weight_after_assignment = current_vehicle_usage + trip_total_weight
-
-                    if total_weight_after_assignment > max_capacity_allowed:
-                        return _err(
-                            (
-                                f"Vehicle capacity limit reached. Total assigned weight would be "
-                                f"{total_weight_after_assignment:.2f} kg, but only up to 80% of capacity is allowed "
-                                f"({max_capacity_allowed:.2f} kg of {vehicle_capacity:.2f} kg)."
-                            ),
-                            400,
-                        )
+                locked_vehicle = Vehicle.objects.select_for_update().get(id=selected_vehicle.id)
+                trip_order_ids = list(
+                    TripDropPoint.objects.filter(trip_id=trip.id)
+                    .exclude(order_id__isnull=True)
+                    .values_list("order_id", flat=True)
+                    .distinct()
+                )
+                trip_orders = list(Order.objects.filter(id__in=trip_order_ids).prefetch_related(
+                    "items__product",
+                    "items__mixed_case_components__product",
+                ))
+                _, trip_total_weight = _calculate_orders_load_for_warehouse(
+                    trip_orders,
+                    str(getattr(trip, "warehouse_id", "") or "").strip() or None,
+                )
+                overload_message = _vehicle_overload_message(locked_vehicle, trip_total_weight)
+                if overload_message:
+                    # Fix: edits before this check must roll back with the overload response.
+                    transaction.set_rollback(True)
+                    return _err(overload_message, 400)
 
             reordered_drop_points = list(TripDropPoint.objects.filter(trip_id=trip.id).order_by("sequence", "id"))
             for idx, point in enumerate(reordered_drop_points, start=1):
@@ -9894,7 +10055,7 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         # orders that are not yet approved / confirmed for delivery planning.
         route_plan_items = Prefetch(
             "items",
-            queryset=OrderItem.objects.select_related("product"),
+            queryset=OrderItem.objects.select_related("product").prefetch_related("mixed_case_components__product"),
             to_attr="_route_plan_items",
         )
         oqs = _real_orders(
@@ -9977,6 +10138,8 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                     if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
                 )
             total_order_qty = sum(max(_int(item.quantity, 0), 0) for item in order_items)
+            selected_load_cases = 0
+            selected_load_weight = 0.0
             product_allocations: list[dict[str, Any]] = []
             for item in order_items:
                 item_id = str(getattr(item, "id", "") or "").strip()
@@ -9988,6 +10151,14 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                         for allocation in item_allocations
                         if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
                     )
+                full_item_quantity = max(_int(getattr(item, "quantity", 0), 0), 0)
+                load_quantity = (
+                    allocated_for_selected_warehouse
+                    if warehouse_id and item_allocations
+                    else full_item_quantity
+                )
+                selected_load_cases += load_quantity
+                selected_load_weight += _calculate_order_item_weight(item, load_quantity)
                 size_label = _get_product_size_label(getattr(item, "product", None))
                 product_name = str(getattr(getattr(item, "product", None), "name", "") or getattr(item, "product_name", "") or "Product").strip() or "Product"
                 product_allocations.append(
@@ -9997,6 +10168,7 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                         "sizeLabel": size_label or None,
                         "allocatedQtyForSelectedWarehouse": allocated_for_selected_warehouse,
                         "totalQty": max(_int(getattr(item, "quantity", 0), 0), 0),
+                        "productWeight": float(getattr(getattr(item, "product", None), "weight", 0) or 0),
                     }
                 )
             scheduled_replacement = _get_scheduled_replacement_payload(o)
@@ -10046,6 +10218,10 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 "productAllocations": product_allocations,
                 "allocatedQtyForSelectedWarehouse": allocated_qty_for_selected_warehouse,
                 "totalOrderQty": total_order_qty,
+                # Added: route planning exposes the same load values used by
+                # backend capacity validation so the UI updates immediately.
+                "totalCases": selected_load_cases,
+                "totalWeight": round(selected_load_weight, 2),
                 "sequence": len(grouped_by_city.get(city, [])) + 1,
                 "distanceKm": None,
                 "status": o.status,
@@ -10095,6 +10271,13 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
         return _err("Trip not found", 404)
     if p.get("role") == "DRIVER" and p.get("userId") != t.driver_id:
         return _err("Forbidden", 403)
+    if str(t.status or "").strip().upper() != TripStatus.PLANNED:
+        return _err("Only planned trips can be started", 409)
+    body = _json_body(request)
+    # Added: the server requires the driver's explicit physical-load
+    # confirmation, so calling the endpoint directly cannot bypass the check.
+    if body.get("confirmLoad") is not True:
+        return _err("Confirm Load is required before starting the trip", 400)
 
     now = timezone.now()
     with transaction.atomic():

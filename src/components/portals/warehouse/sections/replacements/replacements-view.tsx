@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import type { WarehouseReplacementsViewProps } from '../shared/types'
 
 const formatPeso = (value: number) => new Intl.NumberFormat('en-PH', {
@@ -897,7 +898,7 @@ export function WarehouseReplacementsView({
                         </p>
                       ) : null}
                       {String(replacementPod?.deliveryPhoto || '').trim() ? (
-                        <img
+                        <PodImagePreview
                           src={String(replacementPod.deliveryPhoto || '')}
                           alt="Replacement proof of delivery"
                           className="h-auto w-full rounded-md border object-contain"

@@ -116,7 +116,7 @@ export function AuthScreen() {
           </View>
           {authMode === "register" ? (
             <View style={styles.inlineActionRow}>
-              <TextInput style={[styles.authInput, styles.inlineInput]} value={emailOtp} onChangeText={(value) => setEmailOtp(value.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="6-digit OTP" placeholderTextColor="#8a99b3" />
+              <TextInput style={[styles.authInput, styles.inlineInput]} value={emailOtp} onChangeText={(value) => setEmailOtp(value.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="Enter Verification Code" placeholderTextColor="#8a99b3" />
               <Pressable style={styles.secondaryButtonCompact} onPress={emailVerificationToken ? undefined : handleRequestRegistrationOtp} disabled={sendingEmailOtp || Boolean(emailVerificationToken)}>
                 <Text style={styles.secondaryButtonText}>{emailVerificationToken ? "Verified" : sendingEmailOtp ? "Sending..." : "Send Verification OTP"}</Text>
               </Pressable>
@@ -209,7 +209,7 @@ export function AuthScreen() {
                 setOtpVerified(false);
               }}
               keyboardType="number-pad"
-              placeholder="6-digit OTP"
+              placeholder="Enter Verification Code"
             />
             <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
               <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : otpVerified ? "Resend Verification OTP" : "Send Verification OTP"}</Text>

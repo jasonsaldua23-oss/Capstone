@@ -61,7 +61,7 @@ export function ProfileScreen() {
             onPress={handlePickAvatar}
             disabled={uploadingAvatar}
             accessibilityRole="button"
-            accessibilityLabel="Change Avatar"
+            accessibilityLabel="Upload profile photo"
           >
             <Camera size={14} color={theme.colors.white} />
           </Pressable>

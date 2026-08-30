@@ -247,6 +247,8 @@ export async function startTrip(tripId: string, location?: { latitude: number; l
     method: "POST",
     token,
     body: JSON.stringify({
+      // Added: backend start validation requires explicit physical-load confirmation.
+      confirmLoad: true,
       latitude: location?.latitude ?? null,
       longitude: location?.longitude ?? null,
     }),

@@ -58,7 +58,8 @@ const DOT_BY_STATUS: Record<PRStatus, string> = {
 };
 
 export function PurchaseRequestsScreen() {
-  const { orders, loading, setPendingCancellationOrder, setSelectedOrderId, pushRoute } = useCustomerPortal();
+  const { orders, loading, setPendingCancellationOrder, setSelectedOrderId, pushRoute, resetToTab } =
+    useCustomerPortal();
 
   const [search, setSearch] = useState("");
   const [prTab, setPrTab] = useState<"ALL" | PRStatus>("ALL");
@@ -262,6 +263,19 @@ export function PurchaseRequestsScreen() {
                       accessibilityRole="button"
                     >
                       <Text style={styles.listCardDangerButtonText}>Cancel Request</Text>
+                    </Pressable>
+                  ) : null}
+
+                  {status === "APPROVED" ? (
+                    <Pressable
+                      style={styles.listCardApprovedButton}
+                      onPress={() => {
+                        setSelectedOrderId(o.id);
+                        resetToTab("orders");
+                      }}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.listCardApprovedButtonText}>View Purchase Order →</Text>
                     </Pressable>
                   ) : null}
                 </View>

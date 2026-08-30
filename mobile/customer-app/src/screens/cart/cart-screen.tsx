@@ -1,11 +1,11 @@
 // Mirrors src/components/portals/customer/sections/cart/cart-view.tsx.
 import { ArrowLeft, CheckCircle, MapPin, Minus, Pencil, Plus, Recycle, Trash2 } from "lucide-react-native";
 import React from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { MixedCaseComponents } from "../../components/ui/mixed-case-components";
 import { formatPeso, getAvailableQuantity } from "../../lib/customer-logic";
-import { resolveImageUrl } from "../../lib/format";
+import { ProductThumb } from "../../components/ui/product-thumb";
 import { getLineDepositAmounts, getMixedCaseDepositAmounts, isReturnableGlassItem } from "../../lib/shared";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
@@ -99,20 +99,16 @@ export function CartScreen() {
                   {item.isMixedCase ? (
                     <View style={styles.cartThumbGrid}>
                       {componentImages.map((component: any) => (
-                        <Image
+                        <ProductThumb
                           key={component.productId}
-                          source={{ uri: resolveImageUrl(component.product?.imageUrl) }}
-                          style={styles.cartThumbGridImage}
-                          resizeMode="contain"
+                          uri={component.product?.imageUrl}
+                          name={component.product?.name}
+                          size={28}
                         />
                       ))}
                     </View>
                   ) : (
-                    <Image
-                      source={{ uri: resolveImageUrl(item.imageUrl) }}
-                      style={styles.cartThumbImage}
-                      resizeMode="contain"
-                    />
+                    <ProductThumb uri={item.imageUrl} name={item.name} size={56} />
                   )}
                 </View>
 

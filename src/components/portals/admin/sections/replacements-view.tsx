@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -1325,7 +1326,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                     </div>
                     {String(replacementPod?.deliveryPhoto || '').trim() ? (
                       <div className="mt-3">
-                        <img
+                        <PodImagePreview
                           src={String(replacementPod.deliveryPhoto || '')}
                           alt="Replacement proof of delivery"
                           className="h-auto w-full rounded-md border object-contain"

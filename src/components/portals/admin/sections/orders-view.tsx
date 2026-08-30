@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -1592,10 +1593,10 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                         ).trim()
                         if (!podUrl) return <p className="mt-1 text-base italic text-slate-500">No POD uploaded yet.</p>
                         return (
-                          <img
+                          <PodImagePreview
                             src={podUrl}
                             alt="Proof of delivery"
-                            className="mt-2 h-64 w-full rounded-xl border border-slate-200 object-cover"
+                            className="mt-2 h-64 w-full rounded-xl border border-slate-200 bg-slate-50 object-contain"
                           />
                         )
                       })()}
