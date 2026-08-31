@@ -1,3 +1,5 @@
+import { boxShadow } from "./styles/shadow";
+
 // Design tokens transcribed from the web customer portal
 // (src/components/portals/customer/**). Screens must read from here rather than
 // hardcoding values, so a change on the web side has exactly one place to land.
@@ -112,20 +114,8 @@ export const theme = {
   // Product cards use a lifted shadow that darkens on hover; native has no hover,
   // so `raised` is the resting state and `lifted` is used for pressed/active cards.
   shadow: {
-    raised: {
-      shadowColor: "#101828",
-      shadowOpacity: 0.08,
-      shadowRadius: 20,
-      shadowOffset: { width: 0, height: 8 },
-      elevation: 3,
-    },
-    lifted: {
-      shadowColor: "#101828",
-      shadowOpacity: 0.12,
-      shadowRadius: 24,
-      shadowOffset: { width: 0, height: 12 },
-      elevation: 6,
-    },
+    raised: boxShadow({ color: "#101828", opacity: 0.08, radius: 20, offsetY: 8 }),
+    lifted: boxShadow({ color: "#101828", opacity: 0.12, radius: 24, offsetY: 12 }),
   },
 
   motion: {

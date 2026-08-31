@@ -14,6 +14,9 @@ import { Poppins_700Bold } from "@expo-google-fonts/poppins/700Bold";
 import { Poppins_800ExtraBold } from "@expo-google-fonts/poppins/800ExtraBold";
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, AppState, BackHandler, useWindowDimensions } from "react-native";
+
+import { USE_NATIVE_DRIVER } from "../lib/motion";
+import { ApiError } from "../services/api";
 import {
   cancelOrder,
   cancelReplacementRequest,
@@ -155,6 +158,14 @@ const defaultNotificationPrefs: CustomerNotificationPreferences = {
   deliveryUpdates: true,
   systemAlerts: true,
 };
+
+// "the product catalog", "the product catalog and your orders",
+// "the product catalog, your orders and delivery tracking" - so a partial refresh
+// failure can name exactly what is missing instead of blaming the whole load.
+function formatList(items: string[]): string {
+  if (items.length <= 1) return items[0] || "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
 
 export type { CustomerTab, CustomerProfileModal, AuthMode, CustomerNotificationPreferences };
 
@@ -303,8 +314,8 @@ function useCustomerPortalState() {
     screenOpacity.setValue(0);
     screenTranslateY.setValue(14);
     Animated.parallel([
-      Animated.timing(screenOpacity, { toValue: 1, duration: theme.motion.screenMs, useNativeDriver: true }),
-      Animated.timing(screenTranslateY, { toValue: 0, duration: theme.motion.screenMs, useNativeDriver: true }),
+      Animated.timing(screenOpacity, { toValue: 1, duration: theme.motion.screenMs, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(screenTranslateY, { toValue: 0, duration: theme.motion.screenMs, useNativeDriver: USE_NATIVE_DRIVER }),
     ]).start();
   }, [activeTab, screenOpacity, screenTranslateY]);
 
@@ -422,42 +433,108 @@ function useCustomerPortalState() {
     await AsyncStorage.setItem(CUSTOMER_NOTIFICATION_PREFS_KEY, JSON.stringify(nextPrefs));
   }
 
-  async function refreshData(showLoader = true, knownUserId?: string) {
+  // /api/auth/me sat in front of the whole batch as a single point of failure: on
+  // the session-restore path (no knownUser) one stalled identity call threw before
+  // a single product was even requested, so the app came back with an error banner
+  // over an empty shop. The stored user is the same record /api/auth/me returns -
+  // fetchAuthMe writes it to AsyncStorage on every success - so a transient failure
+  // can fall back to it and let the eight reads below decide what actually loaded.
+  //
+  // A REJECTED token is different from an unreachable one and must still sign the
+  // user out, so only network-shaped failures fall back; an ApiError (401/403 from
+  // the server, or the "Invalid customer token." guard) is rethrown untouched.
+  async function resolveCurrentUser(): Promise<CustomerUser> {
+    try {
+      return await fetchAuthMe();
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      if (e instanceof Error && e.message === "Invalid customer token.") throw e;
+      const stored = await getStoredUser();
+      if (!stored) throw e;
+      return stored;
+    }
+  }
+
+  // `knownUser` is supplied by the sign-in paths, which already hold the authenticated
+  // user the login call returned. Re-fetching /api/auth/me there cost a whole extra
+  // round trip before the parallel batch could even start, and awaiting feedback
+  // afterwards cost a third. Against this backend one round trip measures 4-8s, so
+  // those two redundant waves were adding 8-16s to every sign-in for data we either
+  // already had or could fetch alongside everything else.
+  async function refreshData(showLoader = true, knownUserId?: string, knownUser?: CustomerUser) {
     if (showLoader) setLoading(true);
     else setRefreshing(true);
     setError(null);
     try {
-      const currentUser = await fetchAuthMe();
+      // Promise.all here was all-or-nothing: four of the eight calls had no
+      // .catch(), so ONE slow read rejected the batch and none of the seven
+      // responses that had already arrived were ever applied. That is how a
+      // single stalled request produced a screen with "The request timed out."
+      // above a completely empty Product Catalog - the products were very
+      // probably sitting in a fulfilled promise that got thrown away with it.
+      //
+      // allSettled applies every section that did arrive and reports only what
+      // genuinely failed, so a stalled tracking call can no longer empty the shop.
+      const currentUser = knownUser ?? (await resolveCurrentUser());
       const customerId = knownUserId || currentUser.userId;
-      const [nextProfile, nextProducts, nextOrders, nextTracking, nextNotifications, nextReplacements, nextEligibleEmpties] = await Promise.all([
-        fetchCustomerProfile(customerId),
-        fetchProducts(),
-        fetchCustomerOrders(),
-        fetchCustomerTracking(),
-        fetchNotifications().catch(() => ({ notifications: [], unreadCount: 0 })),
-        fetchCustomerReplacements().catch(() => []),
-        fetchEligibleEmptyItems().catch(() => []),
-      ]);
-      const nextFeedback = await fetchCustomerFeedback().catch(() => []);
+      const [profileResult, productsResult, ordersResult, trackingResult, notificationsResult, replacementsResult, eligibleEmptiesResult, feedbackResult] =
+        await Promise.allSettled([
+          fetchCustomerProfile(customerId),
+          fetchProducts(),
+          fetchCustomerOrders(),
+          fetchCustomerTracking(),
+          fetchNotifications(),
+          fetchCustomerReplacements(),
+          fetchEligibleEmptyItems(),
+          fetchCustomerFeedback(),
+        ]);
+
       setUser(currentUser);
-      setProfile(nextProfile);
-      setProducts(nextProducts);
-      setOrders(nextOrders);
-      setTracking(nextTracking);
-      setNotifications(nextNotifications.notifications || []);
-      setUnreadNotifications(Number(nextNotifications.unreadCount || 0));
-      setReplacements(nextReplacements);
-      setEligibleEmptyItems(nextEligibleEmpties);
-      setFeedbackItems(nextFeedback);
-      hydrateProfileForm(nextProfile);
-      hydrateAddressForm(nextProfile);
-      setTwoFactorEnabled(Boolean(currentUser.twoFactorEnabled ?? nextProfile.twoFactorEnabled));
-      setLoginAlertsEnabled(Boolean(currentUser.loginAlertsEnabled ?? nextProfile.loginAlertsEnabled));
-      if (!selectedOrderId && nextOrders.length > 0) {
-        setSelectedOrderId(nextOrders[0].id);
-      } else if (selectedOrderId && !nextOrders.some((order) => order.id === selectedOrderId)) {
-        setSelectedOrderId(nextOrders[0]?.id || null);
+
+      // Only the four sections the user can see failing are worth a banner. The
+      // rest already degraded silently before this change and still do.
+      const failed: string[] = [];
+
+      if (profileResult.status === "fulfilled") {
+        const nextProfile = profileResult.value;
+        setProfile(nextProfile);
+        hydrateProfileForm(nextProfile);
+        hydrateAddressForm(nextProfile);
+        setTwoFactorEnabled(Boolean(currentUser.twoFactorEnabled ?? nextProfile.twoFactorEnabled));
+        setLoginAlertsEnabled(Boolean(currentUser.loginAlertsEnabled ?? nextProfile.loginAlertsEnabled));
+      } else {
+        failed.push("your profile");
+        setTwoFactorEnabled(Boolean(currentUser.twoFactorEnabled));
+        setLoginAlertsEnabled(Boolean(currentUser.loginAlertsEnabled));
       }
+
+      if (productsResult.status === "fulfilled") setProducts(productsResult.value);
+      else failed.push("the product catalog");
+
+      if (ordersResult.status === "fulfilled") {
+        const nextOrders = ordersResult.value;
+        setOrders(nextOrders);
+        if (!selectedOrderId && nextOrders.length > 0) {
+          setSelectedOrderId(nextOrders[0].id);
+        } else if (selectedOrderId && !nextOrders.some((order) => order.id === selectedOrderId)) {
+          setSelectedOrderId(nextOrders[0]?.id || null);
+        }
+      } else {
+        failed.push("your orders");
+      }
+
+      if (trackingResult.status === "fulfilled") setTracking(trackingResult.value);
+      else failed.push("delivery tracking");
+
+      if (notificationsResult.status === "fulfilled") {
+        setNotifications(notificationsResult.value.notifications || []);
+        setUnreadNotifications(Number(notificationsResult.value.unreadCount || 0));
+      }
+      if (replacementsResult.status === "fulfilled") setReplacements(replacementsResult.value);
+      if (eligibleEmptiesResult.status === "fulfilled") setEligibleEmptyItems(eligibleEmptiesResult.value);
+      if (feedbackResult.status === "fulfilled") setFeedbackItems(feedbackResult.value);
+
+      setError(failed.length > 0 ? `Could not load ${formatList(failed)}. Pull down to refresh or tap Try again.` : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load customer data.");
     } finally {
@@ -473,9 +550,13 @@ function useCustomerPortalState() {
       const loggedIn = await login(email.trim(), password, rememberMe);
       setUser(loggedIn);
       await hydrateStoredCart(loggedIn.userId);
-      await refreshData(false, loggedIn.userId);
+      await refreshData(false, loggedIn.userId, loggedIn);
       await loadNotificationPreferences();
       setWelcomeMode("existing");
+      // The session is open the moment login() resolves. A slow follow-up fetch must
+      // not leave a red failure message behind on a sign-in that actually worked -
+      // the screens below pull to refresh on their own.
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed.");
     } finally {
@@ -492,9 +573,10 @@ function useCustomerPortalState() {
       const loggedIn = await loginWithGoogle(idToken);
       setUser(loggedIn);
       await hydrateStoredCart(loggedIn.userId);
-      await refreshData(false, loggedIn.userId);
+      await refreshData(false, loggedIn.userId, loggedIn);
       await loadNotificationPreferences();
       setWelcomeMode("existing");
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Google sign-in failed.");
     } finally {

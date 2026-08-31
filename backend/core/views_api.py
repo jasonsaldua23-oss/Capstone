@@ -10888,8 +10888,10 @@ def _retail_error(exc: ValueError) -> JsonResponse:
 
 
 def _retail_sale_queryset(warehouse: Warehouse | None = None):
+    # Fix: Order stores warehouse_id as a scalar field, so Django cannot follow
+    # a nonexistent "warehouse" relation with select_related().
     qs = (
-        Order.objects.select_related("customer", "created_by_user", "warehouse")
+        Order.objects.select_related("customer", "created_by_user")
         .prefetch_related("items__product", "items__mixed_case_components__product", "bottle_returns")
         .filter(sales_channel=SalesChannel.RETAIL_POS)
     )

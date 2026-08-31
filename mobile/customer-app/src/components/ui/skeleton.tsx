@@ -4,6 +4,8 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, View, type ViewStyle } from "react-native";
 
+import { USE_NATIVE_DRIVER } from "../../lib/motion";
+
 import { styles } from "../../styles/app-styles";
 
 export function Skeleton({ style }: { style?: ViewStyle | ViewStyle[] }) {
@@ -12,8 +14,8 @@ export function Skeleton({ style }: { style?: ViewStyle | ViewStyle[] }) {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 0.5, duration: 500, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.5, duration: 500, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(pulse, { toValue: 1, duration: 500, useNativeDriver: USE_NATIVE_DRIVER }),
       ])
     );
     loop.start();

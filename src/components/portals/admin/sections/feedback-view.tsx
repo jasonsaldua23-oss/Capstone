@@ -123,8 +123,10 @@ export function FeedbackView() {
 
   const satisfactionTrend = useMemo(() => {
     const now = new Date()
+    // Updated: keep the six-month chart centered on the current period,
+    // starting two months ago and including the next three months.
     const months = Array.from({ length: 6 }).map((_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1)
+      const date = new Date(now.getFullYear(), now.getMonth() - 2 + index, 1)
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       return {
         key,

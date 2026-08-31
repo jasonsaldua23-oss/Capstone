@@ -49,8 +49,24 @@ export class ApiError extends Error {
 // failure still comes back as a real error well before this fires.
 export const MAIL_REQUEST_TIMEOUT_MS = 30_000;
 
+// Measured against this backend on 31 Aug 2026, POST /api/auth/customer/login,
+// identical requests back to back: 3.4s, 4.1s, 4.9s, 5.6s, 6.7s, 8.6s, 10.8s.
+// The cost is Django reaching Supabase in ap-southeast-1, and the problem is the
+// SPREAD, not the median - there is no reliable warm path to optimise into. A 15s
+// budget sat close enough to the top of that range that a login which was going to
+// succeed got aborted and reported as "The request timed out. Check your connection
+// and try again." - blaming the user's connection for the server's latency.
+//
+// 25s puts the abort well clear of the observed worst case while still failing fast
+// enough to be useful on a genuinely dead network. It is a floor, not a fix: the
+// durable repair is on the backend, where that latency is generated.
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
+
+// Budget for the automatic second attempt at a timed-out GET (see apiRequest).
+const RETRY_REQUEST_TIMEOUT_MS = 10_000;
+
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const { token, headers, timeoutMs = 15_000, cacheTtlMs, signal, ...init } = options;
+  const { token, headers, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, cacheTtlMs, signal, ...init } = options;
   const method = String(init.method || "GET").toUpperCase();
   const ttl = method === "GET" && !signal ? getCacheTtl(path, cacheTtlMs) : 0;
   if (method !== "GET") clearApiCache();
@@ -71,27 +87,55 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     if (token) reqHeaders.set("Authorization", `Bearer ${token}`);
 
     // Added: stop requests from hanging indefinitely on unreliable mobile networks.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const abortFromCaller = () => controller.abort();
-    signal?.addEventListener("abort", abortFromCaller, { once: true });
+    //
+    // One aborted read used to be fatal. Measured against this backend on 31 Aug
+    // 2026 - POST /api/auth/customer/login (a full Postgres round trip) at 0.83s,
+    // 0.87s, 0.85s, 0.83s, 0.83s over localhost and 0.98-1.53s over the LAN
+    // address the app actually calls, with the eight concurrent requests
+    // refreshData fires all landing in 0.61-0.67s. Nothing here costs anything
+    // close to 25s, so an abort at that mark is a transient stall (a Wi-Fi
+    // handover, a cold pooler connect), not the true cost of the call. Retrying
+    // an idempotent read once recovers the load instead of surfacing "The request
+    // timed out." over an empty screen.
+    //
+    // Only GETs retry - replaying a POST could place a second order - and only
+    // when OUR timer fired: a request the caller cancelled stays cancelled.
+    const maxAttempts = method === "GET" ? 2 : 1;
+    let response: Response | undefined;
 
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE_URL}${path}`, {
-        ...init,
-        headers: reqHeaders,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error("The request timed out. Check your connection and try again.");
+    for (let attempt = 1; attempt <= maxAttempts && !response; attempt += 1) {
+      // The retry gets a shorter budget so recovering from a stall cannot cost
+      // more than the stall itself: 25s + 10s worst case, not 25s twice. Ten
+      // seconds is still ~7x the slowest response measured over the LAN, so a
+      // second attempt that has not answered by then is not going to.
+      const attemptTimeoutMs = attempt === 1 ? timeoutMs : Math.min(timeoutMs, RETRY_REQUEST_TIMEOUT_MS);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), attemptTimeoutMs);
+      const abortFromCaller = () => controller.abort();
+      signal?.addEventListener("abort", abortFromCaller, { once: true });
+
+      try {
+        response = await fetch(`${API_BASE_URL}${path}`, {
+          ...init,
+          headers: reqHeaders,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        const cancelledByCaller = Boolean(signal?.aborted);
+        if (!cancelledByCaller && attempt < maxAttempts) continue;
+        if (controller.signal.aborted) {
+          throw new Error("The request timed out. Check your connection and try again.");
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abortFromCaller);
       }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abortFromCaller);
     }
+
+    // Unreachable: every path through the loop above either assigns a response or
+    // throws. Present so the retry rewrite cannot silently widen the type below.
+    if (!response) throw new Error("The request timed out. Check your connection and try again.");
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {

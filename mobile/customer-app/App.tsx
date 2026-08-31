@@ -285,7 +285,27 @@ function CustomerPortalScreens() {
               contentContainerStyle={styles.scrollContent}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => refreshData(false, user.userId)} colors={[theme.colors.emerald]} tintColor={theme.colors.emerald} />}
             >
-            {!!error && <Text style={styles.errorBanner}>{error}</Text>}
+            {/* The banner used to be dead text. A customer who hit a stalled refresh
+                was left looking at an empty catalog with no visible way back -
+                pull-to-refresh is the only recovery and nothing on screen says so. */}
+            {!!error && (
+              <View style={styles.errorBannerRow}>
+                <Text style={styles.errorBannerText}>{error}</Text>
+                <Pressable
+                  style={styles.errorBannerAction}
+                  onPress={() => refreshData(false, user.userId)}
+                  disabled={refreshing}
+                  accessibilityRole="button"
+                  accessibilityLabel="Try loading again"
+                >
+                  {refreshing ? (
+                    <ActivityIndicator size="small" color="#991b1b" />
+                  ) : (
+                    <Text style={styles.errorBannerActionText}>Try again</Text>
+                  )}
+                </Pressable>
+              </View>
+            )}
 
             {currentRoute ? (
               <>

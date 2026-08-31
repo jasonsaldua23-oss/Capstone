@@ -944,6 +944,8 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
     ]
     customer_name = order.customer.name if order.customer else (order.walk_in_name or "Walk-in Customer")
     warehouse = getattr(order, "warehouse", None) or (Warehouse.objects.filter(id=order.warehouse_id).first() if order.warehouse_id else None)
+    # Fix: serialize the resolved warehouse name instead of referencing an undefined variable.
+    warehouse_name = warehouse.name if warehouse else None
     warehouse_code = warehouse.code if warehouse else None
     return {
         "id": order.id,

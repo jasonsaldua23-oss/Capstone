@@ -90,6 +90,20 @@ const ALLOWED_APP_ONLY = new Set([
   "Selected quantities exceed current stock for the requested case count.",
   "Reduce the component quantities or number of cases to match available stock.",
   "Number of cases must be a positive whole number.",
+  // Recovery from a failed refresh. The web portal's fetchers swallow their own
+  // errors and console.warn, leaving the page on whatever it already had, and its
+  // catalog grid simply renders nothing when the list is empty. A phone has no
+  // console and no obvious reload, so the app names what failed, offers a retry
+  // next to the banner, and fills the blank grid with an explanation. None of this
+  // copy has a web counterpart because the web never shows the user any of it.
+  "Try again",
+  "Try loading again",
+  "No products loaded",
+  "No products available",
+  "Check back soon for new stock.",
+  "No products match your search",
+  "The shop could not be reached. Check your connection and try again.",
+  "Try a different search term or category.",
 ]);
 
 // Known drift in screens that have not been rebuilt yet, tagged with the phase that

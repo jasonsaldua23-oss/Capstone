@@ -3,6 +3,7 @@
 import { StyleSheet } from "react-native";
 
 import { theme } from "../theme";
+import { boxShadow } from "./shadow";
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.canvas },
@@ -18,11 +19,7 @@ const styles = StyleSheet.create({
     borderColor: "#d9e4e5",
     borderRadius: 20,
     backgroundColor: "#ffffff",
-    shadowColor: "#0f435e",
-    shadowOpacity: 0.12,
-    shadowRadius: 23,
-    shadowOffset: { width: 0, height: 18 },
-    elevation: 7,
+    ...boxShadow({ color: "#0f435e", opacity: 0.12, radius: 23, offsetY: 18 }),
   },
   authBrandHeader: { alignItems: "center", borderBottomWidth: 1, borderBottomColor: "#e7eded", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   authLogo: { width: 84, height: 84 },
@@ -45,7 +42,7 @@ const styles = StyleSheet.create({
   authCheckbox: { width: 16, height: 16, borderRadius: 4, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center", backgroundColor: "#ffffff" },
   authCheckboxChecked: { borderColor: "#3e9f34", backgroundColor: "#3e9f34" },
   authRememberText: { color: "#4e5f79", fontSize: 12, fontFamily: "Poppins_400Regular" },
-  authPrimaryButton: { height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", shadowColor: "#3f9637", shadowOpacity: 0.28, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 3 },
+  authPrimaryButton: { height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", ...boxShadow({ color: "#3f9637", opacity: 0.28, radius: 10, offsetY: 5 }) },
   authPrimaryButtonText: { color: "#ffffff", fontSize: 14, fontFamily: "Poppins_700Bold" },
   authCenteredLink: { textAlign: "center", color: "#3f9a35", fontSize: 12, fontFamily: "Poppins_400Regular" },
   continueDivider: { marginVertical: 4, flexDirection: "row", alignItems: "center" },
@@ -160,8 +157,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
     padding: 16,
     gap: 12,
-    shadowOpacity: 0,
-    elevation: 0,
+    // Deliberately flat: the card reads as a bordered surface, not a lifted one.
+    // Previously spelled `shadowOpacity: 0, elevation: 0`, which re-triggered the
+    // deprecation warning just to express "no shadow"; omitting both says the same.
   },
   summaryCard: {
     backgroundColor: "#fffdf8",
@@ -171,11 +169,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    shadowColor: theme.colors.brandBlue,
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    ...boxShadow({ color: theme.colors.brandBlue, opacity: 0.06, radius: 16, offsetY: 6 }),
   },
   summaryAvatar: {
     width: 72,
@@ -1636,11 +1630,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     gap: 4,
     backgroundColor: theme.colors.surface,
-    shadowColor: "#101828",
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    ...boxShadow({ color: "#101828", opacity: 0.08, radius: 20, offsetY: 8 }),
   },
   productCardSoldOut: { opacity: 0.75 },
   productSummaryRow: { flexDirection: "row", gap: 6 },
@@ -1907,6 +1897,65 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
     fontWeight: "600",
+  },
+  catalogEmptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  catalogEmptyTitle: {
+    fontSize: 15,
+    fontFamily: "Poppins_600SemiBold",
+    color: theme.colors.text,
+    textAlign: "center",
+  },
+  catalogEmptyBody: {
+    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    color: theme.colors.textMuted,
+    textAlign: "center",
+  },
+  catalogEmptyAction: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 22,
+    borderRadius: 12,
+    backgroundColor: "#0284c7",
+  },
+  catalogEmptyActionText: {
+    color: theme.colors.white,
+    fontSize: 13,
+    fontFamily: "Poppins_600SemiBold",
+  },
+  errorBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#fee2e2",
+    marginHorizontal: 16,
+    borderRadius: 14,
+    padding: 12,
+  },
+  errorBannerText: {
+    flex: 1,
+    color: "#991b1b",
+    fontWeight: "600",
+  },
+  errorBannerAction: {
+    minWidth: 84,
+    minHeight: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#991b1b",
+  },
+  errorBannerActionText: {
+    color: "#991b1b",
+    fontWeight: "700",
   },
   modalBackdrop: {
     flex: 1,

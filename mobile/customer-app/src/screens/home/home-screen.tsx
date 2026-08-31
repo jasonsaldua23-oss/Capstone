@@ -22,6 +22,7 @@ function getCardQty(raw: number | undefined, maxQty: number) {
 }
 
 export function HomeScreen() {
+  const [failedProductImages, setFailedProductImages] = useState<Set<string>>(() => new Set());
   const {
     width,
     user,
@@ -44,7 +45,14 @@ export function HomeScreen() {
     welcomeMode,
     setWelcomeMode,
     setActiveTab,
+    refreshData,
+    refreshing,
+    error,
   } = useCustomerPortal();
+
+  // An empty catalog after a failed refresh reads very differently from a shop
+  // that genuinely has nothing in it, and only one of them is worth a Retry.
+  const catalogFailed = Boolean(error);
 
   // The web aside appears at the lg breakpoint, not md.
   const showOrderRail = width >= 1024;
@@ -148,6 +156,39 @@ export function HomeScreen() {
 
           {loading && products.length === 0 ? (
             <ProductGridSkeleton cards={6} />
+          ) : sortedProducts.length === 0 ? (
+            // A failed load used to render an empty <View>: the screenshot of this
+            // bug is a red timeout banner above several hundred points of blank
+            // grey, with nothing saying whether the shop is empty, still loading,
+            // or broken. Say which, and give the retry a second home down here
+            // where the user is actually looking for the products.
+            <View style={styles.catalogEmptyState}>
+              <Package size={32} color={theme.colors.textFaint} />
+              <Text style={styles.catalogEmptyTitle}>
+                {products.length > 0
+                  ? "No products match your search"
+                  : catalogFailed
+                    ? "No products loaded"
+                    : "No products available"}
+              </Text>
+              <Text style={styles.catalogEmptyBody}>
+                {products.length > 0
+                  ? "Try a different search term or category."
+                  : catalogFailed
+                    ? "The shop could not be reached. Check your connection and try again."
+                    : "Check back soon for new stock."}
+              </Text>
+              {catalogFailed && products.length === 0 ? (
+                <Pressable
+                  style={styles.catalogEmptyAction}
+                  onPress={() => refreshData(false, user?.userId)}
+                  disabled={refreshing}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.catalogEmptyActionText}>{refreshing ? "Retrying..." : "Retry"}</Text>
+                </Pressable>
+              ) : null}
+            </View>
           ) : (
             <View style={styles.productGrid}>
               {sortedProducts.map((product) => {
@@ -172,11 +213,21 @@ export function HomeScreen() {
                     <View style={[styles.productCard, isSoldOut ? styles.productCardSoldOut : null]}>
                       <View style={styles.productSummaryRow}>
                         <View style={styles.productImageWrap}>
-                          {imageUrl ? (
+                          {imageUrl && !failedProductImages.has(imageUrl) ? (
                             <Image
                               source={{ uri: resolveImageUrl(imageUrl) }}
                               style={styles.productImage}
                               resizeMode="cover"
+                              // Fix: a stored path can outlive its uploaded file; show the
+                              // existing product placeholder instead of an empty image box.
+                              onError={() => {
+                                setFailedProductImages((current) => {
+                                  if (current.has(imageUrl)) return current;
+                                  const next = new Set(current);
+                                  next.add(imageUrl);
+                                  return next;
+                                });
+                              }}
                             />
                           ) : (
                             <View style={styles.productImagePlaceholder}>
